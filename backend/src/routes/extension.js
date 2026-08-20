@@ -217,6 +217,7 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
     // Why: return + clear control queue atomically so dashboard takeover reaches the worker.
     const commands = Array.isArray(agent.controlQueue) ? [...agent.controlQueue] : [];
     agent.controlQueue = [];
+    const humanControl = Boolean(agent.computer?.humanControl);
     await agent.save();
 
     res.json({
@@ -225,7 +226,9 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
         online: true,
         lastSeenAt: agent.computer.lastSeenAt,
         hasScreen: Boolean(agent.liveScreen?.dataBase64),
+        humanControl,
       },
+      humanControl,
       commands,
     });
   } catch (err) {

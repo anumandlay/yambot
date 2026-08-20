@@ -118,6 +118,12 @@ const agentSchema = new mongoose.Schema(
       pageUrl: { type: String, default: "" },
       viewportWidth: { type: Number, default: 1280 },
       viewportHeight: { type: Number, default: 800 },
+      /**
+       * Why: when true, the cloud worker pauses the LLM loop so the dashboard user
+       * can drive mouse/keyboard (CAPTCHA, recovery) without racing the agent.
+       */
+      humanControl: { type: Boolean, default: false },
+      humanControlAt: { type: Date, default: null },
       taskId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Task",
@@ -142,7 +148,7 @@ const agentSchema = new mongoose.Schema(
           id: { type: String, required: true },
           type: {
             type: String,
-            enum: ["click", "type", "key", "scroll"],
+            enum: ["click", "type", "key", "scroll", "session"],
             required: true,
           },
           /** Normalized 0–1 coords relative to the live screenshot / viewport. */

@@ -37,6 +37,10 @@ async function main() {
     if (pollInFlight || agent.isRunning()) return;
     pollInFlight = true;
     try {
+      // Why: do not start a new goal while the user is driving the live screen.
+      const screen = await agent.pushLiveScreen().catch(() => null);
+      if (screen?.humanControl) return;
+
       const data = await client.claimNext();
       if (!data?.task) return;
       console.log(`[${config.workerName}] claimed task ${data.task._id}: ${data.task.goal}`);
@@ -61,19 +65,28 @@ async function main() {
     void pollOnce();
   }, config.pollMs);
 
-  // Why: keep the dashboard live even between goals (desktop wallpaper / last page).
-  const screenTimer = setInterval(() => {
-    void agent.pushLiveScreen().catch((err) => {
-      console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);
-    });
-  }, screenMs);
+  // Why: faster screenshots while the user drives the mouse/keyboard remotely.
+  let screenLoopStopped = false;
+  async function screenLoop() {
+    while (!screenLoopStopped) {
+      let human = false;
+      try {
+        const r = await agent.pushLiveScreen();
+        human = Boolean(r?.humanControl);
+      } catch (err) {
+        console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);
+      }
+      await new Promise((r) => setTimeout(r, human ? 1100 : screenMs));
+    }
+  }
+  void screenLoop();
 
   void pollOnce();
 
   const shutdown = async (signal) => {
     console.log(`[${config.workerName}] ${signal} — shutting down`);
     clearInterval(pollTimer);
-    clearInterval(screenTimer);
+    screenLoopStopped = true;
     await agent.close();
     process.exit(0);
   };

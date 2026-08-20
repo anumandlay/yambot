@@ -254,6 +254,7 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
         mime: screen.mime || "image/jpeg",
         dataBase64: screen.dataBase64 || "",
         capturedAt: screen.at || null,
+        humanControl: Boolean(agent.computer?.humanControl),
       },
     });
   } catch (err) {
@@ -263,7 +264,8 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
 
 /**
  * POST /api/agents/:id/control — queue a remote input for the cloud worker (takeover).
- * Body: { type: click|type|key|scroll, xNorm?, yNorm?, text?, key?, dy? }
+ * Body: { type: click|type|key|scroll|session, xNorm?, yNorm?, text?, key?, dy?, active? }
+ * Why `session`: toggles humanControl so the worker pauses/resumes the LLM agent loop.
  */
 agentsRouter.post("/:id/control", async (req, res, next) => {
   try {
@@ -273,21 +275,37 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       return;
     }
     const type = String(req.body?.type || "").trim();
-    if (!["click", "type", "key", "scroll"].includes(type)) {
+    if (!["click", "type", "key", "scroll", "session"].includes(type)) {
       res.status(400).json({
         ok: false,
         title: "Invalid control",
-        detail: "type must be click, type, key, or scroll",
+        detail: "type must be click, type, key, scroll, or session",
       });
       return;
     }
+
+    // Why: session is persisted as a flag, not a Playwright command.
+    if (type === "session") {
+      agent.computer = agent.computer || {};
+      const active = Boolean(req.body?.active);
+      agent.computer.humanControl = active;
+      agent.computer.humanControlAt = new Date();
+      await agent.save();
+      res.json({
+        ok: true,
+        humanControl: active,
+        queued: (agent.controlQueue || []).length,
+      });
+      return;
+    }
+
     const cmd = {
       id: crypto.randomBytes(8).toString("hex"),
       type,
       xNorm: Number(req.body?.xNorm),
       yNorm: Number(req.body?.yNorm),
       text: String(req.body?.text || "").slice(0, 4000),
-      key: String(req.body?.key || "").slice(0, 64),
+      key: String(req.body?.key || "").slice(0, 80),
       dy: Number(req.body?.dy) || 0,
       at: new Date(),
     };
@@ -303,12 +321,17 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
     }
     agent.controlQueue = agent.controlQueue || [];
     agent.controlQueue.push(cmd);
-    // Why: keep queue bounded if the worker is offline.
-    if (agent.controlQueue.length > 40) {
-      agent.controlQueue = agent.controlQueue.slice(-40);
+    // Why: keystrokes can arrive faster than heartbeats while the user types.
+    if (agent.controlQueue.length > 80) {
+      agent.controlQueue = agent.controlQueue.slice(-80);
     }
     await agent.save();
-    res.json({ ok: true, command: cmd, queued: agent.controlQueue.length });
+    res.json({
+      ok: true,
+      command: cmd,
+      queued: agent.controlQueue.length,
+      humanControl: Boolean(agent.computer?.humanControl),
+    });
   } catch (err) {
     next(err);
   }

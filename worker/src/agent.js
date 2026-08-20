@@ -96,6 +96,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
         log(`[${config.workerName}] control failed:`, err?.message || err);
       }
     }
+    return {
+      humanControl: Boolean(data?.humanControl),
+      commands,
+    };
+  }
+
+  /**
+   * Blocks the LLM loop while the dashboard user has taken mouse/keyboard control.
+   * Why: CAPTCHA/recovery must not race agent clicks; heartbeats still apply remote inputs.
+   * @param {{ taskId?: string|null }} [opts]
+   */
+  async function waitWhileHumanControl(opts = {}) {
+    for (;;) {
+      const status = await pushLiveScreen(opts).catch(() => ({ humanControl: false }));
+      if (!status?.humanControl) return;
+      log(`[${config.workerName}] paused — human has control`);
+      await sleep(700);
+    }
   }
 
   /**
@@ -227,7 +245,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
     });
     const started = Date.now();
     while (Date.now() - started < 30 * 60 * 1000) {
-      await sleep(2000);
+      // Why: while waiting (e.g. CAPTCHA), keep draining mouse/keyboard takeover commands.
+      const status = await pushLiveScreen({ taskId }).catch(() => ({ humanControl: false }));
+      await sleep(status?.humanControl ? 800 : 2000);
       const data = await api(`/api/extension/tasks/${taskId}`);
       const events = data.task?.events || [];
       let lastAskIdx = -1;
@@ -283,6 +303,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       });
 
       for (let step = 1; step <= maxSteps; step += 1) {
+        await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId }).catch(() => {});
         const obs = await page.evaluate(observeInPage);
         const messages = [
@@ -328,6 +349,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           model: settings.llmModel,
           messages,
         });
+        // Why: user may take over during a long LLM call — wait before acting.
+        await waitWhileHumanControl({ taskId });
         const parsed = parseAgentResponse(content);
         const action = parsed.action;
 

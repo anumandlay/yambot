@@ -1,11 +1,51 @@
 /**
  * @fileoverview Live + interactive cloud-computer screen for the YamBot dashboard.
- * Purpose: Poll screenshots; optional takeover + fullscreen zoom for captchas/recovery.
+ * Purpose: Poll screenshots; take mouse/keyboard control for CAPTCHA/recovery; pause agent until release.
  * Inputs: agentId; Downstream: `/api/agents/:id/live` + `/api/agents/:id/control`.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
+
+/**
+ * Maps a browser KeyboardEvent to a Playwright key / combo string.
+ * @param {KeyboardEvent} e
+ * @returns {string|null}
+ */
+function playwrightKeyFromEvent(e) {
+  const ignored = new Set(["Control", "Shift", "Alt", "Meta", "OS"]);
+  if (ignored.has(e.key)) return null;
+
+  /** @type {Record<string, string>} */
+  const special = {
+    " ": " ",
+    Enter: "Enter",
+    Tab: "Tab",
+    Escape: "Escape",
+    Backspace: "Backspace",
+    Delete: "Delete",
+    ArrowUp: "ArrowUp",
+    ArrowDown: "ArrowDown",
+    ArrowLeft: "ArrowLeft",
+    ArrowRight: "ArrowRight",
+    Home: "Home",
+    End: "End",
+    PageUp: "PageUp",
+    PageDown: "PageDown",
+  };
+
+  let key = special[e.key] || (e.key.length === 1 ? e.key : e.key);
+  if (!key) return null;
+
+  const parts = [];
+  if (e.ctrlKey) parts.push("Control");
+  if (e.metaKey) parts.push("Meta");
+  if (e.altKey) parts.push("Alt");
+  // Why: only combine Shift for non-printables (Shift+Tab); letters already encode case.
+  if (e.shiftKey && (e.key.length > 1 || e.key === "Tab")) parts.push("Shift");
+  if (parts.length) return `${parts.join("+")}+${key}`;
+  return key;
+}
 
 /**
  * @param {{ agentId: string, compact?: boolean, className?: string }} props
@@ -14,10 +54,17 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
   const [live, setLive] = useState(null);
   const [error, setError] = useState(null);
   const [controlOn, setControlOn] = useState(false);
+  const [busySession, setBusySession] = useState(false);
   const [typeBuf, setTypeBuf] = useState("");
   const [status, setStatus] = useState("");
   const [zoomed, setZoomed] = useState(false);
   const imgRef = useRef(null);
+  const stageRef = useRef(null);
+  const controlOnRef = useRef(false);
+
+  useEffect(() => {
+    controlOnRef.current = controlOn;
+  }, [controlOn]);
 
   useEffect(() => {
     if (!agentId) return undefined;
@@ -29,6 +76,10 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         if (!cancelled) {
           setLive(data.live || null);
           setError(null);
+          // Why: sync if another tab toggled humanControl, or after refresh.
+          if (typeof data.live?.humanControl === "boolean" && !busySession) {
+            setControlOn(Boolean(data.live.humanControl));
+          }
         }
       } catch (err) {
         if (!cancelled) setError(err);
@@ -36,18 +87,21 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
     }
 
     tick();
-    const id = setInterval(tick, controlOn || zoomed ? 1200 : 2000);
+    const id = setInterval(tick, controlOn || zoomed ? 900 : 2000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [agentId, controlOn, zoomed]);
+  }, [agentId, controlOn, zoomed, busySession]);
 
-  // Why: Esc exits fullscreen so the rest of the chat stays reachable.
+  // Why: Esc exits fullscreen so the rest of the chat stays reachable (does not release control).
   useEffect(() => {
     if (!zoomed) return undefined;
     function onKey(e) {
-      if (e.key === "Escape") setZoomed(false);
+      if (e.key === "Escape" && !controlOnRef.current) setZoomed(false);
+      else if (e.key === "Escape" && controlOnRef.current && e.target === document.body) {
+        setZoomed(false);
+      }
     }
     window.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -58,12 +112,77 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
     };
   }, [zoomed]);
 
+  // Why: while controlling, capture keys on the focused stage (desktop remote feel).
+  useEffect(() => {
+    if (!controlOn) return undefined;
+    const el = stageRef.current;
+    if (!el) return undefined;
+
+    /**
+     * @param {KeyboardEvent} e
+     */
+    async function onKeyDown(e) {
+      if (!controlOnRef.current) return;
+      // Why: let Esc exit fullscreen without sending Escape to the remote page first.
+      if (e.key === "Escape" && zoomed) {
+        e.preventDefault();
+        setZoomed(false);
+        return;
+      }
+      const key = playwrightKeyFromEvent(e);
+      if (!key) return;
+      e.preventDefault();
+      e.stopPropagation();
+      try {
+        await api(`/api/agents/${agentId}/control`, {
+          method: "POST",
+          body: JSON.stringify({ type: "key", key }),
+        });
+        setStatus(`Key ${key}`);
+      } catch (err) {
+        setStatus(err.detail || err.message || "Key failed");
+      }
+    }
+
+    el.addEventListener("keydown", onKeyDown);
+    // Why: auto-focus so typing works immediately after Take control.
+    el.focus({ preventScroll: true });
+    return () => el.removeEventListener("keydown", onKeyDown);
+  }, [controlOn, agentId, zoomed]);
+
   if (!agentId) return null;
 
   const src =
     live?.dataBase64 && live?.mime
       ? `data:${live.mime};base64,${live.dataBase64}`
       : null;
+
+  /**
+   * @param {boolean} active
+   */
+  async function setHumanSession(active) {
+    setBusySession(true);
+    setStatus(active ? "Taking control…" : "Giving control back…");
+    try {
+      await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({ type: "session", active }),
+      });
+      setControlOn(active);
+      setStatus(
+        active
+          ? "You have control — click & type on the screen. Agent is paused."
+          : "Control returned to agent."
+      );
+      if (active) {
+        requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
+      }
+    } catch (err) {
+      setStatus(err.detail || err.message || "Could not change control");
+    } finally {
+      setBusySession(false);
+    }
+  }
 
   /**
    * @param {React.MouseEvent<HTMLImageElement>} e
@@ -80,9 +199,28 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         method: "POST",
         body: JSON.stringify({ type: "click", xNorm, yNorm }),
       });
-      setStatus("Click queued");
+      setStatus("Click sent");
+      stageRef.current?.focus({ preventScroll: true });
     } catch (err) {
       setStatus(err.detail || err.message || "Click failed");
+    }
+  }
+
+  /**
+   * @param {React.WheelEvent} e
+   */
+  async function onWheel(e) {
+    if (!controlOn) return;
+    e.preventDefault();
+    const dy = Math.max(-1200, Math.min(1200, Math.round(e.deltaY)));
+    if (!dy) return;
+    try {
+      await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({ type: "scroll", dy }),
+      });
+    } catch {
+      /* ignore */
     }
   }
 
@@ -99,7 +237,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         body: JSON.stringify({ type: "type", text: typeBuf }),
       });
       setTypeBuf("");
-      setStatus("Text queued");
+      setStatus("Text sent");
+      stageRef.current?.focus({ preventScroll: true });
     } catch (err) {
       setStatus(err.detail || err.message || "Type failed");
     }
@@ -115,7 +254,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         method: "POST",
         body: JSON.stringify({ type: "key", key }),
       });
-      setStatus(`Key ${key} queued`);
+      setStatus(`Key ${key}`);
     } catch (err) {
       setStatus(err.detail || err.message || "Key failed");
     }
@@ -146,24 +285,46 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold tracking-wide">
           <span
             className={`inline-block h-2.5 w-2.5 rounded-full ${
-              live?.online ? "bg-emerald-400" : provisioning ? "bg-amber-400" : "bg-slate-500"
+              controlOn
+                ? "bg-amber-400"
+                : live?.online
+                  ? "bg-emerald-400"
+                  : provisioning
+                    ? "bg-amber-400"
+                    : "bg-slate-500"
             }`}
           />
-          {live?.online ? "LIVE" : provisioning ? "STARTING…" : "OFFLINE"}
+          {controlOn
+            ? "YOU CONTROL"
+            : live?.online
+              ? "LIVE"
+              : provisioning
+                ? "STARTING…"
+                : "OFFLINE"}
           {live?.workerName ? (
             <span className="truncate font-normal text-white/60">· {live.workerName}</span>
           ) : null}
         </div>
         <div className="flex flex-wrap items-center gap-2">
-          <label className="flex min-h-11 items-center gap-2 font-semibold text-white/80">
-            <input
-              type="checkbox"
-              checked={controlOn}
-              onChange={(e) => setControlOn(e.target.checked)}
-              disabled={!live?.online}
-            />
-            Take control
-          </label>
+          {controlOn ? (
+            <button
+              type="button"
+              disabled={busySession || !live?.online}
+              onClick={() => setHumanSession(false)}
+              className="inline-flex min-h-11 items-center rounded-xl bg-amber-500 px-3 text-xs font-bold text-slate-950"
+            >
+              Give control back
+            </button>
+          ) : (
+            <button
+              type="button"
+              disabled={busySession || !live?.online}
+              onClick={() => setHumanSession(true)}
+              className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
+            >
+              Take control
+            </button>
+          )}
           <button
             type="button"
             onClick={() => setZoomed((z) => !z)}
@@ -176,6 +337,13 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         </div>
       </div>
 
+      {controlOn ? (
+        <p className="border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
+          Agent paused. Click the screen, scroll with the mouse wheel, and type on your keyboard.
+          When finished, press <strong>Give control back</strong>.
+        </p>
+      ) : null}
+
       {live?.provisionError ? (
         <p className="border-b border-amber-500/30 bg-amber-950/50 px-3 py-2 text-xs text-amber-100">
           Provision error: {live.provisionError}
@@ -183,7 +351,15 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
       ) : null}
 
       <div
-        className={`relative flex w-full flex-1 items-center justify-center overflow-hidden bg-black ${
+        ref={stageRef}
+        tabIndex={controlOn ? 0 : -1}
+        onWheel={onWheel}
+        onClick={() => {
+          if (controlOn) stageRef.current?.focus({ preventScroll: true });
+        }}
+        className={`relative flex w-full flex-1 items-center justify-center overflow-hidden bg-black outline-none ${
+          controlOn ? "ring-2 ring-inset ring-amber-400/70" : ""
+        } ${
           zoomed
             ? "min-h-0"
             : compact
@@ -197,7 +373,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             src={src}
             alt="Agent cloud computer screen"
             onClick={onImageClick}
-            className={`block h-auto w-full bg-white object-contain ${
+            draggable={false}
+            className={`block h-auto w-full bg-white object-contain select-none ${
               zoomed
                 ? "max-h-[calc(100dvh-8rem)]"
                 : "max-h-[42vh] sm:max-h-[50vh] md:max-h-[60vh]"
@@ -221,7 +398,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
       {controlOn ? (
         <div className="flex flex-col gap-2 border-t border-white/10 bg-slate-900 px-3 py-3">
           <p className="text-xs text-white/60">
-            Click the screen to click. Type below for captchas / forms.
+            Desktop: click the screen then use your keyboard. Phone: use the box below.
           </p>
           <form onSubmit={sendType} className="flex flex-col gap-2 sm:flex-row">
             <input
@@ -265,6 +442,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
           </div>
           {status ? <p className="text-xs text-teal-200/80">{status}</p> : null}
         </div>
+      ) : status ? (
+        <p className="border-t border-white/10 px-3 py-2 text-xs text-white/50">{status}</p>
       ) : null}
 
       {live?.pageUrl ? (

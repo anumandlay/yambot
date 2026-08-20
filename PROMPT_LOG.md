@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 18:56] Feature: Human mouse/keyboard takeover + give control back
+
+- **Prompt Provided:** use mouse and keyboard on live computer for captcha etc., then give control back to the agent
+- **Architectural Flow:** Dashboard Take control → `computer.humanControl` → worker pauses LLM loop / skips claims while still applying click/key/scroll queue; Give control back clears flag and agent resumes
+- **Impacted Files:** `PROMPT_LOG.md`, `backend` Agent model + agents/control + extension heartbeat, `worker` agent/index, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-20 18:50] UI: Live screen above goal + fullscreen zoom
 
 - **Prompt Provided:** live screen above goal/instructions textbox; zoom in for full size
