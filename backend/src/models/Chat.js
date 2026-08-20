@@ -35,6 +35,12 @@ const chatSchema = new mongoose.Schema(
       index: true,
     },
     title: { type: String, default: "New chat", trim: true },
+    agent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );

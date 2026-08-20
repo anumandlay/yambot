@@ -23,6 +23,7 @@ export function createAgentController({ emit }) {
       lastError: null,
       tabId: null,
       cloudTaskId: null,
+      agentSnapshot: null,
     };
   }
 
@@ -245,16 +246,27 @@ export function createAgentController({ emit }) {
 
   async function runStep(settings) {
     const obs = await observeTab(state.tabId);
+    const agentBlock = formatAgentSnapshot(state.agentSnapshot);
+    const maxSteps =
+      Number(state.agentSnapshot?.maxSteps) || settings.maxSteps || DEFAULT_MAX_STEPS;
     const messages = [
       {
         role: "system",
-        content: `${ACTION_SCHEMA_FOR_PROMPT}\n\nYou are Browser Agent. Achieve the user goal using the fewest safe steps.`,
+        content: [
+          ACTION_SCHEMA_FOR_PROMPT,
+          "You are YamBot Browser Agent. Achieve the user goal using the fewest safe steps.",
+          agentBlock
+            ? `You are operating AS the following specialized agent. Obey its skill, instructions, facts, autonomy, and success criteria.\n\n${agentBlock}`
+            : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       },
       {
         role: "user",
         content: [
           `GOAL:\n${state.goal}`,
-          `STEP: ${state.step + 1}/${state.maxSteps}`,
+          `STEP: ${state.step + 1}/${maxSteps}`,
           state.notes.length ? `NOTES SO FAR:\n${state.notes.join("\n---\n")}` : "",
           state.history.length
             ? `RECENT ACTIONS:\n${state.history
@@ -281,6 +293,36 @@ export function createAgentController({ emit }) {
     const parsed = parseAgentResponse(content);
     broadcast("agent:decision", { thought: parsed.thought, action: parsed.action });
     return { parsed, obs };
+  }
+
+  /**
+   * @param {object|null} snapshot
+   * @returns {string}
+   */
+  function formatAgentSnapshot(snapshot) {
+    if (!snapshot) return "";
+    const factLines = (snapshot.facts || [])
+      .filter((f) => f?.key)
+      .map((f) => `- ${f.key}: ${f.value || ""}`)
+      .join("\n");
+    const domains = (snapshot.allowedDomains || []).filter(Boolean).join(", ");
+    const auto = snapshot.autonomy || {};
+    return [
+      `AGENT NAME: ${snapshot.name}`,
+      `SKILL: ${snapshot.skill || "general"}`,
+      snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
+      snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
+      snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",
+      factLines ? `FACTS YOU MAY USE:\n${factLines}` : "",
+      snapshot.successCriteria
+        ? `SUCCESS CRITERIA (call finish when met):\n${snapshot.successCriteria}`
+        : "",
+      domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
+      snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
+      `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${Boolean(auto.askBeforeLogin)}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
+    ]
+      .filter(Boolean)
+      .join("\n\n");
   }
 
   async function executeAction(action, settings, obs) {
@@ -346,10 +388,12 @@ export function createAgentController({ emit }) {
       case "select":
       case "press_key":
       case "scroll": {
-        // Why: confirm-before-submit is opt-in only. Cloud/website goals run fully automatic.
         const requireConfirm =
-          settings.confirmBeforeSubmit === true && !state.cloudTaskId;
-        if (requireConfirm && action.type === "click" && looksLikeSubmit(obs, action.ref)) {
+          (state.agentSnapshot?.autonomy?.askBeforeSubmit === true ||
+            (settings.confirmBeforeSubmit === true && !state.cloudTaskId)) &&
+          action.type === "click" &&
+          looksLikeSubmit(obs, action.ref);
+        if (requireConfirm) {
           const answer = await waitForUser(
             `About to click a likely submit control (${action.ref}). Reply "yes" to continue or give other instructions.`
           );
@@ -425,7 +469,8 @@ export function createAgentController({ emit }) {
           hint: "Open the YamBot website → Settings → paste your LLM API key → Save, then send the goal again.",
         });
       }
-      state.maxSteps = settings.maxSteps;
+      state.maxSteps =
+        Number(state.agentSnapshot?.maxSteps) || settings.maxSteps || DEFAULT_MAX_STEPS;
 
       abort = false;
       paused = false;
@@ -507,7 +552,7 @@ export function createAgentController({ emit }) {
     }
   }
 
-  async function start({ goal, tabId, cloudTaskId = null }) {
+  async function start({ goal, tabId, cloudTaskId = null, agentSnapshot = null }) {
     if (running) {
       throw Object.assign(new Error("Agent already running"), {
         title: "Already running",
@@ -530,6 +575,13 @@ export function createAgentController({ emit }) {
       });
     }
 
+    const preferredStart =
+      (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
+      "https://www.google.com/";
+    const bootUrl = /^https?:\/\//i.test(preferredStart)
+      ? preferredStart
+      : "https://www.google.com/";
+
     let tab = tabId
       ? await chrome.tabs.get(tabId)
       : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
@@ -537,7 +589,7 @@ export function createAgentController({ emit }) {
     // Why: cloud goals should not depend on whichever tab happens to be focused (often the web app).
     if (cloudTaskId || !tab?.id || isRestrictedUrl(tab?.url)) {
       tab = await chrome.tabs.create({
-        url: "https://www.google.com/",
+        url: bootUrl,
         active: true,
       });
       await waitForTabLoad(tab.id);
@@ -556,7 +608,11 @@ export function createAgentController({ emit }) {
     state.goal = trimmedGoal;
     state.tabId = tab.id;
     state.cloudTaskId = cloudTaskId || null;
+    state.agentSnapshot = agentSnapshot || null;
     state.status = "starting";
+    if (agentSnapshot?.maxSteps) {
+      state.maxSteps = Number(agentSnapshot.maxSteps) || DEFAULT_MAX_STEPS;
+    }
 
     // fire and forget — running stays true until loop() finally{}
     loop();

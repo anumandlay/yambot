@@ -1,12 +1,13 @@
 /**
  * @fileoverview Chat routes — create threads, post goals, poll messages/tasks.
- * Purpose: Website UX for “new chat → enter goal → watch results”.
- * Downstream: Chat/Message/Task models; extension claims resulting tasks.
+ * Purpose: Website UX for “pick agent → new chat → enter goal → watch results”.
+ * Downstream: Chat/Message/Task/Agent models; extension claims resulting tasks.
  */
 
 import { Router } from "express";
 import { Chat, Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
+import { Agent, toAgentSnapshot } from "../models/Agent.js";
 
 export const chatsRouter = Router();
 
@@ -17,7 +18,8 @@ chatsRouter.get("/", async (req, res, next) => {
   try {
     const chats = await Chat.find({ user: req.userId })
       .sort({ updatedAt: -1 })
-      .select("title createdAt updatedAt")
+      .select("title agent createdAt updatedAt")
+      .populate("agent", "name skill")
       .lean();
     res.json({ ok: true, chats });
   } catch (err) {
@@ -26,13 +28,37 @@ chatsRouter.get("/", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats — create empty chat.
- * Body: { title? }
+ * POST /api/chats — create chat bound to an agent.
+ * Body: { title?, agentId }
  */
 chatsRouter.post("/", async (req, res, next) => {
   try {
-    const title = String(req.body?.title || "New chat").trim() || "New chat";
-    const chat = await Chat.create({ user: req.userId, title });
+    const agentId = req.body?.agentId;
+    if (!agentId) {
+      res.status(400).json({
+        ok: false,
+        title: "Agent required",
+        detail: "Create or select an agent before starting a chat.",
+        hint: "Go to Agents → New agent, then start a chat from there.",
+      });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId, active: true });
+    if (!agent) {
+      res.status(404).json({
+        ok: false,
+        title: "Agent not found",
+        detail: "That agent does not exist or is inactive.",
+      });
+      return;
+    }
+    const title =
+      String(req.body?.title || "").trim() || `Chat · ${agent.name}`;
+    const chat = await Chat.create({
+      user: req.userId,
+      title,
+      agent: agent._id,
+    });
     res.status(201).json({ ok: true, chat });
   } catch (err) {
     next(err);
@@ -40,11 +66,13 @@ chatsRouter.post("/", async (req, res, next) => {
 });
 
 /**
- * GET /api/chats/:id — chat + messages + related tasks.
+ * GET /api/chats/:id — chat + messages + related tasks (+ agent).
  */
 chatsRouter.get("/:id", async (req, res, next) => {
   try {
-    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId }).lean();
+    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId })
+      .populate("agent")
+      .lean();
     if (!chat) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
       return;
@@ -60,7 +88,7 @@ chatsRouter.get("/:id", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats/:id/messages — user sends a goal/instruction; enqueues a Task.
+ * POST /api/chats/:id/messages — user sends a goal; enqueues a Task with agent snapshot.
  * Body: { content }
  */
 chatsRouter.post("/:id/messages", async (req, res, next) => {
@@ -80,8 +108,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       return;
     }
 
+    let agentDoc = null;
+    let snapshot = null;
+    if (chat.agent) {
+      agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
+      if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
+    }
+
     // Why: first user message becomes the chat title for sidebar scanning.
-    if (chat.title === "New chat") {
+    if (chat.title.startsWith("Chat ·") || chat.title === "New chat") {
       chat.title = content.slice(0, 60);
     }
     chat.updatedAt = new Date();
@@ -98,16 +133,27 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       chat: chat._id,
       message: message._id,
       goal: content,
+      agent: agentDoc?._id || null,
+      agentSnapshot: snapshot,
       status: "pending",
-      events: [{ type: "queued", payload: { goal: content } }],
+      events: [
+        {
+          type: "queued",
+          payload: {
+            goal: content,
+            agentId: snapshot?.id || null,
+            agentName: snapshot?.name || null,
+          },
+        },
+      ],
     });
 
+    const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
-      content:
-        "Goal queued for your Chrome extension. Keep Chrome open with YamBot extension signed in.",
-      meta: { taskId: task._id, status: "pending" },
+      content: `Goal queued${agentLabel} for your Chrome extension. Keep Chrome open with YamBot signed in.`,
+      meta: { taskId: task._id, status: "pending", agentId: snapshot?.id || null },
     });
 
     res.status(201).json({ ok: true, message, task, systemMessage: agentNote });

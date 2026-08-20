@@ -103,6 +103,7 @@ app.get("/api/health", (_req, res) => {
 
 app.use("/api/auth", authRouter);
 app.use("/api/settings", authRequired, settingsRouter);
+app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
 app.use("/api/extension", authRequired, extensionRouter);
 

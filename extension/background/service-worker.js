@@ -111,6 +111,7 @@ async function pollCloudTasks() {
     await agent.start({
       goal: data.task.goal,
       cloudTaskId: data.task._id,
+      agentSnapshot: data.task.agentSnapshot || null,
     });
   } catch (err) {
     const serialized = serializeError(err);

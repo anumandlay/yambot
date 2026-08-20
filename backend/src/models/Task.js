@@ -35,6 +35,14 @@ const taskSchema = new mongoose.Schema(
       required: true,
     },
     goal: { type: String, required: true },
+    agent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      default: null,
+      index: true,
+    },
+    /** Frozen copy of agent config at enqueue time (stable for the extension run). */
+    agentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     status: {
       type: String,
       enum: ["pending", "running", "waiting_user", "done", "error", "cancelled"],

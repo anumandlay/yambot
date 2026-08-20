@@ -25,6 +25,9 @@ export function AppHeader() {
           </div>
         </Link>
         <nav className="flex flex-wrap items-center gap-2">
+          <NavLink to="/agents" className={linkClass}>
+            Agents
+          </NavLink>
           <NavLink to="/" end className={linkClass}>
             Chats
           </NavLink>

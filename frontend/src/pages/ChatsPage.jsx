@@ -1,6 +1,6 @@
 /**
  * @fileoverview Chat list + create-new-chat entry point.
- * Purpose: Start conversations that enqueue browser goals for the extension.
+ * Purpose: Start conversations bound to an agent that enqueue browser goals.
  */
 
 import { useEffect, useState } from "react";
@@ -10,14 +10,22 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 
 export function ChatsPage() {
   const [chats, setChats] = useState([]);
+  const [agents, setAgents] = useState([]);
+  const [agentId, setAgentId] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const navigate = useNavigate();
 
   async function load() {
     try {
-      const data = await api("/api/chats");
-      setChats(data.chats || []);
+      const [chatData, agentData] = await Promise.all([
+        api("/api/chats"),
+        api("/api/agents"),
+      ]);
+      setChats(chatData.chats || []);
+      const list = agentData.agents || [];
+      setAgents(list);
+      if (!agentId && list[0]?._id) setAgentId(list[0]._id);
     } catch (err) {
       setError(err);
     }
@@ -25,15 +33,24 @@ export function ChatsPage() {
 
   useEffect(() => {
     load();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   async function createChat() {
+    if (!agentId) {
+      setError({
+        title: "Pick an agent",
+        detail: "Create an agent first, then start a chat with it.",
+        hint: "Open Agents → New agent.",
+      });
+      return;
+    }
     setBusy(true);
     setError(null);
     try {
       const data = await api("/api/chats", {
         method: "POST",
-        body: JSON.stringify({ title: "New chat" }),
+        body: JSON.stringify({ agentId }),
       });
       navigate(`/chats/${data.chat._id}`);
     } catch (err) {
@@ -49,24 +66,49 @@ export function ChatsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Chats</h1>
           <p className="text-sm text-teal-900/70">
-            Create a chat, send a goal, watch results while Chrome runs the agent.
+            Pick an agent, start a chat, send a goal — Chrome runs it with that agent’s playbook.
           </p>
         </div>
+      </div>
+
+      <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:items-end">
+        <label className="flex w-full flex-col gap-1 text-sm sm:flex-1">
+          Agent
+          <select
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={agentId}
+            onChange={(e) => setAgentId(e.target.value)}
+          >
+            {agents.length === 0 ? (
+              <option value="">No agents yet</option>
+            ) : (
+              agents.map((a) => (
+                <option key={a._id} value={a._id}>
+                  {a.name} ({a.skill})
+                </option>
+              ))
+            )}
+          </select>
+        </label>
         <button
           type="button"
-          disabled={busy}
+          disabled={busy || !agentId}
           onClick={createChat}
           className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
         >
           {busy ? "Creating…" : "New chat"}
         </button>
+        <Link
+          to="/agents/new"
+          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold"
+        >
+          New agent
+        </Link>
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-        <strong>Chrome extension:</strong> Open YamBot extension → Settings → sign in with the{" "}
-        <em>same email and password</em> as this website (API URL{" "}
-        <code className="rounded bg-white px-1">http://localhost:4000</code> locally). Keep Chrome
-        open so queued goals run.
+        <strong>Chrome extension:</strong> Sign in with the same email/password. Keep Chrome open so
+        queued goals run.
       </div>
 
       {error ? (
@@ -81,17 +123,18 @@ export function ChatsPage() {
       <ul className="flex flex-col gap-2">
         {chats.length === 0 ? (
           <li className="rounded-2xl border border-dashed border-teal-200 bg-white/70 p-6 text-sm text-teal-900/70">
-            No chats yet. Create one to send your first goal.
+            No chats yet. Create an agent, then start a chat.
           </li>
         ) : (
           chats.map((c) => (
             <li key={c._id}>
               <Link
                 to={`/chats/${c._id}`}
-                className="flex min-h-11 items-center justify-between gap-3 rounded-2xl border border-teal-100 bg-white px-4 py-3 shadow-sm"
+                className="flex min-h-11 flex-col gap-1 rounded-2xl border border-teal-100 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
               >
                 <span className="font-semibold">{c.title}</span>
                 <span className="text-xs text-teal-900/60">
+                  {c.agent?.name ? `${c.agent.name} · ` : ""}
                   {new Date(c.updatedAt).toLocaleString()}
                 </span>
               </Link>
