@@ -157,8 +157,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
       ) : null}
 
       <div
-        className={`relative flex items-center justify-center bg-black ${
-          compact ? "min-h-40" : "min-h-52 md:min-h-72"
+        className={`relative flex w-full items-center justify-center overflow-hidden bg-black ${
+          compact ? "min-h-36 sm:min-h-40" : "min-h-[36vh] sm:min-h-52 md:min-h-72"
         }`}
       >
         {src ? (
@@ -167,8 +167,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             src={src}
             alt="Agent cloud computer screen"
             onClick={onImageClick}
-            className={`block max-h-[50vh] w-full bg-white object-contain md:max-h-[60vh] ${
-              controlOn ? "cursor-crosshair" : ""
+            className={`block h-auto w-full max-h-[42vh] bg-white object-contain sm:max-h-[50vh] md:max-h-[60vh] ${
+              controlOn ? "cursor-crosshair touch-manipulation" : ""
             }`}
           />
         ) : (
@@ -203,18 +203,18 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             />
             <button
               type="submit"
-              className="min-h-11 rounded-xl bg-teal-600 px-4 text-sm font-semibold"
+              className="min-h-11 w-full rounded-xl bg-teal-600 px-4 text-sm font-semibold sm:w-auto"
             >
               Send text
             </button>
           </form>
-          <div className="flex flex-wrap gap-2">
+          <div className="yb-scroll-x flex gap-2 pb-1 sm:flex-wrap">
             {["Enter", "Tab", "Escape", "Backspace"].map((key) => (
               <button
                 key={key}
                 type="button"
                 onClick={() => sendKey(key)}
-                className="min-h-11 rounded-xl border border-white/15 px-3 text-xs font-semibold"
+                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
               >
                 {key}
               </button>
@@ -222,14 +222,14 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             <button
               type="button"
               onClick={() => sendScroll(500)}
-              className="min-h-11 rounded-xl border border-white/15 px-3 text-xs font-semibold"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
             >
               Scroll down
             </button>
             <button
               type="button"
               onClick={() => sendScroll(-500)}
-              className="min-h-11 rounded-xl border border-white/15 px-3 text-xs font-semibold"
+              className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
             >
               Scroll up
             </button>

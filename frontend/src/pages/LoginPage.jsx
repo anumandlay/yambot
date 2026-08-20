@@ -36,8 +36,8 @@ export function LoginPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-4 py-10 md:px-0">
-      <h1 className="text-2xl font-bold tracking-tight">Sign in to YamBot</h1>
+    <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-3 py-8 sm:px-4 sm:py-10 md:px-0">
+      <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Sign in to YamBot</h1>
       <p className="text-sm text-teal-900/70">
         Enter goals on the web. Your Chrome extension runs them on real tabs.
       </p>

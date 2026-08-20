@@ -78,7 +78,7 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
       <p className="text-sm text-teal-900/70">
         Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).

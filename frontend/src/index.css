@@ -11,22 +11,38 @@
   --yb-muted: #5b6f6a;
   --yb-accent: #0f766e;
   --yb-bg: #f3f6f5;
+  --yb-safe-bottom: env(safe-area-inset-bottom, 0px);
+  --yb-safe-top: env(safe-area-inset-top, 0px);
+}
+
+html {
+  /* Why: stop accidental horizontal scroll on narrow phones */
+  overflow-x: hidden;
 }
 
 html,
 body,
 #root {
   min-height: 100%;
+  min-height: 100dvh;
+  width: 100%;
 }
 
 body {
   margin: 0;
+  overflow-x: hidden;
   color: var(--yb-ink);
   background:
     radial-gradient(900px 420px at 0% -10%, #cdeae4 0%, transparent 55%),
     radial-gradient(700px 360px at 100% 0%, #e7eef2 0%, transparent 50%),
     var(--yb-bg);
   font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+  padding-bottom: var(--yb-safe-bottom);
+}
+
+#root {
+  display: flex;
+  flex-direction: column;
 }
 
 /* Why: iOS avoids auto-zoom when inputs are >= 16px */
@@ -35,4 +51,23 @@ textarea,
 select,
 button {
   font-size: 1rem;
+  max-width: 100%;
+}
+
+img,
+video,
+canvas,
+svg {
+  max-width: 100%;
+  height: auto;
+}
+
+/* Utility: hide scrollbars on horizontal nav chips */
+.yb-scroll-x {
+  overflow-x: auto;
+  -webkit-overflow-scrolling: touch;
+  scrollbar-width: none;
+}
+.yb-scroll-x::-webkit-scrollbar {
+  display: none;
 }

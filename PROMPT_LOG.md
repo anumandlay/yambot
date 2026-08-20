@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 18:44] UI: Mobile-responsive dashboard pass
+
+- **Prompt Provided:** make the webpage responsive
+- **Architectural Flow:** Mobile-first padding/stacking; sticky scrollable nav; chat shows live screen first on small screens; 44px touch targets; overflow-x + safe-area
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend` AppHeader, ChatDetail, LiveScreen, Chats/Agents/Settings/Login/Register, `index.css`, `index.html`
+
 ## [2026-08-20 18:41] Fix: Blank live screen on about:blank
 
 - **Prompt Provided:** i can see only blank screen

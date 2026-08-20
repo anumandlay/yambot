@@ -61,21 +61,21 @@ export function ChatsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Chats</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Chats</h1>
           <p className="text-sm text-teal-900/70">
             Pick an agent, start a chat, send a goal — Chrome runs it with that agent’s playbook.
           </p>
         </div>
       </div>
 
-      <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:items-end">
-        <label className="flex w-full flex-col gap-1 text-sm sm:flex-1">
+      <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:flex-row sm:items-end sm:p-4">
+        <label className="flex w-full min-w-0 flex-col gap-1 text-sm sm:flex-1">
           Agent
           <select
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            className="min-h-11 w-full rounded-xl border border-teal-100 px-3"
             value={agentId}
             onChange={(e) => setAgentId(e.target.value)}
           >
@@ -94,22 +94,22 @@ export function ChatsPage() {
           type="button"
           disabled={busy || !agentId}
           onClick={createChat}
-          className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
         >
           {busy ? "Creating…" : "New chat"}
         </button>
         <Link
           to="/agents/new"
-          className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold"
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold sm:w-auto"
         >
           New agent
         </Link>
       </div>
 
-      <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+      <div className="break-words rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
         <strong>Runners:</strong> Agents can use your Chrome extension and/or a cloud Chromium box on
         the VPS. Set this on Agents → Computer. Extension API URL:{" "}
-        <code className="rounded bg-white px-1">https://bot.vughy.com</code>.
+        <code className="break-all rounded bg-white px-1">https://bot.vughy.com</code>.
       </div>
 
       {error ? (
@@ -131,10 +131,10 @@ export function ChatsPage() {
             <li key={c._id}>
               <Link
                 to={`/chats/${c._id}`}
-                className="flex min-h-11 flex-col gap-1 rounded-2xl border border-teal-100 bg-white px-4 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+                className="flex min-h-11 min-w-0 flex-col gap-1 rounded-2xl border border-teal-100 bg-white px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-4"
               >
-                <span className="font-semibold">{c.title}</span>
-                <span className="text-xs text-teal-900/60">
+                <span className="truncate font-semibold">{c.title}</span>
+                <span className="shrink-0 text-xs text-teal-900/60">
                   {c.agent?.name ? `${c.agent.name} · ` : ""}
                   {new Date(c.updatedAt).toLocaleString()}
                 </span>

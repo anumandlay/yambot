@@ -44,10 +44,10 @@ export function AgentsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-4 py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Agents</h1>
           <p className="text-sm text-teal-900/70">
             Creating an agent provisions its own cloud Chromium box on the VPS. Watch and take
             control of the live screen from the agent page or any chat.
@@ -55,7 +55,7 @@ export function AgentsPage() {
         </div>
         <Link
           to="/agents/new"
-          className="inline-flex min-h-11 items-center justify-center rounded-xl bg-teal-700 px-4 font-semibold text-white"
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-4 font-semibold text-white sm:w-auto"
         >
           New agent
         </Link>
@@ -79,10 +79,10 @@ export function AgentsPage() {
           agents.map((a) => (
             <li
               key={a._id}
-              className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:items-center sm:justify-between"
+              className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4"
             >
-              <div>
-                <div className="font-semibold">{a.name}</div>
+              <div className="min-w-0">
+                <div className="truncate font-semibold">{a.name}</div>
                 <div className="flex flex-wrap gap-2 text-xs uppercase tracking-wide text-teal-800/60">
                   <span>{a.skill}</span>
                   <span>·</span>
@@ -103,13 +103,13 @@ export function AgentsPage() {
                   ) : null}
                 </div>
                 {a.description ? (
-                  <p className="mt-1 text-sm text-teal-900/70">{a.description}</p>
+                  <p className="mt-1 break-words text-sm text-teal-900/70">{a.description}</p>
                 ) : null}
               </div>
-              <div className="flex flex-wrap gap-2">
+              <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
                 <Link
                   to={`/agents/${a._id}`}
-                  className="inline-flex min-h-11 items-center rounded-xl border border-teal-100 px-3 text-sm font-semibold"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-3 text-sm font-semibold sm:w-auto"
                 >
                   Edit
                 </Link>
@@ -117,7 +117,7 @@ export function AgentsPage() {
                   type="button"
                   disabled={busy || a.active === false}
                   onClick={() => startChat(a._id)}
-                  className="inline-flex min-h-11 items-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                 >
                   Start chat
                 </button>
