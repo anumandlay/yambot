@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Browser Agent</title>
+    <link rel="stylesheet" href="style.css" />
+  </head>
+  <body>
+    <header class="top">
+      <div class="brand">
+        <span class="mark" aria-hidden="true"></span>
+        <div>
+          <h1>Browser Agent</h1>
+          <p class="tag">Natural language → real browser actions</p>
+        </div>
+      </div>
+      <button type="button" id="btn-settings" class="ghost" title="Settings">Settings</button>
+    </header>
+
+    <section id="status-bar" class="status idle">
+      <span id="status-label">Idle</span>
+      <span id="step-label"></span>
+    </section>
+
+    <div id="error-banner" class="alert error hidden" role="alert">
+      <div class="alert-top">
+        <strong id="error-banner-title">Error</strong>
+        <button type="button" id="btn-dismiss-error" class="ghost tiny">Dismiss</button>
+      </div>
+      <p id="error-banner-detail" class="alert-detail"></p>
+      <p id="error-banner-hint" class="alert-hint hidden"></p>
+    </div>
+
+    <main id="view-main" class="view">
+      <label class="field">
+        <span>Task</span>
+        <textarea
+          id="goal"
+          rows="4"
+          placeholder="e.g. Research browser agent architectures: search Google, open top 3 results, summarize with links"
+        ></textarea>
+      </label>
+
+      <div class="row actions">
+        <button type="button" id="btn-start" class="primary">Start</button>
+        <button type="button" id="btn-pause" class="ghost" disabled>Pause</button>
+        <button type="button" id="btn-resume" class="ghost" disabled>Resume</button>
+        <button type="button" id="btn-stop" class="danger" disabled>Stop</button>
+      </div>
+
+      <div id="ask-box" class="ask hidden">
+        <p id="ask-question"></p>
+        <div class="row">
+          <input id="ask-input" type="text" placeholder="Your reply…" />
+          <button type="button" id="btn-answer" class="primary">Send</button>
+        </div>
+      </div>
+
+      <section class="log-wrap">
+        <div class="log-head">
+          <h2>Activity</h2>
+          <button type="button" id="btn-clear" class="ghost tiny">Clear</button>
+        </div>
+        <ol id="log" class="log"></ol>
+      </section>
+
+      <section id="result-box" class="result hidden">
+        <h2>Result</h2>
+        <pre id="result-text"></pre>
+      </section>
+    </main>
+
+    <main id="view-settings" class="view hidden">
+      <button type="button" id="btn-back" class="ghost">← Back</button>
+      <h2>Settings</h2>
+
+      <h3>YamBot cloud (website)</h3>
+      <p class="hint pending">LLM keys live on the website Settings page. Pair this extension with your account:</p>
+      <label class="field">
+        <span>API base URL</span>
+        <input id="api-base" type="url" placeholder="http://localhost:4000" />
+      </label>
+      <label class="field">
+        <span>Auth token (JWT from website login)</span>
+        <textarea id="auth-token" rows="3" placeholder="Paste Bearer token / yambot_token value"></textarea>
+      </label>
+      <div class="row actions">
+        <button type="button" id="btn-poll" class="ghost">Poll tasks now</button>
+      </div>
+
+      <h3>Local LLM override (optional)</h3>
+      <p class="hint pending">Only used if website Settings has no API key.</p>
+      <label class="field">
+        <span>LLM API key</span>
+        <input id="llm-key" type="password" autocomplete="off" placeholder="sk-…" />
+      </label>
+      <label class="field">
+        <span>LLM base URL</span>
+        <input id="llm-base" type="url" placeholder="https://api.openai.com/v1" />
+      </label>
+      <label class="field">
+        <span>Model</span>
+        <input id="llm-model" type="text" placeholder="gpt-4o-mini" />
+      </label>
+      <div class="row actions">
+        <button type="button" id="btn-test-llm" class="ghost">Test LLM connection</button>
+      </div>
+      <div id="llm-test-alert" class="alert hidden" role="status">
+        <strong id="llm-test-title"></strong>
+        <p id="llm-test-detail" class="alert-detail"></p>
+        <p id="llm-test-hint" class="alert-hint hidden"></p>
+      </div>
+
+      <h3>DeathByCaptcha (local override)</h3>
+      <label class="field">
+        <span>Username</span>
+        <input id="dbc-user" type="text" autocomplete="off" />
+      </label>
+      <label class="field">
+        <span>Password / authtoken</span>
+        <input id="dbc-pass" type="password" autocomplete="off" />
+      </label>
+
+      <label class="field">
+        <span>Max steps per run</span>
+        <input id="max-steps" type="number" min="5" max="100" value="25" />
+      </label>
+      <label class="check">
+        <input id="confirm-submit" type="checkbox" checked />
+        Ask before likely submit clicks
+      </label>
+
+      <button type="button" id="btn-save" class="primary">Save settings</button>
+      <p id="save-msg" class="hint"></p>
+    </main>
+
+    <script type="module" src="sidepanel.js"></script>
+  </body>
+</html>

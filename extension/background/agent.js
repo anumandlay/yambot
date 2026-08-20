@@ -1,0 +1,576 @@
+import { chatCompletion } from "./llm.js";
+import { solveCaptchaWithDbc } from "./captcha.js";
+import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
+
+const DEFAULT_MAX_STEPS = 25;
+
+export function createAgentController({ emit }) {
+  let running = false;
+  let paused = false;
+  let abort = false;
+  let waitingForUser = null;
+  let state = idleState();
+
+  function idleState() {
+    return {
+      status: "idle",
+      goal: "",
+      step: 0,
+      maxSteps: DEFAULT_MAX_STEPS,
+      history: [],
+      notes: [],
+      lastError: null,
+      tabId: null,
+      cloudTaskId: null,
+    };
+  }
+
+  function snapshot() {
+    return {
+      ...state,
+      running,
+      paused,
+      waitingForUser: waitingForUser
+        ? { question: waitingForUser.question }
+        : null,
+    };
+  }
+
+  function broadcast(type, extra = {}) {
+    emit({ type, agent: snapshot(), ...extra });
+    // Mirror key events to the YamBot API when this run came from a cloud task.
+    if (state.cloudTaskId) {
+      void mirrorCloudEvent(type, extra).catch(() => {});
+    }
+  }
+
+  /**
+   * Best-effort mirror of agent lifecycle to the website chat.
+   * @param {string} type
+   * @param {object} extra
+   */
+  async function mirrorCloudEvent(type, extra) {
+    const { extensionApi } = await import("./api.js");
+    const taskId = state.cloudTaskId;
+    if (type === "agent:ask_user") {
+      await extensionApi(`/api/extension/tasks/${taskId}/events`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "ask_user",
+          status: "waiting_user",
+          payload: { question: extra.question },
+        }),
+      });
+      return;
+    }
+    if (type === "agent:step") {
+      await extensionApi(`/api/extension/tasks/${taskId}/events`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "step",
+          payload: {
+            step: extra.step,
+            action: extra.action,
+            thought: extra.thought,
+            result: extra.result,
+          },
+          appendMessage: extra.thought
+            ? `Step ${extra.step}: ${extra.action?.type} — ${extra.thought}`
+            : `Step ${extra.step}: ${extra.action?.type}`,
+        }),
+      });
+      return;
+    }
+    if (type === "agent:done") {
+      await extensionApi(`/api/extension/tasks/${taskId}/complete`, {
+        method: "POST",
+        body: JSON.stringify({
+          success: extra.success !== false,
+          summary: extra.summary || "Done",
+        }),
+      });
+      return;
+    }
+    if (type === "agent:error") {
+      await extensionApi(`/api/extension/tasks/${taskId}/complete`, {
+        method: "POST",
+        body: JSON.stringify({
+          success: false,
+          summary: extra.detail || extra.error || "Agent error",
+          error: extra.detail || extra.error || "Agent error",
+        }),
+      });
+    }
+  }
+
+  async function getSettings() {
+    // Why: prefer website Settings (server) when the extension is paired; fall back to local overrides.
+    try {
+      const { extensionApi } = await import("./api.js");
+      const remote = await extensionApi("/api/extension/runtime-config");
+      if (remote?.config?.llmApiKey) {
+        return {
+          llmApiKey: remote.config.llmApiKey,
+          llmBaseUrl: remote.config.llmBaseUrl || "https://api.openai.com/v1",
+          llmModel: remote.config.llmModel || "gpt-4o-mini",
+          dbcUsername: remote.config.dbcUsername || "",
+          dbcPassword: remote.config.dbcPassword || "",
+          maxSteps: Number(remote.config.maxSteps) || DEFAULT_MAX_STEPS,
+          confirmBeforeSubmit: remote.config.confirmBeforeSubmit !== false,
+        };
+      }
+    } catch {
+      /* local fallback */
+    }
+
+    const data = await chrome.storage.local.get([
+      "llmApiKey",
+      "llmBaseUrl",
+      "llmModel",
+      "dbcUsername",
+      "dbcPassword",
+      "maxSteps",
+      "confirmBeforeSubmit",
+    ]);
+    return {
+      llmApiKey: data.llmApiKey || "",
+      llmBaseUrl: data.llmBaseUrl || "https://api.openai.com/v1",
+      llmModel: data.llmModel || "gpt-4o-mini",
+      dbcUsername: data.dbcUsername || "",
+      dbcPassword: data.dbcPassword || "",
+      maxSteps: Number(data.maxSteps) || DEFAULT_MAX_STEPS,
+      confirmBeforeSubmit: data.confirmBeforeSubmit !== false,
+    };
+  }
+
+  async function ensureContentScript(tabId) {
+    const tab = await chrome.tabs.get(tabId);
+    if (isRestrictedUrl(tab.url)) {
+      throw Object.assign(new Error("Cannot access a chrome:// URL"), {
+        title: "Restricted page",
+        detail: `Extensions cannot control this page: ${tab.url || "(unknown)"}`,
+        hint: "Switch to a normal website tab (https://...), or Start again — a new Google tab will be opened automatically.",
+      });
+    }
+    try {
+      await chrome.tabs.sendMessage(tabId, { target: "content", type: "OBSERVE" });
+      return;
+    } catch {
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId },
+          files: ["content/content.js"],
+        });
+      } catch (err) {
+        const msg = String(err?.message || err);
+        throw Object.assign(new Error(msg), {
+          title: "Cannot control this tab",
+          detail: msg,
+          hint: isRestrictedUrl(tab.url)
+            ? "Open a normal https:// page and try again."
+            : "Reload the webpage, then press Start again. Some pages (Chrome Web Store, PDF viewer) also block scripts.",
+        });
+      }
+    }
+  }
+
+  async function sendToContent(tabId, type, payload = {}) {
+    await ensureContentScript(tabId);
+    const res = await chrome.tabs.sendMessage(tabId, {
+      target: "content",
+      type,
+      ...payload,
+    });
+    if (!res?.ok) throw new Error(res?.error || "Content script error");
+    return res.result;
+  }
+
+  async function observeTab(tabId) {
+    return sendToContent(tabId, "OBSERVE");
+  }
+
+  function formatObservation(obs) {
+    const lines = [
+      `URL: ${obs.url}`,
+      `Title: ${obs.title}`,
+      `CAPTCHA: ${obs.captcha?.present ? obs.captcha.signals.join(",") : "none"}`,
+      "Interactive elements:",
+    ];
+    for (const el of obs.interactives || []) {
+      lines.push(
+        `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}> "${el.name}"${
+          el.href ? ` href=${el.href}` : ""
+        }${el.value ? ` value=${el.value}` : ""}`
+      );
+    }
+    lines.push("Page text (truncated):");
+    lines.push(obs.text || "");
+    return lines.join("\n");
+  }
+
+  async function runStep(settings) {
+    const obs = await observeTab(state.tabId);
+    const messages = [
+      {
+        role: "system",
+        content: `${ACTION_SCHEMA_FOR_PROMPT}\n\nYou are Browser Agent. Achieve the user goal using the fewest safe steps.`,
+      },
+      {
+        role: "user",
+        content: [
+          `GOAL:\n${state.goal}`,
+          `STEP: ${state.step + 1}/${state.maxSteps}`,
+          state.notes.length ? `NOTES SO FAR:\n${state.notes.join("\n---\n")}` : "",
+          state.history.length
+            ? `RECENT ACTIONS:\n${state.history
+                .slice(-6)
+                .map((h) => JSON.stringify(h))
+                .join("\n")}`
+            : "",
+          `CURRENT PAGE SNAPSHOT:\n${formatObservation(obs)}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
+      },
+    ];
+
+    broadcast("agent:thinking", { observation: { url: obs.url, title: obs.title } });
+
+    const { content } = await chatCompletion({
+      apiKey: settings.llmApiKey,
+      baseUrl: settings.llmBaseUrl,
+      model: settings.llmModel,
+      messages,
+    });
+
+    const parsed = parseAgentResponse(content);
+    broadcast("agent:decision", { thought: parsed.thought, action: parsed.action });
+    return { parsed, obs };
+  }
+
+  async function executeAction(action, settings, obs) {
+    switch (action.type) {
+      case "navigate": {
+        if (isRestrictedUrl(action.url)) {
+          throw Object.assign(new Error("Cannot navigate to restricted URL"), {
+            title: "Restricted URL",
+            detail: `Cannot open: ${action.url}`,
+            hint: "Use a normal http(s) website, not chrome:// or about: pages.",
+          });
+        }
+        await chrome.tabs.update(state.tabId, { url: action.url });
+        await waitForTabLoad(state.tabId);
+        return { ok: true, navigated: action.url };
+      }
+      case "wait": {
+        await sleep(Math.min(Number(action.ms) || 1000, 10000));
+        return { ok: true };
+      }
+      case "ask_user": {
+        const answer = await waitForUser(action.question || "Need your input");
+        return { ok: true, userAnswer: answer };
+      }
+      case "finish": {
+        return { ok: true, finished: true, summary: action.summary, success: action.success !== false };
+      }
+      case "solve_captcha": {
+        broadcast("agent:captcha", { status: "solving" });
+        const meta = await sendToContent(state.tabId, "CAPTCHA_META");
+        const solved = await solveCaptchaWithDbc(
+          { username: settings.dbcUsername, password: settings.dbcPassword },
+          meta
+        );
+        if (solved.kind === "token") {
+          const result = await sendToContent(state.tabId, "EXECUTE", {
+            action: { type: "solve_captcha", token: solved.token },
+          });
+          broadcast("agent:captcha", { status: "solved" });
+          return { ok: true, captcha: solved, result };
+        }
+        const answer = await waitForUser(
+          solved.hint || "Please solve the CAPTCHA in the page, then reply continue."
+        );
+        return { ok: true, captcha: solved, userAnswer: answer };
+      }
+      case "extract": {
+        const result = await sendToContent(state.tabId, "EXECUTE", { action });
+        const note = [
+          `Extract (${action.focus || "page"}) from ${result.url}`,
+          result.title,
+          (result.text || "").slice(0, 2500),
+          (result.links || [])
+            .slice(0, 15)
+            .map((l) => `- ${l.text}: ${l.href}`)
+            .join("\n"),
+        ].join("\n");
+        state.notes.push(note);
+        return { ok: true, extracted: true };
+      }
+      case "click":
+      case "type":
+      case "select":
+      case "press_key":
+      case "scroll": {
+        if (
+          settings.confirmBeforeSubmit &&
+          action.type === "click" &&
+          looksLikeSubmit(obs, action.ref)
+        ) {
+          const answer = await waitForUser(
+            `About to click a likely submit control (${action.ref}). Reply "yes" to continue or give other instructions.`
+          );
+          if (!/^y(es)?$/i.test(String(answer).trim())) {
+            return { ok: true, skippedSubmit: true, userAnswer: answer };
+          }
+        }
+        return sendToContent(state.tabId, "EXECUTE", { action });
+      }
+      default:
+        throw new Error(`Unhandled action: ${action.type}`);
+    }
+  }
+
+  function looksLikeSubmit(obs, ref) {
+    const el = (obs.interactives || []).find((i) => i.ref === ref);
+    if (!el) return false;
+    const blob = `${el.name || ""} ${el.type || ""} ${el.tag || ""}`.toLowerCase();
+    return /submit|apply|send|purchase|pay|confirm|sign up|register|post/.test(blob);
+  }
+
+  function waitForUser(question) {
+    return new Promise((resolve) => {
+      waitingForUser = {
+        question,
+        resolve: (answer) => {
+          waitingForUser = null;
+          paused = false;
+          resolve(answer);
+        },
+      };
+      state.status = "waiting_user";
+      broadcast("agent:ask_user", { question });
+
+      // Why: website can answer via API; poll until user_answer event appears.
+      if (state.cloudTaskId) {
+        const taskId = state.cloudTaskId;
+        const started = Date.now();
+        const poll = async () => {
+          while (waitingForUser && Date.now() - started < 30 * 60 * 1000) {
+            try {
+              const { extensionApi } = await import("./api.js");
+              const data = await extensionApi(`/api/extension/tasks/${taskId}`);
+              const events = data.task?.events || [];
+              let lastAskIdx = -1;
+              for (let i = 0; i < events.length; i += 1) {
+                if (events[i].type === "ask_user") lastAskIdx = i;
+              }
+              const answerEvt = events
+                .slice(lastAskIdx + 1)
+                .find((e) => e.type === "user_answer");
+              if (answerEvt?.payload?.answer != null && waitingForUser) {
+                waitingForUser.resolve(String(answerEvt.payload.answer));
+                return;
+              }
+            } catch {
+              /* keep waiting */
+            }
+            await sleep(2000);
+          }
+        };
+        void poll();
+      }
+    });
+  }
+
+  async function loop() {
+    const settings = await getSettings();
+    if (!settings.llmApiKey) {
+      throw new Error("Set your LLM API key in Settings first.");
+    }
+    state.maxSteps = settings.maxSteps;
+
+    running = true;
+    abort = false;
+    paused = false;
+    state.status = "running";
+    broadcast("agent:started");
+
+    try {
+      while (!abort && state.step < state.maxSteps) {
+        while (paused && !abort) {
+          state.status = "paused";
+          broadcast("agent:paused");
+          await sleep(400);
+        }
+        if (abort) break;
+
+        state.status = "running";
+        state.step += 1;
+
+        const { parsed, obs } = await runStep(settings);
+        const action = parsed.action;
+        let result;
+        try {
+          result = await executeAction(action, settings, obs);
+        } catch (err) {
+          result = { ok: false, error: String(err?.message || err) };
+          state.lastError = result.error;
+        }
+
+        state.history.push({
+          step: state.step,
+          thought: parsed.thought,
+          action,
+          result,
+        });
+        broadcast("agent:step", { step: state.step, action, result, thought: parsed.thought });
+
+        if (action.type === "finish" || result?.finished) {
+          state.status = "done";
+          broadcast("agent:done", {
+            summary: action.summary || result?.summary || "Done",
+            success: action.success !== false,
+          });
+          return;
+        }
+
+        // Let SPA navigations settle
+        await sleep(600);
+      }
+
+      if (abort) {
+        state.status = "stopped";
+        broadcast("agent:stopped");
+      } else {
+        state.status = "max_steps";
+        broadcast("agent:done", {
+          summary: `Stopped after ${state.maxSteps} steps. Notes:\n${state.notes.join("\n\n") || "(none)"}`,
+          success: false,
+        });
+      }
+    } catch (err) {
+      state.status = "error";
+      state.lastError = String(err?.message || err);
+      broadcast("agent:error", {
+        title: err?.title || "Agent error",
+        detail: err?.detail || state.lastError,
+        hint: err?.hint || "",
+        error: state.lastError,
+        status: err?.status,
+        url: err?.url,
+      });
+    } finally {
+      running = false;
+      waitingForUser = null;
+    }
+  }
+
+  async function start({ goal, tabId, cloudTaskId = null }) {
+    if (running) {
+      throw Object.assign(new Error("Agent already running"), {
+        title: "Already running",
+        detail: "Stop the current run before starting another.",
+      });
+    }
+
+    const trimmedGoal = String(goal || "").trim();
+    if (!trimmedGoal) {
+      throw Object.assign(new Error("Goal is empty"), {
+        title: "Task required",
+        detail: "Goal is empty.",
+        hint: "Type a task in the side panel first.",
+      });
+    }
+
+    let tab = tabId
+      ? await chrome.tabs.get(tabId)
+      : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
+    if (!tab?.id) {
+      throw Object.assign(new Error("No active tab"), {
+        title: "No active tab",
+        detail: "Could not find a browser tab to control.",
+        hint: "Open any normal website tab, then press Start.",
+      });
+    }
+
+    // chrome://, edge://, new-tab, etc. cannot run content scripts
+    if (isRestrictedUrl(tab.url)) {
+      tab = await chrome.tabs.create({
+        url: "https://www.google.com/",
+        active: true,
+      });
+      await waitForTabLoad(tab.id);
+    }
+
+    state = idleState();
+    state.goal = trimmedGoal;
+    state.tabId = tab.id;
+    state.cloudTaskId = cloudTaskId || null;
+
+    // fire and forget
+    loop();
+    return snapshot();
+  }
+
+  function pause() {
+    paused = true;
+    broadcast("agent:paused");
+  }
+
+  function resume() {
+    paused = false;
+    if (state.status === "paused") state.status = "running";
+    broadcast("agent:resumed");
+  }
+
+  function stop() {
+    abort = true;
+    paused = false;
+    if (waitingForUser) {
+      waitingForUser.resolve("(stopped)");
+      waitingForUser = null;
+    }
+  }
+
+  function answerUser(text) {
+    if (waitingForUser) waitingForUser.resolve(String(text ?? ""));
+  }
+
+  return {
+    start,
+    pause,
+    resume,
+    stop,
+    answerUser,
+    getState: snapshot,
+  };
+}
+
+function sleep(ms) {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+function isRestrictedUrl(url) {
+  if (!url) return true;
+  return /^(chrome|chrome-extension|chrome-search|chrome-untrusted|devtools|edge|about|view-source|devtools):/i.test(
+    url
+  );
+}
+
+function waitForTabLoad(tabId) {
+  return new Promise((resolve) => {
+    const timeout = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener);
+      resolve();
+    }, 20000);
+
+    function listener(id, info) {
+      if (id === tabId && info.status === "complete") {
+        clearTimeout(timeout);
+        chrome.tabs.onUpdated.removeListener(listener);
+        resolve();
+      }
+    }
+    chrome.tabs.onUpdated.addListener(listener);
+  });
+}

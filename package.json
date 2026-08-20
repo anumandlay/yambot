@@ -1,0 +1,11 @@
+{
+  "name": "yambot",
+  "private": true,
+  "version": "0.1.0",
+  "description": "YamBot — web goals + Chrome browser agent",
+  "scripts": {
+    "dev:api": "npm --prefix backend run dev",
+    "dev:web": "npm --prefix frontend run dev",
+    "install:all": "npm --prefix backend install && npm --prefix frontend install"
+  }
+}

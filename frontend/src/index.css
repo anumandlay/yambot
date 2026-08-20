@@ -1,0 +1,38 @@
+/**
+ * @fileoverview Global Tailwind v4 entry + YamBot theme tokens.
+ * Purpose: Mobile-first base styles; brand teal aligned with the extension.
+ * Downstream: All React pages/components.
+ */
+
+@import "tailwindcss";
+
+:root {
+  --yb-ink: #10231f;
+  --yb-muted: #5b6f6a;
+  --yb-accent: #0f766e;
+  --yb-bg: #f3f6f5;
+}
+
+html,
+body,
+#root {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  color: var(--yb-ink);
+  background:
+    radial-gradient(900px 420px at 0% -10%, #cdeae4 0%, transparent 55%),
+    radial-gradient(700px 360px at 100% 0%, #e7eef2 0%, transparent 50%),
+    var(--yb-bg);
+  font-family: "Segoe UI", "Helvetica Neue", sans-serif;
+}
+
+/* Why: iOS avoids auto-zoom when inputs are >= 16px */
+input,
+textarea,
+select,
+button {
+  font-size: 1rem;
+}

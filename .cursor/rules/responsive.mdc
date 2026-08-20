@@ -1,0 +1,78 @@
+---
+description: Standards for building mobile-responsive React components
+globs: "**/*.{tsx,jsx,css,scss,ts,js}"
+alwaysApply: false
+---
+
+# Mobile Responsive Rules for React
+
+Enforce mobile-first development patterns and responsive design best practices across all React components, hooks, and styling files.
+
+## Core Principles
+
+### 1. Mobile-First Architecture
+- Write styles for the smallest screens first.
+- Use `min-width` media queries to layer on desktop enhancements.
+- **Never** hardcode fixed widths (`width: 800px`) on layout containers. Use `width: 100%` and `max-width`.
+
+### 2. React Responsive Patterns
+- **CSS Over JS**: Prioritize CSS media queries or framework utilities over JavaScript-driven resize listeners (`window.innerWidth`) to prevent layout shifts and SSR mismatches.
+- **Dynamic Hooks**: Use a performant `useMediaQuery` hook only when layout logic fundamentally changes (e.g., rendering a completely different component for mobile vs. desktop).
+
+### 3. Touch & Viewport Optimization
+- **Touch Targets**: All interactive elements (buttons, links, inputs) must have a minimum clickable area of **44x44px**.
+- **Interactive Spacing**: Separate adjacent links/buttons by at least 8px to avoid accidental clicks.
+- **Scrolling**: Prevent horizontal page scrolling. Use `overflow-x: hidden` on layout wrappers if necessary, and ensure elements fit viewports.
+
+---
+
+## Code Examples & Patterns
+
+### CSS/Styling Layouts
+```css
+/* Custom CSS / CSS Modules Pattern */
+.container {
+  width: 100%;
+  padding: 1rem; /* Generous mobile padding */
+  margin-left: auto;
+  margin-right: auto;
+}
+
+/* Base styles are mobile. Layer desktop above 768px */
+@media (min-width: 768px) {
+  .container {
+    max-width: 720px;
+    padding: 2rem;
+  }
+}
+@media (min-width: 1024px) {
+  .container {
+    max-width: 960px;
+  }
+}
+```
+
+### React Conditional Rendering (Hook Pattern)
+```tsx
+// Use ONLY when the UI architecture changes completely
+import { useMediaQuery } from '../hooks/useMediaQuery';
+
+export const Navigation = () => {
+  const isDesktop = useMediaQuery('(min-width: 1024px)');
+
+  return (
+    <nav>
+      {isDesktop ? <DesktopMenu /> : <MobileHamburgerMenu />}
+    </nav>
+  );
+};
+```
+
+---
+
+## Code Review Checklist for Cursor
+When evaluating or writing code, flag the following violations:
+1. [ ] Using `max-width` media queries as the primary layout strategy (should be `min-width`).
+2. [ ] Fixed pixel widths on wrapper elements instead of percentage/flex/grid scaling.
+3. [ ] Clickable elements smaller than 44px without explicit padding or dimensions.
+4. [ ] Font sizes smaller than 16px (`1rem`) for form inputs, which triggers auto-zoom on iOS browsers.
