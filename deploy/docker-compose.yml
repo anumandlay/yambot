@@ -1,8 +1,5 @@
-/**
- * @fileoverview Deploy helpers / Compose stack for YamBot on a single VPS.
- * Purpose: Run API + Mongo + web, plus optional per-agent browser worker boxes later.
- * Secrets stay in server-local `.env` (never commit real passwords).
- */
+# YamBot VPS stack: Mongo + API + Web
+# Secrets: deploy/.env on the server only
 
 services:
   mongo:
