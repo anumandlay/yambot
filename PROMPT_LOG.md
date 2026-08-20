@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 18:41] Fix: Blank live screen on about:blank
+
+- **Prompt Provided:** i can see only blank screen
+- **Architectural Flow:** Worker boot navigates off `about:blank` to Google (or `YAMBOT_START_URL`) before first screenshot heartbeat
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-20 18:29] Fix: Cloud screen stuck on “Provisioning…”
 
 - **Prompt Provided:** provisioning cloud computer… but cannot see the screen

@@ -167,7 +167,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             src={src}
             alt="Agent cloud computer screen"
             onClick={onImageClick}
-            className={`max-h-[50vh] w-full object-contain md:max-h-[60vh] ${
+            className={`block max-h-[50vh] w-full bg-white object-contain md:max-h-[60vh] ${
               controlOn ? "cursor-crosshair" : ""
             }`}
           />

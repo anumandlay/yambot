@@ -33,8 +33,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
       headless: !config.headed,
       viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
       args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      colorScheme: "light",
     });
     page = context.pages()[0] || (await context.newPage());
+    // Why: fresh profiles open about:blank — dashboard would show a white/empty live screen.
+    const boot =
+      (process.env.YAMBOT_START_URL && String(process.env.YAMBOT_START_URL).trim()) ||
+      "https://www.google.com/";
+    try {
+      const cur = page.url();
+      if (!cur || cur === "about:blank" || cur.startsWith("chrome://")) {
+        await page.goto(boot, { waitUntil: "domcontentloaded", timeout: 60000 });
+      }
+    } catch (err) {
+      log(`[${config.workerName}] boot navigate failed:`, err?.message || err);
+    }
     log(`[${config.workerName}] Chromium ready (profile=${config.profileDir})`);
   }
 
@@ -55,7 +68,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     try {
       const buf = await page.screenshot({
         type: "jpeg",
-        quality: 45,
+        quality: 60,
         fullPage: false,
       });
       screenshotBase64 = Buffer.from(buf).toString("base64");
