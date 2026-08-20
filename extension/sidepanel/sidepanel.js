@@ -379,7 +379,7 @@ async function loadSettings() {
     "maxSteps",
     "confirmBeforeSubmit",
   ]);
-  document.getElementById("api-base").value = data.apiBaseUrl || "http://localhost:4000";
+  document.getElementById("api-base").value = data.apiBaseUrl || "https://bot.vughy.com";
   document.getElementById("auth-email").value = data.authEmail || "";
   document.getElementById("llm-key").value = data.llmApiKey || "";
   document.getElementById("llm-base").value = data.llmBaseUrl || "https://api.openai.com/v1";
@@ -393,7 +393,7 @@ async function loadSettings() {
 
 btnSave.addEventListener("click", async () => {
   await chrome.storage.local.set({
-    apiBaseUrl: document.getElementById("api-base").value.trim() || "http://localhost:4000",
+    apiBaseUrl: document.getElementById("api-base").value.trim() || "https://bot.vughy.com",
     llmApiKey: document.getElementById("llm-key").value.trim(),
     llmBaseUrl: document.getElementById("llm-base").value.trim() || "https://api.openai.com/v1",
     llmModel: document.getElementById("llm-model").value.trim() || "gpt-4o-mini",
@@ -427,7 +427,7 @@ btnLogin?.addEventListener("click", () => {
   });
   send({
     type: "LOGIN",
-    apiBaseUrl: document.getElementById("api-base").value.trim() || "http://localhost:4000",
+    apiBaseUrl: document.getElementById("api-base").value.trim() || "https://bot.vughy.com",
     email,
     password,
   });

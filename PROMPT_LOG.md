@@ -1,11 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 17:31] Config: Production base URL bot.vughy.com
+
+- **Prompt Provided:** update the base url to bot.vughy.com
+- **Architectural Flow:** Vite/API env → `https://bot.vughy.com`; nginx proxies `/api` to API container so one host serves UI + API
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/.env.production`, `backend/.env.production`, `deploy/.env.example`, `deploy/docker-compose.yml`, `deploy/nginx.conf`
+
 ## [2026-08-20 17:23] Feature: Agent memory + VPS worker deploy
 
-- **Prompt Provided:** Need both agent memory and per-agent Chrome boxes on VPS; use provided server password for deploy (user will rotate later)
-- **Architectural Flow:** Agent.memory in Mongo → API/UI + prompt injection; VPS Docker Compose (API/web/mongo + browser worker template per agent)
-- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Agent.js`, `backend/src/routes/agents.js`, `backend/src/routes/extension.js`, `frontend/src/pages/AgentEditPage.jsx`, `extension/background/agent.js`, `deploy/**`
-
-## [2026-08-20 17:01] Feature: Multi-agent profiles
-
-- **Impacted Files:** agents CRUD, chats bind agent, extension snapshot prompt
+- **Impacted Files:** agent memory, deploy Compose on VPS

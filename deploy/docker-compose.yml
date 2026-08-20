@@ -8,6 +8,19 @@ services:
     volumes:
       - yambot_mongo:/data/db
 
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://bot.vughy.com}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "8080:80"
+    depends_on:
+      - api
+
   api:
     build:
       context: ..
@@ -19,22 +32,12 @@ services:
       NODE_ENV: production
       MONGODB_URI: mongodb://mongo:27017/yambot
       PORT: "4000"
+      PUBLIC_API_URL: https://bot.vughy.com
+      CORS_ORIGINS: https://bot.vughy.com,http://bot.vughy.com
     ports:
       - "4010:4000"
     depends_on:
       - mongo
-
-  web:
-    build:
-      context: ..
-      dockerfile: deploy/Dockerfile.web
-      args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://15.204.242.239:4010}
-    restart: unless-stopped
-    ports:
-      - "8080:80"
-    depends_on:
-      - api
 
 volumes:
   yambot_mongo:

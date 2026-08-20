@@ -11,7 +11,7 @@
 export async function getExtensionAuth() {
   const data = await chrome.storage.local.get(["apiBaseUrl", "authToken", "authEmail"]);
   return {
-    apiBaseUrl: (data.apiBaseUrl || "http://localhost:4000").replace(/\/$/, ""),
+    apiBaseUrl: (data.apiBaseUrl || "https://bot.vughy.com").replace(/\/$/, ""),
     authToken: data.authToken || "",
     authEmail: data.authEmail || "",
   };
@@ -24,7 +24,7 @@ export async function getExtensionAuth() {
  * @returns {Promise<{ ok: true, user: { id: string, name: string, email: string } }>}
  */
 export async function loginWithPassword({ apiBaseUrl, email, password }) {
-  const base = (apiBaseUrl || "http://localhost:4000").replace(/\/$/, "");
+  const base = (apiBaseUrl || "https://bot.vughy.com").replace(/\/$/, "");
   const res = await fetch(`${base}/api/auth/login`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
