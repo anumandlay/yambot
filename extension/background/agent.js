@@ -1,5 +1,6 @@
 import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
+import { extensionApi } from "./api.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
 
 const DEFAULT_MAX_STEPS = 25;
@@ -59,7 +60,6 @@ export function createAgentController({ emit }) {
    * @param {object} extra
    */
   async function mirrorCloudEvent(type, extra) {
-    const { extensionApi } = await import("./api.js");
     const taskId = state.cloudTaskId;
     if (!taskId) return;
 
@@ -142,7 +142,6 @@ export function createAgentController({ emit }) {
   async function getSettings() {
     // Why: prefer website Settings (server) when the extension is paired; fall back to local overrides.
     try {
-      const { extensionApi } = await import("./api.js");
       const remote = await extensionApi("/api/extension/runtime-config");
       if (remote?.config?.llmApiKey) {
         return {
@@ -393,7 +392,6 @@ export function createAgentController({ emit }) {
         const poll = async () => {
           while (waitingForUser && Date.now() - started < 30 * 60 * 1000) {
             try {
-              const { extensionApi } = await import("./api.js");
               const data = await extensionApi(`/api/extension/tasks/${taskId}`);
               const events = data.task?.events || [];
               let lastAskIdx = -1;
