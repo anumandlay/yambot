@@ -5,7 +5,7 @@
  */
 
 import { Router } from "express";
-import { Agent, AGENT_SKILLS } from "../models/Agent.js";
+import { Agent, AGENT_SKILLS, appendAgentMemory } from "../models/Agent.js";
 
 export const agentsRouter = Router();
 
@@ -72,6 +72,22 @@ function pickAgentFields(body, opts = {}) {
     set("maxSteps", Number.isFinite(n) ? Math.min(100, Math.max(5, n)) : 25);
   }
   if (body.active != null) set("active", Boolean(body.active));
+  if (body.memory != null && Array.isArray(body.memory)) {
+    // Why: allow manual edit/clear of memory from the Agents UI.
+    set(
+      "memory",
+      body.memory
+        .map((m) => ({
+          kind: ["note", "run", "avoid", "preference"].includes(m?.kind)
+            ? m.kind
+            : "note",
+          content: String(m?.content || "").trim().slice(0, 2000),
+          at: m?.at ? new Date(m.at) : new Date(),
+        }))
+        .filter((m) => m.content)
+        .slice(0, 50)
+    );
+  }
   if (body.autonomy != null && typeof body.autonomy === "object") {
     set("autonomy", {
       allowSubmit: body.autonomy.allowSubmit !== false,
@@ -155,6 +171,45 @@ agentsRouter.put("/:id", async (req, res, next) => {
       return;
     }
     Object.assign(agent, fields);
+    await agent.save();
+    res.json({ ok: true, agent });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/memory — append a manual memory note.
+ * Body: { content, kind? }
+ */
+agentsRouter.post("/:id/memory", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    await appendAgentMemory(agent, {
+      kind: req.body?.kind || "note",
+      content: String(req.body?.content || ""),
+    });
+    res.json({ ok: true, agent });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/memory — clear all memory.
+ */
+agentsRouter.delete("/:id/memory", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    agent.memory = [];
     await agent.save();
     res.json({ ok: true, agent });
   } catch (err) {

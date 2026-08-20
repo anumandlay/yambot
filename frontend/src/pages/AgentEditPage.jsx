@@ -37,6 +37,8 @@ export function AgentEditPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
+  const [memoryNote, setMemoryNote] = useState("");
+  const [memory, setMemory] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -65,6 +67,7 @@ export function AgentEditPage() {
               askBeforeSubmit: a.autonomy?.askBeforeSubmit === true,
             },
           });
+          setMemory(a.memory || []);
         }
       } catch (err) {
         setError(err);
@@ -317,6 +320,77 @@ export function AgentEditPage() {
             Active
           </label>
         </div>
+
+        {!isNew ? (
+          <div className="flex flex-col gap-2 border-t border-teal-100 pt-3">
+            <div className="text-sm font-semibold text-teal-900/80">Memory</div>
+            <p className="text-xs text-teal-900/60">
+              Filled automatically after runs. You can also add notes the agent should remember.
+            </p>
+            <ul className="max-h-48 overflow-y-auto rounded-xl border border-teal-100 bg-teal-50/50 p-2 text-sm">
+              {memory.length === 0 ? (
+                <li className="text-teal-900/50">No memories yet.</li>
+              ) : (
+                memory.map((m, i) => (
+                  <li key={i} className="border-b border-teal-100/80 py-2 last:border-0">
+                    <span className="text-xs uppercase text-teal-800/50">{m.kind}</span>
+                    <div className="whitespace-pre-wrap">{m.content}</div>
+                  </li>
+                ))
+              )}
+            </ul>
+            <div className="flex flex-col gap-2 sm:flex-row">
+              <input
+                className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3"
+                placeholder="Add a memory note…"
+                value={memoryNote}
+                onChange={(e) => setMemoryNote(e.target.value)}
+              />
+              <button
+                type="button"
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm font-semibold"
+                onClick={async () => {
+                  if (!memoryNote.trim()) return;
+                  setBusy(true);
+                  try {
+                    const data = await api(`/api/agents/${agentId}/memory`, {
+                      method: "POST",
+                      body: JSON.stringify({ content: memoryNote, kind: "note" }),
+                    });
+                    setMemory(data.agent.memory || []);
+                    setMemoryNote("");
+                  } catch (err) {
+                    setError(err);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Add note
+              </button>
+              <button
+                type="button"
+                className="min-h-11 rounded-xl border border-red-200 px-3 text-sm font-semibold text-red-700"
+                onClick={async () => {
+                  if (!window.confirm("Clear all memory for this agent?")) return;
+                  setBusy(true);
+                  try {
+                    const data = await api(`/api/agents/${agentId}/memory`, {
+                      method: "DELETE",
+                    });
+                    setMemory(data.agent.memory || []);
+                  } catch (err) {
+                    setError(err);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="flex flex-wrap gap-2">
           <button

@@ -75,6 +75,29 @@ const agentSchema = new mongoose.Schema(
     maxSteps: { type: Number, default: 25, min: 5, max: 100 },
     startUrl: { type: String, default: "", trim: true },
     active: { type: Boolean, default: true },
+    /**
+     * Long-term memory for this agent (episodic notes from past runs).
+     * Newest entries are first; capped when appending.
+     */
+    memory: {
+      type: [
+        {
+          kind: {
+            type: String,
+            enum: ["note", "run", "avoid", "preference"],
+            default: "note",
+          },
+          content: { type: String, required: true, trim: true },
+          sourceTask: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Task",
+            default: null,
+          },
+          at: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
@@ -99,6 +122,14 @@ export function toAgentSnapshot(agentDoc) {
     allowedDomains: a.allowedDomains || [],
     maxSteps: a.maxSteps ?? 25,
     startUrl: a.startUrl || "",
+    // Why: only recent memory in the snapshot so prompts stay bounded.
+    memory: Array.isArray(a.memory)
+      ? a.memory.slice(0, 20).map((m) => ({
+          kind: m.kind || "note",
+          content: m.content,
+          at: m.at,
+        }))
+      : [],
   };
 }
 
@@ -129,9 +160,49 @@ export function formatAgentPrompt(snapshot) {
     snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
     `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}`,
     `MAX STEPS BUDGET: ${snapshot.maxSteps ?? 25}`,
+    formatMemoryBlock(snapshot.memory),
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/**
+ * @param {object[]|undefined} memory
+ * @returns {string}
+ */
+function formatMemoryBlock(memory) {
+  if (!Array.isArray(memory) || memory.length === 0) return "";
+  const lines = memory
+    .slice(0, 15)
+    .map((m) => {
+      const when = m.at ? new Date(m.at).toISOString().slice(0, 10) : "";
+      return `- [${m.kind || "note"}${when ? ` ${when}` : ""}] ${m.content}`;
+    })
+    .join("\n");
+  return `AGENT MEMORY (use to avoid repeating work; update conclusions carefully):\n${lines}`;
+}
+
+/**
+ * Appends a memory entry and keeps the list capped.
+ * @param {import('mongoose').Document} agentDoc
+ * @param {{ kind?: string, content: string, sourceTask?: string }} entry
+ * @param {number} [cap]
+ */
+export async function appendAgentMemory(agentDoc, entry, cap = 50) {
+  const content = String(entry.content || "").trim();
+  if (!content) return agentDoc;
+  agentDoc.memory = agentDoc.memory || [];
+  agentDoc.memory.unshift({
+    kind: entry.kind || "note",
+    content: content.slice(0, 2000),
+    sourceTask: entry.sourceTask || null,
+    at: new Date(),
+  });
+  if (agentDoc.memory.length > cap) {
+    agentDoc.memory = agentDoc.memory.slice(0, cap);
+  }
+  await agentDoc.save();
+  return agentDoc;
 }
 
 export const Agent = mongoose.model("Agent", agentSchema);

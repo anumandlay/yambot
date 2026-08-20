@@ -320,9 +320,23 @@ export function createAgentController({ emit }) {
       domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
       snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
       `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${Boolean(auto.askBeforeLogin)}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
+      formatMemoryForPrompt(snapshot.memory),
     ]
       .filter(Boolean)
       .join("\n\n");
+  }
+
+  /**
+   * @param {object[]|undefined} memory
+   * @returns {string}
+   */
+  function formatMemoryForPrompt(memory) {
+    if (!Array.isArray(memory) || !memory.length) return "";
+    const lines = memory
+      .slice(0, 15)
+      .map((m) => `- [${m.kind || "note"}] ${m.content}`)
+      .join("\n");
+    return `AGENT MEMORY (avoid repeating failed or finished work):\n${lines}`;
   }
 
   async function executeAction(action, settings, obs) {

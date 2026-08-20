@@ -1,0 +1,43 @@
+/**
+ * @fileoverview Deploy helpers / Compose stack for YamBot on a single VPS.
+ * Purpose: Run API + Mongo + web, plus optional per-agent browser worker boxes later.
+ * Secrets stay in server-local `.env` (never commit real passwords).
+ */
+
+services:
+  mongo:
+    image: mongo:7
+    restart: unless-stopped
+    volumes:
+      - yambot_mongo:/data/db
+
+  api:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.api
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      NODE_ENV: production
+      MONGODB_URI: mongodb://mongo:27017/yambot
+      PORT: "4000"
+    ports:
+      - "4000:4000"
+    depends_on:
+      - mongo
+
+  web:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.web
+      args:
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://15.204.242.239:4000}
+    restart: unless-stopped
+    ports:
+      - "80:80"
+    depends_on:
+      - api
+
+volumes:
+  yambot_mongo:

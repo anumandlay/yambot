@@ -8,6 +8,7 @@ import { Router } from "express";
 import { Task } from "../models/Task.js";
 import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
+import { Agent, appendAgentMemory } from "../models/Agent.js";
 import { decryptSecret } from "../utils/crypto.js";
 
 export const extensionRouter = Router();
@@ -186,6 +187,21 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
       content: summary || (success ? "Done." : error || "Failed."),
       meta: { taskId: task._id, kind: "result", success },
     });
+
+    // Why: each completed run feeds the agent's long-term memory for future goals.
+    if (task.agent && (summary || error)) {
+      const agentDoc = await Agent.findOne({ _id: task.agent, user: req.userId });
+      if (agentDoc) {
+        const memContent = success
+          ? `Run completed. Goal: ${task.goal}\nResult: ${summary}`.slice(0, 2000)
+          : `Run failed. Goal: ${task.goal}\nError: ${error || summary}`.slice(0, 2000);
+        await appendAgentMemory(agentDoc, {
+          kind: success ? "run" : "avoid",
+          content: memContent,
+          sourceTask: task._id,
+        });
+      }
+    }
 
     res.json({ ok: true, task });
   } catch (err) {
