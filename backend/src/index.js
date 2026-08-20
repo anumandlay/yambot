@@ -70,8 +70,17 @@ const allowed = new Set(
 app.use(
   cors({
     origin(origin, cb) {
-      // Why: extension / curl / same-origin may send no Origin header.
-      if (!origin || allowed.size === 0 || allowed.has(origin)) {
+      // Why: curl / same-origin / some clients omit Origin.
+      if (!origin) {
+        cb(null, true);
+        return;
+      }
+      // Why: unpacked Chrome extensions get a random ID; allow all extension origins.
+      if (origin.startsWith("chrome-extension://")) {
+        cb(null, true);
+        return;
+      }
+      if (allowed.size === 0 || allowed.has(origin)) {
         cb(null, true);
         return;
       }

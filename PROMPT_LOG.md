@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 16:03] Fix: Allow Chrome extension CORS origins
+
+- **Prompt Provided:** CORS blocked for origin chrome-extension://oiafoodaaipolbnjgdjgpkfeiokecbbl
+- **Architectural Flow:** Express CORS origin callback → allow configured web origins + any `chrome-extension://*` → extension login/API calls succeed
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/index.js`
+
 ## [2026-08-20 15:54] Feature: Extension email/password login
 
 - **Prompt Provided:** "Paste your YamBot JWT…" error — use login instead of token in the Chrome extension
