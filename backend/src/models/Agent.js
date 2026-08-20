@@ -1,8 +1,8 @@
 /**
  * @fileoverview Agent model — reusable browser-worker definitions owned by a user.
- * Purpose: Store profile, skill, instructions, facts, autonomy, and success criteria
- * so chats/tasks can run with a specialized playbook instead of a blank generic bot.
- * Downstream: `/api/agents` CRUD; chats bind `agent`; tasks snapshot config for the extension.
+ * Purpose: Store profile, skill, instructions, facts, autonomy, runner target, and success criteria
+ * so chats/tasks can run with a specialized playbook on Chrome and/or a cloud Chromium box.
+ * Downstream: `/api/agents` CRUD; chats bind `agent`; tasks snapshot config for workers.
  */
 
 import mongoose from "mongoose";
@@ -15,6 +15,14 @@ export const AGENT_SKILLS = [
   "form_fill",
   "general",
 ];
+
+/**
+ * Where this agent's queued goals should run.
+ * - `extension`: local Chrome MV3 extension only
+ * - `cloud`: VPS Playwright worker bound to this agent (own browser profile)
+ * - `any`: whichever claims first (extension or matching cloud worker)
+ */
+export const AGENT_RUNNERS = ["any", "extension", "cloud"];
 
 /**
  * @typedef {object} AgentAutonomy
@@ -74,6 +82,16 @@ const agentSchema = new mongoose.Schema(
     allowedDomains: { type: [String], default: [] },
     maxSteps: { type: Number, default: 25, min: 5, max: 100 },
     startUrl: { type: String, default: "", trim: true },
+    /**
+     * Execution target for queued goals.
+     * Why: cloud agents get a dedicated Chromium profile on the VPS; extension agents stay on the user's laptop.
+     */
+    runner: {
+      type: String,
+      enum: AGENT_RUNNERS,
+      default: "any",
+      index: true,
+    },
     active: { type: Boolean, default: true },
     /**
      * Long-term memory for this agent (episodic notes from past runs).
@@ -122,6 +140,7 @@ export function toAgentSnapshot(agentDoc) {
     allowedDomains: a.allowedDomains || [],
     maxSteps: a.maxSteps ?? 25,
     startUrl: a.startUrl || "",
+    runner: a.runner || "any",
     // Why: only recent memory in the snapshot so prompts stay bounded.
     memory: Array.isArray(a.memory)
       ? a.memory.slice(0, 20).map((m) => ({

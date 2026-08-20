@@ -1,0 +1,38 @@
+# Optional overlay: one cloud computer per agent.
+# Usage:
+#   1. Set agent runner=cloud in the website (Agents → edit).
+#   2. Copy this file's worker block per agent, or use env file + scale carefully (each needs unique AGENT_ID + volume).
+#   3. docker compose -f docker-compose.yml -f docker-compose.workers.yml up -d --build
+#
+# Secrets stay in deploy/.env on the server (never commit real passwords).
+
+services:
+  # Example worker — duplicate and rename for each agent (unique container_name + volume + AGENT_ID).
+  worker-agent-1:
+    profiles: ["workers"]
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.worker
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      YAMBOT_API_BASE_URL: ${YAMBOT_API_BASE_URL:-http://api:4000}
+      YAMBOT_EMAIL: ${YAMBOT_EMAIL:-}
+      YAMBOT_PASSWORD: ${YAMBOT_PASSWORD:-}
+      YAMBOT_AGENT_ID: ${YAMBOT_AGENT_ID:-}
+      YAMBOT_WORKER_NAME: ${YAMBOT_WORKER_NAME:-cloud-agent-1}
+      YAMBOT_PROFILE_DIR: /data/browser-profile
+      YAMBOT_POLL_MS: "5000"
+      # Headless by default (saves RAM). Set YAMBOT_HEADED=1 only if you add a display/VNC sidecar.
+      YAMBOT_HEADED: "0"
+    volumes:
+      - yambot_agent1_profile:/data/browser-profile
+    depends_on:
+      - api
+    # Why ~1GB+ RAM per Chromium; do not start dozens on a small VPS.
+    mem_limit: 1536m
+    cpus: 1.0
+
+volumes:
+  yambot_agent1_profile:

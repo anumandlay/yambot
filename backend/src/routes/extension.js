@@ -1,7 +1,7 @@
 /**
- * @fileoverview Extension worker API — claim tasks, push events, load runtime LLM config.
- * Purpose: Bridge between queued website goals and the Chrome agent loop.
- * Downstream: Task/Message/User; Chrome extension background worker.
+ * @fileoverview Browser worker API — claim tasks, push events, load runtime LLM config.
+ * Purpose: Bridge between queued website goals and Chrome extension / Playwright cloud workers.
+ * Downstream: Task/Message/User/Agent; extension SW + `worker/` cloud computers.
  */
 
 import { Router } from "express";
@@ -13,9 +13,12 @@ import { decryptSecret } from "../utils/crypto.js";
 
 export const extensionRouter = Router();
 
+/** Stuck `running` tasks older than this are requeued (LLM steps can take a while). */
+const STUCK_RUNNING_MS = 5 * 60 * 1000;
+
 /**
  * GET /api/extension/runtime-config
- * Returns decrypted LLM/DBC settings for the authenticated user (extension only).
+ * Returns decrypted LLM/DBC settings for the authenticated user (workers only).
  */
 extensionRouter.get("/runtime-config", async (req, res, next) => {
   try {
@@ -43,45 +46,109 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
 });
 
 /**
- * GET/POST /api/extension/tasks/next
- * Atomically claims the oldest pending task for this user.
- * Why POST exists: Chrome may cache GET and return stale `{ task: null }` (304).
- * Also reclaims tasks stuck in `running` for > 2 minutes (agent crashed / SW slept).
+ * Builds Mongo filter for claimable pending tasks.
+ * Why: cloud workers own one agent; the laptop extension must not steal `runner: cloud` jobs.
+ *
+ * @param {string} userId
+ * @param {{ agentId?: string|null, claimAs?: string }} opts
+ * @returns {object}
  */
-async function claimNextTask(userId) {
-  const stuckBefore = new Date(Date.now() - 30 * 1000);
-  await Task.updateMany(
-    {
-      user: userId,
-      status: "running",
-      $or: [{ claimedAt: { $lt: stuckBefore } }, { claimedAt: null }],
+function buildClaimFilter(userId, opts = {}) {
+  const claimAs = opts.claimAs === "cloud" ? "cloud" : "extension";
+  const filter = { user: userId, status: "pending" };
+
+  if (opts.agentId) {
+    filter.agent = opts.agentId;
+  }
+
+  if (claimAs === "cloud") {
+    // Cloud box: only this agent's tasks that allow cloud (or legacy missing runner).
+    filter.$or = [
+      { runner: { $in: ["cloud", "any"] } },
+      { runner: { $exists: false } },
+      { runner: null },
+    ];
+  } else {
+    // Laptop extension: never take dedicated cloud-only agents.
+    filter.$or = [
+      { runner: { $in: ["extension", "any"] } },
+      { runner: { $exists: false } },
+      { runner: null },
+    ];
+  }
+
+  return filter;
+}
+
+/**
+ * Atomically claims the oldest matching pending task for this user.
+ * @param {string} userId
+ * @param {{ agentId?: string|null, claimAs?: string }} [opts]
+ */
+async function claimNextTask(userId, opts = {}) {
+  const stuckBefore = new Date(Date.now() - STUCK_RUNNING_MS);
+  const stuckFilter = {
+    user: userId,
+    status: "running",
+    $or: [{ claimedAt: { $lt: stuckBefore } }, { claimedAt: null }],
+  };
+  if (opts.agentId) stuckFilter.agent = opts.agentId;
+
+  await Task.updateMany(stuckFilter, {
+    $set: { status: "pending" },
+    $push: {
+      events: {
+        type: "requeued",
+        payload: { reason: "stuck_running_timeout" },
+        at: new Date(),
+      },
     },
+  });
+
+  const claimFilter = buildClaimFilter(userId, opts);
+  return Task.findOneAndUpdate(
+    claimFilter,
     {
-      $set: { status: "pending" },
+      $set: {
+        status: "running",
+        claimedAt: new Date(),
+      },
       $push: {
         events: {
-          type: "requeued",
-          payload: { reason: "stuck_running_timeout" },
+          type: "claimed",
+          payload: {
+            claimAs: opts.claimAs === "cloud" ? "cloud" : "extension",
+            agentId: opts.agentId || null,
+          },
           at: new Date(),
         },
       },
-    }
-  );
-
-  return Task.findOneAndUpdate(
-    { user: userId, status: "pending" },
-    {
-      $set: { status: "running", claimedAt: new Date() },
-      $push: { events: { type: "claimed", payload: {}, at: new Date() } },
     },
     { sort: { createdAt: 1 }, new: true }
   );
 }
 
+/**
+ * Parses claim options from query/body.
+ * @param {import('express').Request} req
+ */
+function parseClaimOpts(req) {
+  const body = req.body && typeof req.body === "object" ? req.body : {};
+  const agentId = String(body.agentId || req.query.agentId || "").trim() || null;
+  const claimAsRaw = String(body.claimAs || req.query.claimAs || "extension").trim();
+  const claimAs = claimAsRaw === "cloud" ? "cloud" : "extension";
+  return { agentId, claimAs };
+}
+
+/**
+ * GET/POST /api/extension/tasks/next
+ * Body/query: { agentId?, claimAs?: "extension"|"cloud" }
+ * Why POST exists: Chrome may cache GET and return stale `{ task: null }` (304).
+ */
 extensionRouter.get("/tasks/next", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
-    const task = await claimNextTask(req.userId);
+    const task = await claimNextTask(req.userId, parseClaimOpts(req));
     res.json({ ok: true, task: task || null });
   } catch (err) {
     next(err);
@@ -91,7 +158,7 @@ extensionRouter.get("/tasks/next", async (req, res, next) => {
 extensionRouter.post("/tasks/next", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
-    const task = await claimNextTask(req.userId);
+    const task = await claimNextTask(req.userId, parseClaimOpts(req));
     res.json({ ok: true, task: task || null });
   } catch (err) {
     next(err);
@@ -129,6 +196,8 @@ extensionRouter.post("/tasks/:id/events", async (req, res, next) => {
     const payload = req.body?.payload || {};
     task.events.push({ type, payload });
     if (req.body?.status) task.status = req.body.status;
+    // Why: heartbeat so long LLM/browser steps do not look "stuck" to the reclaim timer.
+    task.claimedAt = new Date();
 
     if (req.body?.appendMessage) {
       await Message.create({

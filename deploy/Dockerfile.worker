@@ -1,0 +1,19 @@
+# YamBot cloud computer — Playwright Chromium with a persistent profile per agent.
+# Build context: repo root (see docker-compose).
+
+FROM mcr.microsoft.com/playwright:v1.54.2-jammy
+
+WORKDIR /app
+
+COPY worker/package.json ./
+RUN npm install --omit=dev
+
+COPY worker/src ./src
+
+ENV NODE_ENV=production \
+    YAMBOT_PROFILE_DIR=/data/browser-profile \
+    YAMBOT_POLL_MS=5000
+
+VOLUME ["/data/browser-profile"]
+
+CMD ["node", "src/index.js"]

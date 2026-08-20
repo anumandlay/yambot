@@ -19,6 +19,7 @@ const EMPTY = {
   allowedDomains: "",
   startUrl: "",
   maxSteps: 25,
+  runner: "any",
   active: true,
   autonomy: {
     allowSubmit: true,
@@ -34,6 +35,7 @@ export function AgentEditPage() {
   const navigate = useNavigate();
   const [form, setForm] = useState(EMPTY);
   const [skills, setSkills] = useState(["general"]);
+  const [runners, setRunners] = useState(["any", "extension", "cloud"]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
@@ -45,6 +47,9 @@ export function AgentEditPage() {
       try {
         const meta = await api("/api/agents/meta");
         setSkills(meta.skills || ["general"]);
+        if (Array.isArray(meta.runners) && meta.runners.length) {
+          setRunners(meta.runners);
+        }
         if (!isNew) {
           const data = await api(`/api/agents/${agentId}`);
           const a = data.agent;
@@ -59,6 +64,7 @@ export function AgentEditPage() {
             allowedDomains: (a.allowedDomains || []).join(", "),
             startUrl: a.startUrl || "",
             maxSteps: a.maxSteps ?? 25,
+            runner: a.runner || "any",
             active: a.active !== false,
             autonomy: {
               allowSubmit: a.autonomy?.allowSubmit !== false,
@@ -229,6 +235,34 @@ export function AgentEditPage() {
             onChange={(e) => update("successCriteria", e.target.value)}
             placeholder="When to finish, e.g. summarize top 5 links with URLs"
           />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Computer / runner
+          <select
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.runner}
+            onChange={(e) => update("runner", e.target.value)}
+          >
+            {runners.map((r) => (
+              <option key={r} value={r}>
+                {r === "cloud"
+                  ? "Cloud computer (VPS Chromium)"
+                  : r === "extension"
+                    ? "My Chrome extension only"
+                    : "Any available (cloud or extension)"}
+              </option>
+            ))}
+          </select>
+          <span className="text-xs text-teal-900/60">
+            Cloud = dedicated always-on browser profile on the server for this agent. Copy the agent
+            ID into the worker container env (<code className="rounded bg-teal-50 px-1">YAMBOT_AGENT_ID</code>).
+            {!isNew ? (
+              <>
+                {" "}
+                ID: <code className="break-all rounded bg-teal-50 px-1">{agentId}</code>
+              </>
+            ) : null}
+          </span>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Start URL (optional)

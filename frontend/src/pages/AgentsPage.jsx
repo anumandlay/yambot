@@ -49,7 +49,8 @@ export function AgentsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
           <p className="text-sm text-teal-900/70">
-            Each agent has a profile, skill, instructions, facts, and autonomy rules.
+            Each agent has a profile, skill, instructions, and its own computer (Chrome extension
+            and/or a cloud Chromium box on the VPS).
           </p>
         </div>
         <Link
@@ -82,7 +83,17 @@ export function AgentsPage() {
             >
               <div>
                 <div className="font-semibold">{a.name}</div>
-                <div className="text-xs uppercase tracking-wide text-teal-800/60">{a.skill}</div>
+                <div className="flex flex-wrap gap-2 text-xs uppercase tracking-wide text-teal-800/60">
+                  <span>{a.skill}</span>
+                  <span>·</span>
+                  <span>
+                    {a.runner === "cloud"
+                      ? "cloud computer"
+                      : a.runner === "extension"
+                        ? "chrome only"
+                        : "any runner"}
+                  </span>
+                </div>
                 {a.description ? (
                   <p className="mt-1 text-sm text-teal-900/70">{a.description}</p>
                 ) : null}

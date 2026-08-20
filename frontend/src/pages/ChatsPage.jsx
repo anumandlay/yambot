@@ -107,9 +107,9 @@ export function ChatsPage() {
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-        <strong>Chrome extension:</strong> Sign in with the same email/password. Set API URL to{" "}
-        <code className="rounded bg-white px-1">https://bot.vughy.com</code>. Keep Chrome open so
-        queued goals run.
+        <strong>Runners:</strong> Agents can use your Chrome extension and/or a cloud Chromium box on
+        the VPS. Set this on Agents → Computer. Extension API URL:{" "}
+        <code className="rounded bg-white px-1">https://bot.vughy.com</code>.
       </div>
 
       {error ? (

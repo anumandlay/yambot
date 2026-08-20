@@ -100,7 +100,10 @@ async function pollCloudTasks() {
   let claimedId = null;
   try {
     // Why POST: avoids Chrome caching GET /tasks/next as 304 stale empty responses.
-    const data = await extensionApi("/api/extension/tasks/next", { method: "POST" });
+    const data = await extensionApi("/api/extension/tasks/next", {
+      method: "POST",
+      body: JSON.stringify({ claimAs: "extension" }),
+    });
     if (!data.task) return;
     claimedId = data.task._id;
     emit({

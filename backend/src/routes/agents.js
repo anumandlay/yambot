@@ -5,7 +5,7 @@
  */
 
 import { Router } from "express";
-import { Agent, AGENT_SKILLS, appendAgentMemory } from "../models/Agent.js";
+import { Agent, AGENT_SKILLS, AGENT_RUNNERS, appendAgentMemory } from "../models/Agent.js";
 
 export const agentsRouter = Router();
 
@@ -67,6 +67,10 @@ function pickAgentFields(body, opts = {}) {
   }
   if (body.allowedDomains != null) set("allowedDomains", normalizeDomains(body.allowedDomains));
   if (body.startUrl != null) set("startUrl", String(body.startUrl || "").trim());
+  if (body.runner != null) {
+    const runner = String(body.runner || "any");
+    set("runner", AGENT_RUNNERS.includes(runner) ? runner : "any");
+  }
   if (body.maxSteps != null) {
     const n = Number(body.maxSteps);
     set("maxSteps", Number.isFinite(n) ? Math.min(100, Math.max(5, n)) : 25);
@@ -103,7 +107,7 @@ function pickAgentFields(body, opts = {}) {
  * GET /api/agents/meta — skill enum for the UI.
  */
 agentsRouter.get("/meta", (_req, res) => {
-  res.json({ ok: true, skills: AGENT_SKILLS });
+  res.json({ ok: true, skills: AGENT_SKILLS, runners: AGENT_RUNNERS });
 });
 
 /**

@@ -135,6 +135,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       goal: content,
       agent: agentDoc?._id || null,
       agentSnapshot: snapshot,
+      // Why: freeze runner so claim routing stays correct if the agent is edited while queued.
+      runner: agentDoc?.runner || snapshot?.runner || "any",
       status: "pending",
       events: [
         {
@@ -143,17 +145,30 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             goal: content,
             agentId: snapshot?.id || null,
             agentName: snapshot?.name || null,
+            runner: agentDoc?.runner || snapshot?.runner || "any",
           },
         },
       ],
     });
 
     const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
+    const runner = agentDoc?.runner || "any";
+    const queueHint =
+      runner === "cloud"
+        ? "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile)."
+        : runner === "extension"
+          ? "Queued for your Chrome extension. Keep Chrome open with YamBot signed in."
+          : "Queued for any available worker (cloud computer or Chrome extension).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
-      content: `Goal queued${agentLabel} for your Chrome extension. Keep Chrome open with YamBot signed in.`,
-      meta: { taskId: task._id, status: "pending", agentId: snapshot?.id || null },
+      content: `Goal queued${agentLabel}. ${queueHint}`,
+      meta: {
+        taskId: task._id,
+        status: "pending",
+        agentId: snapshot?.id || null,
+        runner,
+      },
     });
 
     res.status(201).json({ ok: true, message, task, systemMessage: agentNote });

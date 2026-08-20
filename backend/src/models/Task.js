@@ -1,7 +1,8 @@
 /**
- * @fileoverview Task model — unit of work claimed by the Chrome extension worker.
+ * @fileoverview Task model — unit of work claimed by a browser worker.
  * Purpose: Queue browser goals from the website and store live execution state/results.
- * Downstream: chats routes (create), extension routes (claim/events/complete), frontend polling.
+ * Downstream: chats routes (create), extension routes (claim/events/complete),
+ * Playwright cloud workers, frontend polling.
  */
 
 import mongoose from "mongoose";
@@ -41,8 +42,18 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
-    /** Frozen copy of agent config at enqueue time (stable for the extension run). */
+    /** Frozen copy of agent config at enqueue time (stable for the worker run). */
     agentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+    /**
+     * Copied from agent.runner at enqueue so claim filters stay stable if the agent is edited mid-queue.
+     * @type {"any"|"extension"|"cloud"}
+     */
+    runner: {
+      type: String,
+      enum: ["any", "extension", "cloud"],
+      default: "any",
+      index: true,
+    },
     status: {
       type: String,
       enum: ["pending", "running", "waiting_user", "done", "error", "cancelled"],
