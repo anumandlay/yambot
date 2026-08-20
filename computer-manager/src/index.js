@@ -80,23 +80,54 @@ async function ensureRunning(agent) {
 
   let container = await findContainerByName(name);
   if (container) {
-    const info = await container.inspect();
-    if (!info.State?.Running) {
-      await container.start();
-      console.log(`[manager] started existing ${name}`);
-    }
-    await Agent.updateOne(
-      { _id: agent._id },
-      {
-        $set: {
-          "computer.containerName": name,
-          "computer.containerId": info.Id,
-          "computer.provisionError": "",
-          "computer.workerName": name,
-        },
+    try {
+      const info = await container.inspect();
+      const running = Boolean(info.State?.Running);
+      const restarting = Boolean(info.State?.Restarting);
+      const exitCode = info.State?.ExitCode;
+      // Why: after `compose down/up`, old containers keep a dead NetworkID and cannot start.
+      if (running && !restarting) {
+        await Agent.updateOne(
+          { _id: agent._id },
+          {
+            $set: {
+              "computer.containerName": name,
+              "computer.containerId": info.Id,
+              "computer.provisionError": "",
+              "computer.workerName": name,
+            },
+          }
+        );
+        return;
       }
-    );
-    return;
+      if (!running && !restarting) {
+        await container.start();
+        const after = await container.inspect();
+        await Agent.updateOne(
+          { _id: agent._id },
+          {
+            $set: {
+              "computer.containerName": name,
+              "computer.containerId": after.Id,
+              "computer.provisionError": "",
+              "computer.workerName": name,
+            },
+          }
+        );
+        console.log(`[manager] started existing ${name}`);
+        return;
+      }
+      // Restart loop (e.g. Playwright browser mismatch) → recreate with current image.
+      console.warn(`[manager] ${name} unhealthy (restarting/exit=${exitCode}); recreating`);
+      await ensureStopped(name);
+    } catch (err) {
+      console.warn(`[manager] ${name} start failed (${err?.message || err}); recreating`);
+      try {
+        await ensureStopped(name);
+      } catch {
+        /* continue to create */
+      }
+    }
   }
 
   // Ensure image exists

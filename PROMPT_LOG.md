@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 18:29] Fix: Cloud screen stuck on “Provisioning…”
+
+- **Prompt Provided:** provisioning cloud computer… but cannot see the screen
+- **Architectural Flow:** Pin Playwright `1.54.2` to match Docker image browsers; manager recreates containers when start fails (stale network after compose recreate)
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/package.json`, `computer-manager/src/index.js`, LiveScreen error surfacing
+
 ## [2026-08-20 18:21] Config: Default Minimax LLM settings (server-side)
 
 - **Prompt Provided:** Set LLM API key / MiniMax-M2.7 / https://api.minimax.io/v1 permanently in settings

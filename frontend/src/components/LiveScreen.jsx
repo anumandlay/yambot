@@ -176,10 +176,14 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             {error
               ? error.detail || error.message || "Could not load live screen"
               : provisioning
-                ? "Provisioning cloud computer… usually ready within 30 seconds."
+                ? live?.provisionError
+                  ? `Provision error: ${live.provisionError}`
+                  : "Provisioning cloud computer… usually ready within 30 seconds."
                 : live?.online
                   ? "Waiting for first screenshot…"
-                  : "Cloud computer is offline. Set runner to Cloud and ensure computer-manager is running on the VPS."}
+                  : live?.provisionError
+                    ? `Offline — ${live.provisionError}`
+                    : "Cloud computer is offline. Set runner to Cloud and ensure computer-manager is running on the VPS."}
           </p>
         )}
       </div>
