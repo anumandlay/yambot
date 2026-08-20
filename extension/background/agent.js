@@ -40,7 +40,16 @@ export function createAgentController({ emit }) {
     emit({ type, agent: snapshot(), ...extra });
     // Mirror key events to the YamBot API when this run came from a cloud task.
     if (state.cloudTaskId) {
-      void mirrorCloudEvent(type, extra).catch(() => {});
+      // Why: previously swallowed errors left cloud tasks stuck in `running` forever.
+      void mirrorCloudEvent(type, extra).catch((err) => {
+        console.error("mirrorCloudEvent failed", type, err);
+        emit({
+          type: "agent:error",
+          title: "Failed to sync progress to website",
+          detail: String(err?.message || err),
+          agent: snapshot(),
+        });
+      });
     }
   }
 
@@ -52,6 +61,33 @@ export function createAgentController({ emit }) {
   async function mirrorCloudEvent(type, extra) {
     const { extensionApi } = await import("./api.js");
     const taskId = state.cloudTaskId;
+    if (!taskId) return;
+
+    if (type === "agent:started") {
+      await extensionApi(`/api/extension/tasks/${taskId}/events`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "started",
+          status: "running",
+          payload: { goal: state.goal },
+          appendMessage: `Agent started on your Chrome browser…\nGoal: ${state.goal}`,
+        }),
+      });
+      return;
+    }
+    if (type === "agent:thinking") {
+      await extensionApi(`/api/extension/tasks/${taskId}/events`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "thinking",
+          payload: { url: extra.observation?.url, title: extra.observation?.title },
+          appendMessage: extra.observation?.url
+            ? `Looking at: ${extra.observation.title || ""} (${extra.observation.url})`
+            : "Thinking…",
+        }),
+      });
+      return;
+    }
     if (type === "agent:ask_user") {
       await extensionApi(`/api/extension/tasks/${taskId}/events`, {
         method: "POST",
@@ -383,19 +419,22 @@ export function createAgentController({ emit }) {
   }
 
   async function loop() {
-    const settings = await getSettings();
-    if (!settings.llmApiKey) {
-      throw new Error("Set your LLM API key in Settings first.");
-    }
-    state.maxSteps = settings.maxSteps;
-
-    running = true;
-    abort = false;
-    paused = false;
-    state.status = "running";
-    broadcast("agent:started");
-
     try {
+      const settings = await getSettings();
+      if (!settings.llmApiKey) {
+        throw Object.assign(new Error("Missing LLM API key"), {
+          title: "LLM not configured",
+          detail: "No LLM API key found on the website Settings or in the extension.",
+          hint: "Open the YamBot website → Settings → paste your LLM API key → Save, then send the goal again.",
+        });
+      }
+      state.maxSteps = settings.maxSteps;
+
+      abort = false;
+      paused = false;
+      state.status = "running";
+      broadcast("agent:started");
+
       while (!abort && state.step < state.maxSteps) {
         while (paused && !abort) {
           state.status = "paused";
@@ -441,6 +480,12 @@ export function createAgentController({ emit }) {
       if (abort) {
         state.status = "stopped";
         broadcast("agent:stopped");
+        if (state.cloudTaskId) {
+          broadcast("agent:error", {
+            title: "Stopped",
+            detail: "Agent was stopped before finishing.",
+          });
+        }
       } else {
         state.status = "max_steps";
         broadcast("agent:done", {
@@ -473,8 +518,14 @@ export function createAgentController({ emit }) {
       });
     }
 
+    // Why: lock immediately so the 5s poller cannot start a second run during awaits below.
+    running = true;
+    abort = false;
+    paused = false;
+
     const trimmedGoal = String(goal || "").trim();
     if (!trimmedGoal) {
+      running = false;
       throw Object.assign(new Error("Goal is empty"), {
         title: "Task required",
         detail: "Goal is empty.",
@@ -485,16 +536,9 @@ export function createAgentController({ emit }) {
     let tab = tabId
       ? await chrome.tabs.get(tabId)
       : (await chrome.tabs.query({ active: true, currentWindow: true }))[0];
-    if (!tab?.id) {
-      throw Object.assign(new Error("No active tab"), {
-        title: "No active tab",
-        detail: "Could not find a browser tab to control.",
-        hint: "Open any normal website tab, then press Start.",
-      });
-    }
 
-    // chrome://, edge://, new-tab, etc. cannot run content scripts
-    if (isRestrictedUrl(tab.url)) {
+    // Why: cloud goals should not depend on whichever tab happens to be focused (often the web app).
+    if (cloudTaskId || !tab?.id || isRestrictedUrl(tab?.url)) {
       tab = await chrome.tabs.create({
         url: "https://www.google.com/",
         active: true,
@@ -502,12 +546,22 @@ export function createAgentController({ emit }) {
       await waitForTabLoad(tab.id);
     }
 
+    if (!tab?.id) {
+      running = false;
+      throw Object.assign(new Error("No active tab"), {
+        title: "No browser tab",
+        detail: "Could not open a working tab for the agent.",
+        hint: "Allow Chrome to create tabs, then try again.",
+      });
+    }
+
     state = idleState();
     state.goal = trimmedGoal;
     state.tabId = tab.id;
     state.cloudTaskId = cloudTaskId || null;
+    state.status = "starting";
 
-    // fire and forget
+    // fire and forget — running stays true until loop() finally{}
     loop();
     return snapshot();
   }

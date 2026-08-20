@@ -74,12 +74,35 @@ async function testLlmConnection(cfg = {}) {
 }
 
 /** Claims one pending cloud task and starts the local agent. */
+let pollInFlight = false;
+
+async function failCloudTask(taskId, err) {
+  if (!taskId) return;
+  try {
+    await extensionApi(`/api/extension/tasks/${taskId}/complete`, {
+      method: "POST",
+      body: JSON.stringify({
+        success: false,
+        summary: err?.detail || err?.message || "Agent failed to start",
+        error: err?.detail || err?.message || "Agent failed to start",
+      }),
+    });
+  } catch (e) {
+    console.error("failCloudTask", e);
+  }
+}
+
 async function pollCloudTasks() {
+  if (pollInFlight) return;
   const snap = agent.getState();
   if (snap.running) return;
+  pollInFlight = true;
+  let claimedId = null;
   try {
-    const data = await extensionApi("/api/extension/tasks/next");
+    // Why POST: avoids Chrome caching GET /tasks/next as 304 stale empty responses.
+    const data = await extensionApi("/api/extension/tasks/next", { method: "POST" });
     if (!data.task) return;
+    claimedId = data.task._id;
     emit({
       type: "agent:cloud_claimed",
       taskId: data.task._id,
@@ -90,9 +113,12 @@ async function pollCloudTasks() {
       cloudTaskId: data.task._id,
     });
   } catch (err) {
-    // Silent if not paired yet; otherwise surface once.
-    if (String(err?.detail || err?.message || "").includes("Missing auth")) return;
-    emit({ type: "agent:error", ...serializeError(err), agent: agent.getState() });
+    const serialized = serializeError(err);
+    if (String(serialized.detail || "").includes("Not signed in")) return;
+    if (claimedId) await failCloudTask(claimedId, serialized);
+    emit({ type: "agent:error", ...serialized, agent: agent.getState() });
+  } finally {
+    pollInFlight = false;
   }
 }
 

@@ -42,21 +42,56 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
 });
 
 /**
- * GET /api/extension/tasks/next
+ * GET/POST /api/extension/tasks/next
  * Atomically claims the oldest pending task for this user.
+ * Why POST exists: Chrome may cache GET and return stale `{ task: null }` (304).
+ * Also reclaims tasks stuck in `running` for > 2 minutes (agent crashed / SW slept).
  */
+async function claimNextTask(userId) {
+  const stuckBefore = new Date(Date.now() - 30 * 1000);
+  await Task.updateMany(
+    {
+      user: userId,
+      status: "running",
+      $or: [{ claimedAt: { $lt: stuckBefore } }, { claimedAt: null }],
+    },
+    {
+      $set: { status: "pending" },
+      $push: {
+        events: {
+          type: "requeued",
+          payload: { reason: "stuck_running_timeout" },
+          at: new Date(),
+        },
+      },
+    }
+  );
+
+  return Task.findOneAndUpdate(
+    { user: userId, status: "pending" },
+    {
+      $set: { status: "running", claimedAt: new Date() },
+      $push: { events: { type: "claimed", payload: {}, at: new Date() } },
+    },
+    { sort: { createdAt: 1 }, new: true }
+  );
+}
+
 extensionRouter.get("/tasks/next", async (req, res, next) => {
   try {
-    const task = await Task.findOneAndUpdate(
-      { user: req.userId, status: "pending" },
-      { $set: { status: "running", claimedAt: new Date() }, $push: { events: { type: "claimed", payload: {} } } },
-      { sort: { createdAt: 1 }, new: true }
-    );
-    if (!task) {
-      res.json({ ok: true, task: null });
-      return;
-    }
-    res.json({ ok: true, task });
+    res.set("Cache-Control", "no-store");
+    const task = await claimNextTask(req.userId);
+    res.json({ ok: true, task: task || null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+extensionRouter.post("/tasks/next", async (req, res, next) => {
+  try {
+    res.set("Cache-Control", "no-store");
+    const task = await claimNextTask(req.userId);
+    res.json({ ok: true, task: task || null });
   } catch (err) {
     next(err);
   }
