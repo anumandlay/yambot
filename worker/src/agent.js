@@ -38,6 +38,43 @@ export function createCloudAgent({ api, config, log = console.log }) {
     log(`[${config.workerName}] Chromium ready (profile=${config.profileDir})`);
   }
 
+  /**
+   * Captures a JPEG and posts a computer heartbeat for the live dashboard.
+   * @param {{ taskId?: string|null }} [opts]
+   */
+  async function pushLiveScreen(opts = {}) {
+    await ensureBrowser();
+    if (!page || page.isClosed()) return;
+    let pageUrl = "";
+    try {
+      pageUrl = page.url();
+    } catch {
+      pageUrl = "";
+    }
+    let screenshotBase64 = "";
+    try {
+      const buf = await page.screenshot({
+        type: "jpeg",
+        quality: 45,
+        fullPage: false,
+      });
+      screenshotBase64 = Buffer.from(buf).toString("base64");
+    } catch (err) {
+      log(`[${config.workerName}] screenshot failed:`, err?.message || err);
+    }
+    await api("/api/extension/computer/heartbeat", {
+      method: "POST",
+      body: JSON.stringify({
+        agentId: config.agentId,
+        workerName: config.workerName,
+        pageUrl,
+        taskId: opts.taskId || null,
+        screenshotBase64,
+        mime: "image/jpeg",
+      }),
+    });
+  }
+
   async function mirror(taskId, type, body) {
     await api(`/api/extension/tasks/${taskId}/events`, {
       method: "POST",
@@ -186,6 +223,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         : "https://www.google.com/";
 
       await page.goto(bootUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+      await pushLiveScreen({ taskId });
       await mirror(taskId, "started", {
         status: "running",
         payload: { goal, worker: config.workerName },
@@ -193,6 +231,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       });
 
       for (let step = 1; step <= maxSteps; step += 1) {
+        await pushLiveScreen({ taskId }).catch(() => {});
         const obs = await page.evaluate(observeInPage);
         const messages = [
           {
@@ -393,6 +432,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
   return {
     runTask,
     ensureBrowser,
+    pushLiveScreen,
     close,
     isRunning: () => running,
   };

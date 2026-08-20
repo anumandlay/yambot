@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 17:47] Feature: Live agent screen on dashboard + clarify cloud computer lifecycle
+
+- **Prompt Provided:** Creating an agent should get own computer+Chrome+extension; also watch live screen from dashboard
+- **Architectural Flow:** Clarify create≠auto-provision; worker heartbeats + JPEG screenshots → Agent.liveScreen → dashboard poll `/api/agents/:id/live`; chat UI shows live pane
+- **Impacted Files:** `PROMPT_LOG.md`, Agent model, extension heartbeat route, worker screenshot loop, `LiveScreen` UI, Agent/Chat pages
+
 ## [2026-08-20 17:35] Feature: Own computer + Chrome per agent (cloud worker)
 
 - **Prompt Provided:** “Own computer + Chrome per agent” — lets do this

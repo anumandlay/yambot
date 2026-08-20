@@ -92,6 +92,30 @@ const agentSchema = new mongoose.Schema(
       default: "any",
       index: true,
     },
+    /**
+     * Last heartbeat from a cloud worker bound to this agent.
+     * Why: dashboard shows online/offline without a separate registry service.
+     */
+    computer: {
+      online: { type: Boolean, default: false },
+      workerName: { type: String, default: "" },
+      lastSeenAt: { type: Date, default: null },
+      pageUrl: { type: String, default: "" },
+      taskId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Task",
+        default: null,
+      },
+    },
+    /**
+     * Latest JPEG screenshot from the cloud computer (base64, no data: prefix).
+     * Why: dashboard live view without websockets; kept small via worker JPEG quality.
+     */
+    liveScreen: {
+      mime: { type: String, default: "image/jpeg" },
+      dataBase64: { type: String, default: "" },
+      at: { type: Date, default: null },
+    },
     active: { type: Boolean, default: true },
     /**
      * Long-term memory for this agent (episodic notes from past runs).

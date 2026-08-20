@@ -166,6 +166,62 @@ extensionRouter.post("/tasks/next", async (req, res, next) => {
 });
 
 /**
+ * POST /api/extension/computer/heartbeat
+ * Body: { agentId, workerName?, pageUrl?, taskId?, screenshotBase64?, mime? }
+ * Why: cloud workers announce presence and stream a compressed JPEG for the live dashboard.
+ */
+extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    if (!agentId) {
+      res.status(400).json({ ok: false, title: "agentId required", detail: "Missing agentId" });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+
+    agent.computer = agent.computer || {};
+    agent.computer.online = true;
+    agent.computer.workerName = String(req.body?.workerName || agent.computer.workerName || "").slice(
+      0,
+      120
+    );
+    agent.computer.lastSeenAt = new Date();
+    if (req.body?.pageUrl != null) {
+      agent.computer.pageUrl = String(req.body.pageUrl).slice(0, 2000);
+    }
+    if (req.body?.taskId) {
+      agent.computer.taskId = req.body.taskId;
+    }
+
+    const rawB64 = String(req.body?.screenshotBase64 || "");
+    // Why: cap ~900KB base64 (~650KB JPEG) so Mongo docs stay manageable.
+    if (rawB64 && rawB64.length <= 900_000) {
+      agent.liveScreen = {
+        mime: String(req.body?.mime || "image/jpeg").slice(0, 64),
+        dataBase64: rawB64.replace(/^data:[^;]+;base64,/, ""),
+        at: new Date(),
+      };
+    }
+
+    await agent.save();
+    res.json({
+      ok: true,
+      computer: {
+        online: true,
+        lastSeenAt: agent.computer.lastSeenAt,
+        hasScreen: Boolean(agent.liveScreen?.dataBase64),
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/extension/tasks/:id — refresh task (e.g. waiting for user_answer).
  */
 extensionRouter.get("/tasks/:id", async (req, res, next) => {

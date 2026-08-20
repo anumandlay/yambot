@@ -115,8 +115,23 @@ agentsRouter.get("/meta", (_req, res) => {
  */
 agentsRouter.get("/", async (req, res, next) => {
   try {
-    const agents = await Agent.find({ user: req.userId }).sort({ updatedAt: -1 }).lean();
-    res.json({ ok: true, agents });
+    // Why: omit huge liveScreen payloads from the list endpoint.
+    const agents = await Agent.find({ user: req.userId })
+      .select("-liveScreen.dataBase64")
+      .sort({ updatedAt: -1 })
+      .lean();
+    const now = Date.now();
+    const enriched = agents.map((a) => ({
+      ...a,
+      computer: {
+        ...(a.computer || {}),
+        // Why: workers heartbeat ~every 15s; treat stale as offline for the UI.
+        online: Boolean(
+          a.computer?.lastSeenAt && now - new Date(a.computer.lastSeenAt).getTime() < 45_000
+        ),
+      },
+    }));
+    res.json({ ok: true, agents: enriched });
   } catch (err) {
     next(err);
   }
@@ -148,12 +163,58 @@ agentsRouter.post("/", async (req, res, next) => {
  */
 agentsRouter.get("/:id", async (req, res, next) => {
   try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("-liveScreen.dataBase64")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const online = Boolean(
+      agent.computer?.lastSeenAt &&
+        Date.now() - new Date(agent.computer.lastSeenAt).getTime() < 45_000
+    );
+    res.json({
+      ok: true,
+      agent: {
+        ...agent,
+        computer: { ...(agent.computer || {}), online },
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/agents/:id/live — computer status + latest screenshot for the dashboard.
+ */
+agentsRouter.get("/:id/live", async (req, res, next) => {
+  try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId }).lean();
     if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
     }
-    res.json({ ok: true, agent });
+    const online = Boolean(
+      agent.computer?.lastSeenAt &&
+        Date.now() - new Date(agent.computer.lastSeenAt).getTime() < 45_000
+    );
+    const screen = agent.liveScreen || {};
+    res.json({
+      ok: true,
+      live: {
+        online,
+        workerName: agent.computer?.workerName || "",
+        lastSeenAt: agent.computer?.lastSeenAt || null,
+        pageUrl: agent.computer?.pageUrl || "",
+        taskId: agent.computer?.taskId || null,
+        runner: agent.runner || "any",
+        mime: screen.mime || "image/jpeg",
+        dataBase64: screen.dataBase64 || "",
+        capturedAt: screen.at || null,
+      },
+    });
   } catch (err) {
     next(err);
   }

@@ -71,7 +71,7 @@ chatsRouter.post("/", async (req, res, next) => {
 chatsRouter.get("/:id", async (req, res, next) => {
   try {
     const chat = await Chat.findOne({ _id: req.params.id, user: req.userId })
-      .populate("agent")
+      .populate("agent", "name skill runner")
       .lean();
     if (!chat) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });

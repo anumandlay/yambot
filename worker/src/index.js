@@ -1,10 +1,11 @@
 /**
  * @fileoverview Entry point for a YamBot cloud computer (one agent = one container).
- * Purpose: Keep a persistent Chromium profile warm and claim only that agent's tasks.
- * Downstream: Playwright agent loop → `/api/extension/*` → website chat.
+ * Purpose: Keep a persistent Chromium profile warm, stream live screenshots, claim agent tasks.
+ * Downstream: Playwright agent loop → `/api/extension/*` → website chat + live dashboard.
  *
  * Env: YAMBOT_API_BASE_URL, YAMBOT_EMAIL, YAMBOT_PASSWORD, YAMBOT_AGENT_ID,
- *      YAMBOT_PROFILE_DIR, YAMBOT_POLL_MS, YAMBOT_HEADED, YAMBOT_WORKER_NAME
+ *      YAMBOT_PROFILE_DIR, YAMBOT_POLL_MS, YAMBOT_HEADED, YAMBOT_WORKER_NAME,
+ *      YAMBOT_SCREEN_MS (idle screenshot interval, default 4000)
  */
 
 import { loadConfig } from "./config.js";
@@ -13,6 +14,7 @@ import { createCloudAgent } from "./agent.js";
 
 async function main() {
   const config = loadConfig();
+  const screenMs = Math.max(2000, Number(process.env.YAMBOT_SCREEN_MS) || 4000);
   const client = createApiClient(config);
   const agent = createCloudAgent({ api: client.api, config });
 
@@ -23,6 +25,9 @@ async function main() {
   await client.login();
   console.log(`[${config.workerName}] signed in as ${config.email}`);
   await agent.ensureBrowser();
+  await agent.pushLiveScreen().catch((err) => {
+    console.error(`[${config.workerName}] initial screen push failed`, err?.message || err);
+  });
 
   let pollInFlight = false;
 
@@ -50,14 +55,23 @@ async function main() {
     }
   }
 
-  const timer = setInterval(() => {
+  const pollTimer = setInterval(() => {
     void pollOnce();
   }, config.pollMs);
+
+  // Why: keep the dashboard live even between goals (desktop wallpaper / last page).
+  const screenTimer = setInterval(() => {
+    void agent.pushLiveScreen().catch((err) => {
+      console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);
+    });
+  }, screenMs);
+
   void pollOnce();
 
   const shutdown = async (signal) => {
     console.log(`[${config.workerName}] ${signal} — shutting down`);
-    clearInterval(timer);
+    clearInterval(pollTimer);
+    clearInterval(screenTimer);
     await agent.close();
     process.exit(0);
   };

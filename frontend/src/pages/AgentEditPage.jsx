@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { LiveScreen } from "../components/LiveScreen.jsx";
 
 const EMPTY = {
   name: "",
@@ -254,16 +255,27 @@ export function AgentEditPage() {
             ))}
           </select>
           <span className="text-xs text-teal-900/60">
-            Cloud = dedicated always-on browser profile on the server for this agent. Copy the agent
-            ID into the worker container env (<code className="rounded bg-teal-50 px-1">YAMBOT_AGENT_ID</code>).
+            Creating an agent does <strong>not</strong> auto-start a VPS box. Choose Cloud, then run
+            a worker container with this agent’s ID (see deploy README). The worker uses Playwright
+            Chromium with a persistent profile — not a full Chrome Extension install inside Docker.
             {!isNew ? (
               <>
                 {" "}
                 ID: <code className="break-all rounded bg-teal-50 px-1">{agentId}</code>
               </>
-            ) : null}
+            ) : (
+              " Save once to get an agent ID."
+            )}
           </span>
         </label>
+
+        {!isNew ? (
+          <div className="flex flex-col gap-2">
+            <div className="text-sm font-semibold text-teal-900/80">Live cloud screen</div>
+            <LiveScreen agentId={agentId} compact />
+          </div>
+        ) : null}
+
         <label className="flex flex-col gap-1 text-sm">
           Start URL (optional)
           <input

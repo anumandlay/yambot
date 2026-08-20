@@ -49,8 +49,9 @@ export function AgentsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
           <p className="text-sm text-teal-900/70">
-            Each agent has a profile, skill, instructions, and its own computer (Chrome extension
-            and/or a cloud Chromium box on the VPS).
+            Each agent is a playbook (skill, instructions, memory). A cloud “computer” starts only
+            when a worker is running for that agent ID — creating an agent alone does not spin up
+            Chrome on the VPS.
           </p>
         </div>
         <Link
@@ -93,6 +94,14 @@ export function AgentsPage() {
                         ? "chrome only"
                         : "any runner"}
                   </span>
+                  {a.runner === "cloud" || a.runner === "any" ? (
+                    <>
+                      <span>·</span>
+                      <span className={a.computer?.online ? "text-emerald-700" : ""}>
+                        {a.computer?.online ? "online" : "offline"}
+                      </span>
+                    </>
+                  ) : null}
                 </div>
                 {a.description ? (
                   <p className="mt-1 text-sm text-teal-900/70">{a.description}</p>
