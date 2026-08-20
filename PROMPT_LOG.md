@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 19:12] Config: Remove max steps — agents run unlimited
+
+- **Prompt Provided:** remove max steps; agent can work unlimited
+- **Architectural Flow:** Cloud worker + extension loops until `finish`/abort (no step ceiling); Max steps removed from Settings/Agent UI/sidepanel; prompts say unlimited
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `extension/background/agent.js`, `extension/sidepanel/*`, `frontend` Settings + AgentEdit, `backend` Agent/User/settings/agents/extension
+
 ## [2026-08-20 19:09] Fix: Mobile page scroll for chat history
 
 - **Prompt Provided:** on mobile cannot scroll up to see chat history; keep page scroller

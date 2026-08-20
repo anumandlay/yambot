@@ -266,7 +266,7 @@ function syncControls(agent) {
   const status = agent.status || "idle";
   statusBar.className = `status ${status}`;
   statusLabel.textContent = status.replaceAll("_", " ");
-  stepLabel.textContent = agent.step ? `Step ${agent.step}/${agent.maxSteps}` : "";
+  stepLabel.textContent = agent.step ? `Step ${agent.step}` : "";
 
   const busy = agent.running || status === "running" || status === "waiting_user";
   btnStart.disabled = busy;
@@ -376,7 +376,6 @@ async function loadSettings() {
     "llmModel",
     "dbcUsername",
     "dbcPassword",
-    "maxSteps",
     "confirmBeforeSubmit",
   ]);
   document.getElementById("api-base").value = data.apiBaseUrl || "https://bot.vughy.com";
@@ -386,7 +385,6 @@ async function loadSettings() {
   document.getElementById("llm-model").value = data.llmModel || "MiniMax-M2.7";
   document.getElementById("dbc-user").value = data.dbcUsername || "";
   document.getElementById("dbc-pass").value = data.dbcPassword || "";
-  document.getElementById("max-steps").value = data.maxSteps || 25;
   document.getElementById("confirm-submit").checked = data.confirmBeforeSubmit === true;
   syncAuthUi({ signedIn: Boolean(data.authToken), email: data.authEmail || "" });
 }
@@ -399,7 +397,6 @@ btnSave.addEventListener("click", async () => {
     llmModel: document.getElementById("llm-model").value.trim() || "MiniMax-M2.7",
     dbcUsername: document.getElementById("dbc-user").value.trim(),
     dbcPassword: document.getElementById("dbc-pass").value,
-    maxSteps: Number(document.getElementById("max-steps").value) || 25,
     confirmBeforeSubmit: document.getElementById("confirm-submit").checked,
   });
   saveMsg.textContent = "Saved";

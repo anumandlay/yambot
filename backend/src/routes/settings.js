@@ -45,7 +45,6 @@ settingsRouter.get("/", async (req, res, next) => {
         dbcUsername: s.dbcUsername || "",
         dbcPasswordMasked: mask(dbcPass),
         hasDbcPassword: Boolean(dbcPass),
-        maxSteps: s.maxSteps ?? 25,
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
       },
     });
@@ -56,7 +55,7 @@ settingsRouter.get("/", async (req, res, next) => {
 
 /**
  * PUT /api/settings — update config; empty secret fields keep previous values.
- * Body fields: llmApiKey?, llmBaseUrl, llmModel, dbcUsername, dbcPassword?, maxSteps, confirmBeforeSubmit
+ * Body fields: llmApiKey?, llmBaseUrl, llmModel, dbcUsername, dbcPassword?, confirmBeforeSubmit
  */
 settingsRouter.put("/", async (req, res, next) => {
   try {
@@ -71,7 +70,6 @@ settingsRouter.put("/", async (req, res, next) => {
     if (typeof body.llmBaseUrl === "string") nextSettings.llmBaseUrl = body.llmBaseUrl.trim();
     if (typeof body.llmModel === "string") nextSettings.llmModel = body.llmModel.trim();
     if (typeof body.dbcUsername === "string") nextSettings.dbcUsername = body.dbcUsername.trim();
-    if (body.maxSteps != null) nextSettings.maxSteps = Number(body.maxSteps) || 25;
     if (typeof body.confirmBeforeSubmit === "boolean") {
       nextSettings.confirmBeforeSubmit = body.confirmBeforeSubmit;
     }

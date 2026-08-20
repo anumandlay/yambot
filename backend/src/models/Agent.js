@@ -80,7 +80,7 @@ const agentSchema = new mongoose.Schema(
     successCriteria: { type: String, default: "", trim: true },
     /** Optional comma-friendly list; empty = no restriction. */
     allowedDomains: { type: [String], default: [] },
-    maxSteps: { type: Number, default: 25, min: 5, max: 100 },
+    maxSteps: { type: Number, default: 0, min: 0 },
     startUrl: { type: String, default: "", trim: true },
     /**
      * Execution target for queued goals.
@@ -208,7 +208,7 @@ export function toAgentSnapshot(agentDoc) {
     autonomy: a.autonomy || {},
     successCriteria: a.successCriteria || "",
     allowedDomains: a.allowedDomains || [],
-    maxSteps: a.maxSteps ?? 25,
+    maxSteps: a.maxSteps ?? 0,
     startUrl: a.startUrl || "",
     runner: a.runner || "any",
     // Why: only recent memory in the snapshot so prompts stay bounded.
@@ -248,7 +248,7 @@ export function formatAgentPrompt(snapshot) {
     domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
     snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
     `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}`,
-    `MAX STEPS BUDGET: ${snapshot.maxSteps ?? 25}`,
+    "STEP BUDGET: unlimited — call finish when done",
     formatMemoryBlock(snapshot.memory),
   ]
     .filter(Boolean)

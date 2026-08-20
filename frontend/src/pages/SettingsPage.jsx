@@ -15,7 +15,6 @@ export function SettingsPage() {
     llmModel: "MiniMax-M2.7",
     dbcUsername: "",
     dbcPassword: "",
-    maxSteps: 25,
     confirmBeforeSubmit: false,
     llmApiKeyMasked: "",
     dbcPasswordMasked: "",
@@ -62,7 +61,6 @@ export function SettingsPage() {
           llmModel: form.llmModel,
           dbcUsername: form.dbcUsername,
           dbcPassword: form.dbcPassword,
-          maxSteps: Number(form.maxSteps) || 25,
           confirmBeforeSubmit: Boolean(form.confirmBeforeSubmit),
         }),
       });
@@ -147,17 +145,6 @@ export function SettingsPage() {
           />
         </label>
 
-        <label className="flex flex-col gap-1 text-sm">
-          Max steps
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            type="number"
-            min={5}
-            max={100}
-            value={form.maxSteps}
-            onChange={(e) => update("maxSteps", e.target.value)}
-          />
-        </label>
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input
             type="checkbox"

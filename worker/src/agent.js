@@ -11,8 +11,6 @@ import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
 import { observeInPage, executeInPage, captchaMetaInPage } from "./pageDom.js";
 
-const DEFAULT_MAX_STEPS = 25;
-
 /**
  * @param {{ api: Function, config: import('./config.js').WorkerConfig, log?: Function }} deps
  */
@@ -168,7 +166,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
       llmModel: c.llmModel || "MiniMax-M2.7",
       dbcUsername: c.dbcUsername || "",
       dbcPassword: c.dbcPassword || "",
-      maxSteps: Number(c.maxSteps) || DEFAULT_MAX_STEPS,
     };
   }
 
@@ -220,6 +217,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${Boolean(auto.askBeforeLogin)}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
       memory ? `AGENT MEMORY:\n${memory}` : "",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
+      "There is no step limit — call finish when the goal or success criteria are met.",
     ]
       .filter(Boolean)
       .join("\n\n");
@@ -285,8 +283,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
       }
 
-      const maxSteps =
-        Number(agentSnapshot?.maxSteps) || settings.maxSteps || DEFAULT_MAX_STEPS;
+      // Why: no step budget — keep going until finish, abort, or hard error.
       const preferredStart =
         (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
         "https://www.google.com/";
@@ -302,7 +299,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
       });
 
-      for (let step = 1; step <= maxSteps; step += 1) {
+      let step = 0;
+      for (;;) {
+        step += 1;
         await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId }).catch(() => {});
         const obs = await page.evaluate(observeInPage);
@@ -312,6 +311,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             content: [
               ACTION_SCHEMA_FOR_PROMPT,
               "You are YamBot Browser Agent on a dedicated cloud computer.",
+              "There is no step limit — keep working until the goal is met, then call finish.",
               formatAgentSnapshot(agentSnapshot),
             ]
               .filter(Boolean)
@@ -321,7 +321,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             role: "user",
             content: [
               `GOAL:\n${goal}`,
-              `STEP: ${step}/${maxSteps}`,
+              `STEP: ${step}`,
               notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
               history.length
                 ? `RECENT ACTIONS:\n${history
@@ -385,9 +385,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         await sleep(600);
       }
-
-      const summary = `Stopped after ${maxSteps} steps. Notes:\n${notes.join("\n\n") || "(none)"}`;
-      await complete(taskId, { success: false, summary });
     } catch (err) {
       const detail = String(err?.detail || err?.message || err);
       log(`[${config.workerName}] Task ${taskId} error: ${detail}`);

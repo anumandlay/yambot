@@ -29,7 +29,7 @@ const settingsSchema = new mongoose.Schema(
     llmModel: { type: String, default: DEFAULT_LLM_MODEL },
     dbcUsername: { type: String, default: "" },
     dbcPasswordEnc: { type: String, default: "" },
-    maxSteps: { type: Number, default: 25 },
+    maxSteps: { type: Number, default: 0 },
     confirmBeforeSubmit: { type: Boolean, default: false },
   },
   { _id: false }

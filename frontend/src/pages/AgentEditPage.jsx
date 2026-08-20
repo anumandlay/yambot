@@ -19,7 +19,6 @@ const EMPTY = {
   successCriteria: "",
   allowedDomains: "",
   startUrl: "",
-  maxSteps: 25,
   runner: "cloud",
   active: true,
   autonomy: {
@@ -64,7 +63,6 @@ export function AgentEditPage() {
             successCriteria: a.successCriteria || "",
             allowedDomains: (a.allowedDomains || []).join(", "),
             startUrl: a.startUrl || "",
-            maxSteps: a.maxSteps ?? 25,
             runner: a.runner || "any",
             active: a.active !== false,
             autonomy: {
@@ -113,7 +111,6 @@ export function AgentEditPage() {
       ...form,
       facts: form.facts.filter((f) => f.key.trim()),
       allowedDomains: form.allowedDomains,
-      maxSteps: Number(form.maxSteps) || 25,
     };
     try {
       if (isNew) {
@@ -291,17 +288,6 @@ export function AgentEditPage() {
             value={form.allowedDomains}
             onChange={(e) => update("allowedDomains", e.target.value)}
             placeholder="news.google.com, reuters.com"
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Max steps
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            type="number"
-            min={5}
-            max={100}
-            value={form.maxSteps}
-            onChange={(e) => update("maxSteps", e.target.value)}
           />
         </label>
 

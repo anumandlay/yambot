@@ -3,8 +3,6 @@ import { solveCaptchaWithDbc } from "./captcha.js";
 import { extensionApi } from "./api.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
 
-const DEFAULT_MAX_STEPS = 25;
-
 export function createAgentController({ emit }) {
   let running = false;
   let paused = false;
@@ -17,7 +15,7 @@ export function createAgentController({ emit }) {
       status: "idle",
       goal: "",
       step: 0,
-      maxSteps: DEFAULT_MAX_STEPS,
+      maxSteps: 0,
       history: [],
       notes: [],
       lastError: null,
@@ -151,7 +149,6 @@ export function createAgentController({ emit }) {
           llmModel: remote.config.llmModel || "MiniMax-M2.7",
           dbcUsername: remote.config.dbcUsername || "",
           dbcPassword: remote.config.dbcPassword || "",
-          maxSteps: Number(remote.config.maxSteps) || DEFAULT_MAX_STEPS,
           confirmBeforeSubmit: remote.config.confirmBeforeSubmit === true,
         };
       }
@@ -165,7 +162,6 @@ export function createAgentController({ emit }) {
       "llmModel",
       "dbcUsername",
       "dbcPassword",
-      "maxSteps",
       "confirmBeforeSubmit",
     ]);
     return {
@@ -174,7 +170,6 @@ export function createAgentController({ emit }) {
       llmModel: data.llmModel || "MiniMax-M2.7",
       dbcUsername: data.dbcUsername || "",
       dbcPassword: data.dbcPassword || "",
-      maxSteps: Number(data.maxSteps) || DEFAULT_MAX_STEPS,
       confirmBeforeSubmit: data.confirmBeforeSubmit === true,
     };
   }
@@ -247,14 +242,13 @@ export function createAgentController({ emit }) {
   async function runStep(settings) {
     const obs = await observeTab(state.tabId);
     const agentBlock = formatAgentSnapshot(state.agentSnapshot);
-    const maxSteps =
-      Number(state.agentSnapshot?.maxSteps) || settings.maxSteps || DEFAULT_MAX_STEPS;
     const messages = [
       {
         role: "system",
         content: [
           ACTION_SCHEMA_FOR_PROMPT,
-          "You are YamBot Browser Agent. Achieve the user goal using the fewest safe steps.",
+          "You are YamBot Browser Agent. Achieve the user goal using safe steps.",
+          "There is no step limit — keep working until the goal is met, then call finish.",
           agentBlock
             ? `You are operating AS the following specialized agent. Obey its skill, instructions, facts, autonomy, and success criteria.\n\n${agentBlock}`
             : "",
@@ -266,7 +260,7 @@ export function createAgentController({ emit }) {
         role: "user",
         content: [
           `GOAL:\n${state.goal}`,
-          `STEP: ${state.step + 1}/${maxSteps}`,
+          `STEP: ${state.step + 1}`,
           state.notes.length ? `NOTES SO FAR:\n${state.notes.join("\n---\n")}` : "",
           state.history.length
             ? `RECENT ACTIONS:\n${state.history
@@ -320,6 +314,7 @@ export function createAgentController({ emit }) {
       domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
       snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
       `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${Boolean(auto.askBeforeLogin)}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
+      "STEP BUDGET: unlimited — call finish when done",
       formatMemoryForPrompt(snapshot.memory),
     ]
       .filter(Boolean)
@@ -483,15 +478,14 @@ export function createAgentController({ emit }) {
           hint: "Open the YamBot website → Settings → paste your LLM API key → Save, then send the goal again.",
         });
       }
-      state.maxSteps =
-        Number(state.agentSnapshot?.maxSteps) || settings.maxSteps || DEFAULT_MAX_STEPS;
+      state.maxSteps = 0; // Why: unlimited — loop until finish or abort.
 
       abort = false;
       paused = false;
       state.status = "running";
       broadcast("agent:started");
 
-      while (!abort && state.step < state.maxSteps) {
+      while (!abort) {
         while (paused && !abort) {
           state.status = "paused";
           broadcast("agent:paused");
@@ -542,12 +536,6 @@ export function createAgentController({ emit }) {
             detail: "Agent was stopped before finishing.",
           });
         }
-      } else {
-        state.status = "max_steps";
-        broadcast("agent:done", {
-          summary: `Stopped after ${state.maxSteps} steps. Notes:\n${state.notes.join("\n\n") || "(none)"}`,
-          success: false,
-        });
       }
     } catch (err) {
       state.status = "error";
@@ -624,9 +612,7 @@ export function createAgentController({ emit }) {
     state.cloudTaskId = cloudTaskId || null;
     state.agentSnapshot = agentSnapshot || null;
     state.status = "starting";
-    if (agentSnapshot?.maxSteps) {
-      state.maxSteps = Number(agentSnapshot.maxSteps) || DEFAULT_MAX_STEPS;
-    }
+    state.maxSteps = 0;
 
     // fire and forget — running stays true until loop() finally{}
     loop();

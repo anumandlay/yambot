@@ -125,10 +125,7 @@ function pickAgentFields(body, opts = {}) {
     const runner = String(body.runner || "cloud");
     set("runner", AGENT_RUNNERS.includes(runner) ? runner : "cloud");
   }
-  if (body.maxSteps != null) {
-    const n = Number(body.maxSteps);
-    set("maxSteps", Number.isFinite(n) ? Math.min(100, Math.max(5, n)) : 25);
-  }
+  // Why: maxSteps removed from product — agents run until finish; ignore legacy clients.
   if (body.active != null) set("active", Boolean(body.active));
   if (body.memory != null && Array.isArray(body.memory)) {
     set(

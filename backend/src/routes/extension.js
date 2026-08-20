@@ -37,7 +37,6 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
         llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
-        maxSteps: s.maxSteps ?? 25,
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
       },
     });
