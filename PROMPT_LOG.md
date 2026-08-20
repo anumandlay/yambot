@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 18:50] UI: Live screen above goal + fullscreen zoom
+
+- **Prompt Provided:** live screen above goal/instructions textbox; zoom in for full size
+- **Architectural Flow:** Chat detail single column — messages → LiveScreen → goal form; LiveScreen `Zoom in` toggles fixed fullscreen (Esc to exit)
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-20 18:44] UI: Mobile-responsive dashboard pass
 
 - **Prompt Provided:** make the webpage responsive

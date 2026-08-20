@@ -1,6 +1,6 @@
 /**
  * @fileoverview Live + interactive cloud-computer screen for the YamBot dashboard.
- * Purpose: Poll screenshots; optional takeover (click/type) so users can solve captchas etc.
+ * Purpose: Poll screenshots; optional takeover + fullscreen zoom for captchas/recovery.
  * Inputs: agentId; Downstream: `/api/agents/:id/live` + `/api/agents/:id/control`.
  */
 
@@ -16,6 +16,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
   const [controlOn, setControlOn] = useState(false);
   const [typeBuf, setTypeBuf] = useState("");
   const [status, setStatus] = useState("");
+  const [zoomed, setZoomed] = useState(false);
   const imgRef = useRef(null);
 
   useEffect(() => {
@@ -35,12 +36,27 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
     }
 
     tick();
-    const id = setInterval(tick, controlOn ? 1200 : 2000);
+    const id = setInterval(tick, controlOn || zoomed ? 1200 : 2000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [agentId, controlOn]);
+  }, [agentId, controlOn, zoomed]);
+
+  // Why: Esc exits fullscreen so the rest of the chat stays reachable.
+  useEffect(() => {
+    if (!zoomed) return undefined;
+    function onKey(e) {
+      if (e.key === "Escape") setZoomed(false);
+    }
+    window.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      window.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [zoomed]);
 
   if (!agentId) return null;
 
@@ -50,7 +66,6 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
       : null;
 
   /**
-   * Maps a click on the displayed image to normalized viewport coords.
    * @param {React.MouseEvent<HTMLImageElement>} e
    */
   async function onImageClick(e) {
@@ -119,16 +134,16 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
   }
 
   const provisioning =
-    !live?.online &&
-    live?.desired === "running" &&
-    !live?.provisionError;
+    !live?.online && live?.desired === "running" && !live?.provisionError;
+
+  const shellClass = zoomed
+    ? "fixed inset-0 z-50 flex flex-col overflow-auto rounded-none border-0 bg-slate-950 text-white"
+    : `overflow-hidden rounded-2xl border border-teal-100 bg-slate-950 text-white shadow-sm ${className}`;
 
   return (
-    <section
-      className={`overflow-hidden rounded-2xl border border-teal-100 bg-slate-950 text-white shadow-sm ${className}`}
-    >
+    <section className={shellClass}>
       <div className="flex flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2 text-xs">
-        <div className="flex flex-wrap items-center gap-2 font-semibold tracking-wide">
+        <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold tracking-wide">
           <span
             className={`inline-block h-2.5 w-2.5 rounded-full ${
               live?.online ? "bg-emerald-400" : provisioning ? "bg-amber-400" : "bg-slate-500"
@@ -136,18 +151,29 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
           />
           {live?.online ? "LIVE" : provisioning ? "STARTING…" : "OFFLINE"}
           {live?.workerName ? (
-            <span className="font-normal text-white/60">· {live.workerName}</span>
+            <span className="truncate font-normal text-white/60">· {live.workerName}</span>
           ) : null}
         </div>
-        <label className="flex min-h-11 items-center gap-2 font-semibold text-white/80">
-          <input
-            type="checkbox"
-            checked={controlOn}
-            onChange={(e) => setControlOn(e.target.checked)}
-            disabled={!live?.online}
-          />
-          Take control
-        </label>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="flex min-h-11 items-center gap-2 font-semibold text-white/80">
+            <input
+              type="checkbox"
+              checked={controlOn}
+              onChange={(e) => setControlOn(e.target.checked)}
+              disabled={!live?.online}
+            />
+            Take control
+          </label>
+          <button
+            type="button"
+            onClick={() => setZoomed((z) => !z)}
+            className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold"
+            aria-pressed={zoomed}
+            title={zoomed ? "Exit full screen (Esc)" : "Zoom to full screen"}
+          >
+            {zoomed ? "Exit full screen" : "Zoom in"}
+          </button>
+        </div>
       </div>
 
       {live?.provisionError ? (
@@ -157,8 +183,12 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
       ) : null}
 
       <div
-        className={`relative flex w-full items-center justify-center overflow-hidden bg-black ${
-          compact ? "min-h-36 sm:min-h-40" : "min-h-[36vh] sm:min-h-52 md:min-h-72"
+        className={`relative flex w-full flex-1 items-center justify-center overflow-hidden bg-black ${
+          zoomed
+            ? "min-h-0"
+            : compact
+              ? "min-h-36 sm:min-h-40"
+              : "min-h-[36vh] sm:min-h-52 md:min-h-72"
         }`}
       >
         {src ? (
@@ -167,23 +197,23 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             src={src}
             alt="Agent cloud computer screen"
             onClick={onImageClick}
-            className={`block h-auto w-full max-h-[42vh] bg-white object-contain sm:max-h-[50vh] md:max-h-[60vh] ${
-              controlOn ? "cursor-crosshair touch-manipulation" : ""
-            }`}
+            className={`block h-auto w-full bg-white object-contain ${
+              zoomed
+                ? "max-h-[calc(100dvh-8rem)]"
+                : "max-h-[42vh] sm:max-h-[50vh] md:max-h-[60vh]"
+            } ${controlOn ? "cursor-crosshair touch-manipulation" : ""}`}
           />
         ) : (
           <p className="px-4 py-10 text-center text-sm text-white/60">
             {error
               ? error.detail || error.message || "Could not load live screen"
               : provisioning
-                ? live?.provisionError
-                  ? `Provision error: ${live.provisionError}`
-                  : "Provisioning cloud computer… usually ready within 30 seconds."
+                ? "Provisioning cloud computer… usually ready within 30 seconds."
                 : live?.online
                   ? "Waiting for first screenshot…"
                   : live?.provisionError
                     ? `Offline — ${live.provisionError}`
-                    : "Cloud computer is offline. Set runner to Cloud and ensure computer-manager is running on the VPS."}
+                    : "Cloud computer is offline."}
           </p>
         )}
       </div>
@@ -191,8 +221,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
       {controlOn ? (
         <div className="flex flex-col gap-2 border-t border-white/10 bg-slate-900 px-3 py-3">
           <p className="text-xs text-white/60">
-            Click the screen to click. Type below for captchas / forms. Keys apply to the focused
-            page element.
+            Click the screen to click. Type below for captchas / forms.
           </p>
           <form onSubmit={sendType} className="flex flex-col gap-2 sm:flex-row">
             <input

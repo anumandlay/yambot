@@ -1,6 +1,6 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
- * Purpose: Live control plane UI for one browser-agent run thread (mobile-first).
+ * Purpose: Live control plane UI; screen sits above the goal box; mobile-first.
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
@@ -89,7 +89,7 @@ export function ChatDetailPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-3 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <Link
           to="/"
@@ -116,90 +116,84 @@ export function ChatDetailPage() {
         />
       ) : null}
 
-      {/* Why: on phones show live screen first; side-by-side from lg up */}
-      <div className="grid gap-4 lg:grid-cols-2 lg:items-start">
-        <div className="order-1 flex flex-col gap-2 lg:order-2">
-          <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
-          {agentId ? (
-            <LiveScreen agentId={String(agentId)} />
-          ) : (
-            <p className="rounded-2xl border border-dashed border-teal-200 bg-white p-4 text-sm text-teal-900/70">
-              This chat has no agent bound, so there is no cloud screen to show.
-            </p>
-          )}
+      {tasks[0] ? (
+        <div className="break-words rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
+          Latest task: <strong>{tasks[0].status}</strong>
+          {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
         </div>
+      ) : null}
 
-        <div className="order-2 flex min-w-0 flex-col gap-3 lg:order-1 sm:gap-4">
-          {tasks[0] ? (
-            <div className="break-words rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
-              Latest task: <strong>{tasks[0].status}</strong>
-              {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
-            </div>
-          ) : null}
-
-          <div className="flex max-h-[40vh] min-h-48 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:max-h-[50vh] sm:p-4 md:max-h-[55vh]">
-            {messages.map((m) => (
-              <article
-                key={m._id}
-                className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
-                  m.role === "user"
-                    ? "self-end bg-teal-700 text-white"
-                    : m.role === "assistant"
-                      ? "self-start bg-teal-50 text-teal-950"
-                      : "self-start bg-slate-50 text-slate-700"
-                }`}
-              >
-                <div className="mb-1 text-[0.7rem] uppercase opacity-70">{m.role}</div>
-                <div className="whitespace-pre-wrap break-words">{m.content}</div>
-              </article>
-            ))}
-            <div ref={bottomRef} />
-          </div>
-
-          {waitingTask ? (
-            <form
-              onSubmit={sendAnswer}
-              className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3"
-            >
-              <p className="text-sm font-semibold text-amber-950">
-                Agent is waiting for your answer
-              </p>
-              <input
-                className="min-h-11 w-full rounded-xl border border-amber-200 bg-white px-3"
-                value={answer}
-                onChange={(e) => setAnswer(e.target.value)}
-                placeholder="Type your reply…"
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="min-h-11 w-full rounded-xl bg-amber-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
-              >
-                Send answer
-              </button>
-            </form>
-          ) : null}
-
-          <form
-            onSubmit={sendGoal}
-            className="flex flex-col gap-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:flex-row"
+      <div className="flex max-h-[28vh] min-h-36 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:max-h-[32vh] sm:p-4 md:max-h-[36vh]">
+        {messages.map((m) => (
+          <article
+            key={m._id}
+            className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
+              m.role === "user"
+                ? "self-end bg-teal-700 text-white"
+                : m.role === "assistant"
+                  ? "self-start bg-teal-50 text-teal-950"
+                  : "self-start bg-slate-50 text-slate-700"
+            }`}
           >
-            <textarea
-              className="min-h-24 w-full flex-1 rounded-2xl border border-teal-100 bg-white px-3 py-3 shadow-sm"
-              placeholder="Goal / instructions…"
-              value={input}
-              onChange={(e) => setInput(e.target.value)}
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="min-h-11 w-full shrink-0 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto sm:self-end"
-            >
-              {busy ? "Sending…" : "Send goal"}
-            </button>
-          </form>
-        </div>
+            <div className="mb-1 text-[0.7rem] uppercase opacity-70">{m.role}</div>
+            <div className="whitespace-pre-wrap break-words">{m.content}</div>
+          </article>
+        ))}
+        <div ref={bottomRef} />
       </div>
+
+      {/* Why: screen sits directly above the goal box so users watch while typing. */}
+      <div className="flex flex-col gap-2">
+        <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
+        {agentId ? (
+          <LiveScreen agentId={String(agentId)} />
+        ) : (
+          <p className="rounded-2xl border border-dashed border-teal-200 bg-white p-4 text-sm text-teal-900/70">
+            This chat has no agent bound, so there is no cloud screen to show.
+          </p>
+        )}
+      </div>
+
+      {waitingTask ? (
+        <form
+          onSubmit={sendAnswer}
+          className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3"
+        >
+          <p className="text-sm font-semibold text-amber-950">Agent is waiting for your answer</p>
+          <input
+            className="min-h-11 w-full rounded-xl border border-amber-200 bg-white px-3"
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="Type your reply…"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 w-full rounded-xl bg-amber-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+          >
+            Send answer
+          </button>
+        </form>
+      ) : null}
+
+      <form
+        onSubmit={sendGoal}
+        className="flex flex-col gap-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] sm:flex-row"
+      >
+        <textarea
+          className="min-h-24 w-full flex-1 rounded-2xl border border-teal-100 bg-white px-3 py-3 shadow-sm"
+          placeholder="Goal / instructions…"
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+        />
+        <button
+          type="submit"
+          disabled={busy}
+          className="min-h-11 w-full shrink-0 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto sm:self-end"
+        >
+          {busy ? "Sending…" : "Send goal"}
+        </button>
+      </form>
     </div>
   );
 }
