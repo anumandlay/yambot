@@ -159,13 +159,15 @@ def main() -> int:
         f"DEFAULT_LLM_API_KEY={llm_key}\n"
     )
 
+    run("mkdir -p ~/yambot")
+    # Why: upload the new tarball before `compose down` so a transfer failure
+    # cannot leave production containers stopped with nothing to bring back up.
+    with SCPClient(client.get_transport(), socket_timeout=600) as scp:
+        scp.put(str(tgz), "/home/ubuntu/yambot-deploy.tgz")
     run(
         f"echo '{password}' | sudo -S bash -lc "
         f"'cd /home/ubuntu/yambot/deploy && {compose} down' || true"
     )
-    run("mkdir -p ~/yambot")
-    with SCPClient(client.get_transport()) as scp:
-        scp.put(str(tgz), "/home/ubuntu/yambot-deploy.tgz")
     run("rm -rf ~/yambot/* && tar -xzf ~/yambot-deploy.tgz -C ~/yambot")
 
     with sftp.file("/home/ubuntu/yambot/deploy/.env", "w") as f:
