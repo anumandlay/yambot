@@ -448,8 +448,8 @@ btnTestLlm.addEventListener("click", () => {
     type: "TEST_LLM",
     config: {
       apiKey: document.getElementById("llm-key").value.trim(),
-      baseUrl: document.getElementById("llm-base").value.trim() || "https://api.openai.com/v1",
-      model: document.getElementById("llm-model").value.trim() || "gpt-4o-mini",
+      baseUrl: document.getElementById("llm-base").value.trim() || "https://api.minimax.io/v1",
+      model: document.getElementById("llm-model").value.trim() || "MiniMax-M2.7",
     },
   });
 });

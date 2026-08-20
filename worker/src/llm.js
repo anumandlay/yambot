@@ -51,9 +51,9 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
     });
   }
 
-  const root = (baseUrl || "https://api.openai.com/v1").replace(/\/$/, "");
+  const root = (baseUrl || "https://api.minimax.io/v1").replace(/\/$/, "");
   const url = `${root}/chat/completions`;
-  const usedModel = model || "gpt-4o-mini";
+  const usedModel = model || "MiniMax-M2.7";
 
   let res;
   try {
