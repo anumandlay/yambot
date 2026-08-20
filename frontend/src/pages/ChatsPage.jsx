@@ -107,7 +107,8 @@ export function ChatsPage() {
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-        <strong>Chrome extension:</strong> Sign in with the same email/password. Keep Chrome open so
+        <strong>Chrome extension:</strong> Sign in with the same email/password. Set API URL to{" "}
+        <code className="rounded bg-white px-1">https://bot.vughy.com</code>. Keep Chrome open so
         queued goals run.
       </div>
 
