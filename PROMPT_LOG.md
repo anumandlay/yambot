@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 19:33] Feature: Free-text skill + per-agent scheduler
+
+- **Prompt Provided:** scheduler for every agent; remove skill dropdown — write skill in a textbox
+- **Architectural Flow:** Agent.skill is free text; Agent.schedule (enabled/goal/interval/dailyAt) → API `startAgentScheduler` ticks → enqueues Task into “Schedule · {name}” chat; skips if agent busy
+- **Impacted Files:** `PROMPT_LOG.md`, `backend` Agent model/routes/scheduler/index, `frontend` AgentEditPage/AgentsPage, worker + extension skill prompt
+
 ## [2026-08-20 19:19] Feature: Delete agent + System containers/CPU page
 
 - **Prompt Provided:** option to delete agent; page listing all containers + system processor charts

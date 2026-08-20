@@ -204,7 +204,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       : "";
     return [
       `AGENT NAME: ${snapshot.name}`,
-      `SKILL: ${snapshot.skill || "general"}`,
+      snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
       snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
       snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
       snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",

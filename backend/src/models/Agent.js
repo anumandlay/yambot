@@ -1,20 +1,11 @@
 /**
  * @fileoverview Agent model — reusable browser-worker definitions owned by a user.
- * Purpose: Store profile, skill, instructions, facts, autonomy, runner target, and success criteria
+ * Purpose: Store profile, free-text skill, instructions, facts, autonomy, schedule, and runner target
  * so chats/tasks can run with a specialized playbook on Chrome and/or a cloud Chromium box.
  * Downstream: `/api/agents` CRUD; chats bind `agent`; tasks snapshot config for workers.
  */
 
 import mongoose from "mongoose";
-
-/** Built-in skill labels used by the UI and prompts. */
-export const AGENT_SKILLS = [
-  "research",
-  "job_apply",
-  "backlinks",
-  "form_fill",
-  "general",
-];
 
 /**
  * Where this agent's queued goals should run.
@@ -23,6 +14,17 @@ export const AGENT_SKILLS = [
  * - `any`: whichever claims first (extension or matching cloud worker)
  */
 export const AGENT_RUNNERS = ["any", "extension", "cloud"];
+
+/** How often a scheduled goal is enqueued. */
+export const SCHEDULE_INTERVALS = [
+  "15m",
+  "30m",
+  "1h",
+  "6h",
+  "12h",
+  "24h",
+  "daily",
+];
 
 /**
  * @typedef {object} AgentAutonomy
@@ -42,6 +44,34 @@ const autonomySchema = new mongoose.Schema(
   { _id: false }
 );
 
+/**
+ * Per-agent goal scheduler — API process ticks and enqueues Tasks when due.
+ */
+const scheduleSchema = new mongoose.Schema(
+  {
+    enabled: { type: Boolean, default: false },
+    /** Goal text queued on each tick (same as sending a chat goal). */
+    goal: { type: String, default: "", trim: true },
+    /** 15m|30m|1h|6h|12h|24h|daily */
+    interval: {
+      type: String,
+      enum: SCHEDULE_INTERVALS,
+      default: "1h",
+    },
+    /** When interval=daily, wall-clock time in UTC as HH:MM. */
+    dailyAt: { type: String, default: "09:00", trim: true },
+    lastRunAt: { type: Date, default: null },
+    nextRunAt: { type: Date, default: null },
+    /** Chat thread that receives scheduled goals (auto-created). */
+    chatId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Chat",
+      default: null,
+    },
+  },
+  { _id: false }
+);
+
 const agentSchema = new mongoose.Schema(
   {
     user: {
@@ -54,11 +84,15 @@ const agentSchema = new mongoose.Schema(
     description: { type: String, default: "", trim: true },
     /** Who this agent is / persona for forms and tone. */
     profile: { type: String, default: "", trim: true },
+    /**
+     * Free-text skill description (what this agent is good at).
+     * Why: users write their own skill instead of a fixed dropdown.
+     */
     skill: {
       type: String,
-      enum: AGENT_SKILLS,
-      default: "general",
-      index: true,
+      default: "",
+      trim: true,
+      maxlength: 500,
     },
     /** Standing operating instructions for every run. */
     instructions: { type: String, default: "", trim: true },
@@ -82,6 +116,7 @@ const agentSchema = new mongoose.Schema(
     allowedDomains: { type: [String], default: [] },
     maxSteps: { type: Number, default: 0, min: 0 },
     startUrl: { type: String, default: "", trim: true },
+    schedule: { type: scheduleSchema, default: () => ({}) },
     /**
      * Execution target for queued goals.
      * Why: cloud agents get a dedicated Chromium profile on the VPS; extension agents stay on the user's laptop.
@@ -202,7 +237,7 @@ export function toAgentSnapshot(agentDoc) {
     name: a.name,
     description: a.description || "",
     profile: a.profile || "",
-    skill: a.skill || "general",
+    skill: a.skill || "",
     instructions: a.instructions || "",
     facts: Array.isArray(a.facts) ? a.facts : [],
     autonomy: a.autonomy || {},
@@ -237,7 +272,7 @@ export function formatAgentPrompt(snapshot) {
   const auto = snapshot.autonomy || {};
   return [
     `AGENT NAME: ${snapshot.name}`,
-    `SKILL: ${snapshot.skill}`,
+    snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
     snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
     snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
     snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",
@@ -292,6 +327,53 @@ export async function appendAgentMemory(agentDoc, entry, cap = 50) {
   }
   await agentDoc.save();
   return agentDoc;
+}
+
+/**
+ * Interval → milliseconds (daily uses wall clock separately).
+ * @param {string} interval
+ * @returns {number}
+ */
+export function scheduleIntervalMs(interval) {
+  switch (String(interval || "1h")) {
+    case "15m":
+      return 15 * 60 * 1000;
+    case "30m":
+      return 30 * 60 * 1000;
+    case "6h":
+      return 6 * 60 * 60 * 1000;
+    case "12h":
+      return 12 * 60 * 60 * 1000;
+    case "24h":
+      return 24 * 60 * 60 * 1000;
+    case "1h":
+    default:
+      return 60 * 60 * 1000;
+  }
+}
+
+/**
+ * Computes the next run time for an agent schedule.
+ * @param {{ interval?: string, dailyAt?: string, enabled?: boolean }} schedule
+ * @param {Date} [from]
+ * @returns {Date|null}
+ */
+export function computeNextRunAt(schedule, from = new Date()) {
+  if (!schedule?.enabled) return null;
+  const interval = String(schedule.interval || "1h");
+  if (interval === "daily") {
+    const raw = String(schedule.dailyAt || "09:00").trim();
+    const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
+    const hh = m ? Math.min(23, Math.max(0, Number(m[1]))) : 9;
+    const mm = m ? Math.min(59, Math.max(0, Number(m[2]))) : 0;
+    const next = new Date(from);
+    next.setUTCHours(hh, mm, 0, 0);
+    if (next.getTime() <= from.getTime()) {
+      next.setUTCDate(next.getUTCDate() + 1);
+    }
+    return next;
+  }
+  return new Date(from.getTime() + scheduleIntervalMs(interval));
 }
 
 export const Agent = mongoose.model("Agent", agentSchema);

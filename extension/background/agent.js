@@ -303,7 +303,7 @@ export function createAgentController({ emit }) {
     const auto = snapshot.autonomy || {};
     return [
       `AGENT NAME: ${snapshot.name}`,
-      `SKILL: ${snapshot.skill || "general"}`,
+      snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
       snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
       snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
       snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",

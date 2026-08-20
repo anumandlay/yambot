@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_SKILLS, AGENT_RUNNERS, appendAgentMemory } from "../models/Agent.js";
+import { Agent, AGENT_RUNNERS, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
 import {
   issueWorkerToken,
   containerNameForAgent,
@@ -110,10 +110,7 @@ function pickAgentFields(body, opts = {}) {
   if (body.name != null || !opts.partial) set("name", String(body.name || "").trim());
   if (body.description != null) set("description", String(body.description || "").trim());
   if (body.profile != null) set("profile", String(body.profile || "").trim());
-  if (body.skill != null) {
-    const skill = String(body.skill || "general");
-    set("skill", AGENT_SKILLS.includes(skill) ? skill : "general");
-  }
+  if (body.skill != null) set("skill", String(body.skill || "").trim().slice(0, 500));
   if (body.instructions != null) set("instructions", String(body.instructions || "").trim());
   if (body.facts != null) set("facts", normalizeFacts(body.facts));
   if (body.successCriteria != null) {
@@ -150,11 +147,45 @@ function pickAgentFields(body, opts = {}) {
       askBeforeSubmit: body.autonomy.askBeforeSubmit === true,
     });
   }
+  if (body.schedule != null && typeof body.schedule === "object") {
+    const s = body.schedule;
+    const enabled = Boolean(s.enabled);
+    const interval = SCHEDULE_INTERVALS.includes(String(s.interval))
+      ? String(s.interval)
+      : "1h";
+    let dailyAt = String(s.dailyAt || "09:00").trim();
+    if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
+    const goal = String(s.goal || "").trim().slice(0, 8000);
+    /** @type {object} */
+    const schedule = {
+      enabled,
+      goal,
+      interval,
+      dailyAt,
+    };
+    if (s.lastRunAt) schedule.lastRunAt = new Date(s.lastRunAt);
+    if (s.chatId) schedule.chatId = s.chatId;
+    if (enabled && goal) {
+      const incomingNext = s.nextRunAt ? new Date(s.nextRunAt) : null;
+      // Why: keep a future nextRunAt on edit; otherwise fire on the next scheduler tick.
+      schedule.nextRunAt =
+        incomingNext && !Number.isNaN(incomingNext.getTime()) && incomingNext.getTime() > Date.now()
+          ? incomingNext
+          : new Date();
+    } else {
+      schedule.nextRunAt = null;
+    }
+    set("schedule", schedule);
+  }
   return out;
 }
 
 agentsRouter.get("/meta", (_req, res) => {
-  res.json({ ok: true, skills: AGENT_SKILLS, runners: AGENT_RUNNERS });
+  res.json({
+    ok: true,
+    runners: AGENT_RUNNERS,
+    scheduleIntervals: SCHEDULE_INTERVALS,
+  });
 });
 
 agentsRouter.get("/", async (req, res, next) => {
@@ -345,6 +376,23 @@ agentsRouter.put("/:id", async (req, res, next) => {
     if (fields.name !== undefined && !fields.name) {
       res.status(400).json({ ok: false, title: "Name required", detail: "Name cannot be empty." });
       return;
+    }
+    if (fields.schedule) {
+      // Why: keep schedule chat + last run across edits; only recompute next when toggled/changed.
+      fields.schedule.chatId = fields.schedule.chatId || agent.schedule?.chatId || null;
+      fields.schedule.lastRunAt = fields.schedule.lastRunAt || agent.schedule?.lastRunAt || null;
+      const sameCadence =
+        agent.schedule?.enabled === fields.schedule.enabled &&
+        agent.schedule?.interval === fields.schedule.interval &&
+        agent.schedule?.dailyAt === fields.schedule.dailyAt &&
+        agent.schedule?.goal === fields.schedule.goal;
+      if (
+        sameCadence &&
+        agent.schedule?.nextRunAt &&
+        new Date(agent.schedule.nextRunAt).getTime() > Date.now()
+      ) {
+        fields.schedule.nextRunAt = agent.schedule.nextRunAt;
+      }
     }
     Object.assign(agent, fields);
     ensureWorkerCredentials(agent);

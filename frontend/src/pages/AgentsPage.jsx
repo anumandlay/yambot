@@ -109,8 +109,8 @@ export function AgentsPage() {
               <div className="min-w-0">
                 <div className="truncate font-semibold">{a.name}</div>
                 <div className="flex flex-wrap gap-2 text-xs uppercase tracking-wide text-teal-800/60">
-                  <span>{a.skill}</span>
-                  <span>·</span>
+                  {a.skill ? <span className="normal-case">{a.skill}</span> : null}
+                  {a.skill ? <span>·</span> : null}
                   <span>
                     {a.runner === "cloud"
                       ? "cloud computer"
@@ -118,6 +118,12 @@ export function AgentsPage() {
                         ? "chrome only"
                         : "any runner"}
                   </span>
+                  {a.schedule?.enabled ? (
+                    <>
+                      <span>·</span>
+                      <span className="text-amber-800">scheduled {a.schedule.interval}</span>
+                    </>
+                  ) : null}
                   {a.runner === "cloud" || a.runner === "any" ? (
                     <>
                       <span>·</span>

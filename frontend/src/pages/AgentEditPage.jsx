@@ -13,7 +13,7 @@ const EMPTY = {
   name: "",
   description: "",
   profile: "",
-  skill: "general",
+  skill: "",
   instructions: "",
   facts: [{ key: "", value: "" }],
   successCriteria: "",
@@ -27,6 +27,15 @@ const EMPTY = {
     askBeforeLogin: true,
     askBeforeSubmit: false,
   },
+  schedule: {
+    enabled: false,
+    goal: "",
+    interval: "1h",
+    dailyAt: "09:00",
+    lastRunAt: null,
+    nextRunAt: null,
+    chatId: null,
+  },
 };
 
 export function AgentEditPage() {
@@ -34,8 +43,16 @@ export function AgentEditPage() {
   const isNew = !agentId || agentId === "new";
   const navigate = useNavigate();
   const [form, setForm] = useState(EMPTY);
-  const [skills, setSkills] = useState(["general"]);
   const [runners, setRunners] = useState(["any", "extension", "cloud"]);
+  const [scheduleIntervals, setScheduleIntervals] = useState([
+    "15m",
+    "30m",
+    "1h",
+    "6h",
+    "12h",
+    "24h",
+    "daily",
+  ]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
@@ -46,9 +63,11 @@ export function AgentEditPage() {
     (async () => {
       try {
         const meta = await api("/api/agents/meta");
-        setSkills(meta.skills || ["general"]);
         if (Array.isArray(meta.runners) && meta.runners.length) {
           setRunners(meta.runners);
+        }
+        if (Array.isArray(meta.scheduleIntervals) && meta.scheduleIntervals.length) {
+          setScheduleIntervals(meta.scheduleIntervals);
         }
         if (!isNew) {
           const data = await api(`/api/agents/${agentId}`);
@@ -57,7 +76,7 @@ export function AgentEditPage() {
             name: a.name || "",
             description: a.description || "",
             profile: a.profile || "",
-            skill: a.skill || "general",
+            skill: a.skill || "",
             instructions: a.instructions || "",
             facts: a.facts?.length ? a.facts : [{ key: "", value: "" }],
             successCriteria: a.successCriteria || "",
@@ -70,6 +89,15 @@ export function AgentEditPage() {
               allowCaptcha: a.autonomy?.allowCaptcha !== false,
               askBeforeLogin: a.autonomy?.askBeforeLogin === true,
               askBeforeSubmit: a.autonomy?.askBeforeSubmit === true,
+            },
+            schedule: {
+              enabled: Boolean(a.schedule?.enabled),
+              goal: a.schedule?.goal || "",
+              interval: a.schedule?.interval || "1h",
+              dailyAt: a.schedule?.dailyAt || "09:00",
+              lastRunAt: a.schedule?.lastRunAt || null,
+              nextRunAt: a.schedule?.nextRunAt || null,
+              chatId: a.schedule?.chatId || null,
             },
           });
           setMemory(a.memory || []);
@@ -88,6 +116,13 @@ export function AgentEditPage() {
     setForm((prev) => ({
       ...prev,
       autonomy: { ...prev.autonomy, [key]: value },
+    }));
+  }
+
+  function updateSchedule(key, value) {
+    setForm((prev) => ({
+      ...prev,
+      schedule: { ...prev.schedule, [key]: value },
     }));
   }
 
@@ -201,17 +236,12 @@ export function AgentEditPage() {
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Skill
-          <select
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
+          <textarea
+            className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
             value={form.skill}
             onChange={(e) => update("skill", e.target.value)}
-          >
-            {skills.map((s) => (
-              <option key={s} value={s}>
-                {s}
-              </option>
-            ))}
-          </select>
+            placeholder="What this agent is good at, e.g. research competitor pricing and summarize findings"
+          />
         </label>
         <label className="flex flex-col gap-1 text-sm">
           Profile / persona
@@ -270,6 +300,81 @@ export function AgentEditPage() {
             ) : null}
           </span>
         </label>
+
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
+          <legend className="px-1 text-sm font-semibold text-teal-900">Scheduler</legend>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(form.schedule?.enabled)}
+              onChange={(e) => updateSchedule("enabled", e.target.checked)}
+            />
+            Run a goal on a schedule for this agent
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Scheduled goal
+            <textarea
+              className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2"
+              value={form.schedule?.goal || ""}
+              onChange={(e) => updateSchedule("goal", e.target.value)}
+              placeholder="Goal to enqueue automatically…"
+              disabled={!form.schedule?.enabled}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Frequency
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+              value={form.schedule?.interval || "1h"}
+              onChange={(e) => updateSchedule("interval", e.target.value)}
+              disabled={!form.schedule?.enabled}
+            >
+              {scheduleIntervals.map((iv) => (
+                <option key={iv} value={iv}>
+                  {iv === "daily"
+                    ? "Once daily (UTC time below)"
+                    : iv === "15m"
+                      ? "Every 15 minutes"
+                      : iv === "30m"
+                        ? "Every 30 minutes"
+                        : iv === "1h"
+                          ? "Every hour"
+                          : iv === "6h"
+                            ? "Every 6 hours"
+                            : iv === "12h"
+                              ? "Every 12 hours"
+                              : "Every 24 hours"}
+                </option>
+              ))}
+            </select>
+          </label>
+          {form.schedule?.interval === "daily" ? (
+            <label className="flex flex-col gap-1 text-sm">
+              Daily time (UTC)
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                type="time"
+                value={form.schedule?.dailyAt || "09:00"}
+                onChange={(e) => updateSchedule("dailyAt", e.target.value)}
+                disabled={!form.schedule?.enabled}
+              />
+            </label>
+          ) : null}
+          {(form.schedule?.lastRunAt || form.schedule?.nextRunAt) && (
+            <p className="text-xs text-teal-900/70">
+              {form.schedule.lastRunAt
+                ? `Last run: ${new Date(form.schedule.lastRunAt).toLocaleString()}. `
+                : null}
+              {form.schedule.nextRunAt
+                ? `Next run: ${new Date(form.schedule.nextRunAt).toLocaleString()}.`
+                : null}
+            </p>
+          )}
+          <p className="text-xs text-teal-900/60">
+            Scheduled runs appear in a chat titled “Schedule · {form.name || "agent"}”. Skips a tick
+            if this agent already has a pending/running task.
+          </p>
+        </fieldset>
 
         {!isNew ? (
           <div className="flex flex-col gap-2">
