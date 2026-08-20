@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 19:09] Fix: Mobile page scroll for chat history
+
+- **Prompt Provided:** on mobile cannot scroll up to see chat history; keep page scroller
+- **Architectural Flow:** Chat messages expand in document flow (no nested max-height box); auto-scroll only after user send, not on poll
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`
+
 ## [2026-08-20 18:56] Feature: Human mouse/keyboard takeover + give control back
 
 - **Prompt Provided:** use mouse and keyboard on live computer for captcha etc., then give control back to the agent

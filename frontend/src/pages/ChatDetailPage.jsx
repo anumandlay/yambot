@@ -37,9 +37,12 @@ export function ChatDetailPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+  // Why: only jump when the user sends something — polling must not yank scroll on mobile.
+  const scrollToLatest = useCallback(() => {
+    requestAnimationFrame(() => {
+      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+    });
+  }, []);
 
   const waitingTask = tasks.find((t) => t.status === "waiting_user");
   const agentId = chat?.agent?._id || chat?.agent || null;
@@ -60,6 +63,7 @@ export function ChatDetailPage() {
       });
       setInput("");
       await load();
+      scrollToLatest();
     } catch (err) {
       setError(err);
     } finally {
@@ -81,6 +85,7 @@ export function ChatDetailPage() {
       });
       setAnswer("");
       await load();
+      scrollToLatest();
     } catch (err) {
       setError(err);
     } finally {
@@ -123,7 +128,11 @@ export function ChatDetailPage() {
         </div>
       ) : null}
 
-      <div className="flex max-h-[28vh] min-h-36 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:max-h-[32vh] sm:p-4 md:max-h-[36vh]">
+      {/* Why: no nested max-height scroller — the page itself scrolls so history is reachable on mobile. */}
+      <div className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4">
+        {messages.length === 0 ? (
+          <p className="text-sm text-teal-900/60">No messages yet. Send a goal below.</p>
+        ) : null}
         {messages.map((m) => (
           <article
             key={m._id}
