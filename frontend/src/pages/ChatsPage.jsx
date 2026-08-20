@@ -5,7 +5,7 @@
 
 import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api, getToken } from "../lib/api.js";
+import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 
 export function ChatsPage() {
@@ -63,22 +63,10 @@ export function ChatsPage() {
       </div>
 
       <div className="rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-        <strong>Extension pairing:</strong> Copy your session token and paste it into the YamBot
-        Chrome extension Settings (API URL + Auth token). Keep Chrome open so queued goals run.
-        <div className="mt-2 flex flex-wrap gap-2">
-          <button
-            type="button"
-            className="min-h-11 rounded-xl border border-amber-300 bg-white px-3 font-semibold"
-            onClick={async () => {
-              const token = getToken();
-              if (!token) return;
-              await navigator.clipboard.writeText(token);
-              alert("Token copied. Paste it into the extension Settings → Auth token.");
-            }}
-          >
-            Copy login token
-          </button>
-        </div>
+        <strong>Chrome extension:</strong> Open YamBot extension → Settings → sign in with the{" "}
+        <em>same email and password</em> as this website (API URL{" "}
+        <code className="rounded bg-white px-1">http://localhost:4000</code> locally). Keep Chrome
+        open so queued goals run.
       </div>
 
       {error ? (

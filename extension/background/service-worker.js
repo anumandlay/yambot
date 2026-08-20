@@ -6,7 +6,7 @@
 
 import { createAgentController } from "./agent.js";
 import { chatCompletion, LlmError } from "./llm.js";
-import { extensionApi } from "./api.js";
+import { extensionApi, loginWithPassword, logoutExtension, getExtensionAuth } from "./api.js";
 
 chrome.sidePanel.setPanelBehavior({ openPanelOnActionClick: true }).catch(() => {});
 
@@ -131,6 +131,34 @@ chrome.runtime.onConnect.addListener((port) => {
         case "POLL_NOW":
           await pollCloudTasks();
           break;
+        case "LOGIN": {
+          try {
+            const result = await loginWithPassword({
+              apiBaseUrl: msg.apiBaseUrl,
+              email: msg.email,
+              password: msg.password,
+            });
+            port.postMessage({ type: "auth:login:result", ok: true, user: result.user });
+            await pollCloudTasks();
+          } catch (err) {
+            port.postMessage({ type: "auth:login:result", ...serializeError(err) });
+          }
+          break;
+        }
+        case "LOGOUT":
+          await logoutExtension();
+          port.postMessage({ type: "auth:logout:result", ok: true });
+          break;
+        case "GET_AUTH": {
+          const auth = await getExtensionAuth();
+          port.postMessage({
+            type: "auth:state",
+            signedIn: Boolean(auth.authToken),
+            email: auth.authEmail,
+            apiBaseUrl: auth.apiBaseUrl,
+          });
+          break;
+        }
         case "TEST_LLM": {
           port.postMessage({ type: "llm:test:pending" });
           try {

@@ -26,12 +26,21 @@ const btnBack = document.getElementById("btn-back");
 const btnSave = document.getElementById("btn-save");
 const btnTestLlm = document.getElementById("btn-test-llm");
 const btnPoll = document.getElementById("btn-poll");
+const btnLogin = document.getElementById("btn-login");
+const btnLogout = document.getElementById("btn-logout");
 const btnDismissError = document.getElementById("btn-dismiss-error");
 const saveMsg = document.getElementById("save-msg");
 const llmTestAlert = document.getElementById("llm-test-alert");
 const llmTestTitle = document.getElementById("llm-test-title");
 const llmTestDetail = document.getElementById("llm-test-detail");
 const llmTestHint = document.getElementById("llm-test-hint");
+const authSignedIn = document.getElementById("auth-signed-in");
+const authSignedEmail = document.getElementById("auth-signed-email");
+const authLoginForm = document.getElementById("auth-login-form");
+const authAlert = document.getElementById("auth-alert");
+const authAlertTitle = document.getElementById("auth-alert-title");
+const authAlertDetail = document.getElementById("auth-alert-detail");
+const authAlertHint = document.getElementById("auth-alert-hint");
 
 let port = null;
 
@@ -155,6 +164,36 @@ function onMessage(msg) {
       break;
     case "agent:cloud_claimed":
       appendLog("system", `Claimed cloud task: ${msg.goal}`);
+      break;
+    case "auth:login:result":
+      btnLogin.disabled = false;
+      if (msg.ok) {
+        showAuthAlert({
+          kind: "ok",
+          title: "Signed in",
+          detail: msg.user?.email || "Login successful",
+        });
+        syncAuthUi({ signedIn: true, email: msg.user?.email || "" });
+        document.getElementById("auth-password").value = "";
+      } else {
+        showAuthAlert({
+          kind: "error",
+          title: msg.title || "Login failed",
+          detail: msg.detail || msg.error || msg.message || "Could not sign in",
+          hint: msg.hint || "",
+        });
+      }
+      break;
+    case "auth:logout:result":
+      syncAuthUi({ signedIn: false, email: "" });
+      showAuthAlert({
+        kind: "ok",
+        title: "Signed out",
+        detail: "Extension will stop claiming cloud tasks until you sign in again.",
+      });
+      break;
+    case "auth:state":
+      syncAuthUi({ signedIn: msg.signedIn, email: msg.email || "" });
       break;
     case "llm:test:pending":
       btnTestLlm.disabled = true;
@@ -296,10 +335,42 @@ btnBack.addEventListener("click", () => {
   viewMain.classList.remove("hidden");
 });
 
+function showAuthAlert({ kind, title, detail, hint }) {
+  authAlert.classList.remove("hidden", "ok", "error", "pending");
+  authAlert.classList.add(kind);
+  authAlertTitle.textContent = title;
+  authAlertDetail.textContent = detail || "";
+  if (hint) {
+    authAlertHint.textContent = hint;
+    authAlertHint.classList.remove("hidden");
+  } else {
+    authAlertHint.textContent = "";
+    authAlertHint.classList.add("hidden");
+  }
+}
+
+/**
+ * Toggles signed-in vs login form visibility.
+ * @param {{ signedIn: boolean, email?: string }} state
+ */
+function syncAuthUi({ signedIn, email }) {
+  if (signedIn) {
+    authSignedIn.classList.remove("hidden");
+    authSignedEmail.textContent = email || "Account connected";
+    authLoginForm.classList.add("hidden");
+    btnLogout.classList.remove("hidden");
+  } else {
+    authSignedIn.classList.add("hidden");
+    authLoginForm.classList.remove("hidden");
+    btnLogout.classList.add("hidden");
+  }
+}
+
 async function loadSettings() {
   const data = await chrome.storage.local.get([
     "apiBaseUrl",
     "authToken",
+    "authEmail",
     "llmApiKey",
     "llmBaseUrl",
     "llmModel",
@@ -309,7 +380,7 @@ async function loadSettings() {
     "confirmBeforeSubmit",
   ]);
   document.getElementById("api-base").value = data.apiBaseUrl || "http://localhost:4000";
-  document.getElementById("auth-token").value = data.authToken || "";
+  document.getElementById("auth-email").value = data.authEmail || "";
   document.getElementById("llm-key").value = data.llmApiKey || "";
   document.getElementById("llm-base").value = data.llmBaseUrl || "https://api.openai.com/v1";
   document.getElementById("llm-model").value = data.llmModel || "gpt-4o-mini";
@@ -317,12 +388,12 @@ async function loadSettings() {
   document.getElementById("dbc-pass").value = data.dbcPassword || "";
   document.getElementById("max-steps").value = data.maxSteps || 25;
   document.getElementById("confirm-submit").checked = data.confirmBeforeSubmit !== false;
+  syncAuthUi({ signedIn: Boolean(data.authToken), email: data.authEmail || "" });
 }
 
 btnSave.addEventListener("click", async () => {
   await chrome.storage.local.set({
     apiBaseUrl: document.getElementById("api-base").value.trim() || "http://localhost:4000",
-    authToken: document.getElementById("auth-token").value.trim(),
     llmApiKey: document.getElementById("llm-key").value.trim(),
     llmBaseUrl: document.getElementById("llm-base").value.trim() || "https://api.openai.com/v1",
     llmModel: document.getElementById("llm-model").value.trim() || "gpt-4o-mini",
@@ -336,6 +407,33 @@ btnSave.addEventListener("click", async () => {
     saveMsg.textContent = "";
   }, 1500);
 });
+
+btnLogin?.addEventListener("click", () => {
+  const email = document.getElementById("auth-email").value.trim();
+  const password = document.getElementById("auth-password").value;
+  if (!email || !password) {
+    showAuthAlert({
+      kind: "error",
+      title: "Missing credentials",
+      detail: "Enter both email and password.",
+    });
+    return;
+  }
+  btnLogin.disabled = true;
+  showAuthAlert({
+    kind: "pending",
+    title: "Signing in…",
+    detail: "Contacting YamBot API",
+  });
+  send({
+    type: "LOGIN",
+    apiBaseUrl: document.getElementById("api-base").value.trim() || "http://localhost:4000",
+    email,
+    password,
+  });
+});
+
+btnLogout?.addEventListener("click", () => send({ type: "LOGOUT" }));
 
 btnPoll?.addEventListener("click", () => send({ type: "POLL_NOW" }));
 
@@ -358,3 +456,4 @@ btnTestLlm.addEventListener("click", () => {
 
 connect();
 send({ type: "GET_STATE" });
+send({ type: "GET_AUTH" });

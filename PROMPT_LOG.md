@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 15:54] Feature: Extension email/password login
+
+- **Prompt Provided:** "Paste your YamBot JWT…" error — use login instead of token in the Chrome extension
+- **Architectural Flow:** Extension Settings → POST `/api/auth/login` → store JWT in chrome.storage → poller/agent use Bearer token automatically
+- **Impacted Files:** `PROMPT_LOG.md`, `extension/background/api.js`, `extension/background/service-worker.js`, `extension/sidepanel/index.html`, `extension/sidepanel/sidepanel.js`, `frontend/src/pages/ChatsPage.jsx`
+
 ## [2026-08-20 15:40] Feature: YamBot monorepo scaffold + web control plane
 
 - **Prompt Provided:** Tech stack React 19.2.8 / Vite 6 / RR7 / Tailwind 4 + Node 24 Express + MongoDB; create `.cursorrules`; PROMPT_LOG; dual env files; push to https://github.com/anumandlay/yambot.git; website login/chats/goals/results; Settings page for LLM credentials; Chrome extension executes tasks; responsive.mdc rules.

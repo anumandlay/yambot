@@ -75,18 +75,37 @@
       <button type="button" id="btn-back" class="ghost">← Back</button>
       <h2>Settings</h2>
 
-      <h3>YamBot cloud (website)</h3>
-      <p class="hint pending">LLM keys live on the website Settings page. Pair this extension with your account:</p>
+      <h3>YamBot account</h3>
+      <p class="hint pending">Sign in with the same email/password as the website. LLM keys stay on the website Settings page.</p>
       <label class="field">
         <span>API base URL</span>
         <input id="api-base" type="url" placeholder="http://localhost:4000" />
       </label>
-      <label class="field">
-        <span>Auth token (JWT from website login)</span>
-        <textarea id="auth-token" rows="3" placeholder="Paste Bearer token / yambot_token value"></textarea>
-      </label>
+      <div id="auth-signed-in" class="alert ok hidden" role="status">
+        <strong>Signed in</strong>
+        <p id="auth-signed-email" class="alert-detail"></p>
+      </div>
+      <div id="auth-login-form">
+        <label class="field">
+          <span>Email</span>
+          <input id="auth-email" type="email" autocomplete="username" placeholder="you@example.com" />
+        </label>
+        <label class="field">
+          <span>Password</span>
+          <input id="auth-password" type="password" autocomplete="current-password" />
+        </label>
+        <div class="row actions">
+          <button type="button" id="btn-login" class="primary">Sign in</button>
+        </div>
+      </div>
       <div class="row actions">
+        <button type="button" id="btn-logout" class="ghost hidden">Sign out</button>
         <button type="button" id="btn-poll" class="ghost">Poll tasks now</button>
+      </div>
+      <div id="auth-alert" class="alert hidden" role="status">
+        <strong id="auth-alert-title"></strong>
+        <p id="auth-alert-detail" class="alert-detail"></p>
+        <p id="auth-alert-hint" class="alert-hint hidden"></p>
       </div>
 
       <h3>Local LLM override (optional)</h3>
