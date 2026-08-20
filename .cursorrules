@@ -17,8 +17,12 @@
 # 4. FORCE PROMPT DOCUMENTATION
 - Always update `PROMPT_LOG.md` with: Prompt Provided, Architectural Flow, Impacted Files.
 
-# 5. GIT PUSH POLICY
+# 5. GIT PUSH + VPS DEPLOY POLICY
 - After each completed prompt iteration, commit and push to `https://github.com/anumandlay/yambot.git` immediately (unless push credentials are unavailable — then report clearly).
+- After every successful `git push`, always deploy to the VPS with:
+  `python3 deploy/remote-deploy.py`
+  Credentials come from untracked `deploy/.deploy.local.env` (see `.deploy.local.env.example`) or env `YAMBOT_SSH_*`. Never commit passwords.
+- If deploy fails, report clearly; do not skip deploy silently.
 
 # 6. ENVIRONMENT STRATEGY
 - Maintain separate env files for local development and production.

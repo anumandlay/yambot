@@ -8,6 +8,8 @@ build/
 backend/.env
 frontend/.env
 frontend/.env.local
+deploy/.env
+deploy/.deploy.local.env
 .vscode/
 .idea/
 coverage/

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 18:01] Ops: Always VPS-deploy after git push
+
+- **Prompt Provided:** always deploy on server for each git push; is chrome extension already installed?
+- **Architectural Flow:** `deploy/remote-deploy.py` + `.cursorrules` mandate post-push VPS rebuild; cloud boxes use Playwright Chromium (no MV3 extension inside Docker); laptop extension remains optional manual install
+- **Impacted Files:** `PROMPT_LOG.md`, `.cursorrules`, `deploy/remote-deploy.py`, `deploy/.deploy.local.env.example`, `.gitignore`
+
 ## [2026-08-20 17:53] Feature: Auto-provision cloud computers + interactive live control
 
 - **Prompt Provided:** Auto-create VPS/container on new agent; live screen; interact to fix captchas etc.
