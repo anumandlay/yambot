@@ -346,11 +346,10 @@ export function createAgentController({ emit }) {
       case "select":
       case "press_key":
       case "scroll": {
-        if (
-          settings.confirmBeforeSubmit &&
-          action.type === "click" &&
-          looksLikeSubmit(obs, action.ref)
-        ) {
+        // Why: confirm-before-submit is opt-in only. Cloud/website goals run fully automatic.
+        const requireConfirm =
+          settings.confirmBeforeSubmit === true && !state.cloudTaskId;
+        if (requireConfirm && action.type === "click" && looksLikeSubmit(obs, action.ref)) {
           const answer = await waitForUser(
             `About to click a likely submit control (${action.ref}). Reply "yes" to continue or give other instructions.`
           );
