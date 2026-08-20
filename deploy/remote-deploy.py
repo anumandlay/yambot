@@ -104,6 +104,21 @@ def main() -> int:
             raise RuntimeError(f"exit {code}: {cmd}")
         return out
 
+    # Why: some VPS images only have the legacy `docker-compose` binary, not the plugin.
+    compose_check = run(
+        f"echo '{password}' | sudo -S bash -lc "
+        "'(docker compose version >/dev/null 2>&1 && echo PLUGIN) "
+        "|| (docker-compose version >/dev/null 2>&1 && echo LEGACY) "
+        "|| echo NONE'"
+    )
+    if "PLUGIN" in compose_check:
+        compose = "docker compose"
+    elif "LEGACY" in compose_check:
+        compose = "docker-compose"
+    else:
+        raise RuntimeError("Neither `docker compose` nor `docker-compose` found on VPS")
+    print(f"Using compose command: {compose}")
+
     # Preserve secrets
     sftp = client.open_sftp()
     old_env = ""
@@ -134,7 +149,10 @@ def main() -> int:
         "YAMBOT_API_BASE_URL=http://api:4000\n"
     )
 
-    run(f"echo '{password}' | sudo -S bash -lc 'cd /home/ubuntu/yambot/deploy && docker compose down' || true")
+    run(
+        f"echo '{password}' | sudo -S bash -lc "
+        f"'cd /home/ubuntu/yambot/deploy && {compose} down' || true"
+    )
     run("mkdir -p ~/yambot")
     with SCPClient(client.get_transport()) as scp:
         scp.put(str(tgz), "/home/ubuntu/yambot-deploy.tgz")
@@ -144,20 +162,21 @@ def main() -> int:
         f.write(env_body)
     sftp.close()
 
+    up_cmd = (
+        f"echo '{password}' | sudo -S bash -lc "
+        f"'cd /home/ubuntu/yambot/deploy && {compose} up -d --build'"
+    )
     try:
-        run(
-            f"echo '{password}' | sudo -S bash -lc 'cd /home/ubuntu/yambot/deploy && docker compose up -d --build'",
-            timeout=2400,
-        )
+        run(up_cmd, timeout=2400)
     except RuntimeError:
         print("Retry without host port 80 binding…")
         run("sed -i '/- \\\"80:80\\\"/d' ~/yambot/deploy/docker-compose.yml || true")
-        run(
-            f"echo '{password}' | sudo -S bash -lc 'cd /home/ubuntu/yambot/deploy && docker compose up -d --build'",
-            timeout=2400,
-        )
+        run(up_cmd, timeout=2400)
 
-    run(f"echo '{password}' | sudo -S bash -lc 'cd /home/ubuntu/yambot/deploy && docker compose ps'")
+    run(
+        f"echo '{password}' | sudo -S bash -lc "
+        f"'cd /home/ubuntu/yambot/deploy && {compose} ps'"
+    )
     run(
         "sleep 8; curl -s -H 'Host: bot.vughy.com' http://127.0.0.1:8080/api/health; echo; "
         "curl -s -o /dev/null -w 'web8080:%{http_code}\\n' -H 'Host: bot.vughy.com' http://127.0.0.1:8080/"
