@@ -33,7 +33,7 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         maxSteps: s.maxSteps ?? 25,
-        confirmBeforeSubmit: s.confirmBeforeSubmit !== false,
+        confirmBeforeSubmit: s.confirmBeforeSubmit === true,
       },
     });
   } catch (err) {

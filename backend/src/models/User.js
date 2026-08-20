@@ -26,7 +26,7 @@ const settingsSchema = new mongoose.Schema(
     dbcUsername: { type: String, default: "" },
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 25 },
-    confirmBeforeSubmit: { type: Boolean, default: true },
+    confirmBeforeSubmit: { type: Boolean, default: false },
   },
   { _id: false }
 );

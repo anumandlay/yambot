@@ -16,7 +16,7 @@ export function SettingsPage() {
     dbcUsername: "",
     dbcPassword: "",
     maxSteps: 25,
-    confirmBeforeSubmit: true,
+    confirmBeforeSubmit: false,
     llmApiKeyMasked: "",
     dbcPasswordMasked: "",
     hasLlmApiKey: false,
@@ -163,7 +163,7 @@ export function SettingsPage() {
             checked={Boolean(form.confirmBeforeSubmit)}
             onChange={(e) => update("confirmBeforeSubmit", e.target.checked)}
           />
-          Ask before likely submit clicks
+          Ask me before submit/apply clicks (off = fully automatic)
         </label>
 
         <button

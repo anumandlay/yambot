@@ -387,7 +387,7 @@ async function loadSettings() {
   document.getElementById("dbc-user").value = data.dbcUsername || "";
   document.getElementById("dbc-pass").value = data.dbcPassword || "";
   document.getElementById("max-steps").value = data.maxSteps || 25;
-  document.getElementById("confirm-submit").checked = data.confirmBeforeSubmit !== false;
+  document.getElementById("confirm-submit").checked = data.confirmBeforeSubmit === true;
   syncAuthUi({ signedIn: Boolean(data.authToken), email: data.authEmail || "" });
 }
 

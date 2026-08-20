@@ -45,7 +45,7 @@ settingsRouter.get("/", async (req, res, next) => {
         dbcPasswordMasked: mask(dbcPass),
         hasDbcPassword: Boolean(dbcPass),
         maxSteps: s.maxSteps ?? 25,
-        confirmBeforeSubmit: s.confirmBeforeSubmit !== false,
+        confirmBeforeSubmit: s.confirmBeforeSubmit === true,
       },
     });
   } catch (err) {

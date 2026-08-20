@@ -151,7 +151,7 @@ export function createAgentController({ emit }) {
           dbcUsername: remote.config.dbcUsername || "",
           dbcPassword: remote.config.dbcPassword || "",
           maxSteps: Number(remote.config.maxSteps) || DEFAULT_MAX_STEPS,
-          confirmBeforeSubmit: remote.config.confirmBeforeSubmit !== false,
+          confirmBeforeSubmit: remote.config.confirmBeforeSubmit === true,
         };
       }
     } catch {
@@ -174,7 +174,7 @@ export function createAgentController({ emit }) {
       dbcUsername: data.dbcUsername || "",
       dbcPassword: data.dbcPassword || "",
       maxSteps: Number(data.maxSteps) || DEFAULT_MAX_STEPS,
-      confirmBeforeSubmit: data.confirmBeforeSubmit !== false,
+      confirmBeforeSubmit: data.confirmBeforeSubmit === true,
     };
   }
 
