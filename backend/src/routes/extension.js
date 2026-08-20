@@ -196,6 +196,12 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
     if (req.body?.taskId) {
       agent.computer.taskId = req.body.taskId;
     }
+    if (req.body?.viewportWidth) {
+      agent.computer.viewportWidth = Number(req.body.viewportWidth) || 1280;
+    }
+    if (req.body?.viewportHeight) {
+      agent.computer.viewportHeight = Number(req.body.viewportHeight) || 800;
+    }
 
     const rawB64 = String(req.body?.screenshotBase64 || "");
     // Why: cap ~900KB base64 (~650KB JPEG) so Mongo docs stay manageable.
@@ -207,7 +213,11 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
       };
     }
 
+    // Why: return + clear control queue atomically so dashboard takeover reaches the worker.
+    const commands = Array.isArray(agent.controlQueue) ? [...agent.controlQueue] : [];
+    agent.controlQueue = [];
     await agent.save();
+
     res.json({
       ok: true,
       computer: {
@@ -215,6 +225,7 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
         lastSeenAt: agent.computer.lastSeenAt,
         hasScreen: Boolean(agent.liveScreen?.dataBase64),
       },
+      commands,
     });
   } catch (err) {
     next(err);

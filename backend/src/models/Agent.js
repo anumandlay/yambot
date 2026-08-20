@@ -89,18 +89,35 @@ const agentSchema = new mongoose.Schema(
     runner: {
       type: String,
       enum: AGENT_RUNNERS,
-      default: "any",
+      default: "cloud",
       index: true,
     },
+    /**
+     * Auth for the auto-provisioned cloud worker (not the user's website password).
+     * Plaintext exists only briefly at create; enc is for the computer-manager; hash verifies login.
+     */
+    workerTokenHash: { type: String, default: "" },
+    workerTokenEnc: { type: String, default: "" },
     /**
      * Last heartbeat from a cloud worker bound to this agent.
      * Why: dashboard shows online/offline without a separate registry service.
      */
     computer: {
+      /** Manager should keep a container running when desired === "running". */
+      desired: {
+        type: String,
+        enum: ["running", "stopped"],
+        default: "running",
+      },
+      containerName: { type: String, default: "" },
+      containerId: { type: String, default: "" },
+      provisionError: { type: String, default: "" },
       online: { type: Boolean, default: false },
       workerName: { type: String, default: "" },
       lastSeenAt: { type: Date, default: null },
       pageUrl: { type: String, default: "" },
+      viewportWidth: { type: Number, default: 1280 },
+      viewportHeight: { type: Number, default: 800 },
       taskId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Task",
@@ -115,6 +132,29 @@ const agentSchema = new mongoose.Schema(
       mime: { type: String, default: "image/jpeg" },
       dataBase64: { type: String, default: "" },
       at: { type: Date, default: null },
+    },
+    /**
+     * Remote-control queue drained by the cloud worker (click/type for captcha takeover).
+     */
+    controlQueue: {
+      type: [
+        {
+          id: { type: String, required: true },
+          type: {
+            type: String,
+            enum: ["click", "type", "key", "scroll"],
+            required: true,
+          },
+          /** Normalized 0–1 coords relative to the live screenshot / viewport. */
+          xNorm: { type: Number },
+          yNorm: { type: Number },
+          text: { type: String, default: "" },
+          key: { type: String, default: "" },
+          dy: { type: Number, default: 0 },
+          at: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
     },
     active: { type: Boolean, default: true },
     /**

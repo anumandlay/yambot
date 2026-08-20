@@ -1,4 +1,4 @@
-# YamBot VPS stack: Mongo + API + Web
+# YamBot VPS stack: Mongo + API + Web + auto computer-manager
 # Secrets: deploy/.env on the server only
 
 services:
@@ -38,6 +38,40 @@ services:
       - "4010:4000"
     depends_on:
       - mongo
+
+  # Builds the Playwright worker image used by computer-manager for each agent box.
+  worker-image:
+    image: yambot-worker:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.worker
+    entrypoint: ["/bin/true"]
+    restart: "no"
+
+  # Watches Mongo and starts/stops one Chromium worker container per cloud agent.
+  computer-manager:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.manager
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      MONGODB_URI: mongodb://mongo:27017/yambot
+      YAMBOT_API_BASE_URL: http://api:4000
+      WORKER_IMAGE: yambot-worker:local
+      # Compose project directory name is `deploy` → network `deploy_default`
+      DOCKER_NETWORK: ${DOCKER_NETWORK:-deploy_default}
+      MANAGER_POLL_MS: "8000"
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock
+    depends_on:
+      mongo:
+        condition: service_started
+      api:
+        condition: service_started
+      worker-image:
+        condition: service_completed_successfully
 
 volumes:
   yambot_mongo:

@@ -49,9 +49,8 @@ export function AgentsPage() {
         <div>
           <h1 className="text-2xl font-bold tracking-tight">Agents</h1>
           <p className="text-sm text-teal-900/70">
-            Each agent is a playbook (skill, instructions, memory). A cloud “computer” starts only
-            when a worker is running for that agent ID — creating an agent alone does not spin up
-            Chrome on the VPS.
+            Creating an agent provisions its own cloud Chromium box on the VPS. Watch and take
+            control of the live screen from the agent page or any chat.
           </p>
         </div>
         <Link

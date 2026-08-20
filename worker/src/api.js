@@ -1,6 +1,6 @@
 /**
  * @fileoverview YamBot API client for the cloud Playwright worker.
- * Purpose: Login, claim agent-scoped tasks, mirror events/complete, load LLM settings.
+ * Purpose: Worker-token (or password) login, claim agent tasks, heartbeats, events.
  * Downstream: index.js poller + agent.js run loop.
  */
 
@@ -42,9 +42,26 @@ export function createApiClient(config) {
   }
 
   /**
-   * Signs in and stores JWT for subsequent claims.
+   * Signs in via worker token (preferred) or user email/password.
    */
   async function login() {
+    if (config.workerToken) {
+      const res = await fetch(`${config.apiBaseUrl}/api/auth/worker-login`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          agentId: config.agentId,
+          workerToken: config.workerToken,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.token) {
+        throw new Error(data?.detail || data?.title || `Worker login failed (${res.status})`);
+      }
+      authToken = data.token;
+      return data;
+    }
+
     const res = await fetch(`${config.apiBaseUrl}/api/auth/login`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -58,9 +75,6 @@ export function createApiClient(config) {
     return data;
   }
 
-  /**
-   * Claims the next pending task for this worker's agent only.
-   */
   async function claimNext() {
     return api("/api/extension/tasks/next", {
       method: "POST",

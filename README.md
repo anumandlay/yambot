@@ -47,14 +47,12 @@ App: http://localhost:5173
 4. Extension Settings → API `http://localhost:4000` + login  
 5. Send a goal in a chat; keep Chrome open
 
-### 5. Cloud computer (optional)
-```bash
-cd worker && npm install && npx playwright install chromium
-export YAMBOT_API_BASE_URL=http://localhost:4000
-export YAMBOT_EMAIL=... YAMBOT_PASSWORD=... YAMBOT_AGENT_ID=...
-npm start
-```
-Set the agent’s runner to **Cloud computer** on the Agents page. See `deploy/README.md` for VPS Compose.
+### 5. Cloud computers (auto on VPS)
+On production Compose, `computer-manager` starts a Chromium box when you create an agent
+(default runner = cloud). Locally you can still run `worker/` manually with
+`YAMBOT_WORKER_TOKEN` from a recreated agent, or point at the VPS API.
+
+See `deploy/README.md`.
 
 ## Env files (local vs production)
 

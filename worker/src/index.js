@@ -23,7 +23,9 @@ async function main() {
   );
 
   await client.login();
-  console.log(`[${config.workerName}] signed in as ${config.email}`);
+  console.log(
+    `[${config.workerName}] signed in (${config.workerToken ? "worker-token" : config.email})`
+  );
   await agent.ensureBrowser();
   await agent.pushLiveScreen().catch((err) => {
     console.error(`[${config.workerName}] initial screen push failed`, err?.message || err);

@@ -1,19 +1,79 @@
 /**
- * @fileoverview Agent CRUD routes for the YamBot website.
- * Purpose: Let users create specialized browser agents (profile, skill, instructions, …).
- * Downstream: Chat creation binds an agent; tasks embed `agentSnapshot` for the extension.
+ * @fileoverview Agent CRUD + remote control for YamBot cloud computers.
+ * Purpose: Create agents (default cloud box), queue click/type takeover, expose live status.
+ * Downstream: computer-manager provisions Docker; worker drains controlQueue; LiveScreen UI.
  */
 
+import crypto from "node:crypto";
 import { Router } from "express";
 import { Agent, AGENT_SKILLS, AGENT_RUNNERS, appendAgentMemory } from "../models/Agent.js";
+import {
+  issueWorkerToken,
+  containerNameForAgent,
+} from "../utils/workerAuth.js";
 
 export const agentsRouter = Router();
 
 /**
- * Normalizes facts from the client into [{key,value}].
- * @param {unknown} raw
- * @returns {{ key: string, value: string }[]}
+ * Strips secrets / huge payloads before sending an agent to the website.
+ * @param {object} agent
+ * @returns {object}
  */
+function publicAgent(agent) {
+  if (!agent) return agent;
+  const a = typeof agent.toObject === "function" ? agent.toObject() : { ...agent };
+  delete a.workerTokenHash;
+  delete a.workerTokenEnc;
+  delete a.controlQueue;
+  if (a.liveScreen) delete a.liveScreen.dataBase64;
+  const now = Date.now();
+  a.computer = {
+    ...(a.computer || {}),
+    online: Boolean(
+      a.computer?.lastSeenAt && now - new Date(a.computer.lastSeenAt).getTime() < 45_000
+    ),
+  };
+  return a;
+}
+
+/**
+ * Whether this agent should have a cloud container.
+ * @param {object} agent
+ * @returns {boolean}
+ */
+function wantsCloudComputer(agent) {
+  if (agent.active === false) return false;
+  const runner = agent.runner || "cloud";
+  return runner === "cloud" || runner === "any";
+}
+
+/**
+ * Applies desired computer state after create/update.
+ * @param {import('mongoose').Document} agent
+ */
+function syncComputerDesired(agent) {
+  agent.computer = agent.computer || {};
+  if (wantsCloudComputer(agent)) {
+    agent.computer.desired = "running";
+    agent.computer.containerName =
+      agent.computer.containerName || containerNameForAgent(agent._id);
+  } else {
+    agent.computer.desired = "stopped";
+  }
+}
+
+/**
+ * Ensures worker credentials exist (idempotent).
+ * @param {import('mongoose').Document} agent
+ * @param {{ rotate?: boolean }} [opts]
+ */
+function ensureWorkerCredentials(agent, opts = {}) {
+  if (!opts.rotate && agent.workerTokenHash && agent.workerTokenEnc) return;
+  const issued = issueWorkerToken();
+  agent.workerTokenHash = issued.workerTokenHash;
+  agent.workerTokenEnc = issued.workerTokenEnc;
+}
+
 function normalizeFacts(raw) {
   if (!Array.isArray(raw)) return [];
   return raw
@@ -24,11 +84,6 @@ function normalizeFacts(raw) {
     .filter((f) => f.key);
 }
 
-/**
- * Normalizes domain list (array or comma-separated string).
- * @param {unknown} raw
- * @returns {string[]}
- */
 function normalizeDomains(raw) {
   if (Array.isArray(raw)) {
     return raw.map((d) => String(d).trim().toLowerCase()).filter(Boolean);
@@ -43,7 +98,6 @@ function normalizeDomains(raw) {
 }
 
 /**
- * Maps request body → agent fields (create/update).
  * @param {object} body
  * @param {{ partial?: boolean }} [opts]
  */
@@ -68,8 +122,8 @@ function pickAgentFields(body, opts = {}) {
   if (body.allowedDomains != null) set("allowedDomains", normalizeDomains(body.allowedDomains));
   if (body.startUrl != null) set("startUrl", String(body.startUrl || "").trim());
   if (body.runner != null) {
-    const runner = String(body.runner || "any");
-    set("runner", AGENT_RUNNERS.includes(runner) ? runner : "any");
+    const runner = String(body.runner || "cloud");
+    set("runner", AGENT_RUNNERS.includes(runner) ? runner : "cloud");
   }
   if (body.maxSteps != null) {
     const n = Number(body.maxSteps);
@@ -77,7 +131,6 @@ function pickAgentFields(body, opts = {}) {
   }
   if (body.active != null) set("active", Boolean(body.active));
   if (body.memory != null && Array.isArray(body.memory)) {
-    // Why: allow manual edit/clear of memory from the Agents UI.
     set(
       "memory",
       body.memory
@@ -103,42 +156,24 @@ function pickAgentFields(body, opts = {}) {
   return out;
 }
 
-/**
- * GET /api/agents/meta — skill enum for the UI.
- */
 agentsRouter.get("/meta", (_req, res) => {
   res.json({ ok: true, skills: AGENT_SKILLS, runners: AGENT_RUNNERS });
 });
 
-/**
- * GET /api/agents
- */
 agentsRouter.get("/", async (req, res, next) => {
   try {
-    // Why: omit huge liveScreen payloads from the list endpoint.
     const agents = await Agent.find({ user: req.userId })
-      .select("-liveScreen.dataBase64")
+      .select("-liveScreen.dataBase64 -workerTokenEnc -workerTokenHash -controlQueue")
       .sort({ updatedAt: -1 })
       .lean();
-    const now = Date.now();
-    const enriched = agents.map((a) => ({
-      ...a,
-      computer: {
-        ...(a.computer || {}),
-        // Why: workers heartbeat ~every 15s; treat stale as offline for the UI.
-        online: Boolean(
-          a.computer?.lastSeenAt && now - new Date(a.computer.lastSeenAt).getTime() < 45_000
-        ),
-      },
-    }));
-    res.json({ ok: true, agents: enriched });
+    res.json({ ok: true, agents: agents.map(publicAgent) });
   } catch (err) {
     next(err);
   }
 });
 
 /**
- * POST /api/agents
+ * POST /api/agents — creates agent and requests a cloud computer by default.
  */
 agentsRouter.post("/", async (req, res, next) => {
   try {
@@ -151,34 +186,23 @@ agentsRouter.post("/", async (req, res, next) => {
       });
       return;
     }
-    const agent = await Agent.create({ ...fields, user: req.userId });
-    res.status(201).json({ ok: true, agent });
-  } catch (err) {
-    next(err);
-  }
-});
+    if (fields.runner == null) fields.runner = "cloud";
 
-/**
- * GET /api/agents/:id
- */
-agentsRouter.get("/:id", async (req, res, next) => {
-  try {
-    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
-      .select("-liveScreen.dataBase64")
-      .lean();
-    if (!agent) {
-      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
-      return;
-    }
-    const online = Boolean(
-      agent.computer?.lastSeenAt &&
-        Date.now() - new Date(agent.computer.lastSeenAt).getTime() < 45_000
-    );
-    res.json({
+    const agent = new Agent({ ...fields, user: req.userId });
+    ensureWorkerCredentials(agent);
+    syncComputerDesired(agent);
+    await agent.save();
+
+    res.status(201).json({
       ok: true,
-      agent: {
-        ...agent,
-        computer: { ...(agent.computer || {}), online },
+      agent: publicAgent(agent),
+      provision: {
+        desired: agent.computer?.desired,
+        containerName: agent.computer?.containerName,
+        hint:
+          agent.computer?.desired === "running"
+            ? "Cloud computer will start automatically via computer-manager (usually within ~30s)."
+            : "No cloud computer requested for this runner.",
       },
     });
   } catch (err) {
@@ -186,9 +210,21 @@ agentsRouter.get("/:id", async (req, res, next) => {
   }
 });
 
-/**
- * GET /api/agents/:id/live — computer status + latest screenshot for the dashboard.
- */
+agentsRouter.get("/:id", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("-liveScreen.dataBase64 -workerTokenEnc -workerTokenHash -controlQueue")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
 agentsRouter.get("/:id/live", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId }).lean();
@@ -205,11 +241,16 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
       ok: true,
       live: {
         online,
+        desired: agent.computer?.desired || "stopped",
+        provisionError: agent.computer?.provisionError || "",
+        containerName: agent.computer?.containerName || "",
         workerName: agent.computer?.workerName || "",
         lastSeenAt: agent.computer?.lastSeenAt || null,
         pageUrl: agent.computer?.pageUrl || "",
         taskId: agent.computer?.taskId || null,
-        runner: agent.runner || "any",
+        runner: agent.runner || "cloud",
+        viewportWidth: agent.computer?.viewportWidth || 1280,
+        viewportHeight: agent.computer?.viewportHeight || 800,
         mime: screen.mime || "image/jpeg",
         dataBase64: screen.dataBase64 || "",
         capturedAt: screen.at || null,
@@ -221,8 +262,58 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
 });
 
 /**
- * PUT /api/agents/:id
+ * POST /api/agents/:id/control — queue a remote input for the cloud worker (takeover).
+ * Body: { type: click|type|key|scroll, xNorm?, yNorm?, text?, key?, dy? }
  */
+agentsRouter.post("/:id/control", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const type = String(req.body?.type || "").trim();
+    if (!["click", "type", "key", "scroll"].includes(type)) {
+      res.status(400).json({
+        ok: false,
+        title: "Invalid control",
+        detail: "type must be click, type, key, or scroll",
+      });
+      return;
+    }
+    const cmd = {
+      id: crypto.randomBytes(8).toString("hex"),
+      type,
+      xNorm: Number(req.body?.xNorm),
+      yNorm: Number(req.body?.yNorm),
+      text: String(req.body?.text || "").slice(0, 4000),
+      key: String(req.body?.key || "").slice(0, 64),
+      dy: Number(req.body?.dy) || 0,
+      at: new Date(),
+    };
+    if (type === "click") {
+      if (!(cmd.xNorm >= 0 && cmd.xNorm <= 1 && cmd.yNorm >= 0 && cmd.yNorm <= 1)) {
+        res.status(400).json({
+          ok: false,
+          title: "Invalid click",
+          detail: "xNorm and yNorm must be between 0 and 1",
+        });
+        return;
+      }
+    }
+    agent.controlQueue = agent.controlQueue || [];
+    agent.controlQueue.push(cmd);
+    // Why: keep queue bounded if the worker is offline.
+    if (agent.controlQueue.length > 40) {
+      agent.controlQueue = agent.controlQueue.slice(-40);
+    }
+    await agent.save();
+    res.json({ ok: true, command: cmd, queued: agent.controlQueue.length });
+  } catch (err) {
+    next(err);
+  }
+});
+
 agentsRouter.put("/:id", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
@@ -236,17 +327,15 @@ agentsRouter.put("/:id", async (req, res, next) => {
       return;
     }
     Object.assign(agent, fields);
+    ensureWorkerCredentials(agent);
+    syncComputerDesired(agent);
     await agent.save();
-    res.json({ ok: true, agent });
+    res.json({ ok: true, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * POST /api/agents/:id/memory — append a manual memory note.
- * Body: { content, kind? }
- */
 agentsRouter.post("/:id/memory", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
@@ -258,15 +347,12 @@ agentsRouter.post("/:id/memory", async (req, res, next) => {
       kind: req.body?.kind || "note",
       content: String(req.body?.content || ""),
     });
-    res.json({ ok: true, agent });
+    res.json({ ok: true, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * DELETE /api/agents/:id/memory — clear all memory.
- */
 agentsRouter.delete("/:id/memory", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
@@ -276,23 +362,29 @@ agentsRouter.delete("/:id/memory", async (req, res, next) => {
     }
     agent.memory = [];
     await agent.save();
-    res.json({ ok: true, agent });
+    res.json({ ok: true, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
   }
 });
 
-/**
- * DELETE /api/agents/:id
- */
 agentsRouter.delete("/:id", async (req, res, next) => {
   try {
-    const result = await Agent.deleteOne({ _id: req.params.id, user: req.userId });
-    if (!result.deletedCount) {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
     }
-    res.json({ ok: true });
+    // Why: ask manager to stop the box before deleting the Mongo doc.
+    agent.computer = agent.computer || {};
+    agent.computer.desired = "stopped";
+    agent.active = false;
+    await agent.save();
+    await Agent.deleteOne({ _id: agent._id });
+    res.json({
+      ok: true,
+      stoppedContainer: agent.computer?.containerName || "",
+    });
   } catch (err) {
     next(err);
   }

@@ -31,7 +31,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     fs.mkdirSync(config.profileDir, { recursive: true });
     context = await chromium.launchPersistentContext(config.profileDir, {
       headless: !config.headed,
-      viewport: { width: 1280, height: 800 },
+      viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
       args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
     });
     page = context.pages()[0] || (await context.newPage());
@@ -39,7 +39,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
-   * Captures a JPEG and posts a computer heartbeat for the live dashboard.
+   * Captures a JPEG, posts heartbeat, and applies any dashboard takeover commands.
    * @param {{ taskId?: string|null }} [opts]
    */
   async function pushLiveScreen(opts = {}) {
@@ -62,7 +62,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     } catch (err) {
       log(`[${config.workerName}] screenshot failed:`, err?.message || err);
     }
-    await api("/api/extension/computer/heartbeat", {
+    const data = await api("/api/extension/computer/heartbeat", {
       method: "POST",
       body: JSON.stringify({
         agentId: config.agentId,
@@ -71,8 +71,47 @@ export function createCloudAgent({ api, config, log = console.log }) {
         taskId: opts.taskId || null,
         screenshotBase64,
         mime: "image/jpeg",
+        viewportWidth: config.viewportWidth || 1280,
+        viewportHeight: config.viewportHeight || 800,
       }),
     });
+    const commands = Array.isArray(data?.commands) ? data.commands : [];
+    for (const cmd of commands) {
+      try {
+        await applyControlCommand(cmd);
+      } catch (err) {
+        log(`[${config.workerName}] control failed:`, err?.message || err);
+      }
+    }
+  }
+
+  /**
+   * Executes a dashboard remote-control command on the live page.
+   * @param {object} cmd
+   */
+  async function applyControlCommand(cmd) {
+    if (!page || page.isClosed()) return;
+    const vw = config.viewportWidth || 1280;
+    const vh = config.viewportHeight || 800;
+    if (cmd.type === "click") {
+      const x = Math.round(Number(cmd.xNorm) * vw);
+      const y = Math.round(Number(cmd.yNorm) * vh);
+      await page.mouse.click(x, y);
+      log(`[${config.workerName}] remote click ${x},${y}`);
+      return;
+    }
+    if (cmd.type === "type") {
+      await page.keyboard.type(String(cmd.text || ""), { delay: 20 });
+      log(`[${config.workerName}] remote type (${String(cmd.text || "").length} chars)`);
+      return;
+    }
+    if (cmd.type === "key") {
+      await page.keyboard.press(String(cmd.key || "Enter"));
+      return;
+    }
+    if (cmd.type === "scroll") {
+      await page.mouse.wheel(0, Number(cmd.dy) || 400);
+    }
   }
 
   async function mirror(taskId, type, body) {

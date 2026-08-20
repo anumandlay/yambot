@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 17:53] Feature: Auto-provision cloud computers + interactive live control
+
+- **Prompt Provided:** Auto-create VPS/container on new agent; live screen; interact to fix captchas etc.
+- **Architectural Flow:** Agent create (default `runner=cloud`) → worker token + `computer.desired=running` → `computer-manager` (Docker sock) starts `yambot-worker` container → worker token-login + screenshot heartbeat → dashboard LiveScreen click/type → control queue drained by worker Playwright
+- **Impacted Files:** Agent model, auth worker-login, agents control + manager routes, `computer-manager/`, worker login/control, LiveScreen interactive UI, docker-compose, PROMPT_LOG
+
 ## [2026-08-20 17:47] Feature: Live agent screen on dashboard + clarify cloud computer lifecycle
 
 - **Prompt Provided:** Creating an agent should get own computer+Chrome+extension; also watch live screen from dashboard

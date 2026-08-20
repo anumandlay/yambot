@@ -78,6 +78,54 @@ authRouter.post("/login", async (req, res, next) => {
 });
 
 /**
+ * POST /api/auth/worker-login
+ * Body: { agentId, workerToken }
+ * Why: auto-provisioned containers auth without the user's website password.
+ */
+authRouter.post("/worker-login", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    const workerToken = String(req.body?.workerToken || "");
+    if (!agentId || !workerToken) {
+      res.status(400).json({
+        ok: false,
+        title: "Missing credentials",
+        detail: "agentId and workerToken are required",
+      });
+      return;
+    }
+    const { Agent } = await import("../models/Agent.js");
+    const { hashWorkerToken } = await import("../utils/workerAuth.js");
+    const agent = await Agent.findById(agentId);
+    if (!agent || !agent.workerTokenHash) {
+      res.status(401).json({
+        ok: false,
+        title: "Login failed",
+        detail: "Unknown agent or missing worker token",
+      });
+      return;
+    }
+    if (hashWorkerToken(workerToken) !== agent.workerTokenHash) {
+      res.status(401).json({
+        ok: false,
+        title: "Login failed",
+        detail: "Invalid worker token",
+      });
+      return;
+    }
+    const token = signToken(agent.user);
+    res.json({
+      ok: true,
+      token,
+      agentId: String(agent._id),
+      user: { id: agent.user },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/auth/me — requires Authorization header (mounted with authRequired in index for consistency via manual check).
  * Why separate: keep auth router public except this helper used after login.
  */

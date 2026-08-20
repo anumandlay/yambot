@@ -20,7 +20,7 @@ const EMPTY = {
   allowedDomains: "",
   startUrl: "",
   maxSteps: 25,
-  runner: "any",
+  runner: "cloud",
   active: true,
   autonomy: {
     allowSubmit: true,
@@ -255,17 +255,16 @@ export function AgentEditPage() {
             ))}
           </select>
           <span className="text-xs text-teal-900/60">
-            Creating an agent does <strong>not</strong> auto-start a VPS box. Choose Cloud, then run
-            a worker container with this agent’s ID (see deploy README). The worker uses Playwright
-            Chromium with a persistent profile — not a full Chrome Extension install inside Docker.
+            New agents default to a <strong>cloud computer</strong>. The VPS{" "}
+            <code className="rounded bg-teal-50 px-1">computer-manager</code> starts a Chromium
+            container automatically. Use <strong>Take control</strong> on the live screen to click /
+            type (captchas, fixes). Your laptop Chrome extension is optional.
             {!isNew ? (
               <>
                 {" "}
                 ID: <code className="break-all rounded bg-teal-50 px-1">{agentId}</code>
               </>
-            ) : (
-              " Save once to get an agent ID."
-            )}
+            ) : null}
           </span>
         </label>
 
