@@ -1,5 +1,5 @@
 /**
- * @fileoverview Agents list — create and open specialized browser agents.
+ * @fileoverview Agents list — create, open, and delete specialized browser agents.
  * Purpose: Entry point for managing agent profiles/skills/instructions.
  */
 
@@ -12,6 +12,7 @@ export function AgentsPage() {
   const [agents, setAgents] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
   const navigate = useNavigate();
 
   async function load() {
@@ -40,6 +41,30 @@ export function AgentsPage() {
       setError(err);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * @param {object} agent
+   */
+  async function deleteAgent(agent) {
+    const label = agent.name || agent._id;
+    if (
+      !window.confirm(
+        `Delete agent “${label}”? Its cloud computer container will be stopped and removed.`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(agent._id);
+    setError(null);
+    try {
+      await api(`/api/agents/${agent._id}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDeletingId("");
     }
   }
 
@@ -120,6 +145,14 @@ export function AgentsPage() {
                   className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
                 >
                   Start chat
+                </button>
+                <button
+                  type="button"
+                  disabled={Boolean(deletingId)}
+                  onClick={() => deleteAgent(a)}
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
+                >
+                  {deletingId === a._id ? "Deleting…" : "Delete"}
                 </button>
               </div>
             </li>

@@ -14,6 +14,7 @@ import { ChatDetailPage } from "./pages/ChatDetailPage.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
 import { AgentsPage } from "./pages/AgentsPage.jsx";
 import { AgentEditPage } from "./pages/AgentEditPage.jsx";
+import { SystemPage } from "./pages/SystemPage.jsx";
 
 /**
  * Requires an authenticated user before rendering child routes.
@@ -45,6 +46,7 @@ export default function App() {
           <Route path="/agents/:agentId" element={<AgentEditPage />} />
           <Route path="/chats/:chatId" element={<ChatDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/system" element={<SystemPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

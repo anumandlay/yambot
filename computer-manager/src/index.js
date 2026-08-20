@@ -10,6 +10,7 @@
 import Docker from "dockerode";
 import mongoose from "mongoose";
 import { decryptSecret } from "./crypto.js";
+import { startInternalServer } from "./httpApi.js";
 
 const MONGODB_URI = process.env.MONGODB_URI || "mongodb://mongo:27017/yambot";
 const SETTINGS_CRYPTO_KEY = process.env.SETTINGS_CRYPTO_KEY || "";
@@ -18,6 +19,7 @@ const WORKER_IMAGE = process.env.WORKER_IMAGE || "yambot-worker:local";
 const API_BASE = (process.env.YAMBOT_API_BASE_URL || "http://api:4000").replace(/\/$/, "");
 const POLL_MS = Math.max(5000, Number(process.env.MANAGER_POLL_MS) || 10000);
 const MEM_LIMIT = Number(process.env.WORKER_MEM_LIMIT) || 1536 * 1024 * 1024;
+const MANAGER_HTTP_PORT = Number(process.env.MANAGER_HTTP_PORT) || 4050;
 
 const agentSchema = new mongoose.Schema(
   {
@@ -299,6 +301,8 @@ async function main() {
   );
   await mongoose.connect(MONGODB_URI);
   console.log("[manager] mongo connected");
+
+  startInternalServer({ docker, ensureStopped, port: MANAGER_HTTP_PORT });
 
   const tick = async () => {
     try {

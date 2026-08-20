@@ -18,6 +18,7 @@
  * @property {string} DEFAULT_LLM_API_KEY
  * @property {string} DEFAULT_LLM_BASE_URL
  * @property {string} DEFAULT_LLM_MODEL
+ * @property {string} COMPUTER_MANAGER_URL
  */
 
 import {
@@ -40,4 +41,6 @@ export const env = {
   DEFAULT_LLM_API_KEY: process.env.DEFAULT_LLM_API_KEY || "",
   DEFAULT_LLM_BASE_URL: process.env.DEFAULT_LLM_BASE_URL || LLM_BASE,
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
+  /** Internal computer-manager HTTP (Compose network). */
+  COMPUTER_MANAGER_URL: process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050",
 };

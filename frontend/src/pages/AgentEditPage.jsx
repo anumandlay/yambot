@@ -136,7 +136,13 @@ export function AgentEditPage() {
 
   async function onDelete() {
     if (isNew) return;
-    if (!window.confirm("Delete this agent?")) return;
+    if (
+      !window.confirm(
+        "Delete this agent? Its cloud computer container will be stopped and removed."
+      )
+    ) {
+      return;
+    }
     setBusy(true);
     try {
       await api(`/api/agents/${agentId}`, { method: "DELETE" });

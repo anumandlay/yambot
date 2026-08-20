@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 19:19] Feature: Delete agent + System containers/CPU page
+
+- **Prompt Provided:** option to delete agent; page listing all containers + system processor charts
+- **Architectural Flow:** Agents list Delete → API stops container via computer-manager then removes Mongo doc; `/system` polls `/api/system/overview` → manager Docker inventory + CPU/mem charts
+- **Impacted Files:** `PROMPT_LOG.md`, `computer-manager` httpApi, `backend` system routes + agents delete, `frontend` SystemPage/AgentsPage/App/AppHeader, `deploy/docker-compose.yml`
+
 ## [2026-08-20 19:12] Config: Remove max steps — agents run unlimited
 
 - **Prompt Provided:** remove max steps; agent can work unlimited

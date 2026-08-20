@@ -395,15 +395,33 @@ agentsRouter.delete("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
     }
+    const containerName = agent.computer?.containerName || "";
     // Why: ask manager to stop the box before deleting the Mongo doc.
     agent.computer = agent.computer || {};
     agent.computer.desired = "stopped";
     agent.active = false;
     await agent.save();
+
+    if (containerName) {
+      try {
+        const managerUrl = (
+          process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050"
+        ).replace(/\/$/, "");
+        await fetch(`${managerUrl}/internal/stop`, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ name: containerName, agentId: String(agent._id) }),
+        });
+      } catch (err) {
+        // Why: orphan cleanup in the manager loop still removes the box if this fails.
+        console.warn("[agents] stop on delete failed", err?.message || err);
+      }
+    }
+
     await Agent.deleteOne({ _id: agent._id });
     res.json({
       ok: true,
-      stoppedContainer: agent.computer?.containerName || "",
+      stoppedContainer: containerName,
     });
   } catch (err) {
     next(err);

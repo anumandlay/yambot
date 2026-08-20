@@ -36,6 +36,9 @@ export function AppHeader() {
           <NavLink to="/" end className={linkClass}>
             Chats
           </NavLink>
+          <NavLink to="/system" className={linkClass}>
+            System
+          </NavLink>
           <NavLink to="/settings" className={linkClass}>
             Settings
           </NavLink>
