@@ -20,7 +20,7 @@ services:
       MONGODB_URI: mongodb://mongo:27017/yambot
       PORT: "4000"
     ports:
-      - "4000:4000"
+      - "4010:4000"
     depends_on:
       - mongo
 
@@ -29,10 +29,10 @@ services:
       context: ..
       dockerfile: deploy/Dockerfile.web
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://15.204.242.239:4000}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://15.204.242.239:4010}
     restart: unless-stopped
     ports:
-      - "80:80"
+      - "8080:80"
     depends_on:
       - api
 
