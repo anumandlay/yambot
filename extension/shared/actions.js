@@ -11,6 +11,8 @@ export const ACTION_TYPES = [
   "extract",
   "solve_captcha",
   "ask_user",
+  "send_email",
+  "check_email",
   "finish",
 ];
 
@@ -19,7 +21,7 @@ You control a real Chrome browser. Reply with ONE JSON object only (no markdown)
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|extract|solve_captcha|ask_user|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|extract|solve_captcha|ask_user|send_email|check_email|finish>",
     ...fields depending on type
   }
 }
@@ -35,6 +37,8 @@ Action fields:
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }
+- send_email: { "type":"send_email", "to":"user@example.com", "subject":"...", "text":"..." }
+- check_email: { "type":"check_email", "limit": 8, "unseenOnly": false }
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }
 
 Rules:
@@ -43,6 +47,7 @@ Rules:
 - Do not loop forever. If stuck twice on the same issue, ask_user or finish with what you have.
 - Before submitting forms / purchases / applications, prefer ask_user unless the user already said to submit.
 - If a CAPTCHA is visible, use solve_captcha.
+- When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail.
 `.trim();
 
 export function parseAgentResponse(raw) {

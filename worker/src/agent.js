@@ -214,6 +214,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         : "",
       domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
       snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
+      snapshot.email?.configured
+        ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email for verification codes or human-like correspondence.`
+        : "",
       `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${Boolean(auto.askBeforeLogin)}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
       memory ? `AGENT MEMORY:\n${memory}` : "",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
@@ -465,6 +468,46 @@ export function createCloudAgent({ api, config, log = console.log }) {
           ].join("\n")
         );
         return { ok: true, extracted: true };
+      }
+      case "send_email": {
+        if (!agentSnapshot?.email?.configured) {
+          throw new Error("Email is not configured for this agent");
+        }
+        const result = await api("/api/extension/email/send", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId,
+            to: action.to,
+            subject: action.subject,
+            text: action.text || action.body || "",
+            html: action.html,
+          }),
+        });
+        notes.push(
+          `Sent email to ${action.to}: ${action.subject}\n${String(action.text || "").slice(0, 500)}`
+        );
+        return { ok: true, email: result };
+      }
+      case "check_email": {
+        if (!agentSnapshot?.email?.configured) {
+          throw new Error("Email is not configured for this agent");
+        }
+        const result = await api("/api/extension/email/check", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId,
+            limit: action.limit,
+            unseenOnly: Boolean(action.unseenOnly),
+          }),
+        });
+        const lines = (result.messages || []).map(
+          (m) =>
+            `- ${m.date || ""} | ${m.from} | ${m.subject}${
+              m.snippet ? ` | ${m.snippet.slice(0, 200)}` : ""
+            }`
+        );
+        notes.push(`Inbox (${result.count || 0}):\n${lines.join("\n") || "(empty)"}`);
+        return { ok: true, email: result };
       }
       case "click":
       case "type":

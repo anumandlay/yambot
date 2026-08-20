@@ -118,6 +118,23 @@ const agentSchema = new mongoose.Schema(
     startUrl: { type: String, default: "", trim: true },
     schedule: { type: scheduleSchema, default: () => ({}) },
     /**
+     * SMTP/IMAP identity so the agent can send/read email like a human.
+     * Password is encrypted at rest (smtpPasswordEnc).
+     */
+    email: {
+      enabled: { type: Boolean, default: false },
+      fromName: { type: String, default: "", trim: true },
+      fromAddress: { type: String, default: "", trim: true },
+      smtpHost: { type: String, default: "", trim: true },
+      smtpPort: { type: Number, default: 587 },
+      smtpSecure: { type: Boolean, default: false },
+      smtpUser: { type: String, default: "", trim: true },
+      smtpPasswordEnc: { type: String, default: "" },
+      imapHost: { type: String, default: "", trim: true },
+      imapPort: { type: Number, default: 993 },
+      imapSecure: { type: Boolean, default: true },
+    },
+    /**
      * Execution target for queued goals.
      * Why: cloud agents get a dedicated Chromium profile on the VPS; extension agents stay on the user's laptop.
      */
@@ -232,6 +249,12 @@ const agentSchema = new mongoose.Schema(
  */
 export function toAgentSnapshot(agentDoc) {
   const a = agentDoc.toObject ? agentDoc.toObject() : agentDoc;
+  const email = a.email || {};
+  const hasMail =
+    Boolean(email.enabled) &&
+    Boolean(email.smtpHost) &&
+    Boolean(email.fromAddress || email.smtpUser) &&
+    Boolean(email.smtpPasswordEnc);
   return {
     id: String(a._id),
     name: a.name,
@@ -246,6 +269,12 @@ export function toAgentSnapshot(agentDoc) {
     maxSteps: a.maxSteps ?? 0,
     startUrl: a.startUrl || "",
     runner: a.runner || "any",
+    email: {
+      enabled: Boolean(email.enabled),
+      configured: hasMail,
+      fromName: email.fromName || "",
+      fromAddress: email.fromAddress || "",
+    },
     // Why: only recent memory in the snapshot so prompts stay bounded.
     memory: Array.isArray(a.memory)
       ? a.memory.slice(0, 20).map((m) => ({
@@ -282,6 +311,9 @@ export function formatAgentPrompt(snapshot) {
       : "",
     domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
     snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
+    snapshot.email?.configured
+      ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email actions for verification codes, outreach, or human-like correspondence.`
+      : "",
     `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}`,
     "STEP BUDGET: unlimited — call finish when done",
     formatMemoryBlock(snapshot.memory),

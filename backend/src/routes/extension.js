@@ -347,3 +347,65 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Resolves the agent for email actions (worker must own the agent).
+ * @param {import('express').Request} req
+ */
+async function loadEmailAgent(req) {
+  const agentId = String(req.body?.agentId || req.query?.agentId || "").trim();
+  if (!agentId) {
+    const err = new Error("agentId required");
+    err.status = 400;
+    err.title = "Agent required";
+    err.detail = "agentId is required for email actions.";
+    throw err;
+  }
+  const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+  if (!agent) {
+    const err = new Error("Agent missing");
+    err.status = 404;
+    err.title = "Not found";
+    err.detail = "Agent missing";
+    throw err;
+  }
+  return agent;
+}
+
+/**
+ * POST /api/extension/email/send — worker sends mail as the agent.
+ * Body: { agentId, to, subject, text, html? }
+ */
+extensionRouter.post("/email/send", async (req, res, next) => {
+  try {
+    const { sendAgentEmail } = await import("../utils/agentEmail.js");
+    const agent = await loadEmailAgent(req);
+    const result = await sendAgentEmail(agent, {
+      to: req.body?.to,
+      subject: req.body?.subject,
+      text: req.body?.text,
+      html: req.body?.html,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/extension/email/check — worker reads inbox as the agent.
+ * Body: { agentId, limit?, unseenOnly? }
+ */
+extensionRouter.post("/email/check", async (req, res, next) => {
+  try {
+    const { checkAgentInbox } = await import("../utils/agentEmail.js");
+    const agent = await loadEmailAgent(req);
+    const result = await checkAgentInbox(agent, {
+      limit: req.body?.limit,
+      unseenOnly: Boolean(req.body?.unseenOnly),
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});

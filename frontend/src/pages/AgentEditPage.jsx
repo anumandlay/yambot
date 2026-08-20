@@ -36,6 +36,20 @@ const EMPTY = {
     nextRunAt: null,
     chatId: null,
   },
+  email: {
+    enabled: false,
+    fromName: "",
+    fromAddress: "",
+    smtpHost: "",
+    smtpPort: 587,
+    smtpSecure: false,
+    smtpUser: "",
+    smtpPassword: "",
+    imapHost: "",
+    imapPort: 993,
+    imapSecure: true,
+    hasSmtpPassword: false,
+  },
 };
 
 export function AgentEditPage() {
@@ -99,6 +113,20 @@ export function AgentEditPage() {
               nextRunAt: a.schedule?.nextRunAt || null,
               chatId: a.schedule?.chatId || null,
             },
+            email: {
+              enabled: Boolean(a.email?.enabled),
+              fromName: a.email?.fromName || "",
+              fromAddress: a.email?.fromAddress || "",
+              smtpHost: a.email?.smtpHost || "",
+              smtpPort: a.email?.smtpPort ?? 587,
+              smtpSecure: Boolean(a.email?.smtpSecure),
+              smtpUser: a.email?.smtpUser || "",
+              smtpPassword: "",
+              imapHost: a.email?.imapHost || "",
+              imapPort: a.email?.imapPort ?? 993,
+              imapSecure: a.email?.imapSecure !== false,
+              hasSmtpPassword: Boolean(a.email?.hasSmtpPassword),
+            },
           });
           setMemory(a.memory || []);
         }
@@ -123,6 +151,13 @@ export function AgentEditPage() {
     setForm((prev) => ({
       ...prev,
       schedule: { ...prev.schedule, [key]: value },
+    }));
+  }
+
+  function updateEmail(key, value) {
+    setForm((prev) => ({
+      ...prev,
+      email: { ...prev.email, [key]: value },
     }));
   }
 
@@ -156,11 +191,22 @@ export function AgentEditPage() {
         setOkMsg("Agent created");
         navigate(`/agents/${data.agent._id}`, { replace: true });
       } else {
-        await api(`/api/agents/${agentId}`, {
+        const data = await api(`/api/agents/${agentId}`, {
           method: "PUT",
           body: JSON.stringify(payload),
         });
         setOkMsg("Agent saved");
+        if (data?.agent?.email) {
+          setForm((prev) => ({
+            ...prev,
+            email: {
+              ...prev.email,
+              ...data.agent.email,
+              smtpPassword: "",
+              hasSmtpPassword: Boolean(data.agent.email.hasSmtpPassword),
+            },
+          }));
+        }
       }
     } catch (err) {
       setError(err);
@@ -374,6 +420,145 @@ export function AgentEditPage() {
             Scheduled runs appear in a chat titled “Schedule · {form.name || "agent"}”. Skips a tick
             if this agent already has a pending/running task.
           </p>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">
+          <legend className="px-1 text-sm font-semibold text-teal-900">Email (SMTP)</legend>
+          <p className="text-xs text-teal-900/60">
+            Give this agent a real mailbox so it can send mail and read the inbox (verification codes,
+            outreach) like a human. Password is stored encrypted on the server.
+          </p>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(form.email?.enabled)}
+              onChange={(e) => updateEmail("enabled", e.target.checked)}
+            />
+            Enable email for this agent
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-sm">
+              From name
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={form.email?.fromName || ""}
+                onChange={(e) => updateEmail("fromName", e.target.value)}
+                placeholder="Alex Rivera"
+                disabled={!form.email?.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              From address
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                type="email"
+                value={form.email?.fromAddress || ""}
+                onChange={(e) => updateEmail("fromAddress", e.target.value)}
+                placeholder="alex@example.com"
+                disabled={!form.email?.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              SMTP host
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={form.email?.smtpHost || ""}
+                onChange={(e) => updateEmail("smtpHost", e.target.value)}
+                placeholder="smtp.gmail.com"
+                disabled={!form.email?.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              SMTP port
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                type="number"
+                value={form.email?.smtpPort ?? 587}
+                onChange={(e) => updateEmail("smtpPort", Number(e.target.value) || 587)}
+                disabled={!form.email?.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              SMTP username
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={form.email?.smtpUser || ""}
+                onChange={(e) => updateEmail("smtpUser", e.target.value)}
+                placeholder="usually same as from address"
+                disabled={!form.email?.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              SMTP password
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                type="password"
+                value={form.email?.smtpPassword || ""}
+                onChange={(e) => updateEmail("smtpPassword", e.target.value)}
+                placeholder={
+                  form.email?.hasSmtpPassword ? "Saved — leave blank to keep" : "App password / SMTP secret"
+                }
+                disabled={!form.email?.enabled}
+                autoComplete="new-password"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              IMAP host (inbox)
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={form.email?.imapHost || ""}
+                onChange={(e) => updateEmail("imapHost", e.target.value)}
+                placeholder="imap.gmail.com (optional if smtp.* → imap.*)"
+                disabled={!form.email?.enabled}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              IMAP port
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                type="number"
+                value={form.email?.imapPort ?? 993}
+                onChange={(e) => updateEmail("imapPort", Number(e.target.value) || 993)}
+                disabled={!form.email?.enabled}
+              />
+            </label>
+          </div>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(form.email?.smtpSecure)}
+              onChange={(e) => updateEmail("smtpSecure", e.target.checked)}
+              disabled={!form.email?.enabled}
+            />
+            SMTP TLS on connect (port 465)
+          </label>
+          {!isNew ? (
+            <button
+              type="button"
+              disabled={busy || !form.email?.enabled}
+              onClick={async () => {
+                setBusy(true);
+                setError(null);
+                setOkMsg("");
+                try {
+                  await api(`/api/agents/${agentId}/email/test`, {
+                    method: "POST",
+                    body: JSON.stringify({}),
+                  });
+                  setOkMsg("Test email sent to the from address.");
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setBusy(false);
+                }
+              }}
+              className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+            >
+              Send test email
+            </button>
+          ) : (
+            <p className="text-xs text-teal-900/60">Save the agent first, then you can send a test email.</p>
+          )}
         </fieldset>
 
         {!isNew ? (

@@ -124,6 +124,14 @@ export function AgentsPage() {
                       <span className="text-amber-800">scheduled {a.schedule.interval}</span>
                     </>
                   ) : null}
+                  {a.email?.configured || a.email?.enabled ? (
+                    <>
+                      <span>·</span>
+                      <span className="normal-case text-sky-800">
+                        {a.email?.fromAddress || "email"}
+                      </span>
+                    </>
+                  ) : null}
                   {a.runner === "cloud" || a.runner === "any" ? (
                     <>
                       <span>·</span>

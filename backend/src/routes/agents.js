@@ -11,6 +11,12 @@ import {
   issueWorkerToken,
   containerNameForAgent,
 } from "../utils/workerAuth.js";
+import { encryptSecret } from "../utils/crypto.js";
+import {
+  publicEmailSummary,
+  sendAgentEmail,
+  checkAgentInbox,
+} from "../utils/agentEmail.js";
 
 export const agentsRouter = Router();
 
@@ -33,6 +39,7 @@ function publicAgent(agent) {
       a.computer?.lastSeenAt && now - new Date(a.computer.lastSeenAt).getTime() < 45_000
     ),
   };
+  a.email = publicEmailSummary(a);
   return a;
 }
 
@@ -176,6 +183,29 @@ function pickAgentFields(body, opts = {}) {
       schedule.nextRunAt = null;
     }
     set("schedule", schedule);
+  }
+  if (body.email != null && typeof body.email === "object") {
+    const e = body.email;
+    /** @type {object} */
+    const email = {
+      enabled: Boolean(e.enabled),
+      fromName: String(e.fromName || "").trim().slice(0, 120),
+      fromAddress: String(e.fromAddress || "").trim().slice(0, 200),
+      smtpHost: String(e.smtpHost || "").trim().slice(0, 200),
+      smtpPort: Number(e.smtpPort) || 587,
+      smtpSecure: Boolean(e.smtpSecure),
+      smtpUser: String(e.smtpUser || "").trim().slice(0, 200),
+      imapHost: String(e.imapHost || "").trim().slice(0, 200),
+      imapPort: Number(e.imapPort) || 993,
+      imapSecure: e.imapSecure !== false,
+    };
+    const pass = String(e.smtpPassword || "").trim();
+    if (pass) {
+      email.smtpPasswordEnc = encryptSecret(pass);
+    } else if (e.clearSmtpPassword) {
+      email.smtpPasswordEnc = "";
+    }
+    set("email", email);
   }
   return out;
 }
@@ -394,6 +424,12 @@ agentsRouter.put("/:id", async (req, res, next) => {
         fields.schedule.nextRunAt = agent.schedule.nextRunAt;
       }
     }
+    if (fields.email) {
+      // Why: blank password in the form means keep the existing encrypted secret.
+      if (!fields.email.smtpPasswordEnc) {
+        fields.email.smtpPasswordEnc = agent.email?.smtpPasswordEnc || "";
+      }
+    }
     Object.assign(agent, fields);
     ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
@@ -431,6 +467,49 @@ agentsRouter.delete("/:id/memory", async (req, res, next) => {
     agent.memory = [];
     await agent.save();
     res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/email/test — send a test message with the agent's SMTP settings.
+ * Body: { to? } — defaults to fromAddress
+ */
+agentsRouter.post("/:id/email/test", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const to = String(req.body?.to || agent.email?.fromAddress || "").trim();
+    const result = await sendAgentEmail(agent, {
+      to,
+      subject: `YamBot test · ${agent.name}`,
+      text: `This is a test email from YamBot agent “${agent.name}”. SMTP is working.`,
+    });
+    res.json({ ok: true, result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/email/check — preview inbox (dashboard).
+ */
+agentsRouter.post("/:id/email/check", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const result = await checkAgentInbox(agent, {
+      limit: req.body?.limit,
+      unseenOnly: Boolean(req.body?.unseenOnly),
+    });
+    res.json(result);
   } catch (err) {
     next(err);
   }

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 19:41] Feature: Per-agent SMTP email identity
+
+- **Prompt Provided:** give SMTP email to the agent on create/edit so agent uses email as a human
+- **Architectural Flow:** Agent.email (encrypted SMTP + IMAP) → dashboard form + test send → workers call `/api/extension/email/send|check` → LLM actions `send_email` / `check_email`
+- **Impacted Files:** `PROMPT_LOG.md`, `backend` Agent model/routes/agentEmail/extension, `frontend` AgentEdit/AgentsPage, worker + extension actions/agent loops, `backend/package.json`
+
 ## [2026-08-20 19:33] Feature: Free-text skill + per-agent scheduler
 
 - **Prompt Provided:** scheduler for every agent; remove skill dropdown — write skill in a textbox
