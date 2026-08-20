@@ -34,6 +34,9 @@ services:
       PORT: "4000"
       PUBLIC_API_URL: https://bot.vughy.com
       CORS_ORIGINS: https://bot.vughy.com,http://bot.vughy.com
+      DEFAULT_LLM_BASE_URL: ${DEFAULT_LLM_BASE_URL:-https://api.minimax.io/v1}
+      DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-MiniMax-M2.7}
+      DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY:-}
     ports:
       - "4010:4000"
     depends_on:

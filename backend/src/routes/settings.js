@@ -7,6 +7,7 @@
 import { Router } from "express";
 import { User } from "../models/User.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
+import { env } from "../utils/env.js";
 
 export const settingsRouter = Router();
 
@@ -32,15 +33,15 @@ settingsRouter.get("/", async (req, res, next) => {
       return;
     }
     const s = user.settings || {};
-    const apiKey = decryptSecret(s.llmApiKeyEnc || "");
+    const apiKey = decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "";
     const dbcPass = decryptSecret(s.dbcPasswordEnc || "");
     res.json({
       ok: true,
       settings: {
         llmApiKeyMasked: mask(apiKey),
         hasLlmApiKey: Boolean(apiKey),
-        llmBaseUrl: s.llmBaseUrl || "https://api.openai.com/v1",
-        llmModel: s.llmModel || "gpt-4o-mini",
+        llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
+        llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
         dbcUsername: s.dbcUsername || "",
         dbcPasswordMasked: mask(dbcPass),
         hasDbcPassword: Boolean(dbcPass),

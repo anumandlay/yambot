@@ -54,8 +54,8 @@ async function testLlmConnection(cfg = {}) {
   }
   const stored = await chrome.storage.local.get(["llmApiKey", "llmBaseUrl", "llmModel"]);
   apiKey = apiKey || stored.llmApiKey || "";
-  baseUrl = baseUrl || stored.llmBaseUrl || "https://api.openai.com/v1";
-  model = model || stored.llmModel || "gpt-4o-mini";
+  baseUrl = baseUrl || stored.llmBaseUrl || "https://api.minimax.io/v1";
+  model = model || stored.llmModel || "MiniMax-M2.7";
 
   const { content } = await chatCompletion({
     apiKey,

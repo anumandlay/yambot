@@ -6,6 +6,10 @@
 
 import mongoose from "mongoose";
 import bcrypt from "bcryptjs";
+import {
+  DEFAULT_LLM_BASE_URL,
+  DEFAULT_LLM_MODEL,
+} from "../utils/llmDefaults.js";
 
 /**
  * @typedef {object} UserSettings
@@ -21,8 +25,8 @@ import bcrypt from "bcryptjs";
 const settingsSchema = new mongoose.Schema(
   {
     llmApiKeyEnc: { type: String, default: "" },
-    llmBaseUrl: { type: String, default: "https://api.openai.com/v1" },
-    llmModel: { type: String, default: "gpt-4o-mini" },
+    llmBaseUrl: { type: String, default: DEFAULT_LLM_BASE_URL },
+    llmModel: { type: String, default: DEFAULT_LLM_MODEL },
     dbcUsername: { type: String, default: "" },
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 25 },

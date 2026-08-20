@@ -136,6 +136,13 @@ def main() -> int:
 
     jwt = keep("JWT_SECRET", secrets.token_hex(32))
     crypto = keep("SETTINGS_CRYPTO_KEY", secrets.token_hex(32))
+    llm_key = os.environ.get("DEFAULT_LLM_API_KEY") or keep("DEFAULT_LLM_API_KEY", "")
+    llm_base = os.environ.get("DEFAULT_LLM_BASE_URL") or keep(
+        "DEFAULT_LLM_BASE_URL", "https://api.minimax.io/v1"
+    )
+    llm_model = os.environ.get("DEFAULT_LLM_MODEL") or keep(
+        "DEFAULT_LLM_MODEL", "MiniMax-M2.7"
+    )
     env_body = (
         "NODE_ENV=production\n"
         "PORT=4000\n"
@@ -147,6 +154,9 @@ def main() -> int:
         "VITE_API_BASE_URL=https://bot.vughy.com\n"
         "DOCKER_NETWORK=deploy_default\n"
         "YAMBOT_API_BASE_URL=http://api:4000\n"
+        f"DEFAULT_LLM_BASE_URL={llm_base}\n"
+        f"DEFAULT_LLM_MODEL={llm_model}\n"
+        f"DEFAULT_LLM_API_KEY={llm_key}\n"
     )
 
     run(

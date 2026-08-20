@@ -147,8 +147,8 @@ export function createAgentController({ emit }) {
       if (remote?.config?.llmApiKey) {
         return {
           llmApiKey: remote.config.llmApiKey,
-          llmBaseUrl: remote.config.llmBaseUrl || "https://api.openai.com/v1",
-          llmModel: remote.config.llmModel || "gpt-4o-mini",
+          llmBaseUrl: remote.config.llmBaseUrl || "https://api.minimax.io/v1",
+          llmModel: remote.config.llmModel || "MiniMax-M2.7",
           dbcUsername: remote.config.dbcUsername || "",
           dbcPassword: remote.config.dbcPassword || "",
           maxSteps: Number(remote.config.maxSteps) || DEFAULT_MAX_STEPS,
@@ -170,8 +170,8 @@ export function createAgentController({ emit }) {
     ]);
     return {
       llmApiKey: data.llmApiKey || "",
-      llmBaseUrl: data.llmBaseUrl || "https://api.openai.com/v1",
-      llmModel: data.llmModel || "gpt-4o-mini",
+      llmBaseUrl: data.llmBaseUrl || "https://api.minimax.io/v1",
+      llmModel: data.llmModel || "MiniMax-M2.7",
       dbcUsername: data.dbcUsername || "",
       dbcPassword: data.dbcPassword || "",
       maxSteps: Number(data.maxSteps) || DEFAULT_MAX_STEPS,

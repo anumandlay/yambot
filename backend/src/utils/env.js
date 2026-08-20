@@ -15,7 +15,15 @@
  * @property {string} JWT_EXPIRES_IN
  * @property {string} SETTINGS_CRYPTO_KEY
  * @property {string} CORS_ORIGINS
+ * @property {string} DEFAULT_LLM_API_KEY
+ * @property {string} DEFAULT_LLM_BASE_URL
+ * @property {string} DEFAULT_LLM_MODEL
  */
+
+import {
+  DEFAULT_LLM_BASE_URL as LLM_BASE,
+  DEFAULT_LLM_MODEL as LLM_MODEL,
+} from "./llmDefaults.js";
 
 /** @type {Env} */
 export const env = {
@@ -28,4 +36,8 @@ export const env = {
   SETTINGS_CRYPTO_KEY:
     process.env.SETTINGS_CRYPTO_KEY || "dev-settings-crypto-key-change-me-32",
   CORS_ORIGINS: process.env.CORS_ORIGINS || "http://localhost:5173",
+  // Why: optional site-wide LLM so operators do not re-enter keys on every device.
+  DEFAULT_LLM_API_KEY: process.env.DEFAULT_LLM_API_KEY || "",
+  DEFAULT_LLM_BASE_URL: process.env.DEFAULT_LLM_BASE_URL || LLM_BASE,
+  DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
 };

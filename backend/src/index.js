@@ -118,6 +118,8 @@ app.use((err, _req, res, _next) => {
 });
 
 await connectDb();
+const { seedDefaultLlmSettings } = await import("./utils/seedLlm.js");
+await seedDefaultLlmSettings();
 app.listen(env.PORT, () => {
   console.log(`YamBot API listening on :${env.PORT} (${env.NODE_ENV})`);
 });

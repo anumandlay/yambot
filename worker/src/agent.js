@@ -133,8 +133,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const c = remote?.config || {};
     return {
       llmApiKey: c.llmApiKey || "",
-      llmBaseUrl: c.llmBaseUrl || "https://api.openai.com/v1",
-      llmModel: c.llmModel || "gpt-4o-mini",
+      llmBaseUrl: c.llmBaseUrl || "https://api.minimax.io/v1",
+      llmModel: c.llmModel || "MiniMax-M2.7",
       dbcUsername: c.dbcUsername || "",
       dbcPassword: c.dbcPassword || "",
       maxSteps: Number(c.maxSteps) || DEFAULT_MAX_STEPS,

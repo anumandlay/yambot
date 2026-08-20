@@ -11,8 +11,8 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 export function SettingsPage() {
   const [form, setForm] = useState({
     llmApiKey: "",
-    llmBaseUrl: "https://api.openai.com/v1",
-    llmModel: "gpt-4o-mini",
+    llmBaseUrl: "https://api.minimax.io/v1",
+    llmModel: "MiniMax-M2.7",
     dbcUsername: "",
     dbcPassword: "",
     maxSteps: 25,
@@ -81,7 +81,8 @@ export function SettingsPage() {
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-4 py-6 md:px-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
       <p className="text-sm text-teal-900/70">
-        Configure your LLM here. Leave secret fields blank to keep the current saved value.
+        Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).
+        Secrets are saved on the server — leave the API key blank to keep the current value.
       </p>
       {error ? (
         <ErrorAlert

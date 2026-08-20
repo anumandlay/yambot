@@ -382,8 +382,8 @@ async function loadSettings() {
   document.getElementById("api-base").value = data.apiBaseUrl || "https://bot.vughy.com";
   document.getElementById("auth-email").value = data.authEmail || "";
   document.getElementById("llm-key").value = data.llmApiKey || "";
-  document.getElementById("llm-base").value = data.llmBaseUrl || "https://api.openai.com/v1";
-  document.getElementById("llm-model").value = data.llmModel || "gpt-4o-mini";
+  document.getElementById("llm-base").value = data.llmBaseUrl || "https://api.minimax.io/v1";
+  document.getElementById("llm-model").value = data.llmModel || "MiniMax-M2.7";
   document.getElementById("dbc-user").value = data.dbcUsername || "";
   document.getElementById("dbc-pass").value = data.dbcPassword || "";
   document.getElementById("max-steps").value = data.maxSteps || 25;
@@ -395,8 +395,8 @@ btnSave.addEventListener("click", async () => {
   await chrome.storage.local.set({
     apiBaseUrl: document.getElementById("api-base").value.trim() || "https://bot.vughy.com",
     llmApiKey: document.getElementById("llm-key").value.trim(),
-    llmBaseUrl: document.getElementById("llm-base").value.trim() || "https://api.openai.com/v1",
-    llmModel: document.getElementById("llm-model").value.trim() || "gpt-4o-mini",
+    llmBaseUrl: document.getElementById("llm-base").value.trim() || "https://api.minimax.io/v1",
+    llmModel: document.getElementById("llm-model").value.trim() || "MiniMax-M2.7",
     dbcUsername: document.getElementById("dbc-user").value.trim(),
     dbcPassword: document.getElementById("dbc-pass").value,
     maxSteps: Number(document.getElementById("max-steps").value) || 25,

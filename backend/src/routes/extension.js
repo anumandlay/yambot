@@ -10,6 +10,7 @@ import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
 import { Agent, appendAgentMemory } from "../models/Agent.js";
 import { decryptSecret } from "../utils/crypto.js";
+import { env } from "../utils/env.js";
 
 export const extensionRouter = Router();
 
@@ -31,9 +32,9 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
     res.json({
       ok: true,
       config: {
-        llmApiKey: decryptSecret(s.llmApiKeyEnc || ""),
-        llmBaseUrl: s.llmBaseUrl || "https://api.openai.com/v1",
-        llmModel: s.llmModel || "gpt-4o-mini",
+        llmApiKey: decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "",
+        llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
+        llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         maxSteps: s.maxSteps ?? 25,
