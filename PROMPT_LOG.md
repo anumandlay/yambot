@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 10:22] UI: Chat thread follows live bottom + sticky rail
+
+- **Prompt Provided:** keep live screen and goal sticky; chat thread show the bottom so live text is visible on the left
+- **Architectural Flow:** ChatDetail left column is its own scroller pinned to latest messages (unless user scrolls up); right rail stays sticky with LiveScreen + goal
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`
+
 ## [2026-08-21 10:08] UI: Left sidebar + full-page live screen
 
 - **Prompt Provided:** menu on left sidebar with toggle; whole project responsive; see full live agent screen not just viewport

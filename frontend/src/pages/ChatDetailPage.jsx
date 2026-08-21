@@ -1,6 +1,6 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
- * Purpose: Messages on the left; live screen + goal/instructions sticky on the right (desktop).
+ * Purpose: Left thread sticks to the latest live text; right rail keeps screen + goal sticky.
  * On mobile, screen + goal stay sticky at the bottom. Stop cancels the active run.
  */
 
@@ -20,7 +20,10 @@ export function ChatDetailPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const threadRef = useRef(null);
   const bottomRef = useRef(null);
+  /** Why: follow live agent text unless the user scrolls the thread up to read history. */
+  const stickToBottomRef = useRef(true);
 
   const load = useCallback(async () => {
     try {
@@ -39,12 +42,32 @@ export function ChatDetailPage() {
     return () => clearInterval(id);
   }, [load]);
 
-  // Why: only jump when the user sends something — polling must not yank scroll on mobile.
-  const scrollToLatest = useCallback(() => {
+  /**
+   * Keeps the left thread pinned to the newest messages while the agent streams.
+   */
+  const scrollThreadToBottom = useCallback((smooth = false) => {
+    const el = threadRef.current;
+    if (!el) return;
     requestAnimationFrame(() => {
-      bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "nearest" });
+      if (smooth) {
+        bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      } else {
+        el.scrollTop = el.scrollHeight;
+      }
     });
   }, []);
+
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    scrollThreadToBottom(false);
+  }, [messages, scrollThreadToBottom]);
+
+  function onThreadScroll() {
+    const el = threadRef.current;
+    if (!el) return;
+    const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+    stickToBottomRef.current = gap < 96;
+  }
 
   const waitingTask = tasks.find((t) => t.status === "waiting_user");
   const activeTask = tasks.find((t) =>
@@ -61,6 +84,7 @@ export function ChatDetailPage() {
     if (!content) return;
     setBusy(true);
     setError(null);
+    stickToBottomRef.current = true;
     try {
       await api(`/api/chats/${chatId}/messages`, {
         method: "POST",
@@ -68,7 +92,7 @@ export function ChatDetailPage() {
       });
       setInput("");
       await load();
-      scrollToLatest();
+      scrollThreadToBottom(true);
     } catch (err) {
       setError(err);
     } finally {
@@ -83,6 +107,7 @@ export function ChatDetailPage() {
     e.preventDefault();
     if (!waitingTask || !answer.trim()) return;
     setBusy(true);
+    stickToBottomRef.current = true;
     try {
       await api(`/api/chats/${chatId}/tasks/${waitingTask._id}/answer`, {
         method: "POST",
@@ -90,7 +115,7 @@ export function ChatDetailPage() {
       });
       setAnswer("");
       await load();
-      scrollToLatest();
+      scrollThreadToBottom(true);
     } catch (err) {
       setError(err);
     } finally {
@@ -183,8 +208,8 @@ export function ChatDetailPage() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-4 sm:gap-4 sm:px-4 sm:py-6 md:px-6">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4 md:px-6 lg:h-[calc(100dvh-0.5rem)] lg:max-h-[calc(100dvh-0.5rem)] lg:overflow-hidden">
+      <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
         <Link
           to="/"
           className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
@@ -212,7 +237,7 @@ export function ChatDetailPage() {
       ) : null}
 
       {tasks[0] ? (
-        <div className="flex flex-wrap items-center justify-between gap-2 break-words rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 break-words rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
           <span>
             Latest task: <strong>{tasks[0].status}</strong>
             {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
@@ -230,9 +255,13 @@ export function ChatDetailPage() {
         </div>
       ) : null}
 
-      {/* Why: desktop = messages left + sticky control column right; mobile = stack with bottom sticky dock. */}
-      <div className="grid grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] lg:items-start lg:gap-5">
-        <div className="flex min-w-0 flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4">
+      {/* Why: left thread scrolls to latest live text; right rail stays sticky with screen + goal. */}
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] lg:items-stretch lg:gap-5">
+        <div
+          ref={threadRef}
+          onScroll={onThreadScroll}
+          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4 lg:max-h-full"
+        >
           {messages.length === 0 ? (
             <p className="text-sm text-teal-900/60">No messages yet. Send a goal on the right.</p>
           ) : null}
@@ -251,16 +280,14 @@ export function ChatDetailPage() {
               <div className="whitespace-pre-wrap break-words">{m.content}</div>
             </article>
           ))}
-          <div ref={bottomRef} />
+          <div ref={bottomRef} className="h-px w-full shrink-0" />
         </div>
 
-        {/* Desktop: sticky right rail */}
-        <aside className="hidden lg:sticky lg:top-3 lg:flex lg:max-h-[calc(100dvh-1.5rem)] lg:flex-col lg:gap-3 lg:overflow-y-auto lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
+        <aside className="hidden min-h-0 lg:sticky lg:top-0 lg:flex lg:max-h-full lg:flex-col lg:gap-3 lg:overflow-y-auto lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
           {controlPanel}
         </aside>
       </div>
 
-      {/* Mobile: sticky bottom dock (same controls) */}
       <div className="sticky bottom-0 z-30 -mx-3 mt-1 flex flex-col gap-2 border-t border-teal-100 bg-[color-mix(in_srgb,var(--yb-bg)_92%,white)] px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] backdrop-blur-md lg:hidden">
         {controlPanel}
       </div>
