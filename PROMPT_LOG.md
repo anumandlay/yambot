@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 17:05] Ops: unstick deploy + fix worker tzdata hang
+
+- **Prompt Provided:** ets do (kill hung builds, restore site, finish noVNC worker deploy)
+- **Architectural Flow:** Kill stuck compose; restore mongo/api/web; root cause of worker hang was interactive tzdata; set DEBIAN_FRONTEND=noninteractive; rebuild headed worker image; recreate agent boxes with YAMBOT_HEADED=1 + noVNC:6080
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/Dockerfile.worker`
+
 ## [2026-08-21 15:45] Feature: noVNC remote desktop for Take control
 
 - **Prompt Provided:** lets do it (xrdp/vnc/novnc so Take control feels like real RDP)
