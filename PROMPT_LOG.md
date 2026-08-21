@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 14:40] Fix: prioritize Cart/nav on shopping pages so agent leaves Amazon home
+
+- **Prompt Provided:** it opened the amazon but not going to cart
+- **Architectural Flow:** Observe still uncapped, but Cart/Delete/chrome controls are listed before product links; LLM prompt tells agent to click header Cart (#nav-cart) or navigate to /gp/cart/view.html when goal is cart
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/actions.js`, `extension/content/content.js`, `extension/shared/actions.js`
+
 ## [2026-08-21 14:30] Fix: remove interactive control cap (was 120)
 
 - **Prompt Provided:** raise the interactive limit on all pages; remove the cap of 120 controls (Amazon cart Delete was missing)

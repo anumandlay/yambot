@@ -203,27 +203,80 @@
   }
 
   /**
+   * Whether an element looks like cart / checkout / line-item remove.
+   * Why: Amazon home has hundreds of product links; Cart must surface before those.
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  function isShopPriority(el) {
+    const href = String(el.href || el.getAttribute("href") || "").toLowerCase();
+    const blob = [
+      el.id,
+      el.getAttribute("aria-label"),
+      el.getAttribute("name"),
+      el.getAttribute("title"),
+      el.getAttribute("data-testid"),
+      typeof el.className === "string" ? el.className : "",
+      href,
+      el.innerText,
+    ]
+      .join(" ")
+      .toLowerCase();
+    return (
+      /\b(cart|basket|bag|checkout|panier|warenkorb|delete|remove|save for later)\b/.test(blob) ||
+      /nav-cart|minicart|\/gp\/cart|\/cart\b|viewcart|basket\.html/.test(blob)
+    );
+  }
+
+  /**
+   * Header / primary nav chrome (sitewide Cart usually lives here).
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  function inPageChrome(el) {
+    return Boolean(
+      el.closest(
+        [
+          "header",
+          "nav",
+          '[role="banner"]',
+          '[role="navigation"]',
+          "#navbar",
+          "#nav-belt",
+          "#nav-main",
+          "#nav-flyout-anchor",
+          "#desktop-header",
+          "#gh",
+          ".header",
+          "[data-nav-role='signin']",
+        ].join(",")
+      )
+    );
+  }
+
+  /**
    * Collect all visible interactive controls (no hard cap).
-   * Why: shopping carts (Amazon, etc.) bury Delete/Remove past a 120-item cutoff.
+   * Why: shopping pages bury Cart/Delete among product links — prioritize shop + chrome first.
    */
   function collectInteractives() {
     clearRefs();
-    const ordered = [];
     const seen = new Set();
+    const overlays = [];
+    const shop = [];
+    const chrome = [];
+    const body = [];
 
-    function pushAll(list) {
-      for (const el of list) {
-        if (!el || seen.has(el)) continue;
-        const type = (el.getAttribute("type") || "").toLowerCase();
-        if (type === "hidden") continue;
-        if (!isVisible(el)) continue;
-        seen.add(el);
-        ordered.push(el);
-      }
+    function accept(el, bucket) {
+      if (!el || seen.has(el)) return;
+      const type = (el.getAttribute("type") || "").toLowerCase();
+      if (type === "hidden") return;
+      if (!isVisible(el)) return;
+      seen.add(el);
+      bucket.push(el);
     }
 
-    pushAll(collectOverlayOptions());
-    pushAll(collectCalendarTargets());
+    for (const el of collectOverlayOptions()) accept(el, overlays);
+    for (const el of collectCalendarTargets()) accept(el, overlays);
 
     const selectors = [
       "a[href]",
@@ -246,8 +299,18 @@
       "summary",
       "[tabindex]:not([tabindex='-1'])",
     ].join(",");
-    pushAll([...document.querySelectorAll(selectors)]);
 
+    for (const el of document.querySelectorAll(selectors)) {
+      if (!el || seen.has(el)) continue;
+      const type = (el.getAttribute("type") || "").toLowerCase();
+      if (type === "hidden") continue;
+      if (!isVisible(el)) continue;
+      if (isShopPriority(el)) accept(el, shop);
+      else if (inPageChrome(el)) accept(el, chrome);
+      else accept(el, body);
+    }
+
+    const ordered = [...overlays, ...shop, ...chrome, ...body];
     const items = [];
     let i = 0;
     for (const el of ordered) {
