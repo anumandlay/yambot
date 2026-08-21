@@ -1,7 +1,7 @@
 /**
- * @fileoverview Live + interactive cloud-computer screen for the YamBot dashboard.
- * Purpose: Fill the available panel; Zoom in opens a full-viewport modal with the live page.
- * Inputs: agentId; Downstream: `/api/agents/:id/live` + `/api/agents/:id/control`.
+ * @fileoverview Live + interactive cloud-computer screen (remote-desktop style).
+ * Purpose: Stream JPEG + Take control (click/keyboard/scroll); Zoom for full viewport.
+ * Inputs: agentId (+ optional attention / wallMode); Downstream: `/api/agents/:id/live|control`.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -49,9 +49,27 @@ function playwrightKeyFromEvent(e) {
 }
 
 /**
- * @param {{ agentId: string, compact?: boolean, className?: string, fill?: boolean }} props
+ * @param {{
+ *   agentId: string,
+ *   compact?: boolean,
+ *   className?: string,
+ *   fill?: boolean,
+ *   agentName?: string,
+ *   attention?: boolean,
+ *   attentionReason?: string,
+ *   wallMode?: boolean,
+ * }} props
  */
-export function LiveScreen({ agentId, compact = false, className = "", fill = false }) {
+export function LiveScreen({
+  agentId,
+  compact = false,
+  className = "",
+  fill = false,
+  agentName = "",
+  attention: attentionProp,
+  attentionReason: attentionReasonProp = "",
+  wallMode = false,
+}) {
   const [live, setLive] = useState(null);
   const [error, setError] = useState(null);
   const [controlOn, setControlOn] = useState(false);
@@ -87,12 +105,12 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
     }
 
     tick();
-    const id = setInterval(tick, controlOn || zoomed ? 900 : 2000);
+    const id = setInterval(tick, controlOn || zoomed ? 900 : wallMode ? 2500 : 2000);
     return () => {
       cancelled = true;
       clearInterval(id);
     };
-  }, [agentId, controlOn, zoomed, busySession]);
+  }, [agentId, controlOn, zoomed, busySession, wallMode]);
 
   // Why: Esc closes the zoom modal (does not release remote control).
   useEffect(() => {
@@ -149,6 +167,13 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
 
   if (!agentId) return null;
 
+  const attention =
+    typeof attentionProp === "boolean"
+      ? attentionProp
+      : Boolean(live?.needsAttention);
+  const attentionReason =
+    attentionReasonProp || live?.attentionReason || "Needs your attention";
+
   const src =
     live?.dataBase64 && live?.mime
       ? `data:${live.mime};base64,${live.dataBase64}`
@@ -168,10 +193,11 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
       setControlOn(active);
       setStatus(
         active
-          ? "You have control — click & type on the screen. Agent is paused."
+          ? "Remote desktop active — click, scroll, and type on this machine."
           : "Control returned to agent."
       );
       if (active) {
+        if (!zoomed) setZoomed(true);
         requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
       }
     } catch (err) {
@@ -276,6 +302,7 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
 
   const provisioning =
     !live?.online && live?.desired === "running" && !live?.provisionError;
+  const showAttention = attention && !controlOn;
 
   /**
    * Shared chrome for inline panel and zoom modal.
@@ -288,23 +315,33 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
           <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold tracking-wide">
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full ${
-                controlOn
-                  ? "bg-amber-400"
-                  : live?.online
-                    ? "bg-emerald-400"
-                    : provisioning
-                      ? "bg-amber-400"
-                      : "bg-slate-500"
+                showAttention
+                  ? "bg-red-500"
+                  : controlOn
+                    ? "bg-amber-400"
+                    : live?.online
+                      ? "bg-emerald-400"
+                      : provisioning
+                        ? "bg-amber-400"
+                        : "bg-slate-500"
               }`}
             />
+            {agentName ? (
+              <span className="max-w-[10rem] truncate sm:max-w-[14rem]">{agentName}</span>
+            ) : null}
+            {showAttention ? (
+              <span className="rounded-md bg-red-600 px-2 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-white">
+                Needs you
+              </span>
+            ) : null}
             {controlOn
-              ? "YOU CONTROL"
+              ? "REMOTE DESKTOP"
               : live?.online
                 ? "LIVE"
                 : provisioning
                   ? "STARTING…"
                   : "OFFLINE"}
-            {live?.workerName ? (
+            {live?.workerName && !agentName ? (
               <span className="truncate font-normal text-white/60">· {live.workerName}</span>
             ) : null}
             {modal ? (
@@ -340,15 +377,23 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
               aria-pressed={zoomed}
               title={zoomed ? "Close full screen (Esc)" : "Open full screen modal"}
             >
-              {zoomed ? "Close" : "Zoom in"}
+              {zoomed ? "Close" : "Zoom"}
             </button>
           </div>
         </div>
 
+        {showAttention ? (
+          <p className="shrink-0 border-b border-red-500/50 bg-red-950/70 px-3 py-2 text-xs text-red-50">
+            {attentionReason.slice(0, 220)}
+            {" — "}
+            <strong>Take control</strong> to drive this machine (CAPTCHA, login, etc.).
+          </p>
+        ) : null}
+
         {controlOn ? (
           <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
-            Agent paused. Scroll the preview to see the full page. Click the screen to click remotely.
-            Shift+wheel scrolls the remote page. When finished, press <strong>Give control back</strong>.
+            Agent paused — you drive this machine. Click the screen, use your keyboard, Shift+wheel
+            to scroll remotely. When finished, press <strong>Give control back</strong>.
           </p>
         ) : null}
 
@@ -456,11 +501,13 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
   }
 
   // Why: when zoomed, keep a compact placeholder in-flow so layout does not jump.
-  const inlineShell = `flex min-h-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-slate-950 text-white shadow-sm ${
-    fill ? "h-full flex-1" : ""
-  } ${
+  const inlineShell = `flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-sm ${
+    showAttention ? "yb-needs-attention border-red-600" : "border-teal-100"
+  } ${fill ? "h-full flex-1" : ""} ${
     !fill && compact
-      ? "min-h-[28vh] lg:min-h-[min(52vh,28rem)]"
+      ? wallMode
+        ? "min-h-[14rem] sm:min-h-[16rem]"
+        : "min-h-[28vh] lg:min-h-[min(52vh,28rem)]"
       : !fill
         ? "min-h-[40vh]"
         : ""
@@ -477,7 +524,9 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
             onClick={() => setZoomed(false)}
           >
             <div
-              className="flex h-full max-h-[100dvh] w-full max-w-[min(96rem,100%)] flex-col overflow-hidden rounded-2xl border border-white/15 bg-slate-950 text-white shadow-2xl sm:max-h-[min(96dvh,100%)]"
+              className={`flex h-full max-h-[100dvh] w-full max-w-[min(96rem,100%)] flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-2xl sm:max-h-[min(96dvh,100%)] ${
+                showAttention ? "yb-needs-attention border-red-600" : "border-white/15"
+              }`}
               onClick={(e) => e.stopPropagation()}
             >
               {renderBody({ modal: true })}
@@ -489,20 +538,24 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
 
   return (
     <>
-      <section className={inlineShell}>{zoomed ? (
-        <button
-          type="button"
-          onClick={() => setZoomed(true)}
-          className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-2 bg-slate-900 px-4 text-sm text-white/70"
-        >
-          <span className="font-semibold text-white">Live screen open in full screen</span>
-          <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">
-            Click to re-open · Esc to close
-          </span>
-        </button>
-      ) : (
-        renderBody({ modal: false })
-      )}</section>
+      <section className={inlineShell}>
+        {zoomed ? (
+          <button
+            type="button"
+            onClick={() => setZoomed(true)}
+            className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-2 bg-slate-900 px-4 text-sm text-white/70"
+          >
+            <span className="font-semibold text-white">
+              {agentName ? `${agentName} — ` : ""}Remote desktop open
+            </span>
+            <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">
+              Click to re-open · Esc to close
+            </span>
+          </button>
+        ) : (
+          renderBody({ modal: false })
+        )}
+      </section>
       {modal}
     </>
   );

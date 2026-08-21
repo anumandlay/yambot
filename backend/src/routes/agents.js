@@ -7,6 +7,7 @@
 import crypto from "node:crypto";
 import { Router } from "express";
 import { Agent, AGENT_RUNNERS, AGENT_MODES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
+import { Task } from "../models/Task.js";
 import {
   issueWorkerToken,
   containerNameForAgent,
@@ -241,6 +242,91 @@ agentsRouter.get("/", async (req, res, next) => {
 });
 
 /**
+ * GET /api/agents/live-wall — all cloud-capable agents with live JPEG + attention flags.
+ * Why: one poll drives the Live Wall grid (Zoom / Take control / red blink).
+ */
+agentsRouter.get("/live-wall", async (req, res, next) => {
+  try {
+    const agents = await Agent.find({
+      user: req.userId,
+      active: { $ne: false },
+      runner: { $in: ["cloud", "any"] },
+    })
+      .select("-workerTokenEnc -workerTokenHash -controlQueue")
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const agentIds = agents.map((a) => a._id);
+    const waiting = await Task.find({
+      user: req.userId,
+      agent: { $in: agentIds },
+      status: "waiting_user",
+    })
+      .select("agent events")
+      .lean();
+
+    /** @type {Map<string, string>} */
+    const waitingReason = new Map();
+    for (const t of waiting) {
+      const id = String(t.agent);
+      if (waitingReason.has(id)) continue;
+      const asks = (t.events || []).filter((e) => e.type === "ask_user");
+      const last = asks[asks.length - 1];
+      waitingReason.set(
+        id,
+        String(last?.payload?.question || "Waiting for your reply").slice(0, 400)
+      );
+    }
+
+    const now = Date.now();
+    const screens = agents.map((a) => {
+      const online = Boolean(
+        a.computer?.lastSeenAt && now - new Date(a.computer.lastSeenAt).getTime() < 45_000
+      );
+      const screen = a.liveScreen || {};
+      const flagged = Boolean(a.computer?.needsAttention) || waitingReason.has(String(a._id));
+      const reason =
+        (a.computer?.needsAttention && a.computer?.attentionReason) ||
+        waitingReason.get(String(a._id)) ||
+        "";
+      return {
+        id: String(a._id),
+        name: a.name,
+        runner: a.runner || "cloud",
+        mode: a.mode || "browser",
+        online,
+        desired: a.computer?.desired || "stopped",
+        provisionError: a.computer?.provisionError || "",
+        pageUrl: a.computer?.pageUrl || "",
+        taskId: a.computer?.taskId ? String(a.computer.taskId) : null,
+        humanControl: Boolean(a.computer?.humanControl),
+        needsAttention: flagged,
+        attentionReason: String(reason).slice(0, 400),
+        mime: screen.mime || "image/jpeg",
+        dataBase64: screen.dataBase64 || "",
+        capturedAt: screen.at || null,
+        screenshotWidth: a.computer?.screenshotWidth || a.computer?.viewportWidth || 1280,
+        screenshotHeight: a.computer?.screenshotHeight || a.computer?.viewportHeight || 800,
+      };
+    });
+
+    screens.sort((x, y) => {
+      if (x.needsAttention !== y.needsAttention) return x.needsAttention ? -1 : 1;
+      if (x.online !== y.online) return x.online ? -1 : 1;
+      return String(x.name).localeCompare(String(y.name));
+    });
+
+    res.json({
+      ok: true,
+      attentionCount: screens.filter((s) => s.needsAttention).length,
+      screens,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/agents — creates agent and requests a cloud computer by default.
  */
 agentsRouter.post("/", async (req, res, next) => {
@@ -311,6 +397,22 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
         Date.now() - new Date(agent.computer.lastSeenAt).getTime() < 45_000
     );
     const screen = agent.liveScreen || {};
+    const waiting = await Task.findOne({
+      agent: agent._id,
+      user: req.userId,
+      status: "waiting_user",
+    })
+      .select("events")
+      .lean();
+    let waitingReason = "";
+    if (waiting) {
+      const asks = (waiting.events || []).filter((e) => e.type === "ask_user");
+      const last = asks[asks.length - 1];
+      waitingReason = String(last?.payload?.question || "Waiting for your reply").slice(0, 400);
+    }
+    const needsAttention = Boolean(agent.computer?.needsAttention) || Boolean(waiting);
+    const attentionReason =
+      (agent.computer?.needsAttention && agent.computer?.attentionReason) || waitingReason || "";
     res.json({
       ok: true,
       live: {
@@ -333,6 +435,9 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
         dataBase64: screen.dataBase64 || "",
         capturedAt: screen.at || null,
         humanControl: Boolean(agent.computer?.humanControl),
+        needsAttention,
+        attentionReason,
+        attentionAt: agent.computer?.attentionAt || null,
       },
     });
   } catch (err) {

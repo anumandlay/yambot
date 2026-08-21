@@ -8,7 +8,7 @@ import { Router } from "express";
 import { Task } from "../models/Task.js";
 import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
-import { Agent, appendAgentMemory } from "../models/Agent.js";
+import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
 import { decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 
@@ -296,6 +296,20 @@ extensionRouter.post("/tasks/:id/events", async (req, res, next) => {
         content: String(payload.question),
         meta: { taskId: task._id, kind: "ask_user" },
       });
+      if (task.agent) {
+        await setAgentNeedsAttention(task.agent, String(payload.question));
+      }
+    }
+
+    // Why: DBC failure / captcha progress that still needs a human should blink on Live Wall.
+    if (type === "captcha") {
+      const msg = String(req.body?.appendMessage || payload?.hint || payload?.error || "");
+      const needsHuman =
+        Boolean(payload?.needsHuman) ||
+        /needs you|take control|could not solve|failed|not configured|needs_human/i.test(msg);
+      if (needsHuman && task.agent) {
+        await setAgentNeedsAttention(task.agent, msg || "CAPTCHA needs you");
+      }
     }
 
     await task.save();
@@ -318,6 +332,9 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
     }
     // Why: dashboard Stop already finalized the task — don't overwrite with a late complete.
     if (task.status === "cancelled") {
+      if (task.agent) {
+        await clearAgentNeedsAttention(task.agent);
+      }
       res.json({ ok: true, task, alreadyCancelled: true });
       return;
     }
@@ -340,6 +357,10 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
       content: summary || (success ? "Done." : error || "Failed."),
       meta: { taskId: task._id, kind: "result", success },
     });
+
+    if (task.agent) {
+      await clearAgentNeedsAttention(task.agent);
+    }
 
     // Why: each completed run feeds the agent's long-term memory for future goals.
     if (task.agent && (summary || error)) {

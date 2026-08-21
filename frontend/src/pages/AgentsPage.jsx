@@ -74,8 +74,11 @@ export function AgentsPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Agents</h1>
           <p className="text-sm text-teal-900/70">
-            Creating an agent provisions its own cloud Chromium box on the VPS. Watch and take
-            control of the live screen from the agent page or any chat.
+            Creating an agent provisions its own cloud Chromium box on the VPS. Watch all screens on{" "}
+            <Link to="/live" className="font-semibold text-teal-800 underline">
+              Live Wall
+            </Link>
+            , or open a chat / agent page for one computer.
           </p>
         </div>
         <Link

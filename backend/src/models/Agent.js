@@ -205,6 +205,12 @@ const agentSchema = new mongoose.Schema(
        */
       humanControl: { type: Boolean, default: false },
       humanControlAt: { type: Date, default: null },
+      /**
+       * Why: Live Wall blinks red when CAPTCHA / ask_user needs a human on this computer.
+       */
+      needsAttention: { type: Boolean, default: false },
+      attentionReason: { type: String, default: "", trim: true },
+      attentionAt: { type: Date, default: null },
       taskId: {
         type: mongoose.Schema.Types.ObjectId,
         ref: "Task",
@@ -441,3 +447,40 @@ export function computeNextRunAt(schedule, from = new Date()) {
 }
 
 export const Agent = mongoose.model("Agent", agentSchema);
+
+/**
+ * Marks an agent's live tile as needing human help (Live Wall red blink).
+ * @param {import('mongoose').Types.ObjectId|string} agentId
+ * @param {string} [reason]
+ */
+export async function setAgentNeedsAttention(agentId, reason = "") {
+  if (!agentId) return;
+  await Agent.updateOne(
+    { _id: agentId },
+    {
+      $set: {
+        "computer.needsAttention": true,
+        "computer.attentionReason": String(reason || "Needs your attention").slice(0, 400),
+        "computer.attentionAt": new Date(),
+      },
+    }
+  );
+}
+
+/**
+ * Clears Live Wall attention for an agent.
+ * @param {import('mongoose').Types.ObjectId|string} agentId
+ */
+export async function clearAgentNeedsAttention(agentId) {
+  if (!agentId) return;
+  await Agent.updateOne(
+    { _id: agentId },
+    {
+      $set: {
+        "computer.needsAttention": false,
+        "computer.attentionReason": "",
+        "computer.attentionAt": null,
+      },
+    }
+  );
+}

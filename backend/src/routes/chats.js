@@ -7,7 +7,7 @@
 import { Router } from "express";
 import { Chat, Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
-import { Agent, toAgentSnapshot } from "../models/Agent.js";
+import { Agent, toAgentSnapshot, clearAgentNeedsAttention } from "../models/Agent.js";
 
 export const chatsRouter = Router();
 
@@ -139,6 +139,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           meta: { kind: "superseded", taskId: blocked._id },
         }).catch(() => {});
       }
+      if (waiting.length) {
+        await clearAgentNeedsAttention(agentDoc._id);
+      }
     }
 
     // Why: first user message becomes the chat title for sidebar scanning.
@@ -225,6 +228,9 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
     });
     task.status = "running";
     await task.save();
+    if (task.agent) {
+      await clearAgentNeedsAttention(task.agent);
+    }
     await Message.create({
       chat: task.chat,
       role: "user",
@@ -257,6 +263,7 @@ chatsRouter.post("/:id/stop", async (req, res, next) => {
       return;
     }
     const now = new Date();
+    const agentIds = new Set();
     for (const task of active) {
       task.status = "cancelled";
       task.completedAt = now;
@@ -266,6 +273,10 @@ chatsRouter.post("/:id/stop", async (req, res, next) => {
         payload: { reason: "user_stop" },
       });
       await task.save();
+      if (task.agent) agentIds.add(String(task.agent));
+    }
+    for (const id of agentIds) {
+      await clearAgentNeedsAttention(id);
     }
     await Message.create({
       chat: chat._id,

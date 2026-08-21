@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 15:25] Feature: Live Wall + remote-desktop attention blink
+
+- **Prompt Provided:** live screen like remote desktop; page with all agents live screens, zoom + take control; red blink when help needed (CAPTCHA)
+- **Architectural Flow:** `computer.needsAttention` set on ask_user/captcha handoff, cleared on answer/complete/stop; `GET /api/agents/live-wall` feeds `/live` grid; LiveScreen Take control opens remote-desktop session with Zoom; red CSS blink when attention
+- **Impacted Files:** `PROMPT_LOG.md`, `backend` Agent model + agents/extension/chats routes, `frontend` LiveScreen, LiveWallPage, App, AppSidebar, AgentsPage, index.css
+
 ## [2026-08-21 15:15] Fix: no default Google page; new goals unblock waiting_user freeze
 
 - **Prompt Provided:** remove default google.com from live screen for new agents; check my inbox for unread froze

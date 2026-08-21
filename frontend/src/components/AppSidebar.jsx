@@ -44,6 +44,12 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
         </span>
         {!collapsed ? <span>Agents</span> : null}
       </NavLink>
+      <NavLink to="/live" className={linkClass} onClick={onClose} title="Live Wall">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          L
+        </span>
+        {!collapsed ? <span>Live Wall</span> : null}
+      </NavLink>
       <NavLink to="/" end className={linkClass} onClick={onClose} title="Chats">
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
           C
