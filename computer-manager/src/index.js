@@ -87,8 +87,19 @@ async function ensureRunning(agent) {
       const running = Boolean(info.State?.Running);
       const restarting = Boolean(info.State?.Restarting);
       const exitCode = info.State?.ExitCode;
-      // Why: after `compose down/up`, old containers keep a dead NetworkID and cannot start.
-      if (running && !restarting) {
+
+      // Why: after rebuilding yambot-worker:local, old agent boxes keep stale code (JSON parse bugs, etc.).
+      let imageStale = false;
+      try {
+        const want = await docker.getImage(WORKER_IMAGE).inspect();
+        if (want?.Id && info.Image && want.Id !== info.Image) {
+          imageStale = true;
+        }
+      } catch {
+        /* ignore — create path will fail loudly if image missing */
+      }
+
+      if (running && !restarting && !imageStale) {
         await Agent.updateOne(
           { _id: agent._id },
           {
@@ -102,7 +113,10 @@ async function ensureRunning(agent) {
         );
         return;
       }
-      if (!running && !restarting) {
+      if (imageStale) {
+        console.warn(`[manager] ${name} on stale worker image; recreating`);
+        await ensureStopped(name);
+      } else if (!running && !restarting) {
         await container.start();
         const after = await container.inspect();
         await Agent.updateOne(
@@ -118,10 +132,11 @@ async function ensureRunning(agent) {
         );
         console.log(`[manager] started existing ${name}`);
         return;
+      } else {
+        // Restart loop (e.g. Playwright browser mismatch) → recreate with current image.
+        console.warn(`[manager] ${name} unhealthy (restarting/exit=${exitCode}); recreating`);
+        await ensureStopped(name);
       }
-      // Restart loop (e.g. Playwright browser mismatch) → recreate with current image.
-      console.warn(`[manager] ${name} unhealthy (restarting/exit=${exitCode}); recreating`);
-      await ensureStopped(name);
     } catch (err) {
       console.warn(`[manager] ${name} start failed (${err?.message || err}); recreating`);
       try {

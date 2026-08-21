@@ -86,8 +86,31 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
     });
   }
 
-  const data = await res.json();
-  const rawContent = data.choices?.[0]?.message?.content;
+  const bodyText = await res.text();
+  let data;
+  try {
+    data = JSON.parse(bodyText);
+  } catch (err) {
+    // Why: some providers append junk after JSON; slice at the reported position.
+    const msg = String(err?.message || err);
+    const m = /position\s+(\d+)/i.exec(msg);
+    if (m) {
+      try {
+        data = JSON.parse(bodyText.slice(0, Number(m[1])).trim());
+      } catch {
+        data = null;
+      }
+    }
+    if (!data) {
+      throw new LlmError({
+        title: "Invalid LLM response",
+        detail: msg,
+        hint: "Provider returned non-JSON. Check base URL / model.",
+        url,
+      });
+    }
+  }
+  const rawContent = data.choices?.[0]?.message?.content ?? data.choices?.[0]?.message?.reasoning_content;
   const content = normalizeLlmContent(rawContent);
   if (!content) {
     throw new LlmError({

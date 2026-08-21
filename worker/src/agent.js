@@ -346,12 +346,37 @@ export function createCloudAgent({ api, config, log = console.log }) {
             : "Thinking…",
         });
 
-        const { content } = await chatCompletion({
-          apiKey: settings.llmApiKey,
-          baseUrl: settings.llmBaseUrl,
-          model: settings.llmModel,
-          messages,
-        });
+        let content;
+        try {
+          const llm = await chatCompletion({
+            apiKey: settings.llmApiKey,
+            baseUrl: settings.llmBaseUrl,
+            model: settings.llmModel,
+            messages,
+          });
+          content = llm.content;
+        } catch (err) {
+          const detail = String(err?.detail || err?.message || err);
+          log(`[${config.workerName}] LLM retry:`, detail);
+          notes.push(`LLM call failed (will retry): ${detail}`);
+          await mirror(taskId, "step", {
+            payload: {
+              step,
+              action: { type: "wait", ms: 2000 },
+              thought: "LLM call failed — retrying",
+              result: { ok: false, error: detail },
+            },
+            appendMessage: `Step ${step}: LLM error — retrying… (${detail.slice(0, 120)})`,
+          });
+          history.push({
+            step,
+            thought: "llm_error",
+            action: { type: "wait", ms: 2000 },
+            result: { ok: false, error: detail },
+          });
+          await sleep(2000);
+          continue;
+        }
         // Why: user may take over during a long LLM call — wait before acting.
         await waitWhileHumanControl({ taskId });
 

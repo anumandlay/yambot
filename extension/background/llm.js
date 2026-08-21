@@ -120,7 +120,18 @@ export async function chatCompletion({
 
   let data;
   try {
-    data = await res.json();
+    const bodyText = await res.text();
+    try {
+      data = JSON.parse(bodyText);
+    } catch (err) {
+      const msg = String(err?.message || err);
+      const m = /position\s+(\d+)/i.exec(msg);
+      if (m) {
+        data = JSON.parse(bodyText.slice(0, Number(m[1])).trim());
+      } else {
+        throw err;
+      }
+    }
   } catch {
     throw new LlmError({
       title: "Invalid LLM response",
@@ -130,7 +141,9 @@ export async function chatCompletion({
     });
   }
 
-  const content = normalizeLlmContent(data.choices?.[0]?.message?.content);
+  const content = normalizeLlmContent(
+    data.choices?.[0]?.message?.content ?? data.choices?.[0]?.message?.reasoning_content
+  );
   if (!content) {
     throw new LlmError({
       title: "Empty LLM reply",

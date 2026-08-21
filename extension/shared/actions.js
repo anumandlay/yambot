@@ -51,11 +51,6 @@ Rules:
 - When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail.
 `.trim();
 
-/**
- * Pulls the first balanced `{ ... }` object from mixed model output.
- * @param {string} text
- * @returns {string|null}
- */
 export function extractFirstJsonObject(text) {
   const s = String(text || "");
   const start = s.indexOf("{");
@@ -90,24 +85,51 @@ export function extractFirstJsonObject(text) {
   return null;
 }
 
-function stripCodeFence(raw) {
-  const text = String(raw || "").trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  return fence ? fence[1].trim() : text;
+export function parseJsonLenient(text) {
+  const raw = String(text || "").trim();
+  if (!raw) throw new Error("Empty JSON");
+  try {
+    return JSON.parse(raw);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    const m = /position\s+(\d+)/i.exec(msg);
+    if (m) {
+      const pos = Number(m[1]);
+      if (Number.isFinite(pos) && pos > 0) {
+        const sliced = raw.slice(0, pos).trim();
+        if (sliced) return JSON.parse(sliced);
+      }
+    }
+    const balanced = extractFirstJsonObject(raw);
+    if (balanced && balanced !== raw) return JSON.parse(balanced);
+    throw err;
+  }
+}
+
+function preprocessModelText(raw) {
+  let text = String(raw || "");
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+  text = text.replace(/```(?:json)?\s*([\s\S]*?)```/i, "$1");
+  return text.trim();
 }
 
 export function parseAgentResponse(raw) {
-  const text = stripCodeFence(raw);
+  const text = preprocessModelText(raw);
   const candidates = [];
   const balanced = extractFirstJsonObject(text);
   if (balanced) candidates.push(balanced);
-  if (text && text !== balanced) candidates.push(text.trim());
+  if (text && text !== balanced) candidates.push(text);
 
   let lastErr = null;
   for (const candidate of candidates) {
     try {
-      const parsed = JSON.parse(candidate);
-      if (!parsed?.action || !parsed.action.type) {
+      const parsed = parseJsonLenient(candidate);
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+        lastErr = new Error("Model JSON was not an object");
+        continue;
+      }
+      if (!parsed.action || !parsed.action.type) {
         lastErr = new Error("Missing action.type in model response");
         continue;
       }

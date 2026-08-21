@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 20:58] Fix: JSON parse still failing + stale worker boxes
+
+- **Prompt Provided:** still got the same unexpected non-whitespace character after JSON error
+- **Architectural Flow:** Lenient JSON parse (slice at error position); LLM HTTP body also lenient; computer-manager recreates agent containers when worker image Id changes so fixes actually load
+- **Impacted Files:** `PROMPT_LOG.md`, `worker` actions/llm/agent, `extension` shared/actions + llm, `computer-manager/src/index.js`
+
 ## [2026-08-20 20:50] Fix: Agent stops on JSON parse trailing characters
 
 - **Prompt Provided:** unexpected non-whitespace character after JSON; agent stops working
