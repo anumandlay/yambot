@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 14:30] Fix: remove interactive control cap (was 120)
+
+- **Prompt Provided:** raise the interactive limit on all pages; remove the cap of 120 controls (Amazon cart Delete was missing)
+- **Architectural Flow:** `collectInteractives()` in worker pageDom + extension content no longer stops at 120; all visible interactives get refs so shopping/cart Delete/Remove and other deep controls are visible to the LLM
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `extension/content/content.js`
+
 ## [2026-08-21 14:10] Fix: research-scraper stuck pending (python never started under xvfb-run)
 
 - **Prompt Provided:** Research job queued pending then freezes

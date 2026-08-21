@@ -217,7 +217,11 @@ export function observeInPage() {
     };
   }
 
-  function collectInteractives(limit = 120) {
+  /**
+   * Collect all visible interactive controls (no hard cap).
+   * Why: shopping carts (Amazon, etc.) bury Delete/Remove past a 120-item cutoff.
+   */
+  function collectInteractives() {
     clearRefs();
     const ordered = [];
     const seen = new Set();
@@ -263,7 +267,6 @@ export function observeInPage() {
     const items = [];
     let i = 0;
     for (const el of ordered) {
-      if (i >= limit) break;
       const ref = `e${i}`;
       el.setAttribute(REF_ATTR, ref);
       items.push(toItem(el, ref));
