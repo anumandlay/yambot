@@ -2,6 +2,7 @@ import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { extensionApi } from "./api.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
+import { runResearchJob } from "./research.js";
 
 export function createAgentController({ emit }) {
   let running = false;
@@ -124,6 +125,17 @@ export function createAgentController({ emit }) {
         body: JSON.stringify({
           success: extra.success !== false,
           summary: extra.summary || "Done",
+        }),
+      });
+      return;
+    }
+    if (type === "agent:note") {
+      await extensionApi(`/api/extension/tasks/${taskId}/events`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: extra.eventType || "research",
+          payload: extra.payload || {},
+          appendMessage: extra.note || "",
         }),
       });
       return;
@@ -581,8 +593,53 @@ export function createAgentController({ emit }) {
     });
   }
 
+  /**
+   * Deterministic Google SERP research — no LLM. Captures pages via content script.
+   */
+  async function researchLoop() {
+    const note = async (text, payload) => {
+      state.notes.push(text);
+      broadcast("agent:note", { note: text, payload, eventType: "research" });
+    };
+
+    const { jobs, summary } = await runResearchJob({
+      tabId: state.tabId,
+      goal: state.goal,
+      agentSnapshot: state.agentSnapshot,
+      shouldStop: () => abort,
+      onProgress: note,
+      sendToContent,
+      waitForTabLoad,
+    });
+
+    // Why: full structured SERP JSON for the chat/task (capped so messages stay usable).
+    const jsonBlob = JSON.stringify(jobs);
+    await note(
+      `Full research JSON (${Math.min(jsonBlob.length, 120000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 120000)}\n\`\`\``,
+      { jobs: jobs.slice(0, 20) }
+    );
+
+    state.notes.push(`RESEARCH_JSON:${jsonBlob.slice(0, 50000)}`);
+    state.status = "done";
+    broadcast("agent:done", {
+      success: !abort,
+      summary: abort ? "Research stopped early.\n\n" + summary : summary,
+      research: jobs,
+    });
+  }
+
   async function loop() {
     try {
+      abort = false;
+      paused = false;
+      state.status = "running";
+      broadcast("agent:started");
+
+      if (state.agentSnapshot?.mode === "research") {
+        await researchLoop();
+        return;
+      }
+
       const settings = await getSettings();
       if (!settings.llmApiKey) {
         throw Object.assign(new Error("Missing LLM API key"), {
@@ -592,11 +649,6 @@ export function createAgentController({ emit }) {
         });
       }
       state.maxSteps = 0; // Why: unlimited — loop until finish or abort.
-
-      abort = false;
-      paused = false;
-      state.status = "running";
-      broadcast("agent:started");
 
       while (!abort) {
         while (paused && !abort) {

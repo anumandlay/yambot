@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 13:25] Feature: Research agent mode (extension-only SERP capture)
+
+- **Prompt Provided:** Research agents only via Chrome extension; capture page itself (no Flask/visaclap/hotkey); results back to agent chat
+- **Architectural Flow:** Agent `mode=research` forces `runner=extension` (no cloud box). Extension skips LLM loop, opens Google, content script `CAPTURE_SERP` / `CLICK_NEXT_SERP`, posts progress + JSON to task/chat
+- **Impacted Files:** `PROMPT_LOG.md`, `backend` Agent model + agents routes, `frontend` AgentEditPage/AgentsPage, `extension` research.js, agent.js, content.js, manifest
+
 ## [2026-08-21 12:50] Fix: DBC solve hung after "Solving…" with no feedback
 
 - **Prompt Provided:** got Solving Google CAPTCHA with DeathByCaptcha… and doing nothing

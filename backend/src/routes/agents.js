@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_RUNNERS, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
+import { Agent, AGENT_RUNNERS, AGENT_MODES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
 import {
   issueWorkerToken,
   containerNameForAgent,
@@ -50,6 +50,8 @@ function publicAgent(agent) {
  */
 function wantsCloudComputer(agent) {
   if (agent.active === false) return false;
+  // Why: research runs only on the user's Chrome extension — never provision a VPS box.
+  if (agent.mode === "research") return false;
   const runner = agent.runner || "cloud";
   return runner === "cloud" || runner === "any";
 }
@@ -118,6 +120,14 @@ function pickAgentFields(body, opts = {}) {
   if (body.description != null) set("description", String(body.description || "").trim());
   if (body.profile != null) set("profile", String(body.profile || "").trim());
   if (body.skill != null) set("skill", String(body.skill || "").trim().slice(0, 500));
+  if (body.mode != null) {
+    const mode = String(body.mode || "browser");
+    set("mode", AGENT_MODES.includes(mode) ? mode : "browser");
+  }
+  if (body.researchMaxPages != null) {
+    const n = Number(body.researchMaxPages);
+    set("researchMaxPages", Number.isFinite(n) ? Math.min(50, Math.max(1, Math.round(n))) : 10);
+  }
   if (body.instructions != null) set("instructions", String(body.instructions || "").trim());
   if (body.facts != null) set("facts", normalizeFacts(body.facts));
   if (body.successCriteria != null) {
@@ -214,6 +224,7 @@ agentsRouter.get("/meta", (_req, res) => {
   res.json({
     ok: true,
     runners: AGENT_RUNNERS,
+    modes: AGENT_MODES,
     scheduleIntervals: SCHEDULE_INTERVALS,
   });
 });
@@ -244,7 +255,13 @@ agentsRouter.post("/", async (req, res, next) => {
       });
       return;
     }
-    if (fields.runner == null) fields.runner = "cloud";
+    if (fields.mode == null) fields.mode = "browser";
+    // Why: research agents must claim via extension so Google SERPs stay captcha-light.
+    if (fields.mode === "research") {
+      fields.runner = "extension";
+    } else if (fields.runner == null) {
+      fields.runner = "cloud";
+    }
 
     const agent = new Agent({ ...fields, user: req.userId });
     ensureWorkerCredentials(agent);
@@ -438,6 +455,9 @@ agentsRouter.put("/:id", async (req, res, next) => {
       }
     }
     Object.assign(agent, fields);
+    if (agent.mode === "research") {
+      agent.runner = "extension";
+    }
     ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
     await agent.save();

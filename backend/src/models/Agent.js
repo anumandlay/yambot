@@ -15,6 +15,13 @@ import mongoose from "mongoose";
  */
 export const AGENT_RUNNERS = ["any", "extension", "cloud"];
 
+/**
+ * How the agent executes goals.
+ * - `browser`: LLM-driven browser steps (cloud and/or extension)
+ * - `research`: Google SERP research via Chrome extension only (no cloud, no LLM click loop)
+ */
+export const AGENT_MODES = ["browser", "research"];
+
 /** How often a scheduled goal is enqueued. */
 export const SCHEDULE_INTERVALS = [
   "15m",
@@ -93,6 +100,23 @@ const agentSchema = new mongoose.Schema(
       default: "",
       trim: true,
       maxlength: 500,
+    },
+    /**
+     * Execution mode. Research agents only run on the Chrome extension (real Chrome
+     * avoids Google captchas that hit headless cloud Chromium).
+     */
+    mode: {
+      type: String,
+      enum: AGENT_MODES,
+      default: "browser",
+      index: true,
+    },
+    /** Default Google SERP pages to capture per keyword when mode=research. */
+    researchMaxPages: {
+      type: Number,
+      default: 10,
+      min: 1,
+      max: 50,
     },
     /** Standing operating instructions for every run. */
     instructions: { type: String, default: "", trim: true },
@@ -265,6 +289,8 @@ export function toAgentSnapshot(agentDoc) {
     description: a.description || "",
     profile: a.profile || "",
     skill: a.skill || "",
+    mode: a.mode || "browser",
+    researchMaxPages: Math.min(50, Math.max(1, Number(a.researchMaxPages) || 10)),
     instructions: a.instructions || "",
     facts: Array.isArray(a.facts) ? a.facts : [],
     autonomy: a.autonomy || {},
@@ -305,6 +331,7 @@ export function formatAgentPrompt(snapshot) {
   const auto = snapshot.autonomy || {};
   return [
     `AGENT NAME: ${snapshot.name}`,
+    snapshot.mode === "research" ? "MODE: research (Google SERP via Chrome extension)" : "MODE: browser",
     snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
     snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
     snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
