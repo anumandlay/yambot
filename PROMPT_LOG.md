@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 17:30] Ops: restore HTTPS + fix headed agent Chromium locks
+
+- **Prompt Provided:** (continuation of ets do)
+- **Architectural Flow:** Web binds only :8080 so host Caddy can terminate TLS for bot.vughy.com; entrypoint clears Chromium SingletonLock on boot so headed agents stop crash-looping after recreate
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/docker-compose.yml`, `worker/entrypoint.sh`
+
 ## [2026-08-21 17:05] Ops: unstick deploy + fix worker tzdata hang
 
 - **Prompt Provided:** ets do (kill hung builds, restore site, finish noVNC worker deploy)
