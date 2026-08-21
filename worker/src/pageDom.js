@@ -2,6 +2,7 @@
  * @fileoverview In-page DOM observe/execute helpers for Playwright `page.evaluate`.
  * Purpose: Same ref model as the Chrome content script (`data-ba-ref`) so LLM prompts stay identical.
  * Why these are plain functions: Playwright serializes them into the browser; no Node closures.
+ * Locators: ref → role+name → label/name → css → xpath (first visible match wins).
  */
 
 /**
@@ -44,6 +45,8 @@ export function observeInPage() {
       const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
       if (lab) return cleanText(lab.innerText);
     }
+    const wrapped = el.closest("label");
+    if (wrapped && wrapped !== el) return cleanText(wrapped.innerText);
     const placeholder = el.getAttribute("placeholder");
     if (placeholder) return cleanText(placeholder);
     const name = el.getAttribute("name");
@@ -51,6 +54,49 @@ export function observeInPage() {
     const title = el.getAttribute("title");
     if (title) return cleanText(title);
     return cleanText(el.innerText || el.value || el.alt || el.tagName);
+  }
+
+  /**
+   * Implied ARIA role from tag/type when role= is absent.
+   * @param {Element} el
+   * @returns {string|undefined}
+   */
+  function impliedRole(el) {
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button" || tag === "summary") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") {
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (type === "submit" || type === "button" || type === "reset" || type === "image") {
+        return "button";
+      }
+      return "textbox";
+    }
+    if (el.getAttribute("contenteditable") === "true") return "textbox";
+    return undefined;
+  }
+
+  /**
+   * Stable CSS hint for fallbacks (id / data-testid / name).
+   * @param {Element} el
+   * @returns {string|undefined}
+   */
+  function cssHintFor(el) {
+    if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) return `#${el.id}`;
+    const testId = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
+    if (testId) return `[data-testid="${CSS.escape(testId)}"]`;
+    const name = el.getAttribute("name");
+    if (name) {
+      const tag = el.tagName.toLowerCase();
+      return `${tag}[name="${CSS.escape(name)}"]`;
+    }
+    return undefined;
   }
 
   function clearRefs() {
@@ -68,8 +114,15 @@ export function observeInPage() {
       "[role='button']",
       "[role='link']",
       "[role='textbox']",
+      "[role='checkbox']",
+      "[role='radio']",
+      "[role='option']",
+      "[role='menuitem']",
+      "[role='tab']",
+      "[role='switch']",
       "[contenteditable='true']",
       "summary",
+      "[tabindex]:not([tabindex='-1'])",
     ].join(",");
 
     const nodes = [...document.querySelectorAll(selectors)].filter(isVisible);
@@ -89,8 +142,9 @@ export function observeInPage() {
         ref,
         tag,
         type: type || undefined,
-        role: el.getAttribute("role") || undefined,
+        role: impliedRole(el),
         name: labelFor(el),
+        cssHint: cssHintFor(el),
         href: tag === "a" ? el.href?.slice(0, 200) : undefined,
         value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
       });
@@ -158,13 +212,159 @@ export function executeInPage(action) {
   function labelFor(el) {
     const aria = el.getAttribute("aria-label");
     if (aria) return cleanText(aria);
-    return cleanText(el.innerText || el.value || el.tagName);
+    const labelled = el.getAttribute("aria-labelledby");
+    if (labelled) {
+      const t = labelled
+        .split(/\s+/)
+        .map((id) => document.getElementById(id)?.innerText)
+        .filter(Boolean)
+        .join(" ");
+      if (t) return cleanText(t);
+    }
+    if (el.id) {
+      const lab = document.querySelector(`label[for="${CSS.escape(el.id)}"]`);
+      if (lab) return cleanText(lab.innerText);
+    }
+    const wrapped = el.closest("label");
+    if (wrapped && wrapped !== el) return cleanText(wrapped.innerText);
+    const placeholder = el.getAttribute("placeholder");
+    if (placeholder) return cleanText(placeholder);
+    const name = el.getAttribute("name");
+    if (name) return cleanText(name);
+    const title = el.getAttribute("title");
+    if (title) return cleanText(title);
+    return cleanText(el.innerText || el.value || el.alt || el.tagName);
   }
 
-  function byRef(ref) {
-    const el = document.querySelector(`[${REF_ATTR}="${CSS.escape(ref)}"]`);
-    if (!el) throw new Error(`Element not found for ref: ${ref}`);
-    return el;
+  function impliedRole(el) {
+    const explicit = el.getAttribute("role");
+    if (explicit) return explicit;
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    if (tag === "a") return "link";
+    if (tag === "button" || tag === "summary") return "button";
+    if (tag === "select") return "combobox";
+    if (tag === "textarea") return "textbox";
+    if (tag === "input") {
+      if (type === "checkbox") return "checkbox";
+      if (type === "radio") return "radio";
+      if (type === "submit" || type === "button" || type === "reset" || type === "image") {
+        return "button";
+      }
+      return "textbox";
+    }
+    if (el.getAttribute("contenteditable") === "true") return "textbox";
+    return undefined;
+  }
+
+  function nameMatches(el, wanted) {
+    const w = cleanText(wanted, 200).toLowerCase();
+    if (!w) return false;
+    const n = labelFor(el).toLowerCase();
+    return n === w || n.includes(w) || w.includes(n);
+  }
+
+  function roleMatches(el, role) {
+    if (!role) return true;
+    const r = String(role).toLowerCase();
+    const actual = (impliedRole(el) || "").toLowerCase();
+    if (actual === r) return true;
+    // Why: LLMs often say "button" for <input type=submit> / role aliases.
+    if (r === "button" && (actual === "button" || el.tagName === "BUTTON")) return true;
+    if (r === "link" && (actual === "link" || el.tagName === "A")) return true;
+    if (r === "textbox" && (actual === "textbox" || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+      return true;
+    }
+    if (r === "combobox" && (actual === "combobox" || el.tagName === "SELECT")) return true;
+    return false;
+  }
+
+  function candidatePool() {
+    const selectors = [
+      "a[href]",
+      "button",
+      "input",
+      "textarea",
+      "select",
+      "[role]",
+      "[contenteditable='true']",
+      "summary",
+      "label",
+      "[tabindex]:not([tabindex='-1'])",
+    ].join(",");
+    return [...document.querySelectorAll(selectors)].filter(isVisible);
+  }
+
+  function byXPath(xpath) {
+    const result = document.evaluate(
+      xpath,
+      document,
+      null,
+      XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+      null
+    );
+    for (let i = 0; i < result.snapshotLength; i += 1) {
+      const node = result.snapshotItem(i);
+      if (node && node.nodeType === 1 && isVisible(node)) return node;
+    }
+    return null;
+  }
+
+  /**
+   * Multi-strategy resolve: ref → role+name → label/name → css → xpath.
+   * @param {object} action
+   * @returns {Element}
+   */
+  function resolveElement(action) {
+    const tried = [];
+
+    if (action.ref) {
+      tried.push(`ref=${action.ref}`);
+      const el = document.querySelector(`[${REF_ATTR}="${CSS.escape(String(action.ref))}"]`);
+      if (el && isVisible(el)) return el;
+    }
+
+    const role = action.role ? String(action.role) : "";
+    const name = action.name ? String(action.name) : "";
+    if (role && name) {
+      tried.push(`role=${role}+name=${name}`);
+      const hit = candidatePool().find((el) => roleMatches(el, role) && nameMatches(el, name));
+      if (hit) return hit;
+    }
+
+    const label = action.label ? String(action.label) : name;
+    if (label) {
+      tried.push(`label=${label}`);
+      const hit = candidatePool().find((el) => {
+        if (role && !roleMatches(el, role)) return false;
+        return nameMatches(el, label);
+      });
+      if (hit) return hit;
+    }
+
+    if (action.css) {
+      tried.push(`css=${action.css}`);
+      try {
+        const el = document.querySelector(String(action.css));
+        if (el && isVisible(el)) return el;
+      } catch {
+        /* invalid selector */
+      }
+    }
+
+    if (action.xpath) {
+      tried.push(`xpath=${action.xpath}`);
+      try {
+        const el = byXPath(String(action.xpath));
+        if (el) return el;
+      } catch {
+        /* invalid xpath */
+      }
+    }
+
+    throw new Error(
+      `Element not found (tried: ${tried.join(" → ") || "nothing"}). Re-observe and use a fresh ref or name/css/xpath.`
+    );
   }
 
   function setNativeValue(el, value) {
@@ -218,13 +418,13 @@ export function executeInPage(action) {
 
   switch (action.type) {
     case "click": {
-      const el = byRef(action.ref);
+      const el = resolveElement(action);
       el.scrollIntoView({ block: "center", behavior: "instant" });
       el.click();
       return { ok: true };
     }
     case "type": {
-      const el = byRef(action.ref);
+      const el = resolveElement(action);
       el.focus();
       setNativeValue(el, action.text ?? "");
       if (action.submit) {
@@ -238,8 +438,8 @@ export function executeInPage(action) {
       return { ok: true };
     }
     case "select": {
-      const el = byRef(action.ref);
-      if (el.tagName !== "SELECT") throw new Error("ref is not a select");
+      const el = resolveElement(action);
+      if (el.tagName !== "SELECT") throw new Error("resolved element is not a select");
       const wanted = String(action.value ?? "");
       const opt = [...el.options].find(
         (o) => o.value === wanted || o.text.trim() === wanted || o.text.includes(wanted)

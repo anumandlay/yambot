@@ -178,7 +178,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
     ];
     for (const el of obs.interactives || []) {
       lines.push(
-        `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}> "${el.name}"${
+        `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
+          el.role ? ` role=${el.role}` : ""
+        }> "${el.name}"${el.cssHint ? ` css=${el.cssHint}` : ""}${
           el.href ? ` href=${el.href}` : ""
         }${el.value ? ` value=${el.value}` : ""}`
       );

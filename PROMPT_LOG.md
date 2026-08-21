@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 00:22] Feature: Multi-strategy element locators
+
+- **Prompt Provided:** Use advanced targeting (option 1): ref → role+name → label → CSS → XPath
+- **Architectural Flow:** Snapshot adds role/cssHint; click/type/select resolve via fallback chain in worker pageDom + extension content; LLM schema documents optional locators
+- **Impacted Files:** `PROMPT_LOG.md`, `worker` actions/pageDom/agent, `extension` shared/actions + content + background/agent
+
 ## [2026-08-21 00:13] UI: Sticky mobile dock + Stop agent
 
 - **Prompt Provided:** instruction box and live screen sticky at bottom on mobile; Stop button to stop the agent
