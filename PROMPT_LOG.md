@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 00:13] UI: Sticky mobile dock + Stop agent
+
+- **Prompt Provided:** instruction box and live screen sticky at bottom on mobile; Stop button to stop the agent
+- **Architectural Flow:** ChatDetail sticky bottom dock (LiveScreen + goal); POST `/api/chats/:id/stop` cancels active tasks; worker checks cancelled each step and exits
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend` ChatDetailPage + LiveScreen compact, `backend` chats/extension, `worker/src/agent.js`
+
 ## [2026-08-20 20:58] Fix: JSON parse still failing + stale worker boxes
 
 - **Prompt Provided:** still got the same unexpected non-whitespace character after JSON error

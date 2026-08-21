@@ -210,3 +210,54 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * POST /api/chats/:id/stop — cancel active tasks for this chat (dashboard Stop button).
+ */
+chatsRouter.post("/:id/stop", async (req, res, next) => {
+  try {
+    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId });
+    if (!chat) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
+      return;
+    }
+    const active = await Task.find({
+      chat: chat._id,
+      user: req.userId,
+      status: { $in: ["pending", "running", "waiting_user"] },
+    });
+    if (!active.length) {
+      res.json({ ok: true, stopped: 0, tasks: [] });
+      return;
+    }
+    const now = new Date();
+    for (const task of active) {
+      task.status = "cancelled";
+      task.completedAt = now;
+      task.resultSummary = "Stopped by user";
+      task.events.push({
+        type: "cancelled",
+        payload: { reason: "user_stop" },
+      });
+      await task.save();
+    }
+    await Message.create({
+      chat: chat._id,
+      role: "system",
+      content: "Agent stopped by user.",
+      meta: {
+        kind: "stopped",
+        taskIds: active.map((t) => t._id),
+      },
+    });
+    chat.updatedAt = now;
+    await chat.save();
+    res.json({
+      ok: true,
+      stopped: active.length,
+      tasks: active.map((t) => ({ id: t._id, status: t.status })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});

@@ -307,6 +307,11 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
       return;
     }
+    // Why: dashboard Stop already finalized the task — don't overwrite with a late complete.
+    if (task.status === "cancelled") {
+      res.json({ ok: true, task, alreadyCancelled: true });
+      return;
+    }
     const success = req.body?.success !== false;
     const summary = String(req.body?.summary || "");
     const error = String(req.body?.error || "");

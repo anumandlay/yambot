@@ -363,7 +363,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
           zoomed
             ? "min-h-0"
             : compact
-              ? "min-h-36 sm:min-h-40"
+              ? "min-h-28 sm:min-h-40"
               : "min-h-[36vh] sm:min-h-52 md:min-h-72"
         }`}
       >
@@ -377,7 +377,9 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
             className={`block h-auto w-full bg-white object-contain select-none ${
               zoomed
                 ? "max-h-[calc(100dvh-8rem)]"
-                : "max-h-[42vh] sm:max-h-[50vh] md:max-h-[60vh]"
+                : compact
+                  ? "max-h-[22vh] sm:max-h-[40vh]"
+                  : "max-h-[42vh] sm:max-h-[50vh] md:max-h-[60vh]"
             } ${controlOn ? "cursor-crosshair touch-manipulation" : ""}`}
           />
         ) : (

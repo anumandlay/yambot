@@ -234,6 +234,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * @param {string} taskId
+   * @returns {Promise<boolean>}
+   */
+  async function isTaskCancelled(taskId) {
+    try {
+      const data = await api(`/api/extension/tasks/${taskId}`);
+      return data.task?.status === "cancelled";
+    } catch {
+      return false;
+    }
+  }
+
+  /**
    * Polls the task until the website posts a user_answer event.
    * @param {string} taskId
    * @param {string} question
@@ -246,10 +259,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
     });
     const started = Date.now();
     while (Date.now() - started < 30 * 60 * 1000) {
+      if (await isTaskCancelled(taskId)) {
+        throw Object.assign(new Error("Stopped by user"), { cancelled: true });
+      }
       // Why: while waiting (e.g. CAPTCHA), keep draining mouse/keyboard takeover commands.
       const status = await pushLiveScreen({ taskId }).catch(() => ({ humanControl: false }));
       await sleep(status?.humanControl ? 800 : 2000);
       const data = await api(`/api/extension/tasks/${taskId}`);
+      if (data.task?.status === "cancelled") {
+        throw Object.assign(new Error("Stopped by user"), { cancelled: true });
+      }
       const events = data.task?.events || [];
       let lastAskIdx = -1;
       for (let i = 0; i < events.length; i += 1) {
@@ -305,6 +324,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
       let step = 0;
       for (;;) {
         step += 1;
+        if (await isTaskCancelled(taskId)) {
+          await complete(taskId, {
+            success: false,
+            summary: "Stopped by user",
+            error: "cancelled",
+          });
+          log(`[${config.workerName}] Task ${taskId} cancelled by user`);
+          return;
+        }
         await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId }).catch(() => {});
         const obs = await page.evaluate(observeInPage);
@@ -418,6 +446,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             notes,
           });
         } catch (err) {
+          if (err?.cancelled) throw err;
           result = { ok: false, error: String(err?.message || err) };
         }
 
@@ -440,6 +469,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await sleep(600);
       }
     } catch (err) {
+      if (err?.cancelled || /stopped by user/i.test(String(err?.message || ""))) {
+        try {
+          await complete(taskId, {
+            success: false,
+            summary: "Stopped by user",
+            error: "cancelled",
+          });
+        } catch {
+          /* ignore */
+        }
+        log(`[${config.workerName}] Task ${taskId} cancelled by user`);
+        return;
+      }
       const detail = String(err?.detail || err?.message || err);
       log(`[${config.workerName}] Task ${taskId} error: ${detail}`);
       try {
