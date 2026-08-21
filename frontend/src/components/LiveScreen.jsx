@@ -513,11 +513,13 @@ export function LiveScreen({
             </div>
             {status ? <p className="text-xs text-teal-200/80">{status}</p> : null}
           </div>
-        ) : status ? (
+        ) : status && modal ? (
           <p className="shrink-0 border-t border-white/10 px-3 py-2 text-xs text-white/50">{status}</p>
         ) : null}
 
-        {live?.pageUrl ? (
+        {/* Why: URL strip under the screen looked like a stray bar above the mobile goal box;
+            keep it only in the zoom modal (wall cards already show URL outside). */}
+        {modal && live?.pageUrl ? (
           <div className="shrink-0 truncate border-t border-white/10 px-3 py-2 text-[0.7rem] text-white/40">
             {live.pageUrl}
           </div>

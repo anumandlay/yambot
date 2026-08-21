@@ -37,7 +37,7 @@ body {
     radial-gradient(700px 360px at 100% 0%, #e7eef2 0%, transparent 50%),
     var(--yb-bg);
   font-family: "Segoe UI", "Helvetica Neue", sans-serif;
-  padding-bottom: var(--yb-safe-bottom);
+  /* Why: sticky chat dock / headers own safe-area insets; body pad left a second strip under the goal box. */
 }
 
 #root {

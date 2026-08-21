@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 18:20] Fix: mobile strip under chat goal / instruction box
+
+- **Prompt Provided:** i see a strip in the mobile below to the goal/instruction box. check that design issue
+- **Architectural Flow:** Remove LiveScreen pageUrl/status chrome from inline mobile chat (keep in zoom); stop double safe-area (body pad + sticky dock); dock paints one continuous bg into home-indicator inset
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/index.css`
+
 ## [2026-08-21 17:55] UX: hide Chromium “controlled by test software” banner
 
 - **Prompt Provided:** in live screen in chrome i see chrome is being controlled by test software, instead of that can we have any other way?
