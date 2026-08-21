@@ -15,8 +15,8 @@ services:
       args:
         VITE_API_BASE_URL: ${VITE_API_BASE_URL:-https://bot.vughy.com}
     restart: unless-stopped
+    # Why: host Caddy owns :80/:443 and reverse-proxies to :8080 (bot.vughy.com).
     ports:
-      - "80:80"
       - "8080:80"
     depends_on:
       - api

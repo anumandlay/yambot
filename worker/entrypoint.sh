@@ -39,5 +39,16 @@ websockify --web="${NOVNC_WEB}" "0.0.0.0:${NOVNC_PORT}" "127.0.0.1:${VNC_PORT}" 
   >/tmp/websockify.log 2>&1 &
 sleep 0.4
 
+# Why: after container recreate, leftover SingletonLock / .lock files from the
+# previous Chromium host make headed launch fail with “profile in use”.
+PROFILE_DIR="${YAMBOT_BROWSER_PROFILE:-/data/browser-profile}"
+if [[ -d "${PROFILE_DIR}" ]]; then
+  echo "[desktop] clearing Chromium singleton locks in ${PROFILE_DIR}"
+  rm -f "${PROFILE_DIR}/SingletonLock" \
+        "${PROFILE_DIR}/SingletonCookie" \
+        "${PROFILE_DIR}/SingletonSocket" \
+        "${PROFILE_DIR}/lockfile" 2>/dev/null || true
+fi
+
 echo "[desktop] ready — launching worker (headed=${YAMBOT_HEADED})"
 exec node src/index.js
