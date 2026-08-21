@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 09:49] Fix: Custom dropdown + calendar clicks (Passport / dates)
+
+- **Prompt Provided:** Agent cannot select Passport in enquiry type dropdown; cannot select date from calendar on Vughy CRM
+- **Architectural Flow:** Overlay-first snapshot (listbox/menu/calendar cells); React pointer clicks; cloud worker uses Playwright mouse at resolved coords; custom select clicks option by value/name
+- **Impacted Files:** `PROMPT_LOG.md`, `worker` pageDom/agent/actions, `extension` content + shared/actions + background/agent
+
 ## [2026-08-21 00:22] Feature: Multi-strategy element locators
 
 - **Prompt Provided:** Use advanced targeting (option 1): ref → role+name → label → CSS → XPath

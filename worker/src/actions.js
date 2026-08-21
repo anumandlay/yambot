@@ -49,6 +49,8 @@ Locator rules (click/type/select):
 - Also pass role+name (or label) and/or cssHint as css when available — used if the ref goes stale.
 - Without a ref, you MUST supply at least one of: name, label, css, xpath (optionally with role).
 - Resolution order: ref → role+name → label/name → css → xpath.
+- Custom dropdowns (not native <select>): open the control, then click/select the option by exact name (e.g. name:"Passport", role:"option"). You may use select with value:"Passport".
+- Date pickers / calendars: click the day number or quick chip (Today, Tomorrow) by name (e.g. name:"21" or name:"Today"). Do not use type into the date field unless it accepts typed dates.
 
 Rules:
 - CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.

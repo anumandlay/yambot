@@ -3,6 +3,7 @@
  * Purpose: Same ref model as the Chrome content script (`data-ba-ref`) so LLM prompts stay identical.
  * Why these are plain functions: Playwright serializes them into the browser; no Node closures.
  * Locators: ref → role+name → label/name → css → xpath (first visible match wins).
+ * Why overlay-aware: custom dropdowns/calendars (e.g. Vughy) render options outside <select>.
  */
 
 /**
@@ -56,11 +57,6 @@ export function observeInPage() {
     return cleanText(el.innerText || el.value || el.alt || el.tagName);
   }
 
-  /**
-   * Implied ARIA role from tag/type when role= is absent.
-   * @param {Element} el
-   * @returns {string|undefined}
-   */
   function impliedRole(el) {
     const explicit = el.getAttribute("role");
     if (explicit) return explicit;
@@ -79,14 +75,11 @@ export function observeInPage() {
       return "textbox";
     }
     if (el.getAttribute("contenteditable") === "true") return "textbox";
+    if (el.closest('[role="listbox"], [role="menu"]')) return "option";
+    if (el.closest('[role="grid"]') && /^\d{1,2}$/.test(labelFor(el))) return "gridcell";
     return undefined;
   }
 
-  /**
-   * Stable CSS hint for fallbacks (id / data-testid / name).
-   * @param {Element} el
-   * @returns {string|undefined}
-   */
   function cssHintFor(el) {
     if (el.id && /^[A-Za-z][\w-]*$/.test(el.id)) return `#${el.id}`;
     const testId = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
@@ -99,12 +92,151 @@ export function observeInPage() {
     return undefined;
   }
 
+  function overlayRoot(el) {
+    return el.closest(
+      [
+        '[role="listbox"]',
+        '[role="menu"]',
+        '[role="dialog"]',
+        '[role="grid"]',
+        '[aria-modal="true"]',
+        "[data-radix-popper-content-wrapper]",
+        "[data-headlessui-state]",
+        '[data-state="open"]',
+        ".flatpickr-calendar",
+        "[class*='datepicker']",
+        "[class*='DatePicker']",
+        "[class*='calendar']",
+        "[class*='popover']",
+        "[class*='dropdown']",
+      ].join(",")
+    );
+  }
+
+  /**
+   * Leaf-ish clickable rows inside open dropdowns / menus (Passport, etc.).
+   * @returns {Element[]}
+   */
+  function collectOverlayOptions() {
+    const roots = [
+      ...document.querySelectorAll(
+        [
+          '[role="listbox"]',
+          '[role="menu"]',
+          '[role="listbox"] *',
+          "[data-radix-popper-content-wrapper]",
+          '[data-state="open"]',
+          "[class*='popover']",
+          "[class*='dropdown']",
+          "[class*='menu']",
+        ].join(",")
+      ),
+    ].filter((el) => isVisible(el) && overlayRoot(el));
+
+    const seen = new Set();
+    const out = [];
+    for (const root of roots) {
+      const container = overlayRoot(root) || root;
+      if (seen.has(container)) continue;
+      seen.add(container);
+      const candidates = [
+        ...container.querySelectorAll(
+          '[role="option"], [role="menuitem"], li, button, [data-value], [data-radix-collection-item]'
+        ),
+      ];
+      for (const el of candidates) {
+        if (!isVisible(el)) continue;
+        const text = cleanText(el.innerText || el.getAttribute("data-value") || "", 80);
+        if (!text || text.length > 80) continue;
+        // Why: skip containers that only wrap other options.
+        if (
+          el.querySelector(
+            '[role="option"], [role="menuitem"], li button, li [role="option"]'
+          ) &&
+          el.tagName !== "LI"
+        ) {
+          continue;
+        }
+        out.push(el);
+      }
+    }
+    return out;
+  }
+
+  /**
+   * Calendar day cells + quick picks (Today / Tomorrow / day numbers).
+   * @returns {Element[]}
+   */
+  function collectCalendarTargets() {
+    const roots = [
+      ...document.querySelectorAll(
+        [
+          '[role="grid"]',
+          ".flatpickr-calendar",
+          "[class*='datepicker']",
+          "[class*='DatePicker']",
+          "[class*='calendar']",
+        ].join(",")
+      ),
+    ].filter(isVisible);
+
+    const out = [];
+    for (const root of roots) {
+      for (const el of root.querySelectorAll(
+        '[role="gridcell"], button, [role="button"], td, div[data-day], span[data-day]'
+      )) {
+        if (!isVisible(el)) continue;
+        const text = cleanText(el.innerText || el.getAttribute("aria-label") || "", 40);
+        if (!text) continue;
+        // Why: day numbers + quick chips (Today / Tomorrow / In 3 days).
+        if (/^(today|tomorrow|in \d+ days?|in \d+ weeks?|\d{1,2})$/i.test(text)) {
+          out.push(el);
+        }
+      }
+    }
+    return out;
+  }
+
   function clearRefs() {
     document.querySelectorAll(`[${REF_ATTR}]`).forEach((el) => el.removeAttribute(REF_ATTR));
   }
 
-  function collectInteractives(limit = 80) {
+  function toItem(el, ref) {
+    const tag = el.tagName.toLowerCase();
+    const type = (el.getAttribute("type") || "").toLowerCase();
+    return {
+      ref,
+      tag,
+      type: type || undefined,
+      role: impliedRole(el),
+      name: labelFor(el),
+      cssHint: cssHintFor(el),
+      overlay: Boolean(overlayRoot(el)),
+      href: tag === "a" ? el.href?.slice(0, 200) : undefined,
+      value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
+    };
+  }
+
+  function collectInteractives(limit = 120) {
     clearRefs();
+    const ordered = [];
+    const seen = new Set();
+
+    function pushAll(list) {
+      for (const el of list) {
+        if (!el || seen.has(el)) continue;
+        const type = (el.getAttribute("type") || "").toLowerCase();
+        if (type === "hidden") continue;
+        if (!isVisible(el)) continue;
+        seen.add(el);
+        ordered.push(el);
+      }
+    }
+
+    // Why: open popovers first so Passport / day-21 appear before buried page controls.
+    pushAll(collectOverlayOptions());
+    pushAll(collectCalendarTargets());
+
     const selectors = [
       "a[href]",
       "button",
@@ -114,40 +246,28 @@ export function observeInPage() {
       "[role='button']",
       "[role='link']",
       "[role='textbox']",
+      "[role='combobox']",
       "[role='checkbox']",
       "[role='radio']",
       "[role='option']",
       "[role='menuitem']",
+      "[role='gridcell']",
       "[role='tab']",
       "[role='switch']",
       "[contenteditable='true']",
       "summary",
       "[tabindex]:not([tabindex='-1'])",
     ].join(",");
+    pushAll([...document.querySelectorAll(selectors)]);
 
-    const nodes = [...document.querySelectorAll(selectors)].filter(isVisible);
     const items = [];
     let i = 0;
-    for (const el of nodes) {
+    for (const el of ordered) {
       if (i >= limit) break;
-      const tag = el.tagName.toLowerCase();
-      const type = (el.getAttribute("type") || "").toLowerCase();
-      if (type === "hidden") continue;
-
       const ref = `e${i}`;
       el.setAttribute(REF_ATTR, ref);
+      items.push(toItem(el, ref));
       i += 1;
-
-      items.push({
-        ref,
-        tag,
-        type: type || undefined,
-        role: impliedRole(el),
-        name: labelFor(el),
-        cssHint: cssHintFor(el),
-        href: tag === "a" ? el.href?.slice(0, 200) : undefined,
-        value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
-      });
     }
     return items;
   }
@@ -254,14 +374,19 @@ export function executeInPage(action) {
       return "textbox";
     }
     if (el.getAttribute("contenteditable") === "true") return "textbox";
+    if (el.closest('[role="listbox"], [role="menu"]')) return "option";
+    if (el.closest('[role="grid"]') && /^\d{1,2}$/.test(labelFor(el))) return "gridcell";
     return undefined;
   }
 
-  function nameMatches(el, wanted) {
+  function nameScore(el, wanted) {
     const w = cleanText(wanted, 200).toLowerCase();
-    if (!w) return false;
+    if (!w) return 0;
     const n = labelFor(el).toLowerCase();
-    return n === w || n.includes(w) || w.includes(n);
+    if (n === w) return 3;
+    if (n.startsWith(w) || w.startsWith(n)) return 2;
+    if (n.includes(w) || w.includes(n)) return 1;
+    return 0;
   }
 
   function roleMatches(el, role) {
@@ -269,9 +394,12 @@ export function executeInPage(action) {
     const r = String(role).toLowerCase();
     const actual = (impliedRole(el) || "").toLowerCase();
     if (actual === r) return true;
-    // Why: LLMs often say "button" for <input type=submit> / role aliases.
     if (r === "button" && (actual === "button" || el.tagName === "BUTTON")) return true;
     if (r === "link" && (actual === "link" || el.tagName === "A")) return true;
+    if (r === "option" && (actual === "option" || actual === "menuitem" || el.tagName === "LI")) {
+      return true;
+    }
+    if (r === "gridcell" && (actual === "gridcell" || /^\d{1,2}$/.test(labelFor(el)))) return true;
     if (r === "textbox" && (actual === "textbox" || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
       return true;
     }
@@ -290,9 +418,28 @@ export function executeInPage(action) {
       "[contenteditable='true']",
       "summary",
       "label",
+      "li",
+      "td",
+      "[data-value]",
+      "[data-day]",
+      "[data-radix-collection-item]",
       "[tabindex]:not([tabindex='-1'])",
     ].join(",");
     return [...document.querySelectorAll(selectors)].filter(isVisible);
+  }
+
+  function bestByName(wanted, role) {
+    let best = null;
+    let bestScore = 0;
+    for (const el of candidatePool()) {
+      if (role && !roleMatches(el, role)) continue;
+      const score = nameScore(el, wanted);
+      if (score > bestScore) {
+        bestScore = score;
+        best = el;
+      }
+    }
+    return bestScore > 0 ? best : null;
   }
 
   function byXPath(xpath) {
@@ -310,11 +457,6 @@ export function executeInPage(action) {
     return null;
   }
 
-  /**
-   * Multi-strategy resolve: ref → role+name → label/name → css → xpath.
-   * @param {object} action
-   * @returns {Element}
-   */
   function resolveElement(action) {
     const tried = [];
 
@@ -328,17 +470,22 @@ export function executeInPage(action) {
     const name = action.name ? String(action.name) : "";
     if (role && name) {
       tried.push(`role=${role}+name=${name}`);
-      const hit = candidatePool().find((el) => roleMatches(el, role) && nameMatches(el, name));
+      const hit = bestByName(name, role);
       if (hit) return hit;
     }
 
     const label = action.label ? String(action.label) : name;
     if (label) {
       tried.push(`label=${label}`);
-      const hit = candidatePool().find((el) => {
-        if (role && !roleMatches(el, role)) return false;
-        return nameMatches(el, label);
-      });
+      const hit = bestByName(label, role || "");
+      if (hit) return hit;
+    }
+
+    // Why: custom selects often need the option text in `value`.
+    if (action.value && action.type === "select") {
+      tried.push(`option=${action.value}`);
+      const hit =
+        bestByName(String(action.value), "option") || bestByName(String(action.value), "");
       if (hit) return hit;
     }
 
@@ -365,6 +512,45 @@ export function executeInPage(action) {
     throw new Error(
       `Element not found (tried: ${tried.join(" → ") || "nothing"}). Re-observe and use a fresh ref or name/css/xpath.`
     );
+  }
+
+  /**
+   * React-friendly click: full pointer/mouse sequence at element center.
+   * @param {Element} el
+   */
+  function robustClick(el) {
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    const r = el.getBoundingClientRect();
+    const x = Math.round(r.left + Math.min(Math.max(r.width / 2, 2), r.width - 2));
+    const y = Math.round(r.top + Math.min(Math.max(r.height / 2, 2), r.height - 2));
+    const common = {
+      bubbles: true,
+      cancelable: true,
+      view: window,
+      clientX: x,
+      clientY: y,
+      button: 0,
+      buttons: 1,
+    };
+    try {
+      el.dispatchEvent(
+        new PointerEvent("pointerdown", { ...common, pointerId: 1, pointerType: "mouse" })
+      );
+    } catch {
+      /* older engines */
+    }
+    el.dispatchEvent(new MouseEvent("mousedown", common));
+    try {
+      el.dispatchEvent(
+        new PointerEvent("pointerup", { ...common, pointerId: 1, pointerType: "mouse", buttons: 0 })
+      );
+    } catch {
+      /* ignore */
+    }
+    el.dispatchEvent(new MouseEvent("mouseup", { ...common, buttons: 0 }));
+    el.dispatchEvent(new MouseEvent("click", { ...common, buttons: 0 }));
+    if (typeof el.click === "function") el.click();
+    return { x, y };
   }
 
   function setNativeValue(el, value) {
@@ -417,16 +603,41 @@ export function executeInPage(action) {
   }
 
   switch (action.type) {
+    case "resolve_point": {
+      const el = resolveElement(action);
+      el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      const r = el.getBoundingClientRect();
+      return {
+        ok: true,
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+        name: labelFor(el),
+        role: impliedRole(el),
+      };
+    }
     case "click": {
       const el = resolveElement(action);
-      el.scrollIntoView({ block: "center", behavior: "instant" });
-      el.click();
-      return { ok: true };
+      const point = robustClick(el);
+      return { ok: true, ...point, name: labelFor(el) };
     }
     case "type": {
       const el = resolveElement(action);
+      robustClick(el);
       el.focus();
       setNativeValue(el, action.text ?? "");
+      // Why: React controlled inputs often need InputEvent as well.
+      try {
+        el.dispatchEvent(
+          new InputEvent("input", {
+            bubbles: true,
+            cancelable: true,
+            data: String(action.text ?? ""),
+            inputType: "insertText",
+          })
+        );
+      } catch {
+        /* ignore */
+      }
       if (action.submit) {
         const form = el.closest("form");
         if (form) form.requestSubmit?.() || form.submit();
@@ -438,16 +649,45 @@ export function executeInPage(action) {
       return { ok: true };
     }
     case "select": {
-      const el = resolveElement(action);
-      if (el.tagName !== "SELECT") throw new Error("resolved element is not a select");
-      const wanted = String(action.value ?? "");
-      const opt = [...el.options].find(
-        (o) => o.value === wanted || o.text.trim() === wanted || o.text.includes(wanted)
-      );
-      if (!opt) throw new Error(`Option not found: ${wanted}`);
-      el.value = opt.value;
-      el.dispatchEvent(new Event("change", { bubbles: true }));
-      return { ok: true, selected: opt.text };
+      // Native <select>
+      try {
+        const el = resolveElement({ ...action, name: action.name || action.label });
+        if (el.tagName === "SELECT") {
+          const wanted = String(action.value ?? "");
+          const opt = [...el.options].find(
+            (o) => o.value === wanted || o.text.trim() === wanted || o.text.includes(wanted)
+          );
+          if (!opt) throw new Error(`Option not found: ${wanted}`);
+          el.value = opt.value;
+          el.dispatchEvent(new Event("change", { bubbles: true }));
+          return { ok: true, selected: opt.text, native: true };
+        }
+      } catch {
+        /* fall through to custom option click */
+      }
+      // Custom dropdown: resolve option then let the worker mouse-click (or robustClick in extension).
+      const opt = resolveElement({
+        type: "click",
+        ref: action.ref,
+        role: action.role || "option",
+        name: action.value || action.name || action.label,
+        label: action.label,
+        css: action.css,
+        xpath: action.xpath,
+      });
+      if (action.__domClick) {
+        const point = robustClick(opt);
+        return { ok: true, selected: labelFor(opt), custom: true, ...point };
+      }
+      opt.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+      const r = opt.getBoundingClientRect();
+      return {
+        ok: true,
+        selected: labelFor(opt),
+        custom: true,
+        x: Math.round(r.left + r.width / 2),
+        y: Math.round(r.top + r.height / 2),
+      };
     }
     case "press_key": {
       const key = action.key || "Enter";

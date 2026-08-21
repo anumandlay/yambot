@@ -181,8 +181,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
           el.role ? ` role=${el.role}` : ""
         }> "${el.name}"${el.cssHint ? ` css=${el.cssHint}` : ""}${
-          el.href ? ` href=${el.href}` : ""
-        }${el.value ? ` value=${el.value}` : ""}`
+          el.overlay ? " [overlay]" : ""
+        }${el.href ? ` href=${el.href}` : ""}${el.value ? ` value=${el.value}` : ""}`
       );
     }
     lines.push("Page text (truncated):");
@@ -604,14 +604,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         notes.push(`Inbox (${result.count || 0}):\n${lines.join("\n") || "(empty)"}`);
         return { ok: true, email: result };
       }
-      case "click":
-      case "type":
-      case "select":
-      case "press_key":
-      case "scroll": {
+      case "click": {
         if (
           agentSnapshot?.autonomy?.askBeforeSubmit === true &&
-          action.type === "click" &&
           looksLikeSubmit(obs, action.ref)
         ) {
           const answer = await waitForUserAnswer(
@@ -622,7 +617,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
             return { ok: true, skippedSubmit: true, userAnswer: answer };
           }
         }
-        return page.evaluate(executeInPage, action);
+        // Why: Playwright real mouse hits React/custom dropdowns & calendars more reliably than el.click().
+        const point = await page.evaluate(executeInPage, { ...action, type: "resolve_point" });
+        await page.mouse.click(point.x, point.y, { delay: 40 });
+        return { ok: true, clicked: point.name, x: point.x, y: point.y };
+      }
+      case "type":
+      case "select":
+      case "press_key":
+      case "scroll": {
+        const result = await page.evaluate(executeInPage, action);
+        // Why: custom select returns a click point — finish with a real mouse click too.
+        if (action.type === "select" && result?.custom && result.x != null && result.y != null) {
+          await page.mouse.click(result.x, result.y, { delay: 40 });
+        }
+        return result;
       }
       default:
         throw new Error(`Unhandled action: ${action.type}`);

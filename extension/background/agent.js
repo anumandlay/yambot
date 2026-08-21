@@ -232,8 +232,8 @@ export function createAgentController({ emit }) {
         `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
           el.role ? ` role=${el.role}` : ""
         }> "${el.name}"${el.cssHint ? ` css=${el.cssHint}` : ""}${
-          el.href ? ` href=${el.href}` : ""
-        }${el.value ? ` value=${el.value}` : ""}`
+          el.overlay ? " [overlay]" : ""
+        }${el.href ? ` href=${el.href}` : ""}${el.value ? ` value=${el.value}` : ""}`
       );
     }
     lines.push("Page text (truncated):");
