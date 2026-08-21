@@ -123,7 +123,15 @@ app.post("/api/agents/:agentId/desktop/session", authRequired, async (req, res, 
       return;
     }
     const ticket = signDesktopTicket(req.userId, agentId);
-    const embedPath = `/api/agents/${agentId}/desktop/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=websockify&t=${encodeURIComponent(ticket)}`;
+    // Why: Ubuntu noVNC does `url += '/' + path`, so bare "websockify" becomes
+    // wss://host/websockify and never hits our authenticated desktop proxy.
+    // Include ticket in the WS path query so auth works even if the Set-Cookie race loses.
+    const wsPath = `api/agents/${agentId}/desktop/websockify?t=${ticket}`;
+    const embedPath =
+      `/api/agents/${agentId}/desktop/vnc.html` +
+      `?autoconnect=1&resize=scale&reconnect=1` +
+      `&path=${encodeURIComponent(wsPath)}` +
+      `&t=${encodeURIComponent(ticket)}`;
     res.json({
       ok: true,
       ticket,

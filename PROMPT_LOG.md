@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 17:50] Fix: Take control noVNC “failed to connect to server”
+
+- **Prompt Provided:** from the wall when i click take control : failed to connect to server
+- **Architectural Flow:** noVNC builds WS as `/${path}`; embed now sets path to `api/agents/:id/desktop/websockify` (plus ticket) so the upgrade hits the desktop proxy instead of bare `/websockify`
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/index.js`
+
 ## [2026-08-21 17:30] Ops: restore HTTPS + fix headed agent Chromium locks
 
 - **Prompt Provided:** (continuation of ets do)
