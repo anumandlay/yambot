@@ -11,7 +11,7 @@ import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
 import { observeInPage, executeInPage, captchaMetaInPage } from "./pageDom.js";
-import { runCloudResearchJob } from "./research.js";
+import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 /**
  * @param {{ api: Function, config: import('./config.js').WorkerConfig, log?: Function }} deps
@@ -393,14 +393,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
     try {
       await ensureBrowser();
 
-      // Why: research agents skip the LLM loop — SERP capture via extension/content + Playwright.
+      let workingGoal = goal;
+
+      // Phase 1 (research): google.com homepage → type xpath → search → scrape SERPs.
+      // Phase 2: LLM visits each organic URL from Phase 1.
       if (agentSnapshot?.mode === "research") {
         await mirror(taskId, "started", {
           status: "running",
-          payload: { goal, worker: config.workerName, mode: "research" },
-          appendMessage: `Cloud research computer “${config.workerName}” started (YamBot extension loaded)…\nGoal: ${goal}`,
+          payload: { goal, worker: config.workerName, mode: "research", phase: 1 },
+          appendMessage: `Cloud research “${config.workerName}” — Phase 1 (Google SERP)…\nGoal: ${goal}`,
         });
-        const { jobs, summary } = await runCloudResearchJob({
+        const { jobs, summary, urls } = await runCloudResearchPhase1({
           page,
           goal,
           agentSnapshot,
@@ -415,17 +418,30 @@ export function createCloudAgent({ api, config, log = console.log }) {
           },
           onLive: () => pushLiveScreen({ taskId }),
         });
+
+        if (await isTaskCancelled(taskId)) {
+          await complete(taskId, {
+            success: false,
+            summary: "Stopped by user",
+            error: "cancelled",
+          });
+          return;
+        }
+
         const jsonBlob = JSON.stringify(jobs);
         await mirror(taskId, "research", {
-          payload: { jobsPreview: jobs.slice(0, 5) },
-          appendMessage: `Full research JSON (${Math.min(jsonBlob.length, 120000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 120000)}\n\`\`\``,
+          payload: { phase: 1, urlCount: urls.length },
+          appendMessage: `${summary}\n\nFull SERP JSON (${Math.min(jsonBlob.length, 100000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 100000)}\n\`\`\``,
         }).catch(() => {});
-        await complete(taskId, {
-          success: true,
-          summary,
-        });
-        log(`[${config.workerName}] Research task ${taskId} done`);
-        return;
+
+        notes.push(summary);
+        notes.push(`SERP_JSON:${jsonBlob.slice(0, 40000)}`);
+        workingGoal = buildDeepResearchGoal(goal, urls);
+        notes.push(`Phase 2 starting — visit ${urls.length} site(s).`);
+        await mirror(taskId, "research", {
+          payload: { phase: 2, urls },
+          appendMessage: `Phase 2 — LLM will visit ${urls.length} website(s) from the SERP results and research each one.`,
+        }).catch(() => {});
       }
 
       const settings = await getSettings();
@@ -437,20 +453,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       // Why: no step budget — keep going until finish, abort, or hard error.
-      const preferredStart =
-        (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
-        "https://www.google.com/";
-      const bootUrl = /^https?:\/\//i.test(preferredStart)
-        ? preferredStart
-        : "https://www.google.com/";
+      if (agentSnapshot?.mode !== "research") {
+        const preferredStart =
+          (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
+          "https://www.google.com/";
+        const bootUrl = /^https?:\/\//i.test(preferredStart)
+          ? preferredStart
+          : "https://www.google.com/";
 
-      await page.goto(bootUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
-      await pushLiveScreen({ taskId });
-      await mirror(taskId, "started", {
-        status: "running",
-        payload: { goal, worker: config.workerName },
-        appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
-      });
+        await page.goto(bootUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+        await pushLiveScreen({ taskId });
+        await mirror(taskId, "started", {
+          status: "running",
+          payload: { goal, worker: config.workerName },
+          appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
+        });
+      } else {
+        await pushLiveScreen({ taskId }).catch(() => {});
+      }
 
       let step = 0;
       for (;;) {
@@ -554,7 +574,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           {
             role: "user",
             content: [
-              `GOAL:\n${goal}`,
+              `GOAL:\n${workingGoal}`,
               `STEP: ${step}`,
               notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
               history.length

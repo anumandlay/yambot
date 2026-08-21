@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 13:50] Fix: Research flow = google.com type/search → scrape → LLM visits sites
+
+- **Prompt Provided:** Not jump to /search?q=; type into google.com search box via xpath; scrape; then LLM visits each website
+- **Architectural Flow:** Phase 1 opens google.com, types keyword (xpath), submits Search, scrapes/paginates SERPs. Phase 2 builds deep-research goal from organic URLs and continues LLM browser loop. Same on cloud worker + extension
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/research.js`, `worker/src/agent.js`, `extension/background/research.js`, `extension/background/agent.js`
+
 ## [2026-08-21 13:35] Feature: Load YamBot extension inside cloud Chromium
 
 - **Prompt Provided:** i want this extension in cloud also

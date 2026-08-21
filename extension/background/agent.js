@@ -2,7 +2,7 @@ import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { extensionApi } from "./api.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
-import { runResearchJob } from "./research.js";
+import { runResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 export function createAgentController({ emit }) {
   let running = false;
@@ -594,15 +594,15 @@ export function createAgentController({ emit }) {
   }
 
   /**
-   * Deterministic Google SERP research — no LLM. Captures pages via content script.
+   * Phase 1 SERP scrape via google.com UI; then the main loop continues into Phase 2 LLM.
    */
-  async function researchLoop() {
+  async function researchPhase1() {
     const note = async (text, payload) => {
       state.notes.push(text);
       broadcast("agent:note", { note: text, payload, eventType: "research" });
     };
 
-    const { jobs, summary } = await runResearchJob({
+    const { jobs, summary, urls } = await runResearchPhase1({
       tabId: state.tabId,
       goal: state.goal,
       agentSnapshot: state.agentSnapshot,
@@ -612,20 +612,17 @@ export function createAgentController({ emit }) {
       waitForTabLoad,
     });
 
-    // Why: full structured SERP JSON for the chat/task (capped so messages stay usable).
     const jsonBlob = JSON.stringify(jobs);
     await note(
-      `Full research JSON (${Math.min(jsonBlob.length, 120000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 120000)}\n\`\`\``,
-      { jobs: jobs.slice(0, 20) }
+      `${summary}\n\nFull SERP JSON (${Math.min(jsonBlob.length, 100000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 100000)}\n\`\`\``,
+      { phase: 1, urlCount: urls.length }
     );
-
-    state.notes.push(`RESEARCH_JSON:${jsonBlob.slice(0, 50000)}`);
-    state.status = "done";
-    broadcast("agent:done", {
-      success: !abort,
-      summary: abort ? "Research stopped early.\n\n" + summary : summary,
-      research: jobs,
-    });
+    state.notes.push(`SERP_JSON:${jsonBlob.slice(0, 40000)}`);
+    state.goal = buildDeepResearchGoal(state.goal, urls);
+    await note(
+      `Phase 2 — LLM will visit ${urls.length} website(s) from the SERP results and research each one.`,
+      { phase: 2, urls }
+    );
   }
 
   async function loop() {
@@ -636,8 +633,12 @@ export function createAgentController({ emit }) {
       broadcast("agent:started");
 
       if (state.agentSnapshot?.mode === "research") {
-        await researchLoop();
-        return;
+        await researchPhase1();
+        if (abort) {
+          state.status = "stopped";
+          broadcast("agent:stopped");
+          return;
+        }
       }
 
       const settings = await getSettings();
@@ -743,8 +744,10 @@ export function createAgentController({ emit }) {
     }
 
     const preferredStart =
-      (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
-      "https://www.google.com/";
+      state?.agentSnapshot?.mode === "research" || agentSnapshot?.mode === "research"
+        ? "https://www.google.com/"
+        : (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
+          "https://www.google.com/";
     const bootUrl = /^https?:\/\//i.test(preferredStart)
       ? preferredStart
       : "https://www.google.com/";

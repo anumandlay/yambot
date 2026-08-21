@@ -1,9 +1,15 @@
 /**
- * @fileoverview Google SERP research runner for the Chrome extension.
- * Purpose: Parse keywords from a chat goal, open Google in a real tab, capture each
- * results page via the content script, paginate, and return structured data to YamBot.
- * Why: Extension Chrome avoids the captchas that hit headless cloud Chromium.
+ * @fileoverview Extension research Phase 1 — Google homepage UI search + SERP scrape.
+ * Purpose: Open google.com (not /search?q=), type into the search box via xpath EXECUTE,
+ * scrape pages, then hand URLs to Phase 2 LLM deep research.
  */
+
+/** Google homepage search box xpath (same contract as cloud worker). */
+export const GOOGLE_SEARCH_XPATH =
+  '//textarea[@name="q"] | //input[@name="q"]';
+
+export const GOOGLE_SEARCH_BTN_XPATH =
+  '//input[@name="btnK"] | //button[@type="submit"]';
 
 /**
  * @param {string} goal
@@ -23,7 +29,6 @@ export function parseResearchGoal(goal, snapshot = {}) {
   const kwHeader = text.match(/^\s*keywords?\s*[:=]\s*(.+)$/is);
   if (kwHeader) text = kwHeader[1].trim();
 
-  // Strip common instructional prefixes so "Research: foo, bar" still works.
   text = text.replace(/^(?:please\s+)?(?:research|scrape|search(?:\s+for)?)\s*[:=-]?\s*/i, "").trim();
 
   const keywords = text
@@ -36,12 +41,11 @@ export function parseResearchGoal(goal, snapshot = {}) {
 }
 
 /**
- * Compact chat-friendly summary from full research payload.
  * @param {Array<{ keyword: string, pages: object[] }>} jobs
  * @returns {string}
  */
-export function formatResearchSummary(jobs) {
-  const lines = ["Research complete."];
+export function formatSerpSummary(jobs) {
+  const lines = ["Phase 1 complete — Google SERP results collected."];
   for (const job of jobs) {
     lines.push(`\n## ${job.keyword}`);
     for (const entry of job.pages) {
@@ -53,27 +57,71 @@ export function formatResearchSummary(jobs) {
       lines.push(
         `- ${label}: ${organic.length} organic, ${ads.length} ads, AI overview: ${ai}`
       );
-      for (const r of organic.slice(0, 5)) {
+      for (const r of organic.slice(0, 8)) {
         lines.push(`  ${r.position}. ${r.title} — ${r.url}`);
       }
-      if (organic.length > 5) lines.push(`  … +${organic.length - 5} more`);
+      if (organic.length > 8) lines.push(`  … +${organic.length - 8} more`);
     }
   }
   return lines.join("\n");
 }
 
 /**
- * @param {object} opts
- * @param {number} opts.tabId
- * @param {string} opts.goal
- * @param {object|null} opts.agentSnapshot
- * @param {() => boolean} opts.shouldStop
- * @param {(msg: string, payload?: object) => void | Promise<void>} opts.onProgress
- * @param {(tabId: number, type: string, payload?: object) => Promise<any>} opts.sendToContent
- * @param {(tabId: number) => Promise<void>} opts.waitForTabLoad
- * @returns {Promise<{ jobs: object[], summary: string }>}
+ * @param {Array<{ keyword: string, pages: object[] }>} jobs
+ * @param {{ maxUrls?: number }} [opts]
  */
-export async function runResearchJob(opts) {
+export function collectOrganicUrls(jobs, opts = {}) {
+  const maxUrls = Math.min(40, Math.max(1, Number(opts.maxUrls) || 15));
+  const out = [];
+  const seen = new Set();
+  for (const job of jobs) {
+    for (const entry of job.pages || []) {
+      const page = Object.values(entry)[0];
+      for (const r of page?.organic_results || []) {
+        const url = String(r?.url || "").trim();
+        if (!url || seen.has(url)) continue;
+        if (/^https?:\/\/([^/]*\.)?google\./i.test(url)) continue;
+        seen.add(url);
+        out.push({
+          keyword: job.keyword,
+          title: String(r.title || "").trim(),
+          url,
+          snippet: String(r.snippet || "").trim(),
+        });
+        if (out.length >= maxUrls) return out;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * @param {string} originalGoal
+ * @param {Array<{ keyword: string, title: string, url: string, snippet: string }>} urls
+ */
+export function buildDeepResearchGoal(originalGoal, urls) {
+  const list = urls
+    .map(
+      (u, i) =>
+        `${i + 1}. ${u.title || "(no title)"}\n   URL: ${u.url}\n   Keyword: ${u.keyword}\n   Snippet: ${u.snippet || ""}`
+    )
+    .join("\n\n");
+  return [
+    "PHASE 2 — Deep website research (LLM).",
+    "Phase 1 already collected Google results. Do NOT open google.com/search or type a new Google query unless a listed site requires it.",
+    `ORIGINAL USER GOAL:\n${originalGoal}`,
+    "Visit each site below IN ORDER. On each site: navigate to the URL, extract facts relevant to the goal, then move to the next.",
+    "When finished (or if many sites are blocked), call finish with a clear structured research summary covering all visited sites.",
+    "SITES TO VISIT:",
+    list || "(no organic URLs found — report that Phase 1 found nothing and finish)",
+  ].join("\n\n");
+}
+
+/**
+ * @param {object} opts
+ * @returns {Promise<{ jobs: object[], summary: string, urls: object[] }>}
+ */
+export async function runResearchPhase1(opts) {
   const {
     tabId,
     goal,
@@ -94,7 +142,7 @@ export async function runResearchJob(opts) {
   }
 
   await onProgress(
-    `Research mode: ${keywords.length} keyword(s), up to ${maxPages} page(s) each. Extension will capture Google SERPs.`
+    `Phase 1: open google.com → type into search box (xpath) → Search → scrape (up to ${maxPages} page(s) × ${keywords.length} keyword(s)).`
   );
 
   const jobs = [];
@@ -102,9 +150,32 @@ export async function runResearchJob(opts) {
   for (const keyword of keywords) {
     if (shouldStop()) break;
 
-    await onProgress(`Searching Google for “${keyword}”…`);
-    const searchUrl = `https://www.google.com/search?q=${encodeURIComponent(keyword)}&hl=en`;
-    await chrome.tabs.update(tabId, { url: searchUrl, active: true });
+    await onProgress(`Opening google.com for “${keyword}”…`);
+    await chrome.tabs.update(tabId, { url: "https://www.google.com/", active: true });
+    await waitForTabLoad(tabId);
+    await sleep(1500);
+    await dismissConsent(sendToContent, tabId);
+
+    await onProgress(`Typing “${keyword}” into Google search box…`);
+    await sendToContent(tabId, "EXECUTE", {
+      action: {
+        type: "type",
+        xpath: GOOGLE_SEARCH_XPATH,
+        text: keyword,
+      },
+    });
+    await sleep(400);
+
+    await onProgress(`Submitting Google search for “${keyword}”…`);
+    try {
+      await sendToContent(tabId, "EXECUTE", {
+        action: { type: "press_key", key: "Enter" },
+      });
+    } catch {
+      await sendToContent(tabId, "EXECUTE", {
+        action: { type: "click", xpath: GOOGLE_SEARCH_BTN_XPATH },
+      });
+    }
     await waitForTabLoad(tabId);
     await sleep(2500);
 
@@ -122,7 +193,7 @@ export async function runResearchJob(opts) {
       const organic = serp?.organic_results?.length || 0;
       const ads = serp?.sponsored_results?.length || 0;
       await onProgress(
-        `Captured “${keyword}” ${pageLabel}: ${organic} organic, ${ads} ads` +
+        `Scraped “${keyword}” ${pageLabel}: ${organic} organic, ${ads} ads` +
           (serp?.ai_overview?.available ? ", AI overview" : ""),
         {
           keyword,
@@ -131,7 +202,6 @@ export async function runResearchJob(opts) {
             organic,
             ads,
             ai: Boolean(serp?.ai_overview?.available),
-            pasf: serp?.people_also_search_for?.results?.length || 0,
           },
         }
       );
@@ -151,8 +221,25 @@ export async function runResearchJob(opts) {
     jobs.push({ keyword, pages });
   }
 
-  const summary = formatResearchSummary(jobs);
-  return { jobs, summary };
+  const urls = collectOrganicUrls(jobs, {
+    maxUrls: Math.min(30, Math.max(8, keywords.length * 5)),
+  });
+  const summary = formatSerpSummary(jobs);
+  await onProgress(
+    `Phase 1 done. ${urls.length} organic URL(s) queued for Phase 2 (LLM visits each site).`
+  );
+  return { jobs, summary, urls };
+}
+
+async function dismissConsent(sendToContent, tabId) {
+  try {
+    await sendToContent(tabId, "EXECUTE", {
+      action: { type: "click", css: "button#L2AGLb" },
+    });
+    await sleep(500);
+  } catch {
+    /* no consent banner */
+  }
 }
 
 async function humanScroll(sendToContent, tabId) {
