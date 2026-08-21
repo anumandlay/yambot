@@ -225,6 +225,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
     };
   }
 
+  /**
+   * Why: SPAs (e.g. Vughy) render reCAPTCHA explicitly after JS boot — observing too early misses sitekey.
+   */
+  async function waitForCaptchaWidget(timeoutMs = 10000) {
+    try {
+      await page.waitForSelector(
+        "iframe[src*='recaptcha'], iframe[src*='hcaptcha'], .g-recaptcha, .captcha-recaptcha, [data-sitekey], .h-captcha",
+        { timeout: timeoutMs }
+      );
+      await sleep(600);
+    } catch {
+      /* page has no captcha widget */
+    }
+  }
+
   function formatObservation(obs) {
     const lines = [
       `URL: ${obs.url}`,
@@ -352,6 +367,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const agentSnapshot = task.agentSnapshot || null;
     const notes = [];
     const history = [];
+    /** Avoid re-billing DBC every step; tokens expire ~2m so allow re-solve after 90s. */
+    let lastCaptchaSolveAt = 0;
 
     try {
       await ensureBrowser();
@@ -393,20 +410,62 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
         await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId }).catch(() => {});
+        await waitForCaptchaWidget(8000);
         const obs = await page.evaluate(observeInPage);
+        const captchaMeta = await page.evaluate(captchaMetaInPage);
+        const sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
+        const captchaVisible = Boolean(obs.captcha?.present || sitekey);
 
-        // Why: Amazon/image captchas have no reCAPTCHA sitekey — LLM would retry login forever.
-        if (obs.captcha?.present) {
-          const meta = await page.evaluate(captchaMetaInPage);
-          const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
+        // Why: do not wait for the LLM — auto-solve Google/hCaptcha via DBC, or hand off image captchas.
+        if (captchaVisible) {
           if (!sitekey) {
-            const sig = (obs.captcha.signals || []).join(",") || "detected";
+            const sig = (obs.captcha?.signals || []).join(",") || "detected";
             log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
             await waitForUserAnswer(
               taskId,
               `CAPTCHA / bot check (${sig}). Open the live screen → Take control, solve it, Give control back, then reply continue.`
             );
             notes.push(`User continued after CAPTCHA handoff (${sig}).`);
+            continue;
+          }
+
+          if (!settings.dbcUsername || !settings.dbcPassword) {
+            await waitForUserAnswer(
+              taskId,
+              "Google CAPTCHA detected but DeathByCaptcha is not configured in Settings. Take control on the live screen, solve it, then reply continue."
+            );
+            notes.push("User continued after CAPTCHA (DBC not configured).");
+            continue;
+          }
+
+          if (Date.now() - lastCaptchaSolveAt > 90000) {
+            await mirror(taskId, "captcha", {
+              appendMessage: "Solving Google CAPTCHA with DeathByCaptcha…",
+            });
+            log(`[${config.workerName}] Solving CAPTCHA via DBC (sitekey present)`);
+            const solved = await solveCaptchaWithDbc(
+              { username: settings.dbcUsername, password: settings.dbcPassword },
+              captchaMeta
+            );
+            if (solved.kind === "token") {
+              await page.evaluate(executeInPage, {
+                type: "solve_captcha",
+                token: solved.token,
+              });
+              lastCaptchaSolveAt = Date.now();
+              notes.push("CAPTCHA solved via DeathByCaptcha; continuing login.");
+              await mirror(taskId, "captcha", {
+                appendMessage: "CAPTCHA solved via DeathByCaptcha.",
+              });
+              await sleep(800);
+              continue;
+            }
+            await waitForUserAnswer(
+              taskId,
+              solved.hint ||
+                "DeathByCaptcha could not solve this CAPTCHA. Take control on the live screen, solve it, then reply continue."
+            );
+            notes.push(`User continued after DBC failure: ${solved.error || ""}`);
             continue;
           }
         }
@@ -585,6 +644,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           throw new Error(`Invalid navigate URL: ${action.url}`);
         }
         await page.goto(action.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+        await waitForCaptchaWidget(12000);
         return { ok: true, navigated: action.url };
       }
       case "wait": {

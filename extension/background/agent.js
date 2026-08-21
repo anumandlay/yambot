@@ -22,6 +22,8 @@ export function createAgentController({ emit }) {
       tabId: null,
       cloudTaskId: null,
       agentSnapshot: null,
+      captchaSolvedForUrl: null,
+      lastCaptchaSolveAt: 0,
     };
   }
 
@@ -243,18 +245,47 @@ export function createAgentController({ emit }) {
 
   async function runStep(settings) {
     const obs = await observeTab(state.tabId);
+    const meta = await sendToContent(state.tabId, "CAPTCHA_META");
+    const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
+    const captchaVisible = Boolean(obs.captcha?.present || sitekey);
 
-    // Why: Amazon/image captchas have no sitekey — stop login loops and ask the human.
-    if (obs.captcha?.present) {
-      const meta = await sendToContent(state.tabId, "CAPTCHA_META");
-      const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
+    if (captchaVisible) {
       if (!sitekey) {
-        const sig = (obs.captcha.signals || []).join(",") || "detected";
-        broadcast("agent:captcha", { status: "needs_human", signals: obs.captcha.signals });
+        const sig = (obs.captcha?.signals || []).join(",") || "detected";
+        broadcast("agent:captcha", { status: "needs_human", signals: obs.captcha?.signals });
         const answer = await waitForUser(
           `CAPTCHA / bot check (${sig}). Solve it in the browser tab, then reply continue.`
         );
         state.notes.push(`User continued after CAPTCHA handoff (${sig}): ${answer}`);
+        return { ok: true, captchaHandoff: true, userAnswer: answer };
+      }
+      if (!settings.dbcUsername || !settings.dbcPassword) {
+        const answer = await waitForUser(
+          "Google CAPTCHA detected but DeathByCaptcha is not configured. Solve it in the tab, then reply continue."
+        );
+        state.notes.push(`User continued after CAPTCHA (no DBC): ${answer}`);
+        return { ok: true, captchaHandoff: true, userAnswer: answer };
+      }
+      if (Date.now() - (state.lastCaptchaSolveAt || 0) > 90000) {
+        broadcast("agent:captcha", { status: "solving" });
+        const solved = await solveCaptchaWithDbc(
+          { username: settings.dbcUsername, password: settings.dbcPassword },
+          meta
+        );
+        if (solved.kind === "token") {
+          await sendToContent(state.tabId, "EXECUTE", {
+            action: { type: "solve_captcha", token: solved.token },
+          });
+          state.lastCaptchaSolveAt = Date.now();
+          state.captchaSolvedForUrl = obs.url;
+          broadcast("agent:captcha", { status: "solved" });
+          state.notes.push("CAPTCHA solved via DeathByCaptcha");
+          return { ok: true, captcha: solved };
+        }
+        const answer = await waitForUser(
+          solved.hint || "DeathByCaptcha failed. Solve the CAPTCHA in the tab, then reply continue."
+        );
+        state.notes.push(`User continued after DBC failure: ${answer}`);
         return { ok: true, captchaHandoff: true, userAnswer: answer };
       }
     }

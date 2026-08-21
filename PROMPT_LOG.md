@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 12:40] Fix: Auto-solve Google reCAPTCHA via DeathByCaptcha (Vughy)
+
+- **Prompt Provided:** Agent given https://vughy.com/agency/login/agency with Google captcha does nothing; testing DeathByCaptcha
+- **Architectural Flow:** SPA explicit-render reCAPTCHA (`.captcha-recaptcha`, no static data-sitekey) — wait for iframe, extract sitekey, auto-call DBC when configured (not wait for LLM `solve_captcha`), inject token + invoke grecaptcha/React callbacks; image captchas still hand off to human
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/pageDom.js`, `extension/background/agent.js`, `extension/content/content.js`
+
 ## [2026-08-21 12:28] Feature: DeathByCaptcha test connection button
 
 - **Prompt Provided:** need deathbycaptcha test button to test its connected

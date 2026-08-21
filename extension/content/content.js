@@ -258,7 +258,11 @@
 
   function detectCaptcha() {
     const signals = [];
-    if (document.querySelector(".g-recaptcha, iframe[src*='recaptcha'], #g-recaptcha-response")) {
+    if (
+      document.querySelector(
+        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
+      )
+    ) {
       signals.push("recaptcha");
     }
     if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
@@ -607,38 +611,106 @@
   function findRecaptchaSitekey() {
     const el = document.querySelector(".g-recaptcha[data-sitekey], [data-sitekey]");
     if (el?.getAttribute("data-sitekey")) return el.getAttribute("data-sitekey");
-    const iframe = document.querySelector("iframe[src*='recaptcha']");
-    if (iframe?.src) {
+    for (const iframe of document.querySelectorAll(
+      "iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], iframe[title*='reCAPTCHA']"
+    )) {
+      if (!iframe?.src) continue;
       try {
-        const u = new URL(iframe.src);
-        return u.searchParams.get("k");
+        const k = new URL(iframe.src).searchParams.get("k");
+        if (k) return k;
       } catch {
-        return null;
+        /* ignore */
       }
+    }
+    try {
+      const clients = window.___grecaptcha_cfg?.clients;
+      if (clients) {
+        const json = JSON.stringify(clients);
+        const m = json.match(/sitekey["']?\s*:\s*["']([^"']+)["']/i);
+        if (m?.[1]) return m[1];
+        const m2 = json.match(/["'](6L[0-9A-Za-z_-]{20,})["']/);
+        if (m2?.[1]) return m2[1];
+      }
+    } catch {
+      /* ignore */
     }
     return null;
   }
 
   function findHcaptchaSitekey() {
-    const el = document.querySelector(".h-captcha[data-sitekey], [data-sitekey]");
-    return el?.getAttribute("data-sitekey") || null;
+    const h = document.querySelector(".h-captcha[data-sitekey]");
+    if (h?.getAttribute("data-sitekey")) return h.getAttribute("data-sitekey");
+    const el = document.querySelector("[data-sitekey]");
+    const key = el?.getAttribute("data-sitekey");
+    if (key && !String(key).startsWith("6L")) return key;
+    return null;
   }
 
   async function injectCaptchaSolution(action) {
     const token = action.token;
     const text = action.text;
     if (token) {
-      const area =
-        document.querySelector("#g-recaptcha-response") ||
-        document.querySelector("[name='g-recaptcha-response']") ||
-        document.querySelector("[name='h-captcha-response']") ||
-        document.querySelector("textarea[name='h-captcha-response']");
-      if (area) {
+      const areas = [
+        ...document.querySelectorAll(
+          "#g-recaptcha-response, textarea[name='g-recaptcha-response'], [name='g-recaptcha-response'], [name='h-captcha-response'], textarea[name='h-captcha-response']"
+        ),
+      ];
+      for (const area of areas) {
         area.style.display = "block";
-        area.value = token;
+        const proto =
+          area.tagName === "TEXTAREA"
+            ? window.HTMLTextAreaElement.prototype
+            : window.HTMLInputElement.prototype;
+        const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+        if (setter) setter.call(area, token);
+        else area.value = token;
         area.dispatchEvent(new Event("input", { bubbles: true }));
+        area.dispatchEvent(new Event("change", { bubbles: true }));
       }
-      return { ok: true, injected: "token", note: "Token injected; click continue/submit if needed." };
+      const widgets = document.querySelectorAll(
+        ".g-recaptcha[data-callback], [data-sitekey][data-callback], .h-captcha[data-callback]"
+      );
+      for (const w of widgets) {
+        const cbName = w.getAttribute("data-callback");
+        if (cbName && typeof window[cbName] === "function") {
+          try {
+            window[cbName](token);
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+      try {
+        const clients = window.___grecaptcha_cfg?.clients;
+        if (clients) {
+          const seen = new Set();
+          const visit = (node, depth) => {
+            if (!node || depth > 5 || seen.has(node)) return;
+            if (typeof node === "object") seen.add(node);
+            if (typeof node === "function") {
+              try {
+                node(token);
+              } catch {
+                /* ignore */
+              }
+              return;
+            }
+            if (node && typeof node === "object") {
+              for (const k of Object.keys(node)) {
+                if (k === "callback" || k === "promise-callback" || /callback/i.test(k)) {
+                  visit(node[k], depth + 1);
+                } else if (depth < 3 && typeof node[k] === "object") {
+                  visit(node[k], depth + 1);
+                }
+              }
+            }
+          };
+          for (const key of Object.keys(clients)) visit(clients[key], 0);
+        }
+      } catch {
+        /* ignore */
+      }
+      return { ok: true, injected: "token", areas: areas.length, note: "Token injected; submit if needed." };
     }
     if (text) {
       const inputs = [...document.querySelectorAll("input[type='text'], input:not([type])")].filter(

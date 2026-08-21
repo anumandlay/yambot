@@ -274,7 +274,11 @@ export function observeInPage() {
 
   function detectCaptcha() {
     const signals = [];
-    if (document.querySelector(".g-recaptcha, iframe[src*='recaptcha'], #g-recaptcha-response")) {
+    if (
+      document.querySelector(
+        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
+      )
+    ) {
       signals.push("recaptcha");
     }
     if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
@@ -602,7 +606,11 @@ export function executeInPage(action) {
 
   function detectCaptcha() {
     const signals = [];
-    if (document.querySelector(".g-recaptcha, iframe[src*='recaptcha'], #g-recaptcha-response")) {
+    if (
+      document.querySelector(
+        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
+      )
+    ) {
       signals.push("recaptcha");
     }
     if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
@@ -614,13 +622,26 @@ export function executeInPage(action) {
   function findRecaptchaSitekey() {
     const el = document.querySelector(".g-recaptcha[data-sitekey], [data-sitekey]");
     if (el?.getAttribute("data-sitekey")) return el.getAttribute("data-sitekey");
-    const iframe = document.querySelector("iframe[src*='recaptcha']");
-    if (iframe?.src) {
+    for (const iframe of document.querySelectorAll(
+      "iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha']"
+    )) {
+      if (!iframe?.src) continue;
       try {
-        return new URL(iframe.src).searchParams.get("k");
+        const k = new URL(iframe.src).searchParams.get("k");
+        if (k) return k;
       } catch {
-        return null;
+        /* ignore */
       }
+    }
+    try {
+      const clients = window.___grecaptcha_cfg?.clients;
+      if (clients) {
+        const json = JSON.stringify(clients);
+        const m = json.match(/["'](6L[0-9A-Za-z_-]{20,})["']/);
+        if (m?.[1]) return m[1];
+      }
+    } catch {
+      /* ignore */
     }
     return null;
   }
@@ -746,17 +767,71 @@ export function executeInPage(action) {
     case "solve_captcha": {
       const token = action.token;
       if (token) {
-        const area =
-          document.querySelector("#g-recaptcha-response") ||
-          document.querySelector("[name='g-recaptcha-response']") ||
-          document.querySelector("[name='h-captcha-response']") ||
-          document.querySelector("textarea[name='h-captcha-response']");
-        if (area) {
+        const areas = [
+          ...document.querySelectorAll(
+            "#g-recaptcha-response, textarea[name='g-recaptcha-response'], [name='g-recaptcha-response'], [name='h-captcha-response'], textarea[name='h-captcha-response']"
+          ),
+        ];
+        for (const area of areas) {
           area.style.display = "block";
-          area.value = token;
+          const proto =
+            area.tagName === "TEXTAREA"
+              ? window.HTMLTextAreaElement.prototype
+              : window.HTMLInputElement.prototype;
+          const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
+          if (setter) setter.call(area, token);
+          else area.value = token;
           area.dispatchEvent(new Event("input", { bubbles: true }));
+          area.dispatchEvent(new Event("change", { bubbles: true }));
         }
-        return { ok: true, injected: "token" };
+
+        // Why: many React/login forms only accept the token through the widget callback.
+        const widgets = document.querySelectorAll(
+          ".g-recaptcha[data-callback], [data-sitekey][data-callback], .h-captcha[data-callback]"
+        );
+        for (const w of widgets) {
+          const cbName = w.getAttribute("data-callback");
+          if (cbName && typeof window[cbName] === "function") {
+            try {
+              window[cbName](token);
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+
+        try {
+          const clients = window.___grecaptcha_cfg?.clients;
+          if (clients) {
+            const seen = new Set();
+            const visit = (node, depth) => {
+              if (!node || depth > 5 || seen.has(node)) return;
+              if (typeof node === "object") seen.add(node);
+              if (typeof node === "function") {
+                try {
+                  node(token);
+                } catch {
+                  /* ignore */
+                }
+                return;
+              }
+              if (node && typeof node === "object") {
+                for (const k of Object.keys(node)) {
+                  if (k === "callback" || k === "promise-callback" || /callback/i.test(k)) {
+                    visit(node[k], depth + 1);
+                  } else if (depth < 3 && typeof node[k] === "object") {
+                    visit(node[k], depth + 1);
+                  }
+                }
+              }
+            };
+            for (const key of Object.keys(clients)) visit(clients[key], 0);
+          }
+        } catch {
+          /* ignore */
+        }
+
+        return { ok: true, injected: "token", areas: areas.length };
       }
       return {
         ok: false,
@@ -778,23 +853,45 @@ export function captchaMetaInPage() {
   function findRecaptchaSitekey() {
     const el = document.querySelector(".g-recaptcha[data-sitekey], [data-sitekey]");
     if (el?.getAttribute("data-sitekey")) return el.getAttribute("data-sitekey");
-    const iframe = document.querySelector("iframe[src*='recaptcha']");
-    if (iframe?.src) {
+    for (const iframe of document.querySelectorAll(
+      "iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], iframe[title*='reCAPTCHA']"
+    )) {
+      if (!iframe?.src) continue;
       try {
-        return new URL(iframe.src).searchParams.get("k");
+        const k = new URL(iframe.src).searchParams.get("k");
+        if (k) return k;
       } catch {
-        return null;
+        /* ignore */
       }
+    }
+    try {
+      const clients = window.___grecaptcha_cfg?.clients;
+      if (clients) {
+        const json = JSON.stringify(clients);
+        const m = json.match(/sitekey["']?\s*:\s*["']([^"']+)["']/i);
+        if (m?.[1]) return m[1];
+        const m2 = json.match(/["'](6[L][0-9A-Za-z_-]{20,})["']/);
+        if (m2?.[1]) return m2[1];
+      }
+    } catch {
+      /* ignore */
     }
     return null;
   }
   function findHcaptchaSitekey() {
     const el = document.querySelector(".h-captcha[data-sitekey], [data-sitekey]");
-    return el?.getAttribute("data-sitekey") || null;
+    const key = el?.getAttribute("data-sitekey");
+    if (key && !key.startsWith("6L")) return key;
+    const h = document.querySelector(".h-captcha[data-sitekey]");
+    return h?.getAttribute("data-sitekey") || null;
   }
   function detectCaptcha() {
     const signals = [];
-    if (document.querySelector(".g-recaptcha, iframe[src*='recaptcha'], #g-recaptcha-response")) {
+    if (
+      document.querySelector(
+        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
+      )
+    ) {
       signals.push("recaptcha");
     }
     if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
@@ -821,7 +918,7 @@ export function captchaMetaInPage() {
     }
     const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
     if (
-      /type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|verify you are human|complete the captcha/.test(
+      /type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|verify you are human|complete the captcha|i'?m not a robot/.test(
         bodyText
       )
     ) {
