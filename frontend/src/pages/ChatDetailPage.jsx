@@ -139,8 +139,8 @@ export function ChatDetailPage() {
   }
 
   const controlPanel = (
-    <>
-      <div className="flex items-center justify-between gap-2">
+    <div className="flex min-h-0 flex-1 flex-col gap-2 lg:gap-3">
+      <div className="flex shrink-0 items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
         {activeTask ? (
           <button
@@ -157,8 +157,8 @@ export function ChatDetailPage() {
       {agentId ? (
         <LiveScreen
           agentId={String(agentId)}
-          compact
-          className="max-h-none lg:max-h-none"
+          fill
+          className="min-h-[40vh] flex-1 lg:min-h-0"
         />
       ) : (
         <p className="rounded-2xl border border-dashed border-teal-200 bg-white p-4 text-sm text-teal-900/70">
@@ -169,7 +169,7 @@ export function ChatDetailPage() {
       {waitingTask ? (
         <form
           onSubmit={sendAnswer}
-          className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3"
+          className="flex shrink-0 flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3"
         >
           <p className="text-sm font-semibold text-amber-950">Agent is waiting for your answer</p>
           <input
@@ -188,9 +188,9 @@ export function ChatDetailPage() {
         </form>
       ) : null}
 
-      <form onSubmit={sendGoal} className="flex flex-col gap-2">
+      <form onSubmit={sendGoal} className="flex shrink-0 flex-col gap-2">
         <textarea
-          className="min-h-24 w-full rounded-2xl border border-teal-100 bg-white px-3 py-3 shadow-sm lg:min-h-28"
+          className="min-h-20 w-full rounded-2xl border border-teal-100 bg-white px-3 py-3 shadow-sm lg:min-h-24"
           placeholder="Goal / instructions…"
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -204,7 +204,7 @@ export function ChatDetailPage() {
           {busy ? "Sending…" : activeTask ? "Running…" : "Send goal"}
         </button>
       </form>
-    </>
+    </div>
   );
 
   return (
@@ -283,12 +283,12 @@ export function ChatDetailPage() {
           <div ref={bottomRef} className="h-px w-full shrink-0" />
         </div>
 
-        <aside className="hidden min-h-0 lg:sticky lg:top-0 lg:flex lg:max-h-full lg:flex-col lg:gap-3 lg:overflow-y-auto lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
+        <aside className="hidden min-h-0 lg:sticky lg:top-0 lg:flex lg:max-h-full lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
           {controlPanel}
         </aside>
       </div>
 
-      <div className="sticky bottom-0 z-30 -mx-3 mt-1 flex flex-col gap-2 border-t border-teal-100 bg-[color-mix(in_srgb,var(--yb-bg)_92%,white)] px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] backdrop-blur-md lg:hidden">
+      <div className="sticky bottom-0 z-30 -mx-3 mt-1 flex max-h-[55dvh] flex-col gap-2 overflow-y-auto border-t border-teal-100 bg-[color-mix(in_srgb,var(--yb-bg)_92%,white)] px-3 pt-2 pb-[max(0.5rem,env(safe-area-inset-bottom))] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] backdrop-blur-md lg:hidden">
         {controlPanel}
       </div>
     </div>

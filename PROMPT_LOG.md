@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 11:57] UI: Live screen fills panel + Zoom modal
+
+- **Prompt Provided:** show agent live screen full window; Zoom in opens full screen in a modal box
+- **Architectural Flow:** LiveScreen `fill` grows in the sticky rail; Zoom in portals a near-viewport modal (Esc/backdrop/Close)
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend` LiveScreen + ChatDetailPage
+
 ## [2026-08-21 10:22] UI: Chat thread follows live bottom + sticky rail
 
 - **Prompt Provided:** keep live screen and goal sticky; chat thread show the bottom so live text is visible on the left
