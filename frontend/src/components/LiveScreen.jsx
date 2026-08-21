@@ -378,7 +378,7 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
               zoomed
                 ? "max-h-[calc(100dvh-8rem)]"
                 : compact
-                  ? "max-h-[22vh] sm:max-h-[40vh]"
+                  ? "max-h-[22vh] lg:max-h-[min(38vh,20rem)]"
                   : "max-h-[42vh] sm:max-h-[50vh] md:max-h-[60vh]"
             } ${controlOn ? "cursor-crosshair touch-manipulation" : ""}`}
           />

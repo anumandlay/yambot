@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 10:05] UI: Sticky right rail for live screen + goal
+
+- **Prompt Provided:** live agent screen and goal/instructions text box sticky at the right side of the page
+- **Architectural Flow:** ChatDetail two-column layout — messages left, sticky right rail (LiveScreen + goal) on lg+; mobile keeps sticky bottom dock
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-21 09:49] Fix: Custom dropdown + calendar clicks (Passport / dates)
 
 - **Prompt Provided:** Agent cannot select Passport in enquiry type dropdown; cannot select date from calendar on Vughy CRM
