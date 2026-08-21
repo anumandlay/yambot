@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 14:10] Fix: research-scraper stuck pending (python never started under xvfb-run)
+
+- **Prompt Provided:** Research job queued pending then freezes
+- **Architectural Flow:** Replace hung `xvfb-run` with explicit Xvfb+entrypoint; harden Chrome launch logging so claim loop actually runs
+- **Impacted Files:** `PROMPT_LOG.md`, `research-scraper/entrypoint.sh`, `research-scraper/scraper.py`, `deploy/Dockerfile.research`
+
 ## [2026-08-21 14:00] Feature: Cloud Python Chrome research scraper + Research API
 
 - **Prompt Provided:** Playwright flow still fails; run api.py-style Chrome in cloud; create API

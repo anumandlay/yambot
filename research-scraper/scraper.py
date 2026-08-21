@@ -56,11 +56,11 @@ def api(method: str, path: str, **kwargs) -> Any:
 
 def ensure_chrome() -> None:
     os.makedirs(PROFILE_DIR, exist_ok=True)
-    # Already listening?
     try:
-        requests.get(f"http://127.0.0.1:{DEBUG_PORT}/json/version", timeout=2)
-        log("Chrome already on debugging port", DEBUG_PORT)
-        return
+        r = requests.get(f"http://127.0.0.1:{DEBUG_PORT}/json/version", timeout=2)
+        if r.ok:
+            log("Chrome already on debugging port", DEBUG_PORT)
+            return
     except Exception:
         pass
 
@@ -68,12 +68,16 @@ def ensure_chrome() -> None:
     if not os.path.exists(bin_path):
         for candidate in (
             "/usr/bin/google-chrome-stable",
+            "/usr/bin/google-chrome",
             "/usr/bin/chromium",
             "/usr/bin/chromium-browser",
         ):
             if os.path.exists(candidate):
                 bin_path = candidate
                 break
+
+    if not os.path.exists(bin_path):
+        raise RuntimeError(f"Chrome binary not found (CHROME_BIN={CHROME_BIN})")
 
     cmd = [
         bin_path,
@@ -84,19 +88,37 @@ def ensure_chrome() -> None:
         "--disable-dev-shm-usage",
         "--no-sandbox",
         "--disable-gpu",
+        "--disable-software-rasterizer",
         "--window-size=1280,900",
         "about:blank",
     ]
     log("Launching Chrome:", " ".join(cmd))
-    subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
-    for _ in range(40):
+    log("DISPLAY=", os.environ.get("DISPLAY"))
+    proc = subprocess.Popen(
+        cmd,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        text=True,
+    )
+    deadline = time.time() + 45
+    while time.time() < deadline:
+        if proc.poll() is not None:
+            out = ""
+            try:
+                out = proc.stdout.read() if proc.stdout else ""
+            except Exception:
+                pass
+            raise RuntimeError(
+                f"Chrome exited early code={proc.returncode}: {str(out)[:800]}"
+            )
         try:
-            requests.get(f"http://127.0.0.1:{DEBUG_PORT}/json/version", timeout=1)
-            log("Chrome ready")
-            return
+            r = requests.get(f"http://127.0.0.1:{DEBUG_PORT}/json/version", timeout=1)
+            if r.ok:
+                log("Chrome ready:", r.text[:200])
+                return
         except Exception:
             time.sleep(0.5)
-    raise RuntimeError("Chrome failed to open remote debugging port")
+    raise RuntimeError("Chrome failed to open remote debugging port within 45s")
 
 
 def connect_tab():
@@ -275,11 +297,13 @@ def process_job(tab, job: dict):
 
 
 def main():
+    log("YamBot research scraper boot")
     if not WORKER_TOKEN:
         raise SystemExit("RESEARCH_WORKER_TOKEN is required")
-    log(f"YamBot research scraper → {API_BASE}")
+    log(f"API={API_BASE}")
     ensure_chrome()
     _browser, tab = connect_tab()
+    log("CDP tab connected — claim loop starting")
 
     while True:
         try:
@@ -288,6 +312,7 @@ def main():
             if not job:
                 time.sleep(POLL_SEC)
                 continue
+            log("Claimed job", job.get("id"))
             process_job(tab, job)
         except Exception:
             log("loop error:\n", traceback.format_exc())

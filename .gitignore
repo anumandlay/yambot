@@ -13,3 +13,4 @@ deploy/.deploy.local.env
 .vscode/
 .idea/
 coverage/
+__pycache__/

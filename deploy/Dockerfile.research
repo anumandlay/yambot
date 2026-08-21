@@ -24,8 +24,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 WORKDIR /app
 COPY research-scraper/requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
-COPY research-scraper/parse_serp.py research-scraper/scraper.py ./
+COPY research-scraper/parse_serp.py research-scraper/scraper.py research-scraper/entrypoint.sh ./
+RUN chmod +x /app/entrypoint.sh
 
 VOLUME ["/data/chrome-profile"]
 
-CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x900x24", "python", "-u", "scraper.py"]
+ENV PYTHONUNBUFFERED=1 \
+    DISPLAY=:99
+
+CMD ["/app/entrypoint.sh"]
