@@ -56,6 +56,15 @@ def api(method: str, path: str, **kwargs) -> Any:
 
 def ensure_chrome() -> None:
     os.makedirs(PROFILE_DIR, exist_ok=True)
+    # Why: previous crash leaves SingletonLock and Chrome refuses to start (code 21).
+    for name in ("SingletonLock", "SingletonCookie", "SingletonSocket"):
+        try:
+            os.remove(os.path.join(PROFILE_DIR, name))
+        except FileNotFoundError:
+            pass
+        except OSError as err:
+            log("lock cleanup warn:", name, err)
+
     try:
         r = requests.get(f"http://127.0.0.1:{DEBUG_PORT}/json/version", timeout=2)
         if r.ok:
