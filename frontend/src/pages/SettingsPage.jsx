@@ -24,6 +24,7 @@ export function SettingsPage() {
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [testingDbc, setTestingDbc] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -72,6 +73,33 @@ export function SettingsPage() {
       setError(err);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Verifies DeathByCaptcha with values in the form (or the saved password if blank).
+   */
+  async function testDbc() {
+    setTestingDbc(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api("/api/settings/test-dbc", {
+        method: "POST",
+        body: JSON.stringify({
+          dbcUsername: form.dbcUsername,
+          dbcPassword: form.dbcPassword,
+        }),
+      });
+      const bal =
+        data.balanceCents == null
+          ? ""
+          : ` Balance: ${(Number(data.balanceCents) / 100).toFixed(2)} USD.`;
+      setOkMsg(`${data.message || "DeathByCaptcha connected."}${bal}`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setTestingDbc(false);
     }
   }
 
@@ -144,6 +172,14 @@ export function SettingsPage() {
             onChange={(e) => update("dbcPassword", e.target.value)}
           />
         </label>
+        <button
+          type="button"
+          onClick={testDbc}
+          disabled={testingDbc || busy}
+          className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+        >
+          {testingDbc ? "Testing…" : "Test DeathByCaptcha connection"}
+        </button>
 
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input
