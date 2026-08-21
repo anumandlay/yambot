@@ -270,7 +270,13 @@ export function createAgentController({ emit }) {
         broadcast("agent:captcha", { status: "solving" });
         const solved = await solveCaptchaWithDbc(
           { username: settings.dbcUsername, password: settings.dbcPassword },
-          meta
+          meta,
+          {
+            onProgress: (msg) => {
+              broadcast("agent:captcha", { status: "solving", detail: msg });
+              emit({ type: "agent:note", note: msg, agent: snapshot() });
+            },
+          }
         );
         if (solved.kind === "token") {
           await sendToContent(state.tabId, "EXECUTE", {
@@ -282,6 +288,10 @@ export function createAgentController({ emit }) {
           state.notes.push("CAPTCHA solved via DeathByCaptcha");
           return { ok: true, captcha: solved };
         }
+        broadcast("agent:captcha", {
+          status: "failed",
+          detail: solved.error || solved.hint,
+        });
         const answer = await waitForUser(
           solved.hint || "DeathByCaptcha failed. Solve the CAPTCHA in the tab, then reply continue."
         );

@@ -443,9 +443,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
               appendMessage: "Solving Google CAPTCHA with DeathByCaptcha…",
             });
             log(`[${config.workerName}] Solving CAPTCHA via DBC (sitekey present)`);
+            const reportProgress = async (msg) => {
+              log(`[${config.workerName}] ${msg}`);
+              await mirror(taskId, "captcha", { appendMessage: msg }).catch(() => {});
+              await pushLiveScreen({ taskId }).catch(() => {});
+            };
             const solved = await solveCaptchaWithDbc(
               { username: settings.dbcUsername, password: settings.dbcPassword },
-              captchaMeta
+              captchaMeta,
+              { onProgress: (msg) => void reportProgress(msg) }
             );
             if (solved.kind === "token") {
               await page.evaluate(executeInPage, {
@@ -460,6 +466,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
               await sleep(800);
               continue;
             }
+            const failMsg =
+              solved.error ||
+              solved.hint ||
+              "DeathByCaptcha could not solve this CAPTCHA.";
+            await mirror(taskId, "captcha", {
+              appendMessage: `DeathByCaptcha failed: ${failMsg}`,
+            });
             await waitForUserAnswer(
               taskId,
               solved.hint ||

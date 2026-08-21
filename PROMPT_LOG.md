@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 12:50] Fix: DBC solve hung after "Solving…" with no feedback
+
+- **Prompt Provided:** got Solving Google CAPTCHA with DeathByCaptcha… and doing nothing
+- **Architectural Flow:** Add AbortSignal timeouts on DBC fetch; submit captcha create as multipart (per DBC docs); emit progress/fail messages to chat while polling so UI never looks frozen
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/captcha.js`, `worker/src/agent.js`, `extension/background/captcha.js`, `extension/background/agent.js`
+
 ## [2026-08-21 12:40] Fix: Auto-solve Google reCAPTCHA via DeathByCaptcha (Vughy)
 
 - **Prompt Provided:** Agent given https://vughy.com/agency/login/agency with Google captcha does nothing; testing DeathByCaptcha
