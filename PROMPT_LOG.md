@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 12:02] Fix: NaN xNorm/yNorm on live type/key control
+
+- **Prompt Provided:** Agent validation failed controlQueue xNorm/yNorm Cast to Number failed for NaN when typing in live screen
+- **Architectural Flow:** Only attach xNorm/yNorm on click commands with finite 0–1 values; type/key/scroll omit coords so Mongoose never sees NaN
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/agents.js`, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-21 11:57] UI: Live screen fills panel + Zoom modal
 
 - **Prompt Provided:** show agent live screen full window; Zoom in opens full screen in a modal box

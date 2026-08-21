@@ -364,22 +364,25 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
     const cmd = {
       id: crypto.randomBytes(8).toString("hex"),
       type,
-      xNorm: Number(req.body?.xNorm),
-      yNorm: Number(req.body?.yNorm),
       text: String(req.body?.text || "").slice(0, 4000),
       key: String(req.body?.key || "").slice(0, 80),
-      dy: Number(req.body?.dy) || 0,
+      dy: Number.isFinite(Number(req.body?.dy)) ? Number(req.body.dy) : 0,
       at: new Date(),
     };
     if (type === "click") {
-      if (!(cmd.xNorm >= 0 && cmd.xNorm <= 1 && cmd.yNorm >= 0 && cmd.yNorm <= 1)) {
+      const xNorm = Number(req.body?.xNorm);
+      const yNorm = Number(req.body?.yNorm);
+      // Why: Number(undefined) is NaN — never persist NaN or Mongoose rejects the save.
+      if (!(Number.isFinite(xNorm) && Number.isFinite(yNorm) && xNorm >= 0 && xNorm <= 1 && yNorm >= 0 && yNorm <= 1)) {
         res.status(400).json({
           ok: false,
           title: "Invalid click",
-          detail: "xNorm and yNorm must be between 0 and 1",
+          detail: "xNorm and yNorm must be finite numbers between 0 and 1",
         });
         return;
       }
+      cmd.xNorm = xNorm;
+      cmd.yNorm = yNorm;
     }
     agent.controlQueue = agent.controlQueue || [];
     agent.controlQueue.push(cmd);

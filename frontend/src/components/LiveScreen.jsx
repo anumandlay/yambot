@@ -190,6 +190,10 @@ export function LiveScreen({ agentId, compact = false, className = "", fill = fa
     if (!rect.width || !rect.height) return;
     const xNorm = (e.clientX - rect.left) / rect.width;
     const yNorm = (e.clientY - rect.top) / rect.height;
+    if (!Number.isFinite(xNorm) || !Number.isFinite(yNorm)) {
+      setStatus("Click ignored — screen not ready");
+      return;
+    }
     setStatus("Sending click…");
     try {
       await api(`/api/agents/${agentId}/control`, {
