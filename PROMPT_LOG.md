@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 12:28] Feature: DeathByCaptcha test connection button
+
+- **Prompt Provided:** need deathbycaptcha test button to test its connected
+- **Architectural Flow:** Settings → Test connection → POST `/api/settings/test-dbc` hits DBC `/user` with form or saved creds and returns balance
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`
+
 ## [2026-08-21 12:11] Fix: Amazon CAPTCHA loop → ask user
 
 - **Prompt Provided:** Agent entered Amazon email/password then looped on captcha instead of asking user to solve
