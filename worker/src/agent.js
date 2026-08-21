@@ -394,6 +394,23 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId }).catch(() => {});
         const obs = await page.evaluate(observeInPage);
+
+        // Why: Amazon/image captchas have no reCAPTCHA sitekey — LLM would retry login forever.
+        if (obs.captcha?.present) {
+          const meta = await page.evaluate(captchaMetaInPage);
+          const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
+          if (!sitekey) {
+            const sig = (obs.captcha.signals || []).join(",") || "detected";
+            log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
+            await waitForUserAnswer(
+              taskId,
+              `CAPTCHA / bot check (${sig}). Open the live screen → Take control, solve it, Give control back, then reply continue.`
+            );
+            notes.push(`User continued after CAPTCHA handoff (${sig}).`);
+            continue;
+          }
+        }
+
         const messages = [
           {
             role: "system",
@@ -601,7 +618,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
         const answer = await waitForUserAnswer(
           taskId,
-          solved.hint || "Please solve the CAPTCHA, then reply continue."
+          solved.hint ||
+            "CAPTCHA needs you. Open the live screen → Take control, solve it, then reply continue."
         );
         return { ok: true, captcha: solved, userAnswer: answer };
       }

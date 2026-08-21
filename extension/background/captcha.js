@@ -64,43 +64,48 @@ function sleep(ms) {
 
 /**
  * Solve reCAPTCHA v2 / hCaptcha via DBC token API when available.
- * Falls back to reporting that user must solve manually if type unsupported.
+ * Image / Amazon captchas have no sitekey → needs_human (ask user).
  */
 export async function solveCaptchaWithDbc(creds, meta) {
-  if (!creds?.username || !creds?.password) {
-    throw new Error("DeathByCaptcha credentials not configured");
-  }
-
   const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
   const pageurl = meta.pageurl;
 
-  // Token CAPTCHA (type 4 is common in DBC-compatible APIs for RecaptchaToken)
-  if (sitekey && pageurl) {
-    const type = meta.hcaptchaSitekey ? 5 : 4; // hCaptcha vs reCAPTCHA — verify against your DBC plan
-    try {
-      const { data: created, base } = await dbcRequest("/captcha", {
-        username: creds.username,
-        password: creds.password,
-        fields: {
-          type: String(type),
-          token_params: JSON.stringify({ googlekey: sitekey, pageurl }),
-        },
-      });
-      const id = created.captcha || created.captcha_id;
-      if (!id) throw new Error(`DBC create failed: ${JSON.stringify(created)}`);
-      const solved = await pollCaptcha(id, creds, base);
-      return { kind: "token", token: solved.text, id: solved.id };
-    } catch (err) {
-      return {
-        kind: "failed",
-        error: String(err?.message || err),
-        hint: "Token CAPTCHA solve failed. Solve manually in the tab, then Continue.",
-      };
-    }
+  if (!sitekey || !pageurl) {
+    return {
+      kind: "needs_human",
+      hint:
+        "CAPTCHA / bot check needs you. Solve it in the browser tab (or Take control on the live screen), then reply continue.",
+    };
   }
 
-  return {
-    kind: "unsupported",
-    hint: "No sitekey found. Solve the CAPTCHA manually, then click Continue.",
-  };
+  if (!creds?.username || !creds?.password) {
+    return {
+      kind: "needs_human",
+      hint:
+        "DeathByCaptcha is not configured. Solve the CAPTCHA in the tab, then reply continue.",
+    };
+  }
+
+  const type = meta.hcaptchaSitekey ? 5 : 4;
+  try {
+    const { data: created, base } = await dbcRequest("/captcha", {
+      username: creds.username,
+      password: creds.password,
+      fields: {
+        type: String(type),
+        token_params: JSON.stringify({ googlekey: sitekey, pageurl }),
+      },
+    });
+    const id = created.captcha || created.captcha_id;
+    if (!id) throw new Error(`DBC create failed: ${JSON.stringify(created)}`);
+    const solved = await pollCaptcha(id, creds, base);
+    return { kind: "token", token: solved.text, id: solved.id };
+  } catch (err) {
+    return {
+      kind: "needs_human",
+      error: String(err?.message || err),
+      hint:
+        "Automatic CAPTCHA solve failed. Solve it in the tab, then reply continue.",
+    };
+  }
 }

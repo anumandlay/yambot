@@ -54,7 +54,8 @@ Rules:
 - For Google research: navigate or use the search box, then open promising links, extract notes, finish with a summary + URLs.
 - Do not loop forever. If stuck twice on the same issue, ask_user or finish with what you have.
 - Before submitting forms / purchases / applications, prefer ask_user unless the user already said to submit.
-- If a CAPTCHA is visible, use solve_captcha.
+- If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
+- Image/Amazon captchas cannot be solved automatically — ask_user so the human solves it in the tab.
 - When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail.
 `.trim();
 

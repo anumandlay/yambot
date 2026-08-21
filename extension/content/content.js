@@ -267,11 +267,34 @@
     if (document.querySelector("iframe[src*='challenge'], iframe[src*='captcha']")) {
       signals.push("iframe_captcha");
     }
-    const bodyText = (document.body?.innerText || "").slice(0, 4000).toLowerCase();
-    if (/verify you are human|i'?m not a robot|complete the captcha|security check/.test(bodyText)) {
+    if (
+      document.querySelector(
+        [
+          "#auth-captcha-image",
+          "#captchacharacters",
+          'img[src*="captcha"]',
+          'input[name="cvf_captcha_input"]',
+          'form[action*="validateCaptcha"]',
+          "#cvf-page-content",
+          ".cvf-widget-form",
+          'iframe[src*="opfcaptcha"]',
+        ].join(",")
+      )
+    ) {
+      signals.push("amazon_captcha");
+    }
+    if (/\/ap\/cvf|\/errors\/validateCaptcha/i.test(location.pathname + location.search)) {
+      signals.push("amazon_url");
+    }
+    const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
+    if (
+      /verify you are human|i'?m not a robot|complete the captcha|security check|type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check/.test(
+        bodyText
+      )
+    ) {
       signals.push("text_hint");
     }
-    return { present: signals.length > 0, signals };
+    return { present: signals.length > 0, signals: [...new Set(signals)] };
   }
 
   function pageText(max = 6000) {

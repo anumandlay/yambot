@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 12:11] Fix: Amazon CAPTCHA loop → ask user
+
+- **Prompt Provided:** Agent entered Amazon email/password then looped on captcha instead of asking user to solve
+- **Architectural Flow:** Detect Amazon/image captchas; when no reCAPTCHA sitekey, force waitForUserAnswer (Take control); DBC missing/unsupported returns needs_human instead of throwing
+- **Impacted Files:** `PROMPT_LOG.md`, worker pageDom/captcha/agent/actions, extension content/captcha/agent/actions
+
 ## [2026-08-21 12:02] Fix: NaN xNorm/yNorm on live type/key control
 
 - **Prompt Provided:** Agent validation failed controlQueue xNorm/yNorm Cast to Number failed for NaN when typing in live screen

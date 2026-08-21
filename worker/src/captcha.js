@@ -61,39 +61,46 @@ async function pollCaptcha(captchaId, creds, base, { timeoutMs = 120000, interva
  * @param {object} meta
  */
 export async function solveCaptchaWithDbc(creds, meta) {
-  if (!creds?.username || !creds?.password) {
-    throw new Error("DeathByCaptcha credentials not configured");
-  }
-
   const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
   const pageurl = meta.pageurl;
 
-  if (sitekey && pageurl) {
-    const type = meta.hcaptchaSitekey ? 5 : 4;
-    try {
-      const { data: created, base } = await dbcRequest("/captcha", {
-        username: creds.username,
-        password: creds.password,
-        fields: {
-          type: String(type),
-          token_params: JSON.stringify({ googlekey: sitekey, pageurl }),
-        },
-      });
-      const id = created.captcha || created.captcha_id;
-      if (!id) throw new Error(`DBC create failed: ${JSON.stringify(created)}`);
-      const solved = await pollCaptcha(id, creds, base);
-      return { kind: "token", token: solved.text, id: solved.id };
-    } catch (err) {
-      return {
-        kind: "failed",
-        error: String(err?.message || err),
-        hint: "Token CAPTCHA solve failed. Answer via chat if needed.",
-      };
-    }
+  // Why: Amazon-style image/CVF captchas have no sitekey — must hand off to the human.
+  if (!sitekey || !pageurl) {
+    return {
+      kind: "needs_human",
+      hint:
+        "CAPTCHA / bot check needs you. Open the live screen → Take control, solve it, then reply continue.",
+    };
   }
 
-  return {
-    kind: "unsupported",
-    hint: "No sitekey found. Solve via chat ask_user if the agent asks.",
-  };
+  if (!creds?.username || !creds?.password) {
+    return {
+      kind: "needs_human",
+      hint:
+        "DeathByCaptcha is not configured. Open the live screen → Take control, solve the CAPTCHA, then reply continue.",
+    };
+  }
+
+  const type = meta.hcaptchaSitekey ? 5 : 4;
+  try {
+    const { data: created, base } = await dbcRequest("/captcha", {
+      username: creds.username,
+      password: creds.password,
+      fields: {
+        type: String(type),
+        token_params: JSON.stringify({ googlekey: sitekey, pageurl }),
+      },
+    });
+    const id = created.captcha || created.captcha_id;
+    if (!id) throw new Error(`DBC create failed: ${JSON.stringify(created)}`);
+    const solved = await pollCaptcha(id, creds, base);
+    return { kind: "token", token: solved.text, id: solved.id };
+  } catch (err) {
+    return {
+      kind: "needs_human",
+      error: String(err?.message || err),
+      hint:
+        "Automatic CAPTCHA solve failed. Open the live screen → Take control, solve it, then reply continue.",
+    };
+  }
 }

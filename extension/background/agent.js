@@ -243,6 +243,22 @@ export function createAgentController({ emit }) {
 
   async function runStep(settings) {
     const obs = await observeTab(state.tabId);
+
+    // Why: Amazon/image captchas have no sitekey — stop login loops and ask the human.
+    if (obs.captcha?.present) {
+      const meta = await sendToContent(state.tabId, "CAPTCHA_META");
+      const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
+      if (!sitekey) {
+        const sig = (obs.captcha.signals || []).join(",") || "detected";
+        broadcast("agent:captcha", { status: "needs_human", signals: obs.captcha.signals });
+        const answer = await waitForUser(
+          `CAPTCHA / bot check (${sig}). Solve it in the browser tab, then reply continue.`
+        );
+        state.notes.push(`User continued after CAPTCHA handoff (${sig}): ${answer}`);
+        return { ok: true, captchaHandoff: true, userAnswer: answer };
+      }
+    }
+
     const agentBlock = formatAgentSnapshot(state.agentSnapshot);
     const messages = [
       {

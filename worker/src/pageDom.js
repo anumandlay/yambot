@@ -283,11 +283,39 @@ export function observeInPage() {
     if (document.querySelector("iframe[src*='challenge'], iframe[src*='captcha']")) {
       signals.push("iframe_captcha");
     }
-    const bodyText = (document.body?.innerText || "").slice(0, 4000).toLowerCase();
-    if (/verify you are human|i'?m not a robot|complete the captcha|security check/.test(bodyText)) {
+    // Why: Amazon login uses image/CVF captchas — not Google reCAPTCHA sitekeys.
+    if (
+      document.querySelector(
+        [
+          "#auth-captcha-image",
+          "#captchacharacters",
+          'img[src*="captcha"]',
+          'input[name="cvf_captcha_input"]',
+          'form[action*="validateCaptcha"]',
+          "#cvf-page-content",
+          ".cvf-widget-form",
+          'iframe[src*="opfcaptcha"]',
+        ].join(",")
+      )
+    ) {
+      signals.push("amazon_captcha");
+    }
+    if (/\/ap\/cvf|\/errors\/validateCaptcha|\/ap\/signin/i.test(location.pathname + location.search)) {
+      // Only flag signin URL if captcha UI is also present — avoid false positives on normal login.
+      if (signals.includes("amazon_captcha") || document.querySelector('img[src*="Captcha"]')) {
+        signals.push("amazon_url");
+      }
+    }
+    const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
+    if (
+      /verify you are human|i'?m not a robot|complete the captcha|security check|type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|opfcaptcha|please try again/.test(
+        bodyText
+      ) &&
+      (/captcha|puzzle|characters you see|robot/i.test(bodyText) || signals.length > 0)
+    ) {
       signals.push("text_hint");
     }
-    return { present: signals.length > 0, signals };
+    return { present: signals.length > 0, signals: [...new Set(signals)] };
   }
 
   function pageText(max = 6000) {
@@ -764,15 +792,45 @@ export function captchaMetaInPage() {
     const el = document.querySelector(".h-captcha[data-sitekey], [data-sitekey]");
     return el?.getAttribute("data-sitekey") || null;
   }
-  const signals = [];
-  if (document.querySelector(".g-recaptcha, iframe[src*='recaptcha'], #g-recaptcha-response")) {
-    signals.push("recaptcha");
-  }
-  if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
-    signals.push("hcaptcha");
+  function detectCaptcha() {
+    const signals = [];
+    if (document.querySelector(".g-recaptcha, iframe[src*='recaptcha'], #g-recaptcha-response")) {
+      signals.push("recaptcha");
+    }
+    if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
+      signals.push("hcaptcha");
+    }
+    if (document.querySelector("iframe[src*='challenge'], iframe[src*='captcha']")) {
+      signals.push("iframe_captcha");
+    }
+    if (
+      document.querySelector(
+        [
+          "#auth-captcha-image",
+          "#captchacharacters",
+          'img[src*="captcha"]',
+          'input[name="cvf_captcha_input"]',
+          'form[action*="validateCaptcha"]',
+          "#cvf-page-content",
+          ".cvf-widget-form",
+          'iframe[src*="opfcaptcha"]',
+        ].join(",")
+      )
+    ) {
+      signals.push("amazon_captcha");
+    }
+    const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
+    if (
+      /type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|verify you are human|complete the captcha/.test(
+        bodyText
+      )
+    ) {
+      signals.push("text_hint");
+    }
+    return { present: signals.length > 0, signals: [...new Set(signals)] };
   }
   return {
-    captcha: { present: signals.length > 0, signals },
+    captcha: detectCaptcha(),
     recaptchaSitekey: findRecaptchaSitekey(),
     hcaptchaSitekey: findHcaptchaSitekey(),
     pageurl: location.href,
