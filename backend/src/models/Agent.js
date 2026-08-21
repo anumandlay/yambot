@@ -170,6 +170,10 @@ const agentSchema = new mongoose.Schema(
       pageUrl: { type: String, default: "" },
       viewportWidth: { type: Number, default: 1280 },
       viewportHeight: { type: Number, default: 800 },
+      /** CSS pixel size of the latest full-page live screenshot (for display + click mapping). */
+      screenshotWidth: { type: Number, default: 1280 },
+      screenshotHeight: { type: Number, default: 800 },
+      fullPageScreen: { type: Boolean, default: true },
       /**
        * Why: when true, the cloud worker pauses the LLM loop so the dashboard user
        * can drive mouse/keyboard (CAPTCHA, recovery) without racing the agent.

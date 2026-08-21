@@ -309,6 +309,10 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
         runner: agent.runner || "cloud",
         viewportWidth: agent.computer?.viewportWidth || 1280,
         viewportHeight: agent.computer?.viewportHeight || 800,
+        screenshotWidth: agent.computer?.screenshotWidth || agent.computer?.viewportWidth || 1280,
+        screenshotHeight:
+          agent.computer?.screenshotHeight || agent.computer?.viewportHeight || 800,
+        fullPage: agent.computer?.fullPageScreen !== false,
         mime: screen.mime || "image/jpeg",
         dataBase64: screen.dataBase64 || "",
         capturedAt: screen.at || null,

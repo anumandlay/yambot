@@ -20,6 +20,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
   /** @type {import('playwright').Page|null} */
   let page = null;
   let running = false;
+  /** Last full-page screenshot CSS size — used to map dashboard clicks onto the document. */
+  let lastShotSize = {
+    w: config.viewportWidth || 1280,
+    h: config.viewportHeight || 800,
+  };
 
   /**
    * Ensures a persistent Chromium profile exists (cookies/localStorage = this agent's "computer").
@@ -63,15 +68,45 @@ export function createCloudAgent({ api, config, log = console.log }) {
       pageUrl = "";
     }
     let screenshotBase64 = "";
+    let shotW = config.viewportWidth || 1280;
+    let shotH = config.viewportHeight || 800;
     try {
+      // Why: full-page capture so the dashboard shows the whole scrollable page, not only the viewport.
+      const metrics = await page.evaluate(() => {
+        const de = document.documentElement;
+        const body = document.body;
+        return {
+          w: Math.max(de?.scrollWidth || 0, body?.scrollWidth || 0, window.innerWidth || 0),
+          h: Math.max(de?.scrollHeight || 0, body?.scrollHeight || 0, window.innerHeight || 0),
+          vw: window.innerWidth || 1280,
+          vh: window.innerHeight || 800,
+        };
+      });
+      // Why: cap height so Mongo + heartbeat stay under size limits on infinite-scroll sites.
+      const maxH = 10000;
+      shotW = Math.max(1, Math.ceil(Math.min(metrics.w, metrics.vw * 2)));
+      shotH = Math.max(1, Math.ceil(Math.min(metrics.h, maxH)));
       const buf = await page.screenshot({
         type: "jpeg",
-        quality: 60,
-        fullPage: false,
+        quality: 36,
+        clip: { x: 0, y: 0, width: shotW, height: shotH },
       });
       screenshotBase64 = Buffer.from(buf).toString("base64");
+      lastShotSize = { w: shotW, h: shotH };
     } catch (err) {
       log(`[${config.workerName}] screenshot failed:`, err?.message || err);
+      try {
+        const buf = await page.screenshot({ type: "jpeg", quality: 50, fullPage: false });
+        screenshotBase64 = Buffer.from(buf).toString("base64");
+        lastShotSize = {
+          w: config.viewportWidth || 1280,
+          h: config.viewportHeight || 800,
+        };
+        shotW = lastShotSize.w;
+        shotH = lastShotSize.h;
+      } catch {
+        /* ignore */
+      }
     }
     const data = await api("/api/extension/computer/heartbeat", {
       method: "POST",
@@ -84,6 +119,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         mime: "image/jpeg",
         viewportWidth: config.viewportWidth || 1280,
         viewportHeight: config.viewportHeight || 800,
+        screenshotWidth: shotW,
+        screenshotHeight: shotH,
+        fullPage: true,
       }),
     });
     const commands = Array.isArray(data?.commands) ? data.commands : [];
@@ -123,10 +161,28 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const vw = config.viewportWidth || 1280;
     const vh = config.viewportHeight || 800;
     if (cmd.type === "click") {
-      const x = Math.round(Number(cmd.xNorm) * vw);
-      const y = Math.round(Number(cmd.yNorm) * vh);
+      const shotW = lastShotSize.w || vw;
+      const shotH = lastShotSize.h || vh;
+      const docX = Number(cmd.xNorm) * shotW;
+      const docY = Number(cmd.yNorm) * shotH;
+      // Why: full-page shots include scrolled content — scroll the target into the viewport first.
+      await page.evaluate(
+        ({ docX: x, docY: y }) => {
+          const left = Math.max(0, x - window.innerWidth / 2);
+          const top = Math.max(0, y - window.innerHeight / 2);
+          window.scrollTo({ left, top, behavior: "instant" });
+        },
+        { docX, docY }
+      );
+      await sleep(60);
+      const scroll = await page.evaluate(() => ({
+        x: window.scrollX || 0,
+        y: window.scrollY || 0,
+      }));
+      const x = Math.round(docX - scroll.x);
+      const y = Math.round(docY - scroll.y);
       await page.mouse.click(x, y);
-      log(`[${config.workerName}] remote click ${x},${y}`);
+      log(`[${config.workerName}] remote click doc=${Math.round(docX)},${Math.round(docY)} → ${x},${y}`);
       return;
     }
     if (cmd.type === "type") {

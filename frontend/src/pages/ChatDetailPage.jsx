@@ -133,7 +133,7 @@ export function ChatDetailPage() {
         <LiveScreen
           agentId={String(agentId)}
           compact
-          className="max-h-[28vh] lg:max-h-[min(42vh,22rem)]"
+          className="max-h-none lg:max-h-none"
         />
       ) : (
         <p className="rounded-2xl border border-dashed border-teal-200 bg-white p-4 text-sm text-teal-900/70">
@@ -255,7 +255,7 @@ export function ChatDetailPage() {
         </div>
 
         {/* Desktop: sticky right rail */}
-        <aside className="hidden lg:sticky lg:top-4 lg:flex lg:max-h-[calc(100dvh-5rem)] lg:flex-col lg:gap-3 lg:overflow-y-auto lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
+        <aside className="hidden lg:sticky lg:top-3 lg:flex lg:max-h-[calc(100dvh-1.5rem)] lg:flex-col lg:gap-3 lg:overflow-y-auto lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
           {controlPanel}
         </aside>
       </div>

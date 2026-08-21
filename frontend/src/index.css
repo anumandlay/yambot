@@ -62,6 +62,11 @@ svg {
   height: auto;
 }
 
+/* Why: live full-page screenshots must not be capped by the global img rule. */
+img[alt*="full page"] {
+  max-width: none;
+}
+
 /* Utility: hide scrollbars on horizontal nav chips */
 .yb-scroll-x {
   overflow-x: auto;

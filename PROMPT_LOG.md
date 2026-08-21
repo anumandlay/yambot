@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 10:08] UI: Left sidebar + full-page live screen
+
+- **Prompt Provided:** menu on left sidebar with toggle; whole project responsive; see full live agent screen not just viewport
+- **Architectural Flow:** AppSidebar drawer/rail replaces AppHeader; worker captures clipped full-page JPEG; LiveScreen scrollable preview; remote clicks map via document coords + scroll-into-view
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend` App/AppSidebar/LiveScreen/ChatDetail/index.css/pages, `worker/src/agent.js`, `backend` Agent/extension/agents
+
 ## [2026-08-21 10:05] UI: Sticky right rail for live screen + goal
 
 - **Prompt Provided:** live agent screen and goal/instructions text box sticky at the right side of the page

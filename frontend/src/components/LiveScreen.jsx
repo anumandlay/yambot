@@ -211,6 +211,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
    */
   async function onWheel(e) {
     if (!controlOn) return;
+    // Why: without Shift, let the user scroll the full-page screenshot panel locally.
+    if (!e.shiftKey) return;
     e.preventDefault();
     const dy = Math.max(-1200, Math.min(1200, Math.round(e.deltaY)));
     if (!dy) return;
@@ -339,8 +341,8 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
 
       {controlOn ? (
         <p className="border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
-          Agent paused. Click the screen, scroll with the mouse wheel, and type on your keyboard.
-          When finished, press <strong>Give control back</strong>.
+          Agent paused. Scroll the preview to see the full page. Click the screen to click remotely.
+          Shift+wheel scrolls the remote page. When finished, press <strong>Give control back</strong>.
         </p>
       ) : null}
 
@@ -357,30 +359,26 @@ export function LiveScreen({ agentId, compact = false, className = "" }) {
         onClick={() => {
           if (controlOn) stageRef.current?.focus({ preventScroll: true });
         }}
-        className={`relative flex w-full flex-1 items-center justify-center overflow-hidden bg-black outline-none ${
+        className={`relative w-full flex-1 overflow-auto bg-black outline-none ${
           controlOn ? "ring-2 ring-inset ring-amber-400/70" : ""
         } ${
           zoomed
-            ? "min-h-0"
+            ? "min-h-0 max-h-[calc(100dvh-8rem)]"
             : compact
-              ? "min-h-28 sm:min-h-40"
-              : "min-h-[36vh] sm:min-h-52 md:min-h-72"
+              ? "max-h-[32vh] min-h-28 lg:max-h-[min(48vh,26rem)]"
+              : "max-h-[55vh] min-h-[36vh] sm:max-h-[60vh]"
         }`}
       >
         {src ? (
           <img
             ref={imgRef}
             src={src}
-            alt="Agent cloud computer screen"
+            alt="Agent cloud computer screen (full page)"
             onClick={onImageClick}
             draggable={false}
-            className={`block h-auto w-full bg-white object-contain select-none ${
-              zoomed
-                ? "max-h-[calc(100dvh-8rem)]"
-                : compact
-                  ? "max-h-[22vh] lg:max-h-[min(38vh,20rem)]"
-                  : "max-h-[42vh] sm:max-h-[50vh] md:max-h-[60vh]"
-            } ${controlOn ? "cursor-crosshair touch-manipulation" : ""}`}
+            className={`block h-auto w-full max-w-none bg-white object-top object-contain select-none ${
+              controlOn ? "cursor-crosshair touch-manipulation" : ""
+            }`}
           />
         ) : (
           <p className="px-4 py-10 text-center text-sm text-white/60">

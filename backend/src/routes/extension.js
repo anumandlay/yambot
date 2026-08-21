@@ -202,10 +202,19 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
     if (req.body?.viewportHeight) {
       agent.computer.viewportHeight = Number(req.body.viewportHeight) || 800;
     }
+    if (req.body?.screenshotWidth) {
+      agent.computer.screenshotWidth = Number(req.body.screenshotWidth) || 1280;
+    }
+    if (req.body?.screenshotHeight) {
+      agent.computer.screenshotHeight = Number(req.body.screenshotHeight) || 800;
+    }
+    if (req.body?.fullPage != null) {
+      agent.computer.fullPageScreen = Boolean(req.body.fullPage);
+    }
 
     const rawB64 = String(req.body?.screenshotBase64 || "");
-    // Why: cap ~900KB base64 (~650KB JPEG) so Mongo docs stay manageable.
-    if (rawB64 && rawB64.length <= 900_000) {
+    // Why: full-page JPEGs are larger than viewport shots — allow ~2MB base64.
+    if (rawB64 && rawB64.length <= 2_500_000) {
       agent.liveScreen = {
         mime: String(req.body?.mime || "image/jpeg").slice(0, 64),
         dataBase64: rawB64.replace(/^data:[^;]+;base64,/, ""),
