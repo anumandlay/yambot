@@ -603,9 +603,11 @@ export function createAgentController({ emit }) {
     };
 
     const { jobs, summary, urls } = await runResearchPhase1({
+      api: extensionApi,
       tabId: state.tabId,
       goal: state.goal,
       agentSnapshot: state.agentSnapshot,
+      taskId: state.cloudTaskId,
       shouldStop: () => abort,
       onProgress: note,
       sendToContent,

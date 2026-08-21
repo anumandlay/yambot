@@ -404,9 +404,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
           appendMessage: `Cloud research “${config.workerName}” — Phase 1 (Google SERP)…\nGoal: ${goal}`,
         });
         const { jobs, summary, urls } = await runCloudResearchPhase1({
+          api,
           page,
           goal,
           agentSnapshot,
+          taskId,
           shouldStop: () => isTaskCancelled(taskId),
           onProgress: async (msg, payload) => {
             notes.push(msg);

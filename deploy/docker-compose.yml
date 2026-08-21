@@ -52,6 +52,27 @@ services:
     entrypoint: ["/bin/true"]
     restart: "no"
 
+  # Real Google Chrome SERP scraper (Desktop/api.py flow) — shared for research agents.
+  research-scraper:
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.research
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      YAMBOT_API_BASE_URL: http://api:4000
+      RESEARCH_WORKER_TOKEN: ${RESEARCH_WORKER_TOKEN:-}
+      CHROME_PROFILE_DIR: /data/chrome-profile
+      RESEARCH_POLL_SEC: "8"
+    volumes:
+      - yambot_research_chrome:/data/chrome-profile
+    depends_on:
+      - api
+    mem_limit: 2048m
+    cpus: 1.5
+    shm_size: "1gb"
+
   # Watches Mongo and starts/stops one Chromium worker container per cloud agent.
   computer-manager:
     build:
@@ -80,3 +101,4 @@ services:
 
 volumes:
   yambot_mongo:
+  yambot_research_chrome:

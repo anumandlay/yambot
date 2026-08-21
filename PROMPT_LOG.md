@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 14:00] Feature: Cloud Python Chrome research scraper + Research API
+
+- **Prompt Provided:** Playwright flow still fails; run api.py-style Chrome in cloud; create API
+- **Architectural Flow:** `POST /api/research/jobs` queues keywords; `research-scraper` Docker (Google Chrome + xvfb + pychrome) claims jobs, opens google.com, types query, captures HTML via CDP, parses with api.py BeautifulSoup parsers, posts pages; agent Phase 1 polls job then Phase 2 LLM visits URLs
+- **Impacted Files:** `PROMPT_LOG.md`, `backend` ResearchJob + research routes + index, `research-scraper/*`, `deploy` Dockerfile.research + compose + env.example, `worker`/`extension` research.js
+
 ## [2026-08-21 13:50] Fix: Research flow = google.com type/search → scrape → LLM visits sites
 
 - **Prompt Provided:** Not jump to /search?q=; type into google.com search box via xpath; scrape; then LLM visits each website

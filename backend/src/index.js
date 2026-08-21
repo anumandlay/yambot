@@ -106,6 +106,7 @@ app.use("/api/settings", authRequired, settingsRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
 app.use("/api/extension", authRequired, extensionRouter);
+app.use("/api/research", (await import("./routes/research.js")).researchRouter);
 app.use("/api/system", authRequired, (await import("./routes/system.js")).systemRouter);
 
 app.use((err, _req, res, _next) => {

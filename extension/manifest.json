@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
   "name": "YamBot Agent",
-  "version": "0.3.2",
-  "description": "YamBot Chrome worker: browser goals + Research SERP capture (laptop or cloud-embedded).",
+  "version": "0.3.3",
+  "description": "YamBot Chrome worker: browser goals; research Phase 1 uses cloud Chrome scraper API.",
   "permissions": [
     "sidePanel",
     "storage",

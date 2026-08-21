@@ -1,0 +1,31 @@
+# YamBot research scraper — real Google Chrome + CDP (Desktop/api.py style).
+# Runs under Xvfb so headed Chrome works on the VPS without a physical display.
+
+FROM python:3.12-slim-bookworm
+
+ENV DEBIAN_FRONTEND=noninteractive \
+    CHROME_BIN=/usr/bin/google-chrome-stable \
+    CHROME_PROFILE_DIR=/data/chrome-profile \
+    CHROME_DEBUG_PORT=9222 \
+    RESEARCH_POLL_SEC=8
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    wget gnupg ca-certificates fonts-liberation \
+    libasound2 libatk-bridge2.0-0 libatk1.0-0 libcups2 libdbus-1-3 \
+    libdrm2 libgbm1 libgtk-3-0 libnspr4 libnss3 libx11-xcb1 libxcomposite1 \
+    libxdamage1 libxrandr2 xdg-utils xvfb \
+    && wget -q -O - https://dl.google.com/linux/linux_signing_key.pub | gpg --dearmor -o /usr/share/keyrings/google-chrome.gpg \
+    && echo "deb [arch=amd64 signed-by=/usr/share/keyrings/google-chrome.gpg] http://dl.google.com/linux/chrome/deb/ stable main" \
+       > /etc/apt/sources.list.d/google-chrome.list \
+    && apt-get update \
+    && apt-get install -y --no-install-recommends google-chrome-stable \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+COPY research-scraper/requirements.txt ./
+RUN pip install --no-cache-dir -r requirements.txt
+COPY research-scraper/parse_serp.py research-scraper/scraper.py ./
+
+VOLUME ["/data/chrome-profile"]
+
+CMD ["xvfb-run", "--auto-servernum", "--server-args=-screen 0 1280x900x24", "python", "-u", "scraper.py"]

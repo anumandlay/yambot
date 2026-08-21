@@ -136,6 +136,7 @@ def main() -> int:
 
     jwt = keep("JWT_SECRET", secrets.token_hex(32))
     crypto = keep("SETTINGS_CRYPTO_KEY", secrets.token_hex(32))
+    research_token = keep("RESEARCH_WORKER_TOKEN", secrets.token_hex(24))
     llm_key = os.environ.get("DEFAULT_LLM_API_KEY") or keep("DEFAULT_LLM_API_KEY", "")
     llm_base = os.environ.get("DEFAULT_LLM_BASE_URL") or keep(
         "DEFAULT_LLM_BASE_URL", "https://api.minimax.io/v1"
@@ -157,6 +158,7 @@ def main() -> int:
         f"DEFAULT_LLM_BASE_URL={llm_base}\n"
         f"DEFAULT_LLM_MODEL={llm_model}\n"
         f"DEFAULT_LLM_API_KEY={llm_key}\n"
+        f"RESEARCH_WORKER_TOKEN={research_token}\n"
     )
 
     run("mkdir -p ~/yambot")
