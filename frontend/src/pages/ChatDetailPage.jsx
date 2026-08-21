@@ -208,7 +208,7 @@ export function ChatDetailPage() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 sm:py-4 md:px-6 lg:h-[calc(100dvh-0.5rem)] lg:max-h-[calc(100dvh-0.5rem)] lg:overflow-hidden">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 pt-3 pb-0 sm:gap-4 sm:px-4 sm:pt-4 md:px-6 lg:h-[calc(100dvh-0.5rem)] lg:max-h-[calc(100dvh-0.5rem)] lg:overflow-hidden lg:pb-4">
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
         <Link
           to="/"
@@ -288,16 +288,18 @@ export function ChatDetailPage() {
         </aside>
       </div>
 
-      <div className="sticky bottom-0 z-30 -mx-3 mt-1 flex max-h-[55dvh] flex-col overflow-hidden border-t border-teal-100 bg-[color-mix(in_srgb,var(--yb-bg)_94%,white)] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] backdrop-blur-md lg:hidden">
+      {/* Why: reserve scroll room so the fixed mobile dock does not cover the last messages. */}
+      <div className="h-[min(52dvh,26rem)] shrink-0 lg:hidden" aria-hidden />
+
+      {/* Why: fixed to the viewport (not sticky inside padded page) so no body-gradient strip
+          peeks under the goal box; safe-area is padding on this same opaque surface. */}
+      <div
+        className="fixed inset-x-0 bottom-0 z-30 flex max-h-[55dvh] flex-col overflow-hidden border-t border-teal-100 bg-[var(--yb-bg)] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] lg:hidden"
+        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
+      >
         <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pt-2 pb-2">
           {controlPanel}
         </div>
-        {/* Why: same dock color into the home-indicator inset — avoids a second tinted strip under the goal box. */}
-        <div
-          className="shrink-0 bg-[color-mix(in_srgb,var(--yb-bg)_94%,white)]"
-          style={{ height: "env(safe-area-inset-bottom, 0px)" }}
-          aria-hidden
-        />
       </div>
     </div>
   );

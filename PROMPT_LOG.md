@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 18:35] Fix: mobile goal dock still showed strip (sticky + page pad)
+
+- **Prompt Provided:** still there (strip under goal/instruction on mobile)
+- **Architectural Flow:** Sticky dock inside `py-3` left a body-gradient gap at the screen bottom; switch mobile dock to `fixed` + opaque `yb-bg` with safe-area as padding on the same surface; drop page `pb` on mobile; add scroll spacer so messages clear the dock
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`
+
 ## [2026-08-21 18:20] Fix: mobile strip under chat goal / instruction box
 
 - **Prompt Provided:** i see a strip in the mobile below to the goal/instruction box. check that design issue
