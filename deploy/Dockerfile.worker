@@ -7,6 +7,10 @@ FROM mcr.microsoft.com/playwright:v1.54.2-jammy
 USER root
 WORKDIR /app
 
+# Why: tzdata otherwise blocks the image build with an interactive “Geographic area” prompt.
+ENV DEBIAN_FRONTEND=noninteractive \
+    TZ=Etc/UTC
+
 RUN apt-get update && apt-get install -y --no-install-recommends \
     xvfb \
     x11vnc \
