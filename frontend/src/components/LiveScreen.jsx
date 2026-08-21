@@ -77,6 +77,8 @@ export function LiveScreen({
   const [typeBuf, setTypeBuf] = useState("");
   const [status, setStatus] = useState("");
   const [zoomed, setZoomed] = useState(false);
+  const [desktopSrc, setDesktopSrc] = useState("");
+  const [desktopError, setDesktopError] = useState("");
   const imgRef = useRef(null);
   const stageRef = useRef(null);
   const controlOnRef = useRef(false);
@@ -132,6 +134,8 @@ export function LiveScreen({
 
   useEffect(() => {
     if (!controlOn) return undefined;
+    // Why: noVNC iframe owns keyboard when remote desktop is connected.
+    if (desktopSrc) return undefined;
     const el = stageRef.current;
     if (!el) return undefined;
 
@@ -163,7 +167,7 @@ export function LiveScreen({
     el.addEventListener("keydown", onKeyDown);
     el.focus({ preventScroll: true });
     return () => el.removeEventListener("keydown", onKeyDown);
-  }, [controlOn, agentId, zoomed]);
+  }, [controlOn, agentId, zoomed, desktopSrc]);
 
   if (!agentId) return null;
 
@@ -185,20 +189,33 @@ export function LiveScreen({
   async function setHumanSession(active) {
     setBusySession(true);
     setStatus(active ? "Taking control…" : "Giving control back…");
+    setDesktopError("");
     try {
       await api(`/api/agents/${agentId}/control`, {
         method: "POST",
         body: JSON.stringify({ type: "session", active }),
       });
       setControlOn(active);
-      setStatus(
-        active
-          ? "Remote desktop active — click, scroll, and type on this machine."
-          : "Control returned to agent."
-      );
       if (active) {
         if (!zoomed) setZoomed(true);
-        requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
+        try {
+          const desk = await api(`/api/agents/${agentId}/desktop/session`, {
+            method: "POST",
+          });
+          const path = desk.embedPath || "";
+          setDesktopSrc(path);
+          setStatus("Remote desktop connected — use your mouse and keyboard on the screen.");
+        } catch (deskErr) {
+          setDesktopSrc("");
+          setDesktopError(
+            deskErr.detail || deskErr.message || "Desktop stream unavailable; using click map."
+          );
+          setStatus("Take control (fallback click map) — desktop stream failed to open.");
+          requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
+        }
+      } else {
+        setDesktopSrc("");
+        setStatus("Control returned to agent.");
       }
     } catch (err) {
       setStatus(err.detail || err.message || "Could not change control");
@@ -392,8 +409,10 @@ export function LiveScreen({
 
         {controlOn ? (
           <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
-            Agent paused — you drive this machine. Click the screen, use your keyboard, Shift+wheel
-            to scroll remotely. When finished, press <strong>Give control back</strong>.
+            {desktopSrc
+              ? "Agent paused — real remote desktop (noVNC). Move your mouse and type like a local computer. When finished, press Give control back."
+              : "Agent paused — fallback click map (desktop stream unavailable). Click the screenshot; Shift+wheel scrolls. Prefer Give control back when done."}
+            {desktopError ? ` (${desktopError})` : ""}
           </p>
         ) : null}
 
@@ -405,16 +424,23 @@ export function LiveScreen({
 
         <div
           ref={modal || !zoomed ? stageRef : undefined}
-          tabIndex={controlOn ? 0 : -1}
-          onWheel={onWheel}
+          tabIndex={controlOn && !desktopSrc ? 0 : -1}
+          onWheel={desktopSrc ? undefined : onWheel}
           onClick={() => {
-            if (controlOn) stageRef.current?.focus({ preventScroll: true });
+            if (controlOn && !desktopSrc) stageRef.current?.focus({ preventScroll: true });
           }}
           className={`relative min-h-0 w-full flex-1 overflow-auto bg-black outline-none ${
             controlOn ? "ring-2 ring-inset ring-amber-400/70" : ""
           }`}
         >
-          {src ? (
+          {controlOn && desktopSrc ? (
+            <iframe
+              title={`${agentName || "Agent"} remote desktop`}
+              src={desktopSrc}
+              className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"
+              allow="clipboard-read; clipboard-write"
+            />
+          ) : src ? (
             <img
               ref={modal || !zoomed ? imgRef : undefined}
               src={src}
@@ -440,7 +466,7 @@ export function LiveScreen({
           )}
         </div>
 
-        {controlOn ? (
+        {controlOn && !desktopSrc ? (
           <div className="flex shrink-0 flex-col gap-2 border-t border-white/10 bg-slate-900 px-3 py-3">
             <p className="text-xs text-white/60">
               Desktop: click the screen then use your keyboard. Phone: use the box below.

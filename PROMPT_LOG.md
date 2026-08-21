@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 15:45] Feature: noVNC remote desktop for Take control
+
+- **Prompt Provided:** lets do it (xrdp/vnc/novnc so Take control feels like real RDP)
+- **Architectural Flow:** Worker image boots Xvfb+fluxbox+x11vnc+noVNC; headed Chromium on DISPLAY=:99; API proxies `/api/agents/:id/desktop` with ticket/cookie auth + WebSocket; LiveScreen Take control embeds noVNC iframe (fallback click-map if stream fails); nginx Upgrade headers; manager HEADED=1 + 1GB shm + 2GB RAM
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/Dockerfile.worker`, `worker/entrypoint.sh`, `worker/src/agent.js`, `computer-manager`, `backend` desktopProxy+index+package, `deploy/nginx.conf`, `frontend` LiveScreen
+
 ## [2026-08-21 15:25] Feature: Live Wall + remote-desktop attention blink
 
 - **Prompt Provided:** live screen like remote desktop; page with all agents live screens, zoom + take control; red blink when help needed (CAPTCHA)

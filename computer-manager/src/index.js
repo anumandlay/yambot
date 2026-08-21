@@ -18,7 +18,7 @@ const DOCKER_NETWORK = process.env.DOCKER_NETWORK || "deploy_default";
 const WORKER_IMAGE = process.env.WORKER_IMAGE || "yambot-worker:local";
 const API_BASE = (process.env.YAMBOT_API_BASE_URL || "http://api:4000").replace(/\/$/, "");
 const POLL_MS = Math.max(5000, Number(process.env.MANAGER_POLL_MS) || 10000);
-const MEM_LIMIT = Number(process.env.WORKER_MEM_LIMIT) || 1536 * 1024 * 1024;
+const MEM_LIMIT = Number(process.env.WORKER_MEM_LIMIT) || 2048 * 1024 * 1024;
 const MANAGER_HTTP_PORT = Number(process.env.MANAGER_HTTP_PORT) || 4050;
 
 const agentSchema = new mongoose.Schema(
@@ -175,12 +175,17 @@ async function ensureRunning(agent) {
       "YAMBOT_PROFILE_DIR=/data/browser-profile",
       "YAMBOT_POLL_MS=5000",
       "YAMBOT_SCREEN_MS=3000",
-      "YAMBOT_HEADED=0",
+      "YAMBOT_HEADED=1",
+      "DISPLAY=:99",
+      "YAMBOT_NOVNC_PORT=6080",
+      "YAMBOT_VNC_PORT=5900",
     ],
     HostConfig: {
       NetworkMode: DOCKER_NETWORK,
       Binds: [`${volumeName}:/data/browser-profile`],
       Memory: MEM_LIMIT,
+      // Why: Chromium + Xvfb need shared memory; default 64MB causes tab crashes.
+      ShmSize: 1 * 1024 * 1024 * 1024,
       RestartPolicy: { Name: "unless-stopped" },
     },
     Labels: {

@@ -7,6 +7,7 @@
 
 import { existsSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
+import { createServer } from "node:http";
 
 /**
  * Loads KEY=VALUE files into process.env without failing if a file is missing.
@@ -56,6 +57,14 @@ const { chatsRouter } = await import("./routes/chats.js");
 const { settingsRouter } = await import("./routes/settings.js");
 const { extensionRouter } = await import("./routes/extension.js");
 const { authRequired } = await import("./middleware/auth.js");
+const { Agent } = await import("./models/Agent.js");
+const { attachDesktopProxy, signDesktopTicket } = await import("./utils/desktopProxy.js");
+
+await connectDb();
+const { seedDefaultLlmSettings } = await import("./utils/seedLlm.js");
+await seedDefaultLlmSettings();
+const { startAgentScheduler } = await import("./utils/scheduler.js");
+startAgentScheduler();
 
 const app = express();
 
@@ -70,12 +79,10 @@ const allowed = new Set(
 app.use(
   cors({
     origin(origin, cb) {
-      // Why: curl / same-origin / some clients omit Origin.
       if (!origin) {
         cb(null, true);
         return;
       }
-      // Why: unpacked Chrome extensions get a random ID; allow all extension origins.
       if (origin.startsWith("chrome-extension://")) {
         cb(null, true);
         return;
@@ -102,6 +109,36 @@ app.get("/api/health", (_req, res) => {
 });
 
 app.use("/api/auth", authRouter);
+
+/**
+ * POST /api/agents/:agentId/desktop/session — JWT ticket for noVNC iframe.
+ * Why: registered before `/api/agents` auth mount so Take control can open a ticketed stream.
+ */
+app.post("/api/agents/:agentId/desktop/session", authRequired, async (req, res, next) => {
+  try {
+    const agentId = String(req.params.agentId);
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId }).select("_id name").lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const ticket = signDesktopTicket(req.userId, agentId);
+    const embedPath = `/api/agents/${agentId}/desktop/vnc.html?autoconnect=1&resize=scale&reconnect=1&path=websockify&t=${encodeURIComponent(ticket)}`;
+    res.json({
+      ok: true,
+      ticket,
+      embedPath,
+      embedUrl: `${env.PUBLIC_API_URL || ""}${embedPath}`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+const server = createServer(app);
+// Why: before authRequired agents router — iframe uses ticket/cookie, not Bearer.
+attachDesktopProxy(server, app);
+
 app.use("/api/settings", authRequired, settingsRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
@@ -119,11 +156,6 @@ app.use((err, _req, res, _next) => {
   });
 });
 
-await connectDb();
-const { seedDefaultLlmSettings } = await import("./utils/seedLlm.js");
-await seedDefaultLlmSettings();
-const { startAgentScheduler } = await import("./utils/scheduler.js");
-startAgentScheduler();
-app.listen(env.PORT, () => {
+server.listen(env.PORT, () => {
   console.log(`YamBot API listening on :${env.PORT} (${env.NODE_ENV})`);
 });

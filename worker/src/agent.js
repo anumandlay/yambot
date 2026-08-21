@@ -47,12 +47,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
     }
 
     context = await chromium.launchPersistentContext(config.profileDir, {
-      // Why: channel chromium is required for MV3 extensions under Playwright headless.
+      // Why: channel chromium is required for MV3 extensions under Playwright.
       channel: "chromium",
+      // Why: headed on Xvfb so noVNC shows the real browser window.
       headless: !config.headed,
       viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
-      args,
+      args: [
+        ...args,
+        ...(config.headed
+          ? [`--window-size=${config.viewportWidth || 1280},${config.viewportHeight || 800}`]
+          : []),
+      ],
       colorScheme: "light",
+      ...(config.headed ? { env: { ...process.env, DISPLAY: process.env.DISPLAY || ":99" } } : {}),
     });
     page = context.pages()[0] || (await context.newPage());
     // Why: no default website — stay on about:blank unless YAMBOT_START_URL or agent startUrl is set.
