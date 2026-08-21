@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-20 20:50] Fix: Agent stops on JSON parse trailing characters
+
+- **Prompt Provided:** unexpected non-whitespace character after JSON; agent stops working
+- **Architectural Flow:** Balanced first-object JSON extract (ignore trailing prose); normalize multimodal LLM content; on parse failure wait+retry instead of aborting the task
+- **Impacted Files:** `PROMPT_LOG.md`, `worker` actions/llm/agent, `extension` shared/actions + llm + agent
+
 ## [2026-08-20 19:41] Feature: Per-agent SMTP email identity
 
 - **Prompt Provided:** give SMTP email to the agent on create/edit so agent uses email as a human

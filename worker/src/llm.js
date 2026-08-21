@@ -87,7 +87,8 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
   }
 
   const data = await res.json();
-  const content = data.choices?.[0]?.message?.content;
+  const rawContent = data.choices?.[0]?.message?.content;
+  const content = normalizeLlmContent(rawContent);
   if (!content) {
     throw new LlmError({
       title: "Empty LLM reply",
@@ -96,4 +97,30 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
     });
   }
   return { content, raw: data, model: usedModel, url };
+}
+
+/**
+ * Normalizes provider content (string | multimodal parts) to plain text.
+ * @param {unknown} content
+ * @returns {string}
+ */
+function normalizeLlmContent(content) {
+  if (content == null) return "";
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object") {
+          return String(part.text || part.content || part.thinking || "");
+        }
+        return "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (typeof content === "object") {
+    return String(content.text || content.content || "");
+  }
+  return String(content);
 }

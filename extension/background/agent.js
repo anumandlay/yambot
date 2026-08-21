@@ -284,7 +284,18 @@ export function createAgentController({ emit }) {
       messages,
     });
 
-    const parsed = parseAgentResponse(content);
+    let parsed;
+    try {
+      parsed = parseAgentResponse(content);
+    } catch (err) {
+      // Why: keep the loop alive when the model adds prose after JSON.
+      const detail = String(err?.message || err);
+      state.notes.push(`Model JSON parse failed (will retry): ${detail}`);
+      parsed = {
+        thought: "Invalid model JSON — waiting and retrying",
+        action: { type: "wait", ms: 1200 },
+      };
+    }
     broadcast("agent:decision", { thought: parsed.thought, action: parsed.action });
     return { parsed, obs };
   }

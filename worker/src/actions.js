@@ -45,6 +45,7 @@ Action fields:
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }
 
 Rules:
+- CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.
 - Prefer refs from the snapshot. Never invent refs.
 - For Google research: navigate or use the search box, then open promising links, extract notes, finish with a summary + URLs.
 - Do not loop forever. If stuck twice on the same issue, ask_user or finish with what you have.
@@ -54,21 +55,85 @@ Rules:
 `.trim();
 
 /**
+ * Pulls the first balanced `{ ... }` object from mixed model output.
+ * Why: models often add prose after JSON; greedy regex includes junk past the real object.
+ * @param {string} text
+ * @returns {string|null}
+ */
+export function extractFirstJsonObject(text) {
+  const s = String(text || "");
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i += 1) {
+    const ch = s[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * @param {string} raw
+ * @returns {string}
+ */
+function stripCodeFence(raw) {
+  const text = String(raw || "").trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  return fence ? fence[1].trim() : text;
+}
+
+/**
  * @param {string} raw
  */
 export function parseAgentResponse(raw) {
-  const text = String(raw || "").trim();
-  let jsonText = text;
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/);
-  if (fence) jsonText = fence[1].trim();
-  const brace = jsonText.match(/\{[\s\S]*\}/);
-  if (brace) jsonText = brace[0];
-  const parsed = JSON.parse(jsonText);
-  if (!parsed.action || !parsed.action.type) {
-    throw new Error("Missing action.type in model response");
+  const text = stripCodeFence(raw);
+  const candidates = [];
+  const balanced = extractFirstJsonObject(text);
+  if (balanced) candidates.push(balanced);
+  // Why: also try the whole trimmed body in case it is pure JSON.
+  if (text && text !== balanced) candidates.push(text.trim());
+
+  let lastErr = null;
+  for (const candidate of candidates) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (!parsed?.action || !parsed.action.type) {
+        lastErr = new Error("Missing action.type in model response");
+        continue;
+      }
+      if (!ACTION_TYPES.includes(parsed.action.type)) {
+        lastErr = new Error(`Unknown action type: ${parsed.action.type}`);
+        continue;
+      }
+      return parsed;
+    } catch (err) {
+      lastErr = err;
+    }
   }
-  if (!ACTION_TYPES.includes(parsed.action.type)) {
-    throw new Error(`Unknown action type: ${parsed.action.type}`);
-  }
-  return parsed;
+  const hint = String(raw || "").replace(/\s+/g, " ").trim().slice(0, 180);
+  throw new Error(
+    `Could not parse agent JSON (${lastErr?.message || "invalid"}). Preview: ${hint || "(empty)"}`
+  );
 }

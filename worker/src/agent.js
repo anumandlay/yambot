@@ -354,7 +354,33 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
         // Why: user may take over during a long LLM call — wait before acting.
         await waitWhileHumanControl({ taskId });
-        const parsed = parseAgentResponse(content);
+
+        let parsed;
+        try {
+          parsed = parseAgentResponse(content);
+        } catch (err) {
+          // Why: Minimax/etc. often append prose after JSON — retry instead of killing the run.
+          const detail = String(err?.message || err);
+          log(`[${config.workerName}] parse retry:`, detail);
+          notes.push(`Model JSON parse failed (will retry): ${detail}`);
+          await mirror(taskId, "step", {
+            payload: {
+              step,
+              action: { type: "wait", ms: 1200 },
+              thought: "Invalid model JSON — waiting and retrying",
+              result: { ok: false, error: detail },
+            },
+            appendMessage: `Step ${step}: model reply was not valid JSON — retrying…`,
+          });
+          history.push({
+            step,
+            thought: "parse_error",
+            action: { type: "wait", ms: 1200 },
+            result: { ok: false, error: detail },
+          });
+          await sleep(1200);
+          continue;
+        }
         const action = parsed.action;
 
         let result;
