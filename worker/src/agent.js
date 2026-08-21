@@ -5,11 +5,13 @@
  */
 
 import fs from "node:fs";
+import path from "node:path";
 import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
 import { observeInPage, executeInPage, captchaMetaInPage } from "./pageDom.js";
+import { runCloudResearchJob } from "./research.js";
 
 /**
  * @param {{ api: Function, config: import('./config.js').WorkerConfig, log?: Function }} deps
@@ -32,10 +34,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
   async function ensureBrowser() {
     if (context && page && !page.isClosed()) return;
     fs.mkdirSync(config.profileDir, { recursive: true });
+
+    const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"];
+    const extDir = config.extensionDir;
+    const extManifest = extDir ? path.join(extDir, "manifest.json") : "";
+    const canLoadExt =
+      Boolean(config.loadExtension) && extManifest && fs.existsSync(extManifest);
+    if (canLoadExt) {
+      // Why: same YamBot MV3 extension as laptop Chrome (content scripts / SERP capture).
+      args.push(`--disable-extensions-except=${extDir}`);
+      args.push(`--load-extension=${extDir}`);
+    }
+
     context = await chromium.launchPersistentContext(config.profileDir, {
+      // Why: channel chromium is required for MV3 extensions under Playwright headless.
+      channel: "chromium",
       headless: !config.headed,
       viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
-      args: ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"],
+      args,
       colorScheme: "light",
     });
     page = context.pages()[0] || (await context.newPage());
@@ -51,7 +67,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
     } catch (err) {
       log(`[${config.workerName}] boot navigate failed:`, err?.message || err);
     }
-    log(`[${config.workerName}] Chromium ready (profile=${config.profileDir})`);
+    log(
+      `[${config.workerName}] Chromium ready (profile=${config.profileDir}` +
+        (canLoadExt ? `, extension=${extDir}` : ", extension=off") +
+        ")"
+    );
   }
 
   /**
@@ -372,6 +392,42 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
     try {
       await ensureBrowser();
+
+      // Why: research agents skip the LLM loop — SERP capture via extension/content + Playwright.
+      if (agentSnapshot?.mode === "research") {
+        await mirror(taskId, "started", {
+          status: "running",
+          payload: { goal, worker: config.workerName, mode: "research" },
+          appendMessage: `Cloud research computer “${config.workerName}” started (YamBot extension loaded)…\nGoal: ${goal}`,
+        });
+        const { jobs, summary } = await runCloudResearchJob({
+          page,
+          goal,
+          agentSnapshot,
+          shouldStop: () => isTaskCancelled(taskId),
+          onProgress: async (msg, payload) => {
+            notes.push(msg);
+            await mirror(taskId, "research", {
+              payload: payload || {},
+              appendMessage: msg,
+            }).catch(() => {});
+            await pushLiveScreen({ taskId }).catch(() => {});
+          },
+          onLive: () => pushLiveScreen({ taskId }),
+        });
+        const jsonBlob = JSON.stringify(jobs);
+        await mirror(taskId, "research", {
+          payload: { jobsPreview: jobs.slice(0, 5) },
+          appendMessage: `Full research JSON (${Math.min(jsonBlob.length, 120000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 120000)}\n\`\`\``,
+        }).catch(() => {});
+        await complete(taskId, {
+          success: true,
+          summary,
+        });
+        log(`[${config.workerName}] Research task ${taskId} done`);
+        return;
+      }
+
       const settings = await getSettings();
       if (!settings.llmApiKey) {
         throw Object.assign(new Error("Missing LLM API key"), {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 13:35] Feature: Load YamBot extension inside cloud Chromium
+
+- **Prompt Provided:** i want this extension in cloud also
+- **Architectural Flow:** Worker image bundles `extension/`; Playwright launches with `--load-extension` + `channel:chromium`. Research agents may use cloud or laptop extension. Cloud research uses extension content helpers (`__yambotCaptureSerp`) with worker SERP fallback; results still post to chat
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/Dockerfile.worker`, `worker` config/agent/research/serpCapture, `extension` content/manifest, `backend` agents routes, `frontend` AgentEditPage
+
 ## [2026-08-21 13:25] Feature: Research agent mode (extension-only SERP capture)
 
 - **Prompt Provided:** Research agents only via Chrome extension; capture page itself (no Flask/visaclap/hotkey); results back to agent chat

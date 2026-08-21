@@ -50,9 +50,8 @@ function publicAgent(agent) {
  */
 function wantsCloudComputer(agent) {
   if (agent.active === false) return false;
-  // Why: research runs only on the user's Chrome extension — never provision a VPS box.
-  if (agent.mode === "research") return false;
   const runner = agent.runner || "cloud";
+  // Why: research can use cloud (extension bundled in Chromium) or laptop extension only.
   return runner === "cloud" || runner === "any";
 }
 
@@ -256,9 +255,9 @@ agentsRouter.post("/", async (req, res, next) => {
       return;
     }
     if (fields.mode == null) fields.mode = "browser";
-    // Why: research agents must claim via extension so Google SERPs stay captcha-light.
+    // Why: research defaults to extension (captcha-light); cloud is allowed when chosen explicitly.
     if (fields.mode === "research") {
-      fields.runner = "extension";
+      if (fields.runner == null) fields.runner = "extension";
     } else if (fields.runner == null) {
       fields.runner = "cloud";
     }
@@ -455,9 +454,6 @@ agentsRouter.put("/:id", async (req, res, next) => {
       }
     }
     Object.assign(agent, fields);
-    if (agent.mode === "research") {
-      agent.runner = "extension";
-    }
     ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
     await agent.save();

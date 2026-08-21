@@ -104,7 +104,7 @@ export function AgentEditPage() {
             successCriteria: a.successCriteria || "",
             allowedDomains: (a.allowedDomains || []).join(", "),
             startUrl: a.startUrl || "",
-            runner: a.mode === "research" ? "extension" : a.runner || "any",
+            runner: a.runner || (a.mode === "research" ? "extension" : "any"),
             active: a.active !== false,
             autonomy: {
               allowSubmit: a.autonomy?.allowSubmit !== false,
@@ -145,14 +145,7 @@ export function AgentEditPage() {
   }, [agentId, isNew]);
 
   function update(key, value) {
-    setForm((prev) => {
-      const next = { ...prev, [key]: value };
-      // Why: research agents only run on the Chrome extension (captcha-light Google SERPs).
-      if (key === "mode" && value === "research") {
-        next.runner = "extension";
-      }
-      return next;
-    });
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
 
   function updateAutonomy(key, value) {
@@ -196,7 +189,6 @@ export function AgentEditPage() {
       ...form,
       facts: form.facts.filter((f) => f.key.trim()),
       allowedDomains: form.allowedDomains,
-      runner: form.mode === "research" ? "extension" : form.runner,
     };
     try {
       if (isNew) {
@@ -312,8 +304,9 @@ export function AgentEditPage() {
             ))}
           </select>
           <span className="text-xs text-teal-900/60">
-            Research agents run only on your Chrome extension, capture Google results pages
-            themselves, and post findings back to the chat. No cloud computer is started.
+            Research agents capture Google SERPs and post results to chat. Prefer{" "}
+            <strong>Chrome extension</strong> on your laptop (fewer captchas), or{" "}
+            <strong>cloud computer</strong> — cloud Chromium loads the same YamBot extension.
           </span>
         </label>
         {form.mode === "research" ? (
@@ -373,14 +366,13 @@ export function AgentEditPage() {
           Computer / runner
           <select
             className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.mode === "research" ? "extension" : form.runner}
+            value={form.runner}
             onChange={(e) => update("runner", e.target.value)}
-            disabled={form.mode === "research"}
           >
             {runners.map((r) => (
               <option key={r} value={r}>
                 {r === "cloud"
-                  ? "Cloud computer (VPS Chromium)"
+                  ? "Cloud computer (VPS Chromium + YamBot extension)"
                   : r === "extension"
                     ? "My Chrome extension only"
                     : "Any available (cloud or extension)"}
@@ -390,8 +382,9 @@ export function AgentEditPage() {
           <span className="text-xs text-teal-900/60">
             {form.mode === "research" ? (
               <>
-                Locked to <strong>Chrome extension</strong> for Research mode (Google captchas are
-                rare in real Chrome). Keep the YamBot extension signed in.
+                Research on <strong>cloud</strong> loads the YamBot extension inside the VPS browser.
+                Research on <strong>Chrome extension</strong> uses your laptop Chrome (usually fewer
+                Google captchas). Keep the extension signed in when using chrome-only.
               </>
             ) : (
               <>
@@ -624,16 +617,16 @@ export function AgentEditPage() {
           )}
         </fieldset>
 
-        {!isNew && form.mode !== "research" ? (
+        {!isNew && (form.mode !== "research" || form.runner === "cloud" || form.runner === "any") ? (
           <div className="flex flex-col gap-2">
             <div className="text-sm font-semibold text-teal-900/80">Live cloud screen</div>
             <LiveScreen agentId={agentId} compact />
           </div>
         ) : null}
-        {!isNew && form.mode === "research" ? (
+        {!isNew && form.mode === "research" && form.runner === "extension" ? (
           <p className="rounded-xl border border-amber-100 bg-amber-50/60 p-3 text-sm text-amber-950/80">
-            Research agents have no cloud live screen. Keep the YamBot Chrome extension signed in;
-            chat goals are claimed there and SERP results appear in the chat.
+            This research agent uses your laptop Chrome extension only (no cloud live screen). Keep
+            YamBot signed in on the extension; results appear in chat.
           </p>
         ) : null}
 

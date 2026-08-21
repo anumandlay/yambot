@@ -996,6 +996,14 @@
     return { clicked: true };
   }
 
+  // Why: cloud Playwright prefers extension-injected helpers when the MV3 package is loaded.
+  try {
+    window.__yambotCaptureSerp = captureSerp;
+    window.__yambotClickNextSerp = clickNextSerp;
+  } catch {
+    /* ignore */
+  }
+
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     if (!msg || msg.target !== "content") return;
 

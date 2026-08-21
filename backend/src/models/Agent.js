@@ -102,8 +102,9 @@ const agentSchema = new mongoose.Schema(
       maxlength: 500,
     },
     /**
-     * Execution mode. Research agents only run on the Chrome extension (real Chrome
-     * avoids Google captchas that hit headless cloud Chromium).
+     * Execution mode.
+     * - `browser`: LLM-driven browser steps
+     * - `research`: Google SERP capture (Chrome extension on laptop and/or cloud Chromium with extension loaded)
      */
     mode: {
       type: String,
