@@ -115,6 +115,32 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
     }
 
+    // Why: one computer per agent — a waiting ask_user freezes the box; a new goal must take over.
+    if (agentDoc) {
+      const now = new Date();
+      const waiting = await Task.find({
+        agent: agentDoc._id,
+        user: req.userId,
+        status: "waiting_user",
+      });
+      for (const blocked of waiting) {
+        blocked.status = "cancelled";
+        blocked.completedAt = now;
+        blocked.resultSummary = "Superseded by a newer goal";
+        blocked.events.push({
+          type: "cancelled",
+          payload: { reason: "superseded_by_new_goal", byChat: String(chat._id) },
+        });
+        await blocked.save();
+        await Message.create({
+          chat: blocked.chat,
+          role: "system",
+          content: "Agent question cancelled — a newer goal was sent for this agent.",
+          meta: { kind: "superseded", taskId: blocked._id },
+        }).catch(() => {});
+      }
+    }
+
     // Why: first user message becomes the chat title for sidebar scanning.
     if (chat.title.startsWith("Chat ·") || chat.title === "New chat") {
       chat.title = content.slice(0, 60);

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 15:15] Fix: no default Google page; new goals unblock waiting_user freeze
+
+- **Prompt Provided:** remove default google.com from live screen for new agents; check my inbox for unread froze
+- **Architectural Flow:** Cloud/extension no longer navigate to google.com unless Start URL or research mode; blank page by default. Posting a new chat goal cancels same-agent `waiting_user` so ask_user cannot freeze the computer
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `extension/background/agent.js`, `backend/src/routes/chats.js`, `frontend/src/pages/AgentEditPage.jsx`
+
 ## [2026-08-21 14:45] Fix: shopping cart priority + agent rules are store-agnostic
 
 - **Prompt Provided:** what about other shopping carts then?

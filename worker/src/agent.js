@@ -55,17 +55,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
       colorScheme: "light",
     });
     page = context.pages()[0] || (await context.newPage());
-    // Why: fresh profiles open about:blank — dashboard would show a white/empty live screen.
-    const boot =
-      (process.env.YAMBOT_START_URL && String(process.env.YAMBOT_START_URL).trim()) ||
-      "https://www.google.com/";
-    try {
-      const cur = page.url();
-      if (!cur || cur === "about:blank" || cur.startsWith("chrome://")) {
-        await page.goto(boot, { waitUntil: "domcontentloaded", timeout: 60000 });
+    // Why: no default website — stay on about:blank unless YAMBOT_START_URL or agent startUrl is set.
+    const bootEnv = process.env.YAMBOT_START_URL && String(process.env.YAMBOT_START_URL).trim();
+    if (bootEnv && /^https?:\/\//i.test(bootEnv)) {
+      try {
+        const cur = page.url();
+        if (!cur || cur === "about:blank" || cur.startsWith("chrome://")) {
+          await page.goto(bootEnv, { waitUntil: "domcontentloaded", timeout: 60000 });
+        }
+      } catch (err) {
+        log(`[${config.workerName}] boot navigate failed:`, err?.message || err);
       }
-    } catch (err) {
-      log(`[${config.workerName}] boot navigate failed:`, err?.message || err);
     }
     log(
       `[${config.workerName}] Chromium ready (profile=${config.profileDir}` +
@@ -454,16 +454,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
       }
 
-      // Why: no step budget — keep going until finish, abort, or hard error.
+      // Why: only open a start URL when the agent configures one — never force google.com.
       if (agentSnapshot?.mode !== "research") {
         const preferredStart =
-          (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
-          "https://www.google.com/";
-        const bootUrl = /^https?:\/\//i.test(preferredStart)
-          ? preferredStart
-          : "https://www.google.com/";
+          agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
+        if (preferredStart && /^https?:\/\//i.test(preferredStart)) {
+          await page.goto(preferredStart, { waitUntil: "domcontentloaded", timeout: 60000 });
+        }
 
-        await page.goto(bootUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
         await pushLiveScreen({ taskId });
         await mirror(taskId, "started", {
           status: "running",

@@ -636,7 +636,7 @@ export function AgentEditPage() {
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.startUrl}
             onChange={(e) => update("startUrl", e.target.value)}
-            placeholder="https://www.google.com/"
+            placeholder="Optional — leave empty for blank page"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">

@@ -748,11 +748,11 @@ export function createAgentController({ emit }) {
     const preferredStart =
       state?.agentSnapshot?.mode === "research" || agentSnapshot?.mode === "research"
         ? "https://www.google.com/"
-        : (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) ||
-          "https://www.google.com/";
-    const bootUrl = /^https?:\/\//i.test(preferredStart)
+        : (agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim()) || "";
+    // Why: research still boots Google; browser agents stay on the current tab or about:blank.
+    const bootUrl = preferredStart && /^https?:\/\//i.test(preferredStart)
       ? preferredStart
-      : "https://www.google.com/";
+      : "about:blank";
 
     let tab = tabId
       ? await chrome.tabs.get(tabId)
