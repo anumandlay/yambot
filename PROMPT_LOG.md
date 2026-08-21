@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 17:55] UX: hide Chromium “controlled by test software” banner
+
+- **Prompt Provided:** in live screen in chrome i see chrome is being controlled by test software, instead of that can we have any other way?
+- **Architectural Flow:** Worker headed Chromium launches with `ignoreDefaultArgs: ['--enable-automation']` and `--disable-blink-features=AutomationControlled` so the automation infobar is not shown on noVNC / Live Wall
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`
+
 ## [2026-08-21 17:50] Fix: Take control noVNC “failed to connect to server”
 
 - **Prompt Provided:** from the wall when i click take control : failed to connect to server

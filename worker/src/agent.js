@@ -52,8 +52,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
       // Why: headed on Xvfb so noVNC shows the real browser window.
       headless: !config.headed,
       viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
+      // Why: Playwright injects --enable-automation by default, which paints the
+      // “Chrome is being controlled by automated test software” infobar on Take control.
+      ignoreDefaultArgs: ["--enable-automation"],
       args: [
         ...args,
+        "--disable-blink-features=AutomationControlled",
         ...(config.headed
           ? [`--window-size=${config.viewportWidth || 1280},${config.viewportHeight || 800}`]
           : []),
