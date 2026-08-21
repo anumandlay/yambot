@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-21 14:45] Fix: shopping cart priority + agent rules are store-agnostic
+
+- **Prompt Provided:** what about other shopping carts then?
+- **Architectural Flow:** Broaden cart/basket/bag detection (Shopify, Walmart, FR/DE/ES/PT labels, mini-cart drawers) and chrome headers; LLM rule uses same-host /cart|/basket|/bag|/gp/cart/view.html fallbacks instead of Amazon-only
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/actions.js`, `extension/content/content.js`, `extension/shared/actions.js`
+
 ## [2026-08-21 14:40] Fix: prioritize Cart/nav on shopping pages so agent leaves Amazon home
 
 - **Prompt Provided:** it opened the amazon but not going to cart

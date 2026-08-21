@@ -204,7 +204,7 @@
 
   /**
    * Whether an element looks like cart / checkout / line-item remove.
-   * Why: Amazon home has hundreds of product links; Cart must surface before those.
+   * Why: retail homes bury Cart under product links — same on Amazon, Shopify, Walmart, etc.
    * @param {Element} el
    * @returns {boolean}
    */
@@ -216,6 +216,8 @@
       el.getAttribute("name"),
       el.getAttribute("title"),
       el.getAttribute("data-testid"),
+      el.getAttribute("data-action"),
+      el.getAttribute("data-automation-id"),
       typeof el.className === "string" ? el.className : "",
       href,
       el.innerText,
@@ -223,8 +225,12 @@
       .join(" ")
       .toLowerCase();
     return (
-      /\b(cart|basket|bag|checkout|panier|warenkorb|delete|remove|save for later)\b/.test(blob) ||
-      /nav-cart|minicart|\/gp\/cart|\/cart\b|viewcart|basket\.html/.test(blob)
+      /\b(cart|basket|bag|trolley|checkout|panier|warenkorb|carrito|carrinho|delete|remove|save for later|move to wishlist)\b/.test(
+        blob
+      ) ||
+      /nav-cart|mini[-_]?cart|cart[-_]?icon|cart[-_]?link|shopping[-_]?cart|view[-_]?cart|cart-drawer|cartDrawer|\/gp\/cart|\/cart\b|\/basket\b|\/bag\b|cart\.html|basket\.html|checkout\/cart|order\/basket|wl\/cart/.test(
+        blob
+      )
     );
   }
 
@@ -247,7 +253,10 @@
           "#nav-flyout-anchor",
           "#desktop-header",
           "#gh",
+          "#site-header",
+          "#shopify-section-header",
           ".header",
+          ".site-header",
           "[data-nav-role='signin']",
         ].join(",")
       )

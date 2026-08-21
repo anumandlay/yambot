@@ -52,7 +52,7 @@ Locator rules (click/type/select):
 Rules:
 - CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.
 - For Google research: navigate or use the search box, then open promising links, extract notes, finish with a summary + URLs.
-- Shopping (Amazon, etc.): if the goal mentions cart/basket/bag, click Cart in the header FIRST (often labeled "items in cart", css #nav-cart). Do not browse products. If Cart is missing from the snapshot, navigate to the site cart URL (Amazon: https://www.amazon.com/gp/cart/view.html or the same host /gp/cart/view.html).
+- Shopping (any store): if the goal mentions cart/basket/bag/trolley, open the header Cart/Basket FIRST (icons often say "items in cart" / "shopping bag"). Do not browse products. Prefer the early snapshot refs for cart/checkout. If missing, navigate on the same host to a common cart path: /cart, /basket, /bag, /gp/cart/view.html, /checkout/cart — pick what matches the site, do not invent a different domain.
 - Do not loop forever. If stuck twice on the same issue, ask_user or finish with what you have.
 - Before submitting forms / purchases / applications, prefer ask_user unless the user already said to submit.
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
