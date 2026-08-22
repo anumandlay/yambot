@@ -42,6 +42,17 @@ import {
   updatePlanFromObservation,
   waitForDomSettle,
   waitForSemantic,
+  runFillForm,
+  runDismissDialog,
+  runChooseMenuItem,
+  detectSkill,
+  formatSkillBlock,
+  extractDomain,
+  buildTrajectory,
+  formatSiteHintsBlock,
+  loadSiteProfile,
+  deriveSiteHint,
+  recordSiteLearning,
 } from "./browserState/index.js";
 import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
@@ -299,11 +310,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
     });
   }
 
-  async function complete(taskId, { success, summary, error = "" }) {
+  async function complete(taskId, { success, summary, error = "", history = [], siteDomain = "" }) {
+    const trajectory = buildTrajectory(history);
     await api(`/api/extension/tasks/${taskId}/complete`, {
       method: "POST",
-      body: JSON.stringify({ success, summary, error }),
+      body: JSON.stringify({ success, summary, error, trajectory }),
     });
+    if (siteDomain && config.agentId) {
+      const hint = deriveSiteHint({
+        success,
+        summary,
+        domain: siteDomain,
+        trajectory,
+      });
+      await recordSiteLearning(api, config.agentId, {
+        domain: siteDomain,
+        success,
+        hint: hint || undefined,
+      });
+    }
   }
 
   async function getSettings() {
@@ -602,6 +627,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const agentSnapshot = task.agentSnapshot || null;
     const notes = [];
     const history = [];
+    let siteDomain = "";
 
     try {
       await ensureBrowser();
@@ -639,6 +665,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
             success: false,
             summary: "Stopped by user",
             error: "cancelled",
+            history,
+            siteDomain,
           });
           return;
         }
@@ -704,6 +732,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       /** @type {object|null} */
       let prevObs = null;
       let prevUrl = "";
+      const activeSkill = detectSkill(workingGoal, page?.url?.() || agentSnapshot?.startUrl || "");
+      let siteProfile = null;
       for (;;) {
         step += 1;
         if (await isTaskCancelled(taskId)) {
@@ -711,6 +741,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
             success: false,
             summary: "Stopped by user",
             error: "cancelled",
+            history,
+            siteDomain,
           });
           log(`[${config.workerName}] Task ${taskId} cancelled by user`);
           return;
@@ -720,6 +752,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const captchaGate = await handleCaptchaIfPresent(taskId, settings, notes);
         if (captchaGate.handled) continue;
         let obs = captchaGate.obs;
+        const pageDomain = extractDomain(obs.url || "");
+        if (pageDomain && pageDomain !== siteDomain) {
+          siteDomain = pageDomain;
+          siteProfile = await loadSiteProfile(api, config.agentId, siteDomain);
+        }
         const pageState = buildPageState(obs, { previousUrl: prevUrl || undefined });
         const stateDiff = prevObs ? diffObservations(prevObs, obs) : null;
 
@@ -741,6 +778,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           await complete(taskId, {
             success: true,
             summary: stopEval.finishSummary || "Stop condition met",
+            history,
+            siteDomain,
           });
           log(`[${config.workerName}] Task ${taskId} stopped: payment boundary`);
           return;
@@ -795,6 +834,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           }
         }
 
+        const skillBlock = formatSkillBlock(activeSkill);
+        const siteHintsBlock = formatSiteHintsBlock(siteProfile);
+
         const messages = [
           {
             role: "system",
@@ -803,6 +845,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
+              skillBlock,
+              siteHintsBlock,
               visionAttached
                 ? "A viewport screenshot is attached — correlate refs with visible UI."
                 : "A screenshot may attach after failed verification steps.",
@@ -1069,7 +1113,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (actionToRun.type === "finish" || result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
-          await complete(taskId, { success, summary });
+          await complete(taskId, { success, summary, history, siteDomain });
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           return;
         }
@@ -1081,6 +1125,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
             success: false,
             summary: "Stopped by user",
             error: "cancelled",
+            history,
+            siteDomain,
           });
         } catch {
           /* ignore */
@@ -1095,6 +1141,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           success: false,
           summary: detail,
           error: detail,
+          history,
+          siteDomain,
         });
       } catch (completeErr) {
         log(`[${config.workerName}] complete failed`, completeErr);
@@ -1179,6 +1227,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (!fs.existsSync(filePath)) throw new Error(`Upload file not found: ${relPath}`);
         await frame.locator(`[data-ba-ref="${localRef}"]`).setInputFiles(filePath);
         return { ok: true, uploaded: path.basename(filePath), ref: action.ref };
+      }
+      case "fill_form": {
+        const { frame } = resolveActionTarget(action, obs);
+        return runFillForm(page, frame, executeInPage, enrichLocatorAction, action, obs);
+      }
+      case "dismiss_dialog": {
+        const { frame } = resolveActionTarget(action, obs);
+        return runDismissDialog(page, frame, executeInPage, action, obs);
+      }
+      case "choose_menu_item": {
+        const { frame } = resolveActionTarget(action, obs);
+        return runChooseMenuItem(page, frame, action);
       }
       case "ask_user": {
         const answer = await waitForUserAnswer(taskId, action.question || "Need your input");

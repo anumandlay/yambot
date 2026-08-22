@@ -61,6 +61,8 @@ const taskSchema = new mongoose.Schema(
       index: true,
     },
     events: { type: [eventSchema], default: [] },
+    /** Compact observe→action→verify chain recorded at task complete (Phase 5). */
+    trajectory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     resultSummary: { type: String, default: "" },
     lastError: { type: String, default: "" },
     claimedAt: { type: Date, default: null },

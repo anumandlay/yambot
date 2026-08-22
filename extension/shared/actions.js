@@ -12,6 +12,9 @@ export const ACTION_TYPES = [
   "switch_tab",
   "open_tab",
   "upload_file",
+  "fill_form",
+  "dismiss_dialog",
+  "choose_menu_item",
   "extract",
   "solve_captcha",
   "ask_user",
@@ -25,7 +28,7 @@ You control a real Chrome browser. Reply with ONE JSON object only (no markdown)
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|extract|solve_captcha|ask_user|send_email|check_email|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|finish>",
     ...fields depending on type
   }
 }
@@ -43,6 +46,9 @@ Action fields:
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "url_contains":"checkout" }
 - open_tab: { "type":"open_tab", "url":"https://..." }
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"file.pdf" }
+- fill_form: { "type":"fill_form", "form":"checkout", "fields": { "Email": "x@y.com" }, "submit": false }
+- dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" }
+- choose_menu_item: { "type":"choose_menu_item", "path": ["More", "Download"] }
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }

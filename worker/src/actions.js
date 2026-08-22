@@ -15,6 +15,9 @@ export const ACTION_TYPES = [
   "switch_tab",
   "open_tab",
   "upload_file",
+  "fill_form",
+  "dismiss_dialog",
+  "choose_menu_item",
   "extract",
   "solve_captcha",
   "ask_user",
@@ -28,7 +31,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|extract|solve_captcha|ask_user|send_email|check_email|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|finish>",
     ...fields depending on type
   }
 }
@@ -47,6 +50,9 @@ Action fields:
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }
 - open_tab: { "type":"open_tab", "url":"https://..." } — optional url
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
+- fill_form: { "type":"fill_form", "form":"login", "fields": { "Email": "x@y.com", "Password": "secret" }, "submit": false } — form by name/id/index; set submit true to click primary submit
+- dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" } — closes modal via cancel/close/Escape
+- choose_menu_item: { "type":"choose_menu_item", "path": ["File", "Export", "PDF"] } — clicks open menu items in order (menu must already be open)
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }
@@ -62,6 +68,7 @@ Locator rules (click/type/select):
 - Resolution order: ref → xpath → role+name → label/name → css.
 - Custom dropdowns (not native <select>): open the control, then click/select the option by exact name (e.g. name:"Passport", role:"option"). You may use select with value:"Passport".
 - Date pickers / calendars: click the day number or quick chip (Today, Tomorrow) by name (e.g. name:"21" or name:"Today"). Do not use type into the date field unless it accepts typed dates.
+- Prefer fill_form when multiple fields in one form are visible; dismiss_dialog for cookie/promo modals; choose_menu_item for nested menus.
 - Refs in iframes are prefixed frame_N_eM — use as-is; the runtime resolves the frame automatically.
 - A viewport screenshot may be attached when verification fails — correlate refs with visible UI.
 

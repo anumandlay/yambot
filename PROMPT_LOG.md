@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 14:35] Feature: Phase 4 macros + Phase 5 learn layer (site memory, trajectories, skills)
+
+- **Prompt Provided:** complete Phase 4 leftovers (fill_form, dismiss_dialog, choose_menu_item) and start Phase 5 (site memory, trajectories, skill templates)
+- **Architectural Flow:** `macros.js` runs composite form/dialog/menu actions; `skills.js` detects goal type and injects flow hints; `learn.js` loads `SiteProfile` per domain into LLM prompt, records trajectories on task complete, derives site hints; `SiteProfile` Mongo model + extension API; `Task.trajectory` stores compact step chains
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/{macros,skills,learn}.js`, `worker/src/browserState/index.js`, `worker/src/pageDom.js`, `worker/src/agent.js`, `worker/src/actions.js`, `extension/shared/actions.js`, `backend/src/models/{SiteProfile,Task}.js`, `backend/src/routes/extension.js`
+
 ## [2026-08-22 14:25] Feature: Browser State Engine Phase 4 (vision, a11y, telemetry, tabs, frames)
 
 - **Prompt Provided:** implement Phase 4 — vision + a11y + navigation telemetry + tabs/downloads/uploads + iframes/shadow DOM

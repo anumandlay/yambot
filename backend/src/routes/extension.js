@@ -9,6 +9,7 @@ import { Task } from "../models/Task.js";
 import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
 import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
+import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 
@@ -341,10 +342,12 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
     const success = req.body?.success !== false;
     const summary = String(req.body?.summary || "");
     const error = String(req.body?.error || "");
+    const trajectory = Array.isArray(req.body?.trajectory) ? req.body.trajectory.slice(0, 100) : [];
     task.status = success ? "done" : "error";
     task.resultSummary = summary;
     task.lastError = error;
     task.completedAt = new Date();
+    if (trajectory.length) task.trajectory = trajectory;
     task.events.push({
       type: "complete",
       payload: { success, summary, error },
@@ -378,6 +381,74 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
     }
 
     res.json({ ok: true, task });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/extension/site-profile?agentId=&domain=
+ * Returns per-domain hints for the worker LLM prompt.
+ */
+extensionRouter.get("/site-profile", async (req, res, next) => {
+  try {
+    const agentId = String(req.query?.agentId || "").trim();
+    const domain = String(req.query?.domain || "")
+      .trim()
+      .toLowerCase();
+    if (!agentId || !domain) {
+      res.status(400).json({ ok: false, detail: "agentId and domain required" });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    const profile = await SiteProfile.findOne({ agent: agentId, domain });
+    res.json({ ok: true, profile: profile ? toSiteProfileSnapshot(profile) : null });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/extension/site-profile
+ * Body: { agentId, domain, success?, hint?: { kind, content }, stats?: { visits, successes, failures } }
+ */
+extensionRouter.post("/site-profile", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    const domain = String(req.body?.domain || "")
+      .trim()
+      .toLowerCase();
+    if (!agentId || !domain) {
+      res.status(400).json({ ok: false, detail: "agentId and domain required" });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    let profile = await SiteProfile.findOne({ agent: agentId, domain });
+    if (!profile) {
+      profile = new SiteProfile({ user: req.userId, agent: agentId, domain });
+    }
+    profile.stats = profile.stats || { visits: 0, successes: 0, failures: 0 };
+    profile.stats.visits = (profile.stats.visits || 0) + 1;
+    if (req.body?.success === true) {
+      profile.stats.successes = (profile.stats.successes || 0) + 1;
+      profile.lastSuccessAt = new Date();
+    } else if (req.body?.success === false) {
+      profile.stats.failures = (profile.stats.failures || 0) + 1;
+    }
+    profile.lastVisitedAt = new Date();
+    if (req.body?.hint?.content) {
+      appendSiteHint(profile, req.body.hint);
+    }
+    await profile.save();
+    res.json({ ok: true, profile: toSiteProfileSnapshot(profile) });
   } catch (err) {
     next(err);
   }

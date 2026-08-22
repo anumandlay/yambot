@@ -1,5 +1,5 @@
 /**
- * @fileoverview Browser State Engine — Phase 1–3 exports for the cloud worker agent loop.
+ * @fileoverview Browser State Engine — Phase 1–5 exports for the cloud worker agent loop.
  * Purpose: Observe → plan → state → diff → act → verify → recover pipeline outside the LLM.
  * Downstream: worker/src/agent.js
  */
@@ -34,3 +34,13 @@ export {
 } from "./vision.js";
 export { listTabs, switchTab, openTab } from "./tabs.js";
 export { observePageFull, parseFrameRef, getPlaywrightFrame } from "./observe.js";
+export { runFillForm, runDismissDialog, runChooseMenuItem } from "./macros.js";
+export { detectSkill, formatSkillBlock, SKILL_TEMPLATES } from "./skills.js";
+export {
+  extractDomain,
+  buildTrajectory,
+  formatSiteHintsBlock,
+  loadSiteProfile,
+  deriveSiteHint,
+  recordSiteLearning,
+} from "./learn.js";

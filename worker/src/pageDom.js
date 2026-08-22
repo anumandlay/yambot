@@ -1705,3 +1705,58 @@ export function captchaMetaInPage() {
     pageurl: location.href,
   };
 }
+
+/**
+ * Finds a visible menu item by name and returns click coordinates (macro helper).
+ * @param {string} segmentName
+ * @returns {object}
+ */
+export function clickMenuSegmentInPage(segmentName) {
+  const wanted = String(segmentName || "")
+    .toLowerCase()
+    .trim();
+  if (!wanted) return { ok: false, error: "EMPTY_SEGMENT" };
+
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  const menus = [...document.querySelectorAll('[role="menu"]')].filter(isVisible);
+  for (const menu of menus) {
+    const items = menu.querySelectorAll(
+      '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]'
+    );
+    for (const el of items) {
+      if (!isVisible(el)) continue;
+      const name = (
+        el.getAttribute("aria-label") ||
+        el.innerText ||
+        el.textContent ||
+        ""
+      )
+        .replace(/\s+/g, " ")
+        .trim();
+      const lower = name.toLowerCase();
+      if (lower === wanted || lower.includes(wanted) || wanted.includes(lower)) {
+        el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+        const rect = el.getBoundingClientRect();
+        const popup = el.getAttribute("aria-haspopup");
+        const hasSubmenu = popup === "menu" || popup === "true";
+        return {
+          ok: true,
+          name,
+          hasSubmenu,
+          x: rect.left + rect.width / 2,
+          y: rect.top + rect.height / 2,
+        };
+      }
+    }
+  }
+  return { ok: false, error: "MENU_ITEM_NOT_FOUND", segment: segmentName };
+}
