@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 
 export function ChatDetailPage() {
@@ -15,6 +16,7 @@ export function ChatDetailPage() {
   const [chat, setChat] = useState(null);
   const [messages, setMessages] = useState([]);
   const [tasks, setTasks] = useState([]);
+  const [agentQueue, setAgentQueue] = useState({ pending: [], active: null });
   const [input, setInput] = useState("");
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState(null);
@@ -31,6 +33,7 @@ export function ChatDetailPage() {
       setChat(data.chat);
       setMessages(data.messages || []);
       setTasks(data.tasks || []);
+      setAgentQueue(data.agentQueue || { pending: [], active: null });
     } catch (err) {
       setError(err);
     }
@@ -69,10 +72,9 @@ export function ChatDetailPage() {
     stickToBottomRef.current = gap < 96;
   }
 
-  const waitingTask = tasks.find((t) => t.status === "waiting_user");
-  const activeTask = tasks.find((t) =>
-    ["pending", "running", "waiting_user"].includes(t.status)
-  );
+  const waitingTask =
+    agentQueue?.active?.status === "waiting_user" ? agentQueue.active : null;
+  const activeRun = agentQueue?.active || null;
   const agentId = chat?.agent?._id || chat?.agent || null;
 
   /**
@@ -124,8 +126,8 @@ export function ChatDetailPage() {
   }
 
   async function stopAgent() {
-    if (!activeTask) return;
-    if (!window.confirm("Stop the agent for this chat?")) return;
+    if (!activeRun) return;
+    if (!window.confirm("Stop the agent's current run? Queued goals will stay in the queue.")) return;
     setStopping(true);
     setError(null);
     try {
@@ -140,9 +142,16 @@ export function ChatDetailPage() {
 
   const controlPanel = (
     <div className="flex min-h-0 w-full flex-col gap-2 lg:flex-1 lg:gap-3">
+      <AgentTaskQueue
+        chatId={chatId}
+        agentQueue={agentQueue}
+        onChanged={load}
+        onError={setError}
+      />
+
       <div className="flex shrink-0 items-center justify-between gap-2">
         <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
-        {activeTask ? (
+        {activeRun ? (
           <button
             type="button"
             onClick={stopAgent}
@@ -197,11 +206,10 @@ export function ChatDetailPage() {
         />
         <button
           type="submit"
-          disabled={busy || Boolean(activeTask)}
+          disabled={busy}
           className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-          title={activeTask ? "Stop the current run before sending another goal" : undefined}
         >
-          {busy ? "Sending…" : activeTask ? "Running…" : "Send goal"}
+          {busy ? "Sending…" : activeRun ? "Queue goal" : "Send goal"}
         </button>
       </form>
     </div>
@@ -236,13 +244,24 @@ export function ChatDetailPage() {
         />
       ) : null}
 
-      {tasks[0] ? (
+      {activeRun || tasks[0] ? (
         <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 break-words rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
           <span>
-            Latest task: <strong>{tasks[0].status}</strong>
-            {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
+            {activeRun ? (
+              <>
+                Agent is <strong>{activeRun.status}</strong>
+                {activeRun.resultSummary
+                  ? ` — ${activeRun.resultSummary.slice(0, 120)}`
+                  : ` — ${activeRun.goal.slice(0, 80)}`}
+              </>
+            ) : (
+              <>
+                Latest task: <strong>{tasks[0].status}</strong>
+                {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
+              </>
+            )}
           </span>
-          {activeTask ? (
+          {activeRun ? (
             <button
               type="button"
               onClick={stopAgent}

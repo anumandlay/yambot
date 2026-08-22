@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 10:25] Feature: agent work queue in chat (view, edit, delete pending goals)
+
+- **Prompt Provided:** show queued work for the agent in every chat related to that agent; option to delete and edit queued items
+- **Architectural Flow:** `GET /api/chats/:id` returns `agentQueue` (pending FIFO + active run across all chats for bound agent); `PATCH`/`DELETE` on pending tasks; `AgentTaskQueue` panel in ChatDetailPage; allow stacking pending goals while agent runs
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/chats.js`, `frontend/src/components/AgentTaskQueue.jsx`, `frontend/src/pages/ChatDetailPage.jsx`
+
 ## [2026-08-22 10:20] Perf: faster agent steps (captcha, no 600ms pause, no full-page shots)
 
 - **Prompt Provided:** yes — (1) captcha: try DeathByCaptcha then ask user to take control; (2) remove 600ms step pause; (3) no full-page screenshots during agent loop
