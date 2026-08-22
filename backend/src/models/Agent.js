@@ -13,11 +13,9 @@ import mongoose from "mongoose";
 export const AGENT_RUNNERS = ["cloud"];
 
 /**
- * How the agent executes goals.
- * - `browser`: LLM-driven browser steps on the cloud worker
- * - `research`: Google SERP research on the cloud worker
+ * How the agent executes goals — browser-only (LLM-driven steps on the cloud worker).
  */
-export const AGENT_MODES = ["browser", "research"];
+export const AGENT_MODES = ["browser"];
 
 /** Workforce role — managers can delegate goals to managed agents (Layer 3). */
 export const AGENT_ROLES = ["worker", "manager"];
@@ -115,22 +113,13 @@ const agentSchema = new mongoose.Schema(
       maxlength: 500,
     },
     /**
-     * Execution mode.
-     * - `browser`: LLM-driven browser steps
-     * - `research`: Google SERP capture on the cloud worker
+     * Execution mode — always browser (legacy `research` values migrated at boot).
      */
     mode: {
       type: String,
       enum: AGENT_MODES,
       default: "browser",
       index: true,
-    },
-    /** Default Google SERP pages to capture per keyword when mode=research. */
-    researchMaxPages: {
-      type: Number,
-      default: 10,
-      min: 1,
-      max: 50,
     },
     /** Standing operating instructions for every run. */
     instructions: { type: String, default: "", trim: true },
@@ -321,8 +310,7 @@ export function toAgentSnapshot(agentDoc) {
     description: a.description || "",
     profile: a.profile || "",
     skill: a.skill || "",
-    mode: a.mode || "browser",
-    researchMaxPages: Math.min(50, Math.max(1, Number(a.researchMaxPages) || 10)),
+    mode: "browser",
     instructions: a.instructions || "",
     facts: Array.isArray(a.facts) ? a.facts : [],
     autonomy: a.autonomy || {},
@@ -363,7 +351,6 @@ export function formatAgentPrompt(snapshot) {
   const auto = snapshot.autonomy || {};
   return [
     `AGENT NAME: ${snapshot.name}`,
-    snapshot.mode === "research" ? "MODE: research (Google SERP on cloud worker)" : "MODE: browser",
     snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
     snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
     snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",

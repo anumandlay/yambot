@@ -17,7 +17,7 @@ const HISTORY_LEN = 40;
 function containerKind(name) {
   const n = String(name || "");
   if (/^yambot-agent-/i.test(n)) return "agent";
-  if (/research-scraper|computer-manager|worker-image|^deploy-(api|frontend|mongo)-/i.test(n)) {
+  if (/computer-manager|worker-image|^deploy-(api|web|mongo)-/i.test(n)) {
     return "platform";
   }
   return "other";

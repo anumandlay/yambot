@@ -57,7 +57,6 @@ import {
   deriveSiteHint,
   recordSiteLearning,
 } from "./browserState/index.js";
-import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -713,62 +712,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
     try {
       await ensureBrowser();
 
-      let workingGoal = goal;
-
-      // Phase 1 (research): google.com homepage → type xpath → search → scrape SERPs.
-      // Phase 2: LLM visits each organic URL from Phase 1.
-      if (agentSnapshot?.mode === "research") {
-        await mirror(taskId, "started", {
-          status: "running",
-          payload: { goal, worker: config.workerName, mode: "research", phase: 1 },
-          appendMessage: `Cloud research “${config.workerName}” — Phase 1 (Google SERP)…\nGoal: ${goal}`,
-        });
-        const { jobs, summary, urls } = await runCloudResearchPhase1({
-          api,
-          page,
-          goal,
-          agentSnapshot,
-          taskId,
-          shouldStop: () => isTaskCancelled(taskId),
-          onProgress: async (msg, payload) => {
-            notes.push(msg);
-            await mirror(taskId, "research", {
-              payload: payload || {},
-              appendMessage: msg,
-            }).catch(() => {});
-            await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
-          },
-          onLive: () => pushLiveScreen({ taskId, screenshot: false }),
-        });
-
-        if (await isTaskCancelled(taskId)) {
-          await complete(taskId, {
-            success: false,
-            summary: "Stopped by user",
-            error: "cancelled",
-            history,
-            siteDomain,
-            llmUsage,
-          });
-          return;
-        }
-
-        const jsonBlob = JSON.stringify(jobs);
-        await mirror(taskId, "research", {
-          payload: { phase: 1, urlCount: urls.length },
-          appendMessage: `${summary}\n\nFull SERP JSON (${Math.min(jsonBlob.length, 100000)} chars):\n\`\`\`json\n${jsonBlob.slice(0, 100000)}\n\`\`\``,
-        }).catch(() => {});
-
-        notes.push(summary);
-        notes.push(`SERP_JSON:${jsonBlob.slice(0, 40000)}`);
-        workingGoal = buildDeepResearchGoal(goal, urls);
-        notes.push(`Phase 2 starting — visit ${urls.length} site(s).`);
-        await mirror(taskId, "research", {
-          payload: { phase: 2, urls },
-          appendMessage: `Phase 2 — LLM will visit ${urls.length} website(s) from the SERP results and research each one.`,
-        }).catch(() => {});
-      }
-
       const settings = await getSettings();
       if (settings.budget?.exceeded) {
         await complete(taskId, {
@@ -789,26 +732,22 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       // Why: only open a start URL when the agent configures one — never force google.com.
-      if (agentSnapshot?.mode !== "research") {
-        const preferredStart =
-          agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
-        if (preferredStart && /^https?:\/\//i.test(preferredStart)) {
-          await page.goto(preferredStart, { waitUntil: "domcontentloaded", timeout: 60000 });
-        }
-
-        await pushLiveScreen({ taskId });
-        await mirror(taskId, "started", {
-          status: "running",
-          payload: { goal, worker: config.workerName },
-          appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
-        });
-      } else {
-        await pushLiveScreen({ taskId }).catch(() => {});
+      const preferredStart =
+        agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
+      if (preferredStart && /^https?:\/\//i.test(preferredStart)) {
+        await page.goto(preferredStart, { waitUntil: "domcontentloaded", timeout: 60000 });
       }
+
+      await pushLiveScreen({ taskId });
+      await mirror(taskId, "started", {
+        status: "running",
+        payload: { goal, worker: config.workerName },
+        appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
+      });
 
       /** @type {object|null} */
       let goalPlan = await createGoalPlan({
-        goal: workingGoal,
+        goal,
         chatCompletion: trackedChatCompletion,
         apiKey: settings.llmApiKey,
         baseUrl: settings.llmBaseUrl,
@@ -825,7 +764,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       /** @type {object|null} */
       let prevObs = null;
       let prevUrl = "";
-      const activeSkill = detectSkill(workingGoal, page?.url?.() || agentSnapshot?.startUrl || "");
+      const activeSkill = detectSkill(goal, page?.url?.() || agentSnapshot?.startUrl || "");
       let siteProfile = null;
       for (;;) {
         step += 1;
@@ -856,7 +795,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         goalPlan = updatePlanFromObservation(goalPlan, pageState, obs);
         const goalProgress = computeGoalProgress({
-          goal: workingGoal,
+          goal: goal,
           pageState,
           obs,
           plan: goalPlan,
@@ -867,7 +806,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           notes.push("NO PROGRESS DETECTED — change strategy, use wait_for, ask_user, or finish.");
         }
 
-        const stopEval = evaluateStopConditions(pageState, obs, workingGoal, agentSnapshot);
+        const stopEval = evaluateStopConditions(pageState, obs, goal, agentSnapshot);
         if (stopEval.shouldFinish) {
           await complete(taskId, {
             success: true,
@@ -894,7 +833,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           shouldAttachVision({ step, result: prevResult }) &&
           !remoteHumanControl;
 
-        const snapshotText = formatObservation(obs, pageState, stateDiff, workingGoal, {
+        const snapshotText = formatObservation(obs, pageState, stateDiff, goal, {
           plan: goalPlan,
           progress: goalProgress,
           currentSubgoal,
@@ -902,7 +841,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
 
         const userTextParts = [
-          `GOAL:\n${workingGoal}`,
+          `GOAL:\n${goal}`,
           `STEP: ${step}`,
           loopNote,
           stopEval.hints.length ? formatStopHints(stopEval) : "",

@@ -9,7 +9,6 @@ import { Router } from "express";
 import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
-import { ResearchJob } from "../models/ResearchJob.js";
 import {
   issueWorkerToken,
   containerNameForAgent,
@@ -120,14 +119,8 @@ function pickAgentFields(body, opts = {}) {
   if (body.description != null) set("description", String(body.description || "").trim());
   if (body.profile != null) set("profile", String(body.profile || "").trim());
   if (body.skill != null) set("skill", String(body.skill || "").trim().slice(0, 500));
-  if (body.mode != null) {
-    const mode = String(body.mode || "browser");
-    set("mode", AGENT_MODES.includes(mode) ? mode : "browser");
-  }
-  if (body.researchMaxPages != null) {
-    const n = Number(body.researchMaxPages);
-    set("researchMaxPages", Number.isFinite(n) ? Math.min(50, Math.max(1, Math.round(n))) : 10);
-  }
+  // Why: browser-only product — always cloud browser agent.
+  if (!opts.partial) set("mode", "browser");
   if (body.instructions != null) set("instructions", String(body.instructions || "").trim());
   if (body.facts != null) set("facts", normalizeFacts(body.facts));
   if (body.successCriteria != null) {
@@ -774,7 +767,6 @@ agentsRouter.delete("/:id", async (req, res, next) => {
     await Promise.all([
       Message.deleteMany({ chat: { $in: chatIds } }),
       Task.deleteMany({ user: req.userId, $or: [{ agent: agentId }, { chat: { $in: chatIds } }] }),
-      ResearchJob.deleteMany({ user: req.userId, agent: agentId }),
       Chat.deleteMany({ _id: { $in: chatIds } }),
     ]);
 

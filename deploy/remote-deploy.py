@@ -136,7 +136,6 @@ def main() -> int:
 
     jwt = keep("JWT_SECRET", secrets.token_hex(32))
     crypto = keep("SETTINGS_CRYPTO_KEY", secrets.token_hex(32))
-    research_token = keep("RESEARCH_WORKER_TOKEN", secrets.token_hex(24))
     llm_key = os.environ.get("DEFAULT_LLM_API_KEY") or keep("DEFAULT_LLM_API_KEY", "")
     llm_base = os.environ.get("DEFAULT_LLM_BASE_URL") or keep(
         "DEFAULT_LLM_BASE_URL", "https://api.minimax.io/v1"
@@ -158,7 +157,6 @@ def main() -> int:
         f"DEFAULT_LLM_BASE_URL={llm_base}\n"
         f"DEFAULT_LLM_MODEL={llm_model}\n"
         f"DEFAULT_LLM_API_KEY={llm_key}\n"
-        f"RESEARCH_WORKER_TOKEN={research_token}\n"
     )
 
     run("mkdir -p ~/yambot")
@@ -169,6 +167,12 @@ def main() -> int:
     run(
         f"echo '{password}' | sudo -S bash -lc "
         f"'cd /home/ubuntu/yambot/deploy && {compose} down' || true"
+    )
+    # Why: research-scraper removed from compose — remove orphaned container + volume from older deploys.
+    run(
+        f"echo '{password}' | sudo -S bash -lc "
+        "'docker rm -f deploy-research-scraper-1 2>/dev/null || true; "
+        "docker volume rm deploy_yambot_research_chrome 2>/dev/null || true'"
     )
     run("rm -rf ~/yambot/* && tar -xzf ~/yambot-deploy.tgz -C ~/yambot")
 

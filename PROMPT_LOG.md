@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 15:45] Remove research (Google SERP) agent mode
+
+- **Prompt Provided:** remove research agent mode, all related functionality, containers, and orphans
+- **Architectural Flow:** Deleted `research-scraper` service, Python scraper, `ResearchJob` model, `/api/research`, worker SERP phase; agents are browser-only; boot migration sets legacy `mode=research` → `browser` and drops `researchjobs` collection; deploy removes orphan container/volume
+- **Impacted Files:** `PROMPT_LOG.md`, deleted `research-scraper/*`, `deploy/Dockerfile.research`, `backend/src/models/ResearchJob.js`, `backend/src/routes/research.js`, `worker/src/{research,serpCapture}.js`, `backend/src/{models/Agent,routes/agents,index,utils/db}.js`, `worker/src/agent.js`, `frontend/src/pages/{AgentEditPage,AgentsPage,SystemPage}.jsx`, `deploy/{docker-compose.yml,.env.example,remote-deploy.py}`
+
 ## [2026-08-22 15:35] Phases 2–4: Policies, workforce, HTTP tool, evaluation
 
 - **Prompt Provided:** "lets go with phase 2, 3, and 4" — complete governance (Layer 2), manager delegation (Layer 3), integrations + quality scoring (Layer 4)

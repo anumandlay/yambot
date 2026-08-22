@@ -112,11 +112,6 @@ export function AgentsPage() {
               <div className="min-w-0">
                 <div className="truncate font-semibold">{a.name}</div>
                 <div className="flex flex-wrap gap-2 text-xs uppercase tracking-wide text-teal-800/60">
-                  {a.mode === "research" ? (
-                    <span className="rounded bg-amber-50 px-1.5 py-0.5 normal-case text-amber-900">
-                      research
-                    </span>
-                  ) : null}
                   {a.skill ? <span className="normal-case">{a.skill}</span> : null}
                   {a.skill ? <span>·</span> : null}
                   <span>cloud computer</span>

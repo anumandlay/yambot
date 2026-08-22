@@ -76,7 +76,7 @@ Locator rules (click/type/select):
 
 Rules:
 - CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.
-- For Google research: navigate or use the search box, then open promising links, extract notes, finish with a summary + URLs.
+- For web research goals: navigate, open promising links, extract notes, finish with a summary + URLs.
 - Shopping (any store): if the goal mentions cart/basket/bag/trolley, open the header Cart/Basket FIRST (icons often say "items in cart" / "shopping bag"). Do not browse products. Prefer the early snapshot refs for cart/checkout. If missing, navigate on the same host to a common cart path: /cart, /basket, /bag, /gp/cart/view.html, /checkout/cart — pick what matches the site, do not invent a different domain.
 - Do not loop forever. If RECENT ACTIONS show LOOP DETECTED or the same action failed twice, change strategy — wait_for, ask_user, or finish.
 - Before submitting forms / purchases / applications, prefer ask_user unless autonomy allows submit.

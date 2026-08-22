@@ -15,8 +15,6 @@ const EMPTY = {
   description: "",
   profile: "",
   skill: "",
-  mode: "browser",
-  researchMaxPages: 10,
   instructions: "",
   facts: [{ key: "", value: "" }],
   successCriteria: "",
@@ -69,7 +67,6 @@ export function AgentEditPage() {
   const isNew = !agentId || agentId === "new";
   const navigate = useNavigate();
   const [form, setForm] = useState(EMPTY);
-  const [modes, setModes] = useState(["browser", "research"]);
   const [scheduleIntervals, setScheduleIntervals] = useState([
     "15m",
     "30m",
@@ -90,9 +87,6 @@ export function AgentEditPage() {
     (async () => {
       try {
         const meta = await api("/api/agents/meta");
-        if (Array.isArray(meta.modes) && meta.modes.length) {
-          setModes(meta.modes);
-        }
         if (Array.isArray(meta.scheduleIntervals) && meta.scheduleIntervals.length) {
           setScheduleIntervals(meta.scheduleIntervals);
         }
@@ -106,8 +100,6 @@ export function AgentEditPage() {
             description: a.description || "",
             profile: a.profile || "",
             skill: a.skill || "",
-            mode: a.mode === "research" ? "research" : "browser",
-            researchMaxPages: a.researchMaxPages || 10,
             instructions: a.instructions || "",
             facts: a.facts?.length ? a.facts : [{ key: "", value: "" }],
             successCriteria: a.successCriteria || "",
@@ -307,49 +299,12 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Agent mode
-          <select
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.mode}
-            onChange={(e) => update("mode", e.target.value)}
-          >
-            {modes.map((m) => (
-              <option key={m} value={m}>
-                {m === "research"
-                  ? "Research (Google SERP on cloud computer)"
-                  : "Browser agent (LLM clicks / types)"}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-teal-900/60">
-            Research agents capture Google SERPs on this agent&apos;s VPS Chromium box and post
-            results to chat. Browser agents use the LLM click/type loop on the same cloud computer.
-          </span>
-        </label>
-        {form.mode === "research" ? (
-          <label className="flex flex-col gap-1 text-sm">
-            Default pages per keyword
-            <input
-              type="number"
-              min={1}
-              max={50}
-              className="min-h-11 rounded-xl border border-teal-100 px-3"
-              value={form.researchMaxPages}
-              onChange={(e) => update("researchMaxPages", Number(e.target.value) || 10)}
-            />
-            <span className="text-xs text-teal-900/60">
-              Goal format: <code className="rounded bg-teal-50 px-1">visa canada, schengen visa</code>{" "}
-              or <code className="rounded bg-teal-50 px-1">keywords: a, b pages:5</code>
-            </span>
-          </label>
-        ) : null}
-        <label className="flex flex-col gap-1 text-sm">
           Skill
           <textarea
             className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
             value={form.skill}
             onChange={(e) => update("skill", e.target.value)}
-            placeholder="What this agent is good at, e.g. research competitor pricing and summarize findings"
+            placeholder="What this agent is good at, e.g. compare competitor pricing and summarize findings"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
