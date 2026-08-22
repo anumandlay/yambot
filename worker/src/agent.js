@@ -1,7 +1,7 @@
 /**
  * @fileoverview Playwright agent loop for one dedicated cloud computer.
  * Purpose: Observe → LLM decide → act on a persistent Chromium profile bound to one agent.
- * Downstream: YamBot extension API (events/complete), website chat live feed.
+ * Downstream: YamBot worker API (events/complete), website chat live feed.
  */
 
 import fs from "node:fs";
@@ -93,20 +93,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       // Why: headed noVNC shows Chromium's "unsupported command-line flag" banner for --no-sandbox.
       ...(config.headed ? ["--test-type"] : []),
     ];
-    const extDir = config.extensionDir;
-    const extManifest = extDir ? path.join(extDir, "manifest.json") : "";
-    const canLoadExt =
-      Boolean(config.loadExtension) && extManifest && fs.existsSync(extManifest);
-    if (canLoadExt) {
-      // Why: same YamBot MV3 extension as laptop Chrome (content scripts / SERP capture).
-      args.push(`--disable-extensions-except=${extDir}`);
-      args.push(`--load-extension=${extDir}`);
-    }
 
     context = await chromium.launchPersistentContext(config.profileDir, {
-      // Why: channel chromium is required for MV3 extensions under Playwright.
-      channel: "chromium",
-      // Why: headed on Xvfb so noVNC shows the real browser window.
       headless: !config.headed,
       viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
       // Why: Playwright injects --enable-automation by default, which paints the
@@ -153,11 +141,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         log(`[${config.workerName}] boot navigate failed:`, err?.message || err);
       }
     }
-    log(
-      `[${config.workerName}] Chromium ready (profile=${config.profileDir}` +
-        (canLoadExt ? `, extension=${extDir}` : ", extension=off") +
-        ")"
-    );
+    log(`[${config.workerName}] Chromium ready (profile=${config.profileDir})`);
   }
 
   /**
@@ -227,7 +211,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         log(`[${config.workerName}] screenshot failed:`, err?.message || err);
       }
     }
-    const data = await api("/api/extension/computer/heartbeat", {
+    const data = await api("/api/worker/computer/heartbeat", {
       method: "POST",
       body: JSON.stringify({
         agentId: config.agentId,
@@ -306,7 +290,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   async function mirror(taskId, type, body) {
-    await api(`/api/extension/tasks/${taskId}/events`, {
+    await api(`/api/worker/tasks/${taskId}/events`, {
       method: "POST",
       body: JSON.stringify({ type, ...body }),
     });
@@ -314,7 +298,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
   async function complete(taskId, { success, summary, error = "", history = [], siteDomain = "" }) {
     const trajectory = buildTrajectory(history);
-    await api(`/api/extension/tasks/${taskId}/complete`, {
+    await api(`/api/worker/tasks/${taskId}/complete`, {
       method: "POST",
       body: JSON.stringify({ success, summary, error, trajectory }),
     });
@@ -334,12 +318,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   async function getSettings() {
-    const remote = await api("/api/extension/runtime-config");
+    const remote = await api("/api/worker/runtime-config");
     const c = remote?.config || {};
+    const llmApiKey = c.llmApiKey || "";
+    const llmBaseUrl = c.llmBaseUrl || "https://api.minimax.io/v1";
+    const llmModel = c.llmModel || "MiniMax-M2.7";
+    const visionApiKey = c.visionApiKey || "";
+    const visionBaseUrl = c.visionBaseUrl || "";
+    const visionModel = c.visionModel || "";
     return {
-      llmApiKey: c.llmApiKey || "",
-      llmBaseUrl: c.llmBaseUrl || "https://api.minimax.io/v1",
-      llmModel: c.llmModel || "MiniMax-M2.7",
+      llmApiKey,
+      llmBaseUrl,
+      llmModel,
+      visionApiKey,
+      visionBaseUrl,
+      visionModel,
+      /** Credentials for multimodal steps — falls back to main LLM when vision fields are blank. */
+      visionLlmApiKey: visionApiKey || llmApiKey,
+      visionLlmBaseUrl: visionBaseUrl || llmBaseUrl,
+      visionLlmModel: visionModel || llmModel,
       dbcUsername: c.dbcUsername || "",
       dbcPassword: c.dbcPassword || "",
     };
@@ -572,7 +569,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
    */
   async function isTaskCancelled(taskId) {
     try {
-      const data = await api(`/api/extension/tasks/${taskId}`);
+      const data = await api(`/api/worker/tasks/${taskId}`);
       return data.task?.status === "cancelled";
     } catch {
       return false;
@@ -600,7 +597,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         humanControl: false,
       }));
       await sleep(status?.humanControl ? 800 : 2000);
-      const data = await api(`/api/extension/tasks/${taskId}`);
+      const data = await api(`/api/worker/tasks/${taskId}`);
       if (data.task?.status === "cancelled") {
         throw Object.assign(new Error("Stopped by user"), { cancelled: true });
       }
@@ -795,8 +792,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const sessionTelemetry = telemetry?.getSummary();
         const prevResult = history[history.length - 1]?.result;
+        const visionAllowed = agentSnapshot?.autonomy?.visionEnabled !== false;
         const wantVision =
-          shouldAttachVision({ step, result: prevResult }) && !remoteHumanControl;
+          visionAllowed &&
+          shouldAttachVision({ step, result: prevResult }) &&
+          !remoteHumanControl;
 
         const snapshotText = formatObservation(obs, pageState, stateDiff, workingGoal, {
           plan: goalPlan,
@@ -855,7 +855,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
               siteHintsBlock,
               visionAttached
                 ? "A viewport screenshot is attached — correlate refs with visible UI."
-                : "A screenshot may attach after failed verification steps.",
+                : visionAllowed
+                  ? "A screenshot may attach after failed verification steps."
+                  : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
               "Prefer wait_for over blind wait when waiting for UI, URL, or text.",
               formatAgentSnapshot(agentSnapshot),
@@ -897,10 +899,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         let content;
         try {
+          const llmCreds = visionAttached
+            ? {
+                apiKey: settings.visionLlmApiKey,
+                baseUrl: settings.visionLlmBaseUrl,
+                model: settings.visionLlmModel,
+              }
+            : {
+                apiKey: settings.llmApiKey,
+                baseUrl: settings.llmBaseUrl,
+                model: settings.llmModel,
+              };
           const llm = await chatCompletion({
-            apiKey: settings.llmApiKey,
-            baseUrl: settings.llmBaseUrl,
-            model: settings.llmModel,
+            apiKey: llmCreds.apiKey,
+            baseUrl: llmCreds.baseUrl,
+            model: llmCreds.model,
             messages,
           });
           content = llm.content;
@@ -1297,7 +1310,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (!agentSnapshot?.email?.configured) {
           throw new Error("Email is not configured for this agent");
         }
-        const result = await api("/api/extension/email/send", {
+        const result = await api("/api/worker/email/send", {
           method: "POST",
           body: JSON.stringify({
             agentId: config.agentId,
@@ -1316,7 +1329,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (!agentSnapshot?.email?.configured) {
           throw new Error("Email is not configured for this agent");
         }
-        const result = await api("/api/extension/email/check", {
+        const result = await api("/api/worker/email/check", {
           method: "POST",
           body: JSON.stringify({
             agentId: config.agentId,

@@ -1,7 +1,7 @@
 /**
  * @fileoverview Per-agent SMTP/IMAP helpers — send and read mail as the agent's identity.
- * Purpose: Let cloud/extension agents use email like a human (verification codes, outreach).
- * Inputs: Agent.email + SETTINGS_CRYPTO_KEY; Downstream: extension email routes, agent actions.
+ * Purpose: Let cloud agents use email like a human (verification codes, outreach).
+ * Inputs: Agent.email + SETTINGS_CRYPTO_KEY; Downstream: worker email routes, agent actions.
  */
 
 import nodemailer from "nodemailer";

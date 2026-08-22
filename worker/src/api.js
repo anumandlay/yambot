@@ -76,10 +76,9 @@ export function createApiClient(config) {
   }
 
   async function claimNext() {
-    return api("/api/extension/tasks/next", {
+    return api("/api/worker/tasks/next", {
       method: "POST",
       body: JSON.stringify({
-        claimAs: "cloud",
         agentId: config.agentId,
       }),
     });

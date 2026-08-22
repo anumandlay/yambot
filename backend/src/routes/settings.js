@@ -1,7 +1,7 @@
 /**
  * @fileoverview Settings routes — LLM + DeathByCaptcha credentials for the agent.
- * Purpose: Let users configure provider keys on the website instead of only in the extension.
- * Downstream: User.settings (encrypted); extension `/runtime-config` reads decrypted values.
+ * Purpose: Let users configure provider keys on the website for cloud workers.
+ * Downstream: User.settings (encrypted); `/api/worker/runtime-config` reads decrypted values.
  */
 
 import { Router } from "express";
@@ -42,6 +42,10 @@ settingsRouter.get("/", async (req, res, next) => {
         hasLlmApiKey: Boolean(savedKey),
         llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
         llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
+        visionApiKeyMasked: mask(decryptSecret(s.visionApiKeyEnc || "")),
+        hasVisionApiKey: Boolean(decryptSecret(s.visionApiKeyEnc || "")),
+        visionBaseUrl: s.visionBaseUrl || "",
+        visionModel: s.visionModel || "",
         dbcUsername: s.dbcUsername || "",
         dbcPasswordMasked: mask(savedDbcPass),
         hasDbcPassword: Boolean(savedDbcPass),
@@ -69,6 +73,8 @@ settingsRouter.put("/", async (req, res, next) => {
 
     if (typeof body.llmBaseUrl === "string") user.settings.llmBaseUrl = body.llmBaseUrl.trim();
     if (typeof body.llmModel === "string") user.settings.llmModel = body.llmModel.trim();
+    if (typeof body.visionBaseUrl === "string") user.settings.visionBaseUrl = body.visionBaseUrl.trim();
+    if (typeof body.visionModel === "string") user.settings.visionModel = body.visionModel.trim();
     if (typeof body.dbcUsername === "string") user.settings.dbcUsername = body.dbcUsername.trim();
     if (typeof body.confirmBeforeSubmit === "boolean") {
       user.settings.confirmBeforeSubmit = body.confirmBeforeSubmit;
@@ -76,6 +82,9 @@ settingsRouter.put("/", async (req, res, next) => {
     // Why: blank string means "leave unchanged" so the UI can omit re-entry of secrets.
     if (typeof body.llmApiKey === "string" && body.llmApiKey.trim()) {
       user.settings.llmApiKeyEnc = encryptSecret(body.llmApiKey.trim());
+    }
+    if (typeof body.visionApiKey === "string" && body.visionApiKey.trim()) {
+      user.settings.visionApiKeyEnc = encryptSecret(body.visionApiKey.trim());
     }
     if (typeof body.dbcPassword === "string" && body.dbcPassword.trim()) {
       user.settings.dbcPasswordEnc = encryptSecret(body.dbcPassword.trim());

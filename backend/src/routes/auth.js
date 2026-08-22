@@ -1,5 +1,5 @@
 /**
- * @fileoverview Auth routes — register / login for the YamBot web app + extension.
+ * @fileoverview Auth routes — register / login for the YamBot web app and cloud workers.
  * Purpose: Issue JWTs used by both the React client and Chrome worker.
  * Downstream: User model; clients store token in localStorage / chrome.storage.
  */

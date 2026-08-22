@@ -119,13 +119,7 @@ export function AgentsPage() {
                   ) : null}
                   {a.skill ? <span className="normal-case">{a.skill}</span> : null}
                   {a.skill ? <span>·</span> : null}
-                  <span>
-                    {a.mode === "research" || a.runner === "extension"
-                      ? "chrome only"
-                      : a.runner === "cloud"
-                        ? "cloud computer"
-                        : "any runner"}
-                  </span>
+                  <span>cloud computer</span>
                   {a.schedule?.enabled ? (
                     <>
                       <span>·</span>
@@ -140,14 +134,19 @@ export function AgentsPage() {
                       </span>
                     </>
                   ) : null}
-                  {a.mode !== "research" && (a.runner === "cloud" || a.runner === "any") ? (
+                  {a.computer?.online ? (
                     <>
                       <span>·</span>
                       <span className={a.computer?.online ? "text-emerald-700" : ""}>
                         {a.computer?.online ? "online" : "offline"}
                       </span>
                     </>
-                  ) : null}
+                  ) : (
+                    <>
+                      <span>·</span>
+                      <span>offline</span>
+                    </>
+                  )}
                 </div>
                 {a.description ? (
                   <p className="mt-1 break-words text-sm text-teal-900/70">{a.description}</p>

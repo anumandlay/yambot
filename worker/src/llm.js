@@ -1,6 +1,6 @@
 /**
  * @fileoverview OpenAI-compatible chat client for the cloud worker.
- * Purpose: Same LLM contract as the Chrome extension (`extension/background/llm.js`).
+ * Purpose: OpenAI-compatible chat client for the cloud worker.
  */
 
 /**

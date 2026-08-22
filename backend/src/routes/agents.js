@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_RUNNERS, AGENT_MODES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
+import { Agent, AGENT_MODES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
 import { ResearchJob } from "../models/ResearchJob.js";
@@ -53,10 +53,7 @@ function publicAgent(agent) {
  * @returns {boolean}
  */
 function wantsCloudComputer(agent) {
-  if (agent.active === false) return false;
-  const runner = agent.runner || "cloud";
-  // Why: research can use cloud (extension bundled in Chromium) or laptop extension only.
-  return runner === "cloud" || runner === "any";
+  return agent.active !== false;
 }
 
 /**
@@ -138,10 +135,8 @@ function pickAgentFields(body, opts = {}) {
   }
   if (body.allowedDomains != null) set("allowedDomains", normalizeDomains(body.allowedDomains));
   if (body.startUrl != null) set("startUrl", String(body.startUrl || "").trim());
-  if (body.runner != null) {
-    const runner = String(body.runner || "cloud");
-    set("runner", AGENT_RUNNERS.includes(runner) ? runner : "cloud");
-  }
+  // Why: cloud-only — runner is always cloud; ignore client overrides.
+  if (!opts.partial) set("runner", "cloud");
   // Why: maxSteps removed from product — agents run until finish; ignore legacy clients.
   if (body.active != null) set("active", Boolean(body.active));
   if (body.memory != null && Array.isArray(body.memory)) {
@@ -165,6 +160,7 @@ function pickAgentFields(body, opts = {}) {
       allowCaptcha: body.autonomy.allowCaptcha !== false,
       askBeforeLogin: body.autonomy.askBeforeLogin === true,
       askBeforeSubmit: body.autonomy.askBeforeSubmit === true,
+      visionEnabled: body.autonomy.visionEnabled !== false,
     });
   }
   if (body.schedule != null && typeof body.schedule === "object") {
@@ -226,7 +222,6 @@ function pickAgentFields(body, opts = {}) {
 agentsRouter.get("/meta", (_req, res) => {
   res.json({
     ok: true,
-    runners: AGENT_RUNNERS,
     modes: AGENT_MODES,
     scheduleIntervals: SCHEDULE_INTERVALS,
   });
@@ -253,7 +248,6 @@ agentsRouter.get("/live-wall", async (req, res, next) => {
     const agents = await Agent.find({
       user: req.userId,
       active: { $ne: false },
-      runner: { $in: ["cloud", "any"] },
     })
       .select("-workerTokenEnc -workerTokenHash -controlQueue")
       .sort({ updatedAt: -1 })
@@ -344,12 +338,7 @@ agentsRouter.post("/", async (req, res, next) => {
       return;
     }
     if (fields.mode == null) fields.mode = "browser";
-    // Why: research defaults to extension (captcha-light); cloud is allowed when chosen explicitly.
-    if (fields.mode === "research") {
-      if (fields.runner == null) fields.runner = "extension";
-    } else if (fields.runner == null) {
-      fields.runner = "cloud";
-    }
+    fields.runner = "cloud";
 
     const agent = new Agent({ ...fields, user: req.userId });
     ensureWorkerCredentials(agent);
@@ -365,7 +354,7 @@ agentsRouter.post("/", async (req, res, next) => {
         hint:
           agent.computer?.desired === "running"
             ? "Cloud computer will start automatically via computer-manager (usually within ~30s)."
-            : "No cloud computer requested for this runner.",
+            : "Cloud computer is stopped for this agent.",
       },
     });
   } catch (err) {

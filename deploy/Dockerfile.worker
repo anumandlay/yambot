@@ -28,8 +28,6 @@ RUN npm install --omit=dev
 
 COPY worker/src ./src
 COPY worker/entrypoint.sh /app/entrypoint.sh
-# Why: research + real-tab content scripts need the same MV3 extension as laptop Chrome.
-COPY extension ./extension
 
 RUN chmod +x /app/entrypoint.sh
 
@@ -40,8 +38,6 @@ ENV NODE_ENV=production \
     GOOGLE_DEFAULT_CLIENT_ID=no \
     GOOGLE_DEFAULT_CLIENT_SECRET=no \
     YAMBOT_PROFILE_DIR=/data/browser-profile \
-    YAMBOT_EXTENSION_DIR=/app/extension \
-    YAMBOT_LOAD_EXTENSION=1 \
     YAMBOT_POLL_MS=5000 \
     YAMBOT_NOVNC_PORT=6080 \
     YAMBOT_VNC_PORT=5900 \

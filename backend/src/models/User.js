@@ -1,7 +1,7 @@
 /**
  * @fileoverview User model — auth identity + encrypted LLM/DBC settings.
  * Purpose: Own login credentials and per-user agent configuration for YamBot.
- * Downstream: auth routes, settings routes, extension task claiming.
+ * Downstream: auth routes, settings routes, cloud worker task claiming.
  */
 
 import mongoose from "mongoose";
@@ -16,6 +16,9 @@ import {
  * @property {string} [llmApiKeyEnc]
  * @property {string} [llmBaseUrl]
  * @property {string} [llmModel]
+ * @property {string} [visionApiKeyEnc]
+ * @property {string} [visionBaseUrl]
+ * @property {string} [visionModel]
  * @property {string} [dbcUsername]
  * @property {string} [dbcPasswordEnc]
  * @property {number} [maxSteps]
@@ -27,6 +30,10 @@ const settingsSchema = new mongoose.Schema(
     llmApiKeyEnc: { type: String, default: "" },
     llmBaseUrl: { type: String, default: DEFAULT_LLM_BASE_URL },
     llmModel: { type: String, default: DEFAULT_LLM_MODEL },
+    /** Optional separate credentials for multimodal (viewport screenshot) steps. */
+    visionApiKeyEnc: { type: String, default: "" },
+    visionBaseUrl: { type: String, default: "" },
+    visionModel: { type: String, default: "" },
     dbcUsername: { type: String, default: "" },
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 0 },

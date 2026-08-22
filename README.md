@@ -1,10 +1,9 @@
 # YamBot
 
-Web control plane + browser agents (Chrome extension and/or always-on cloud Chromium per agent).
+Web control plane + cloud browser agents (always-on Chromium per agent on the VPS).
 
 - **Frontend:** React 19.2.8, Vite 6, React Router 7, Tailwind CSS 4  
 - **Backend:** Node.js 24 (ESM), Express, MongoDB/Mongoose  
-- **Extension:** Chrome MV3 worker on your laptop  
 - **Cloud worker:** Playwright Chromium with a persistent profile (one container ≈ one agent “computer”)  
 
 ## Architecture
@@ -13,10 +12,9 @@ Web control plane + browser agents (Chrome extension and/or always-on cloud Chro
 Website (login → agents → chats → goals → live results / Settings)
         │
         ▼
-Express API + MongoDB  (tasks tagged runner: extension|cloud|any)
+Express API + MongoDB
         │
-        ├── Chrome extension (claimAs=extension)
-        └── Cloud workers     (claimAs=cloud + agentId; persistent browser profile)
+        └── Cloud workers (Playwright + persistent browser profile per agent)
 ```
 
 ## Local setup
@@ -40,17 +38,10 @@ npm run dev
 ```
 App: http://localhost:5173
 
-### 4. Extension (laptop runner)
-1. `chrome://extensions` → Load unpacked → `extension/`
-2. Website: register/login → **Settings** → save LLM key  
-3. Agents → set runner to **My Chrome** or **Any**  
-4. Extension Settings → API `http://localhost:4000` + login  
-5. Send a goal in a chat; keep Chrome open
-
-### 5. Cloud computers (auto on VPS)
-On production Compose, `computer-manager` starts a Chromium box when you create an agent
-(default runner = cloud). Locally you can still run `worker/` manually with
-`YAMBOT_WORKER_TOKEN` from a recreated agent, or point at the VPS API.
+### 4. Cloud computers (auto on VPS)
+On production Compose, `computer-manager` starts a Chromium box when you create an agent.
+Locally you can run `worker/` manually with `YAMBOT_WORKER_TOKEN` from a recreated agent,
+or point at the VPS API.
 
 See `deploy/README.md`.
 

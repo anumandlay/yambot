@@ -66,7 +66,7 @@ export function ChatsPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Chats</h1>
           <p className="text-sm text-teal-900/70">
-            Pick an agent, start a chat, send a goal — Chrome runs it with that agent’s playbook.
+            Pick an agent, start a chat, send a goal — the cloud worker runs it with that agent’s playbook.
           </p>
         </div>
       </div>
@@ -107,9 +107,12 @@ export function ChatsPage() {
       </div>
 
       <div className="break-words rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-        <strong>Runners:</strong> Agents can use your Chrome extension and/or a cloud Chromium box on
-        the VPS. Set this on Agents → Computer. Extension API URL:{" "}
-        <code className="break-all rounded bg-white px-1">https://bot.vughy.com</code>.
+        <strong>Cloud workers:</strong> Each agent has a dedicated Chromium box on the VPS. Goals
+        queue automatically — watch progress on{" "}
+        <Link to="/live" className="font-semibold underline">
+          Live Wall
+        </Link>
+        .
       </div>
 
       {error ? (

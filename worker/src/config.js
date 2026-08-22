@@ -14,8 +14,6 @@
  * @property {string} workerToken
  * @property {string} agentId
  * @property {string} profileDir
- * @property {string} extensionDir
- * @property {boolean} loadExtension
  * @property {number} pollMs
  * @property {boolean} headed
  * @property {string} workerName
@@ -37,9 +35,6 @@ export function loadConfig() {
   const workerToken = String(process.env.YAMBOT_WORKER_TOKEN || "").trim();
   const agentId = String(process.env.YAMBOT_AGENT_ID || "").trim();
   const profileDir = String(process.env.YAMBOT_PROFILE_DIR || "/data/browser-profile");
-  const extensionDir = String(process.env.YAMBOT_EXTENSION_DIR || "/app/extension");
-  const loadExtension =
-    process.env.YAMBOT_LOAD_EXTENSION !== "0" && process.env.YAMBOT_LOAD_EXTENSION !== "false";
   const pollMs = Math.max(2000, Number(process.env.YAMBOT_POLL_MS) || 5000);
   const headed = process.env.YAMBOT_HEADED === "1" || process.env.YAMBOT_HEADED === "true";
   const workerName = String(process.env.YAMBOT_WORKER_NAME || `cloud-${agentId.slice(-6) || "box"}`);
@@ -60,8 +55,6 @@ export function loadConfig() {
     workerToken,
     agentId,
     profileDir,
-    extensionDir,
-    loadExtension,
     pollMs,
     headed,
     workerName,

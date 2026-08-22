@@ -1,7 +1,7 @@
 /**
  * @fileoverview Chat routes — create threads, post goals, poll messages/tasks.
  * Purpose: Website UX for “pick agent → new chat → enter goal → watch results”.
- * Downstream: Chat/Message/Task/Agent models; extension claims resulting tasks.
+ * Downstream: Chat/Message/Task/Agent models; cloud workers claim resulting tasks.
  */
 
 import { Router } from "express";
@@ -205,7 +205,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       agent: agentDoc?._id || null,
       agentSnapshot: snapshot,
       // Why: freeze runner so claim routing stays correct if the agent is edited while queued.
-      runner: agentDoc?.runner || snapshot?.runner || "any",
+      runner: "cloud",
       status: "pending",
       events: [
         {
@@ -214,20 +214,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             goal: content,
             agentId: snapshot?.id || null,
             agentName: snapshot?.name || null,
-            runner: agentDoc?.runner || snapshot?.runner || "any",
+            runner: "cloud",
           },
         },
       ],
     });
 
     const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
-    const runner = agentDoc?.runner || "any";
     const queueHint =
-      runner === "cloud"
-        ? "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile)."
-        : runner === "extension"
-          ? "Queued for your Chrome extension. Keep Chrome open with YamBot signed in."
-          : "Queued for any available worker (cloud computer or Chrome extension).";
+      "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
@@ -236,7 +231,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         taskId: task._id,
         status: "pending",
         agentId: snapshot?.id || null,
-        runner,
+        runner: "cloud",
       },
     });
 

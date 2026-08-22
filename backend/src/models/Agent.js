@@ -1,24 +1,21 @@
 /**
  * @fileoverview Agent model — reusable browser-worker definitions owned by a user.
- * Purpose: Store profile, free-text skill, instructions, facts, autonomy, schedule, and runner target
- * so chats/tasks can run with a specialized playbook on Chrome and/or a cloud Chromium box.
+ * Purpose: Store profile, free-text skill, instructions, facts, autonomy, schedule
+ * so chats/tasks run on a dedicated cloud Chromium box per agent.
  * Downstream: `/api/agents` CRUD; chats bind `agent`; tasks snapshot config for workers.
  */
 
 import mongoose from "mongoose";
 
 /**
- * Where this agent's queued goals should run.
- * - `extension`: local Chrome MV3 extension only
- * - `cloud`: VPS Playwright worker bound to this agent (own browser profile)
- * - `any`: whichever claims first (extension or matching cloud worker)
+ * Where queued goals run — cloud-only product (legacy values may exist in Mongo).
  */
-export const AGENT_RUNNERS = ["any", "extension", "cloud"];
+export const AGENT_RUNNERS = ["cloud"];
 
 /**
  * How the agent executes goals.
- * - `browser`: LLM-driven browser steps (cloud and/or extension)
- * - `research`: Google SERP research via Chrome extension only (no cloud, no LLM click loop)
+ * - `browser`: LLM-driven browser steps on the cloud worker
+ * - `research`: Google SERP research on the cloud worker
  */
 export const AGENT_MODES = ["browser", "research"];
 
@@ -47,6 +44,8 @@ const autonomySchema = new mongoose.Schema(
     allowCaptcha: { type: Boolean, default: true },
     askBeforeLogin: { type: Boolean, default: true },
     askBeforeSubmit: { type: Boolean, default: false },
+    /** When false, cloud worker never attaches viewport screenshots to the LLM. */
+    visionEnabled: { type: Boolean, default: true },
   },
   { _id: false }
 );
@@ -104,7 +103,7 @@ const agentSchema = new mongoose.Schema(
     /**
      * Execution mode.
      * - `browser`: LLM-driven browser steps
-     * - `research`: Google SERP capture (Chrome extension on laptop and/or cloud Chromium with extension loaded)
+     * - `research`: Google SERP capture on the cloud worker
      */
     mode: {
       type: String,
@@ -160,12 +159,11 @@ const agentSchema = new mongoose.Schema(
       imapSecure: { type: Boolean, default: true },
     },
     /**
-     * Execution target for queued goals.
-     * Why: cloud agents get a dedicated Chromium profile on the VPS; extension agents stay on the user's laptop.
+     * Execution target — always cloud (kept for legacy task snapshots).
      */
     runner: {
       type: String,
-      enum: AGENT_RUNNERS,
+      enum: [...AGENT_RUNNERS, "any", "extension"],
       default: "cloud",
       index: true,
     },
@@ -305,7 +303,7 @@ export function toAgentSnapshot(agentDoc) {
     allowedDomains: a.allowedDomains || [],
     maxSteps: a.maxSteps ?? 0,
     startUrl: a.startUrl || "",
-    runner: a.runner || "any",
+    runner: "cloud",
     email: {
       enabled: Boolean(email.enabled),
       configured: hasMail,
@@ -338,7 +336,7 @@ export function formatAgentPrompt(snapshot) {
   const auto = snapshot.autonomy || {};
   return [
     `AGENT NAME: ${snapshot.name}`,
-    snapshot.mode === "research" ? "MODE: research (Google SERP via Chrome extension)" : "MODE: browser",
+    snapshot.mode === "research" ? "MODE: research (Google SERP on cloud worker)" : "MODE: browser",
     snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
     snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
     snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
@@ -352,7 +350,7 @@ export function formatAgentPrompt(snapshot) {
     snapshot.email?.configured
       ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email actions for verification codes, outreach, or human-like correspondence.`
       : "",
-    `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}`,
+    `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}; visionEnabled=${auto.visionEnabled !== false}`,
     "STEP BUDGET: unlimited — call finish when done",
     formatMemoryBlock(snapshot.memory),
   ]

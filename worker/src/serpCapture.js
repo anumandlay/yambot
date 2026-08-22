@@ -1,8 +1,6 @@
 /**
  * @fileoverview In-page Google SERP extractors for the cloud worker.
- * Purpose: Same capture shape as extension `CAPTURE_SERP` so research results match.
- * Why: Playwright cannot chrome.tabs.sendMessage the MV3 extension; evaluate these in-page
- * (and prefer window.__yambotCaptureSerp when the bundled extension injected content.js).
+ * Purpose: In-page Google SERP extractors evaluated by Playwright on the cloud worker.
  */
 
 /**
@@ -197,10 +195,6 @@ export function serpCaptureInPage() {
     return allData;
   }
 
-  if (typeof window.__yambotCaptureSerp === "function") {
-    return window.__yambotCaptureSerp();
-  }
-
   return {
     url: location.href,
     title: document.title,
@@ -208,7 +202,7 @@ export function serpCaptureInPage() {
     sponsored_results: extractSponsoredResults(),
     organic_results: extractOrganicResults(),
     people_also_search_for: extractPeopleAlsoSearchFor(),
-    via: "worker-fallback",
+    via: "worker",
   };
 }
 
@@ -217,9 +211,6 @@ export function serpCaptureInPage() {
  * @returns {{ clicked: boolean }}
  */
 export function clickNextSerpInPage() {
-  if (typeof window.__yambotClickNextSerp === "function") {
-    return window.__yambotClickNextSerp();
-  }
   const next =
     document.querySelector("#pnnext") ||
     document.querySelector('a[aria-label="Next page"]') ||

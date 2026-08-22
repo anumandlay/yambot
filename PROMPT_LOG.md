@@ -1,5 +1,17 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 15:10] Remove Chrome extension — cloud-only product
+
+- **Prompt Provided:** remove all Chrome extension related code; user only uses cloud
+- **Architectural Flow:** Deleted `extension/` tree; `/api/extension` renamed to `/api/worker`; claim filter is cloud-only (agentId); runner UI removed — always `cloud`; worker no longer loads MV3 in Chromium; Dockerfile.worker drops extension COPY; frontend/docs updated for cloud-only
+- **Impacted Files:** `PROMPT_LOG.md`, deleted `extension/*`, `backend/src/routes/{worker.js,index.js}`, `backend/src/models/{Agent,Task}.js`, `backend/src/routes/{agents,chats}.js`, `worker/src/{api,agent,config,index}.js`, `deploy/Dockerfile.worker`, `computer-manager/src/index.js`, `frontend/src/pages/{AgentEditPage,AgentsPage,ChatsPage,SettingsPage,LoginPage}.jsx`, `README.md`, `.cursorrules`
+
+## [2026-08-22 15:00] Feature: Vision LLM settings + per-agent vision toggle
+
+- **Prompt Provided:** where to set image model API key; per-agent enable/disable for vision screenshot error recovery
+- **Architectural Flow:** User.settings stores optional `visionApiKeyEnc` / `visionBaseUrl` / `visionModel` (fallback to main LLM); `/api/extension/runtime-config` exposes decrypted vision creds; cloud worker uses vision creds only when attaching screenshots; `Agent.autonomy.visionEnabled` gates `shouldAttachVision`; Settings page Vision LLM section; Agent edit Autonomy checkbox
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/{User,Agent}.js`, `backend/src/routes/{settings,extension,agents}.js`, `worker/src/agent.js`, `frontend/src/pages/{SettingsPage,AgentEditPage}.jsx`
+
 ## [2026-08-22 14:50] Feature: Extension Phase 1–5 parity (learn, skills, loops, wait_for, tabs)
 
 - **Prompt Provided:** complete remaining requirements across all phases — extension parity with cloud worker learn layer and missing actions

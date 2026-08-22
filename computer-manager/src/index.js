@@ -240,7 +240,6 @@ async function removeProfileVolume(volumeName) {
  */
 async function collectWantedProfileVolumes(wantRunning) {
   const agents = await Agent.find({
-    runner: { $in: ["cloud", "any", null] },
     "computer.containerName": { $nin: [null, ""] },
   })
     .select("computer.containerName")
@@ -329,7 +328,6 @@ async function reconcile() {
 
   const wantRunning = await Agent.find({
     active: { $ne: false },
-    runner: { $in: ["cloud", "any", null] },
     $or: [
       { "computer.desired": "running" },
       { "computer.desired": { $exists: false } },
@@ -351,11 +349,7 @@ async function reconcile() {
   }
 
   const wantStopped = await Agent.find({
-    $or: [
-      { "computer.desired": "stopped" },
-      { active: false },
-      { runner: "extension" },
-    ],
+    $or: [{ "computer.desired": "stopped" }, { active: false }],
     "computer.containerName": { $nin: [null, ""] },
   }).lean();
 

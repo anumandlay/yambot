@@ -1,7 +1,7 @@
 /**
- * @fileoverview Browser worker API — claim tasks, push events, load runtime LLM config.
- * Purpose: Bridge between queued website goals and Chrome extension / Playwright cloud workers.
- * Downstream: Task/Message/User/Agent; extension SW + `worker/` cloud computers.
+ * @fileoverview Cloud worker API — claim tasks, push events, load runtime LLM config.
+ * Purpose: Bridge between queued website goals and Playwright cloud workers on the VPS.
+ * Downstream: Task/Message/User/Agent; `worker/` containers poll these routes.
  */
 
 import { Router } from "express";
@@ -13,16 +13,16 @@ import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/Si
 import { decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 
-export const extensionRouter = Router();
+export const workerRouter = Router();
 
 /** Stuck `running` tasks older than this are requeued (LLM steps can take a while). */
 const STUCK_RUNNING_MS = 5 * 60 * 1000;
 
 /**
- * GET /api/extension/runtime-config
- * Returns decrypted LLM/DBC settings for the authenticated user (workers only).
+ * GET /api/worker/runtime-config
+ * Returns decrypted LLM/DBC settings for the authenticated user (cloud workers only).
  */
-extensionRouter.get("/runtime-config", async (req, res, next) => {
+workerRouter.get("/runtime-config", async (req, res, next) => {
   try {
     const user = await User.findById(req.userId);
     if (!user) {
@@ -36,6 +36,9 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
         llmApiKey: decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "",
         llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
         llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
+        visionApiKey: decryptSecret(s.visionApiKeyEnc || "") || "",
+        visionBaseUrl: s.visionBaseUrl || "",
+        visionModel: s.visionModel || "",
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
@@ -47,44 +50,23 @@ extensionRouter.get("/runtime-config", async (req, res, next) => {
 });
 
 /**
- * Builds Mongo filter for claimable pending tasks.
- * Why: cloud workers own one agent; the laptop extension must not steal `runner: cloud` jobs.
- *
+ * Builds Mongo filter for claimable pending tasks for one cloud agent.
  * @param {string} userId
- * @param {{ agentId?: string|null, claimAs?: string }} opts
+ * @param {{ agentId?: string|null }} opts
  * @returns {object}
  */
 function buildClaimFilter(userId, opts = {}) {
-  const claimAs = opts.claimAs === "cloud" ? "cloud" : "extension";
   const filter = { user: userId, status: "pending" };
-
   if (opts.agentId) {
     filter.agent = opts.agentId;
   }
-
-  if (claimAs === "cloud") {
-    // Cloud box: only this agent's tasks that allow cloud (or legacy missing runner).
-    filter.$or = [
-      { runner: { $in: ["cloud", "any"] } },
-      { runner: { $exists: false } },
-      { runner: null },
-    ];
-  } else {
-    // Laptop extension: never take dedicated cloud-only agents.
-    filter.$or = [
-      { runner: { $in: ["extension", "any"] } },
-      { runner: { $exists: false } },
-      { runner: null },
-    ];
-  }
-
   return filter;
 }
 
 /**
- * Atomically claims the oldest matching pending task for this user.
+ * Atomically claims the oldest matching pending task for this user/agent.
  * @param {string} userId
- * @param {{ agentId?: string|null, claimAs?: string }} [opts]
+ * @param {{ agentId?: string|null }} [opts]
  */
 async function claimNextTask(userId, opts = {}) {
   const stuckBefore = new Date(Date.now() - STUCK_RUNNING_MS);
@@ -118,7 +100,7 @@ async function claimNextTask(userId, opts = {}) {
         events: {
           type: "claimed",
           payload: {
-            claimAs: opts.claimAs === "cloud" ? "cloud" : "extension",
+            claimAs: "cloud",
             agentId: opts.agentId || null,
           },
           at: new Date(),
@@ -136,17 +118,14 @@ async function claimNextTask(userId, opts = {}) {
 function parseClaimOpts(req) {
   const body = req.body && typeof req.body === "object" ? req.body : {};
   const agentId = String(body.agentId || req.query.agentId || "").trim() || null;
-  const claimAsRaw = String(body.claimAs || req.query.claimAs || "extension").trim();
-  const claimAs = claimAsRaw === "cloud" ? "cloud" : "extension";
-  return { agentId, claimAs };
+  return { agentId };
 }
 
 /**
- * GET/POST /api/extension/tasks/next
- * Body/query: { agentId?, claimAs?: "extension"|"cloud" }
- * Why POST exists: Chrome may cache GET and return stale `{ task: null }` (304).
+ * GET/POST /api/worker/tasks/next
+ * Body/query: { agentId? }
  */
-extensionRouter.get("/tasks/next", async (req, res, next) => {
+workerRouter.get("/tasks/next", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     const task = await claimNextTask(req.userId, parseClaimOpts(req));
@@ -156,7 +135,7 @@ extensionRouter.get("/tasks/next", async (req, res, next) => {
   }
 });
 
-extensionRouter.post("/tasks/next", async (req, res, next) => {
+workerRouter.post("/tasks/next", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     const task = await claimNextTask(req.userId, parseClaimOpts(req));
@@ -167,11 +146,11 @@ extensionRouter.post("/tasks/next", async (req, res, next) => {
 });
 
 /**
- * POST /api/extension/computer/heartbeat
+ * POST /api/worker/computer/heartbeat
  * Body: { agentId, workerName?, pageUrl?, taskId?, screenshotBase64?, mime? }
  * Why: cloud workers announce presence and stream a compressed JPEG for the live dashboard.
  */
-extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
+workerRouter.post("/computer/heartbeat", async (req, res, next) => {
   try {
     const agentId = String(req.body?.agentId || "").trim();
     if (!agentId) {
@@ -246,9 +225,9 @@ extensionRouter.post("/computer/heartbeat", async (req, res, next) => {
 });
 
 /**
- * GET /api/extension/tasks/:id — refresh task (e.g. waiting for user_answer).
+ * GET /api/worker/tasks/:id — refresh task (e.g. waiting for user_answer).
  */
-extensionRouter.get("/tasks/:id", async (req, res, next) => {
+workerRouter.get("/tasks/:id", async (req, res, next) => {
   try {
     const task = await Task.findOne({ _id: req.params.id, user: req.userId });
     if (!task) {
@@ -262,10 +241,10 @@ extensionRouter.get("/tasks/:id", async (req, res, next) => {
 });
 
 /**
- * POST /api/extension/tasks/:id/events
+ * POST /api/worker/tasks/:id/events
  * Body: { type, payload?, status?, appendMessage? }
  */
-extensionRouter.post("/tasks/:id/events", async (req, res, next) => {
+workerRouter.post("/tasks/:id/events", async (req, res, next) => {
   try {
     const task = await Task.findOne({ _id: req.params.id, user: req.userId });
     if (!task) {
@@ -288,7 +267,6 @@ extensionRouter.post("/tasks/:id/events", async (req, res, next) => {
       });
     }
 
-    // Why: surface ask_user into chat so the website can answer without the side panel.
     if (type === "ask_user" && payload.question) {
       task.status = "waiting_user";
       await Message.create({
@@ -302,7 +280,6 @@ extensionRouter.post("/tasks/:id/events", async (req, res, next) => {
       }
     }
 
-    // Why: DBC failure / captcha progress that still needs a human should blink on Live Wall.
     if (type === "captcha") {
       const msg = String(req.body?.appendMessage || payload?.hint || payload?.error || "");
       const needsHuman =
@@ -321,17 +298,16 @@ extensionRouter.post("/tasks/:id/events", async (req, res, next) => {
 });
 
 /**
- * POST /api/extension/tasks/:id/complete
+ * POST /api/worker/tasks/:id/complete
  * Body: { success, summary, error? }
  */
-extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
+workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
   try {
     const task = await Task.findOne({ _id: req.params.id, user: req.userId });
     if (!task) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
       return;
     }
-    // Why: dashboard Stop already finalized the task — don't overwrite with a late complete.
     if (task.status === "cancelled") {
       if (task.agent) {
         await clearAgentNeedsAttention(task.agent);
@@ -365,7 +341,6 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
       await clearAgentNeedsAttention(task.agent);
     }
 
-    // Why: each completed run feeds the agent's long-term memory for future goals.
     if (task.agent && (summary || error)) {
       const agentDoc = await Agent.findOne({ _id: task.agent, user: req.userId });
       if (agentDoc) {
@@ -387,10 +362,9 @@ extensionRouter.post("/tasks/:id/complete", async (req, res, next) => {
 });
 
 /**
- * GET /api/extension/site-profile?agentId=&domain=
- * Returns per-domain hints for the worker LLM prompt.
+ * GET /api/worker/site-profile?agentId=&domain=
  */
-extensionRouter.get("/site-profile", async (req, res, next) => {
+workerRouter.get("/site-profile", async (req, res, next) => {
   try {
     const agentId = String(req.query?.agentId || "").trim();
     const domain = String(req.query?.domain || "")
@@ -413,10 +387,9 @@ extensionRouter.get("/site-profile", async (req, res, next) => {
 });
 
 /**
- * POST /api/extension/site-profile
- * Body: { agentId, domain, success?, hint?: { kind, content }, stats?: { visits, successes, failures } }
+ * POST /api/worker/site-profile
  */
-extensionRouter.post("/site-profile", async (req, res, next) => {
+workerRouter.post("/site-profile", async (req, res, next) => {
   try {
     const agentId = String(req.body?.agentId || "").trim();
     const domain = String(req.body?.domain || "")
@@ -479,10 +452,9 @@ async function loadEmailAgent(req) {
 }
 
 /**
- * POST /api/extension/email/send — worker sends mail as the agent.
- * Body: { agentId, to, subject, text, html? }
+ * POST /api/worker/email/send
  */
-extensionRouter.post("/email/send", async (req, res, next) => {
+workerRouter.post("/email/send", async (req, res, next) => {
   try {
     const { sendAgentEmail } = await import("../utils/agentEmail.js");
     const agent = await loadEmailAgent(req);
@@ -499,10 +471,9 @@ extensionRouter.post("/email/send", async (req, res, next) => {
 });
 
 /**
- * POST /api/extension/email/check — worker reads inbox as the agent.
- * Body: { agentId, limit?, unseenOnly? }
+ * POST /api/worker/email/check
  */
-extensionRouter.post("/email/check", async (req, res, next) => {
+workerRouter.post("/email/check", async (req, res, next) => {
   try {
     const { checkAgentInbox } = await import("../utils/agentEmail.js");
     const agent = await loadEmailAgent(req);

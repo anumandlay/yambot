@@ -1,7 +1,7 @@
 /**
  * @fileoverview Entry point for a YamBot cloud computer (one agent = one container).
  * Purpose: Keep a persistent Chromium profile warm, stream live screenshots, claim agent tasks.
- * Downstream: Playwright agent loop → `/api/extension/*` → website chat + live dashboard.
+ * Downstream: Playwright agent loop → `/api/worker/*` → website chat + live dashboard.
  *
  * Env: YAMBOT_API_BASE_URL, YAMBOT_EMAIL, YAMBOT_PASSWORD, YAMBOT_AGENT_ID,
  *      YAMBOT_PROFILE_DIR, YAMBOT_POLL_MS, YAMBOT_HEADED, YAMBOT_WORKER_NAME,

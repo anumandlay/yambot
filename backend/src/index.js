@@ -1,8 +1,8 @@
 /**
  * @fileoverview YamBot Express HTTP entrypoint.
- * Purpose: Boot MongoDB, mount API routers, and listen for web + extension clients.
+ * Purpose: Boot MongoDB, mount API routers, and listen for web + cloud worker clients.
  * Inputs: Env from `.env.development` / `.env.production` (+ optional server `.env` overlay).
- * Downstream: Routes under `/api/*` → Mongoose models → Chrome extension task worker.
+ * Downstream: Routes under `/api/*` → Mongoose models → cloud Playwright workers.
  */
 
 import { existsSync, readFileSync } from "node:fs";
@@ -55,7 +55,7 @@ const { env } = await import("./utils/env.js");
 const { authRouter } = await import("./routes/auth.js");
 const { chatsRouter } = await import("./routes/chats.js");
 const { settingsRouter } = await import("./routes/settings.js");
-const { extensionRouter } = await import("./routes/extension.js");
+const { workerRouter } = await import("./routes/worker.js");
 const { authRequired } = await import("./middleware/auth.js");
 const { Agent } = await import("./models/Agent.js");
 const { attachDesktopProxy, signDesktopTicket } = await import("./utils/desktopProxy.js");
@@ -80,10 +80,6 @@ app.use(
   cors({
     origin(origin, cb) {
       if (!origin) {
-        cb(null, true);
-        return;
-      }
-      if (origin.startsWith("chrome-extension://")) {
         cb(null, true);
         return;
       }
@@ -153,7 +149,7 @@ attachDesktopProxy(server, app);
 app.use("/api/settings", authRequired, settingsRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
-app.use("/api/extension", authRequired, extensionRouter);
+app.use("/api/worker", authRequired, workerRouter);
 app.use("/api/research", (await import("./routes/research.js")).researchRouter);
 app.use("/api/system", authRequired, (await import("./routes/system.js")).systemRouter);
 

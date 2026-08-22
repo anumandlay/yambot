@@ -1,7 +1,7 @@
 /**
  * @fileoverview Task model — unit of work claimed by a browser worker.
  * Purpose: Queue browser goals from the website and store live execution state/results.
- * Downstream: chats routes (create), extension routes (claim/events/complete),
+ * Downstream: chats routes (create), worker routes (claim/events/complete),
  * Playwright cloud workers, frontend polling.
  */
 
@@ -45,12 +45,12 @@ const taskSchema = new mongoose.Schema(
     /** Frozen copy of agent config at enqueue time (stable for the worker run). */
     agentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
     /**
-     * Copied from agent.runner at enqueue so claim filters stay stable if the agent is edited mid-queue.
-     * @type {"any"|"extension"|"cloud"}
+     * Copied from agent at enqueue (always cloud).
+     * @type {"cloud"}
      */
     runner: {
       type: String,
-      enum: ["any", "extension", "cloud"],
+      enum: ["cloud", "any", "extension"],
       default: "any",
       index: true,
     },

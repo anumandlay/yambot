@@ -70,7 +70,7 @@ export async function loadSiteProfile(api, agentId, domain) {
   if (!agentId || !domain) return null;
   try {
     const data = await api(
-      `/api/extension/site-profile?agentId=${encodeURIComponent(agentId)}&domain=${encodeURIComponent(domain)}`
+      `/api/worker/site-profile?agentId=${encodeURIComponent(agentId)}&domain=${encodeURIComponent(domain)}`
     );
     return data?.profile || null;
   } catch {
@@ -111,7 +111,7 @@ export function deriveSiteHint({ success, summary, domain, trajectory }) {
 export async function recordSiteLearning(api, agentId, payload) {
   if (!agentId || !payload?.domain) return;
   try {
-    await api("/api/extension/site-profile", {
+    await api("/api/worker/site-profile", {
       method: "POST",
       body: JSON.stringify({ agentId, ...payload }),
     });

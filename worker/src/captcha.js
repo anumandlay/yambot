@@ -1,6 +1,6 @@
 /**
  * @fileoverview DeathByCaptcha helpers for the cloud worker.
- * Purpose: Mirror extension captcha flow when sitekeys are available.
+ * Purpose: DeathByCaptcha flow for cloud worker when sitekeys are available.
  * Why: Fetch without AbortSignal can hang forever on HTTPS; poll also needs
  * progress so the UI does not look stuck on "Solving…".
  */

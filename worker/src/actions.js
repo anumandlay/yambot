@@ -1,6 +1,6 @@
 /**
  * @fileoverview Shared agent action schema for the cloud worker.
- * Purpose: Keep LLM action contract aligned with `extension/shared/actions.js`.
+ * Purpose: LLM action contract for the cloud worker agent loop.
  */
 
 export const ACTION_TYPES = [

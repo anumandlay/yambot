@@ -1,7 +1,6 @@
 /**
  * @fileoverview Settings page — LLM + DeathByCaptcha credentials.
- * Purpose: Store provider secrets on the server so the Chrome extension loads them at runtime
- * instead of requiring keys only inside the extension UI.
+ * Purpose: Store provider secrets on the server for cloud workers to load at runtime.
  */
 
 import { useEffect, useState } from "react";
@@ -13,12 +12,17 @@ export function SettingsPage() {
     llmApiKey: "",
     llmBaseUrl: "https://api.minimax.io/v1",
     llmModel: "MiniMax-M2.7",
+    visionApiKey: "",
+    visionBaseUrl: "",
+    visionModel: "",
     dbcUsername: "",
     dbcPassword: "",
     confirmBeforeSubmit: false,
     llmApiKeyMasked: "",
+    visionApiKeyMasked: "",
     dbcPasswordMasked: "",
     hasLlmApiKey: false,
+    hasVisionApiKey: false,
     hasDbcPassword: false,
   });
   const [error, setError] = useState(null);
@@ -61,15 +65,18 @@ export function SettingsPage() {
           llmApiKey: form.llmApiKey,
           llmBaseUrl: form.llmBaseUrl,
           llmModel: form.llmModel,
+          visionApiKey: form.visionApiKey,
+          visionBaseUrl: form.visionBaseUrl,
+          visionModel: form.visionModel,
           dbcUsername: form.dbcUsername,
           dbcPassword: form.dbcPassword,
           confirmBeforeSubmit: Boolean(form.confirmBeforeSubmit),
         }),
       });
       setOkMsg("Settings saved. Agents use these on the next task — click Test LLM connection to verify.");
-      setForm((prev) => ({ ...prev, llmApiKey: "", dbcPassword: "" }));
+      setForm((prev) => ({ ...prev, llmApiKey: "", visionApiKey: "", dbcPassword: "" }));
       const data = await api("/api/settings");
-      setForm((prev) => ({ ...prev, ...data.settings, llmApiKey: "", dbcPassword: "" }));
+      setForm((prev) => ({ ...prev, ...data.settings, llmApiKey: "", visionApiKey: "", dbcPassword: "" }));
     } catch (err) {
       setError(err);
     } finally {
@@ -187,6 +194,42 @@ export function SettingsPage() {
         >
           {testingLlm ? "Testing…" : "Test LLM connection"}
         </button>
+
+        <h2 className="mt-2 text-sm font-semibold text-teal-900/80">Vision LLM (optional)</h2>
+        <p className="text-xs text-teal-900/60">
+          Used when the cloud worker attaches viewport screenshots after verification failures.
+          Leave blank to reuse the main LLM credentials — set a vision-capable model if your text model
+          does not accept images.
+        </p>
+        <label className="flex flex-col gap-1 text-sm">
+          Vision API key {form.hasVisionApiKey ? `(saved: ${form.visionApiKeyMasked})` : ""}
+          <input
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            type="password"
+            autoComplete="off"
+            placeholder="Leave blank to use main LLM key"
+            value={form.visionApiKey}
+            onChange={(e) => update("visionApiKey", e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Vision base URL
+          <input
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            placeholder="Same as main LLM if empty"
+            value={form.visionBaseUrl}
+            onChange={(e) => update("visionBaseUrl", e.target.value)}
+          />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          Vision model
+          <input
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            placeholder="e.g. gpt-4o-mini — same as main LLM if empty"
+            value={form.visionModel}
+            onChange={(e) => update("visionModel", e.target.value)}
+          />
+        </label>
 
         <h2 className="mt-2 text-sm font-semibold text-teal-900/80">DeathByCaptcha</h2>
         <label className="flex flex-col gap-1 text-sm">

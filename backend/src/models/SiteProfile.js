@@ -1,7 +1,7 @@
 /**
  * @fileoverview SiteProfile model — per-agent domain memory for browser automation.
  * Purpose: Phase 5 stores hints learned from successful/failed runs on each site.
- * Downstream: extension routes (worker read/write); injected into LLM prompts via learn.js.
+ * Downstream: worker routes (read/write); injected into LLM prompts via learn.js.
  */
 
 import mongoose from "mongoose";

@@ -22,13 +22,13 @@ const EMPTY = {
   successCriteria: "",
   allowedDomains: "",
   startUrl: "",
-  runner: "cloud",
   active: true,
   autonomy: {
     allowSubmit: true,
     allowCaptcha: true,
     askBeforeLogin: true,
     askBeforeSubmit: false,
+    visionEnabled: true,
   },
   schedule: {
     enabled: false,
@@ -60,7 +60,6 @@ export function AgentEditPage() {
   const isNew = !agentId || agentId === "new";
   const navigate = useNavigate();
   const [form, setForm] = useState(EMPTY);
-  const [runners, setRunners] = useState(["any", "extension", "cloud"]);
   const [modes, setModes] = useState(["browser", "research"]);
   const [scheduleIntervals, setScheduleIntervals] = useState([
     "15m",
@@ -81,9 +80,6 @@ export function AgentEditPage() {
     (async () => {
       try {
         const meta = await api("/api/agents/meta");
-        if (Array.isArray(meta.runners) && meta.runners.length) {
-          setRunners(meta.runners);
-        }
         if (Array.isArray(meta.modes) && meta.modes.length) {
           setModes(meta.modes);
         }
@@ -105,13 +101,13 @@ export function AgentEditPage() {
             successCriteria: a.successCriteria || "",
             allowedDomains: (a.allowedDomains || []).join(", "),
             startUrl: a.startUrl || "",
-            runner: a.runner || (a.mode === "research" ? "extension" : "any"),
             active: a.active !== false,
             autonomy: {
               allowSubmit: a.autonomy?.allowSubmit !== false,
               allowCaptcha: a.autonomy?.allowCaptcha !== false,
               askBeforeLogin: a.autonomy?.askBeforeLogin === true,
               askBeforeSubmit: a.autonomy?.askBeforeSubmit === true,
+              visionEnabled: a.autonomy?.visionEnabled !== false,
             },
             schedule: {
               enabled: Boolean(a.schedule?.enabled),
@@ -299,15 +295,14 @@ export function AgentEditPage() {
             {modes.map((m) => (
               <option key={m} value={m}>
                 {m === "research"
-                  ? "Research (Google SERP via Chrome extension)"
+                  ? "Research (Google SERP on cloud computer)"
                   : "Browser agent (LLM clicks / types)"}
               </option>
             ))}
           </select>
           <span className="text-xs text-teal-900/60">
-            Research agents capture Google SERPs and post results to chat. Prefer{" "}
-            <strong>Chrome extension</strong> on your laptop (fewer captchas), or{" "}
-            <strong>cloud computer</strong> — cloud Chromium loads the same YamBot extension.
+            Research agents capture Google SERPs on this agent&apos;s VPS Chromium box and post
+            results to chat. Browser agents use the LLM click/type loop on the same cloud computer.
           </span>
         </label>
         {form.mode === "research" ? (
@@ -363,46 +358,19 @@ export function AgentEditPage() {
             placeholder="When to finish, e.g. summarize top 5 links with URLs"
           />
         </label>
-        <label className="flex flex-col gap-1 text-sm">
-          Computer / runner
-          <select
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.runner}
-            onChange={(e) => update("runner", e.target.value)}
-          >
-            {runners.map((r) => (
-              <option key={r} value={r}>
-                {r === "cloud"
-                  ? "Cloud computer (VPS Chromium + YamBot extension)"
-                  : r === "extension"
-                    ? "My Chrome extension only"
-                    : "Any available (cloud or extension)"}
-              </option>
-            ))}
-          </select>
-          <span className="text-xs text-teal-900/60">
-            {form.mode === "research" ? (
-              <>
-                Research on <strong>cloud</strong> loads the YamBot extension inside the VPS browser.
-                Research on <strong>Chrome extension</strong> uses your laptop Chrome (usually fewer
-                Google captchas). Keep the extension signed in when using chrome-only.
-              </>
-            ) : (
-              <>
-                New agents default to a <strong>cloud computer</strong>. The VPS{" "}
-                <code className="rounded bg-teal-50 px-1">computer-manager</code> starts a Chromium
-                container automatically. Use <strong>Take control</strong> on the live screen to click /
-                type (captchas, fixes). Your laptop Chrome extension is optional.
-              </>
-            )}
+        <div className="rounded-xl border border-teal-100 bg-teal-50/50 p-3 text-sm text-teal-900/80">
+          <div className="font-semibold text-teal-900/90">Cloud computer</div>
+          <p className="mt-1 text-xs text-teal-900/70">
+            Each agent gets a dedicated Chromium container on the VPS. Use{" "}
+            <strong>Take control</strong> on the live screen to click, type, or solve captchas.
             {!isNew ? (
               <>
                 {" "}
-                ID: <code className="break-all rounded bg-teal-50 px-1">{agentId}</code>
+                Agent ID: <code className="break-all rounded bg-white px-1">{agentId}</code>
               </>
             ) : null}
-          </span>
-        </label>
+          </p>
+        </div>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
           <legend className="px-1 text-sm font-semibold text-teal-900">Scheduler</legend>
@@ -618,17 +586,11 @@ export function AgentEditPage() {
           )}
         </fieldset>
 
-        {!isNew && (form.mode !== "research" || form.runner === "cloud" || form.runner === "any") ? (
+        {!isNew ? (
           <div className="flex flex-col gap-2">
             <div className="text-sm font-semibold text-teal-900/80">Live cloud screen</div>
             <LiveScreen agentId={agentId} compact />
           </div>
-        ) : null}
-        {!isNew && form.mode === "research" && form.runner === "extension" ? (
-          <p className="rounded-xl border border-amber-100 bg-amber-50/60 p-3 text-sm text-amber-950/80">
-            This research agent uses your laptop Chrome extension only (no cloud live screen). Keep
-            YamBot signed in on the extension; results appear in chat.
-          </p>
         ) : null}
 
         <label className="flex flex-col gap-1 text-sm">
@@ -691,6 +653,7 @@ export function AgentEditPage() {
             ["allowCaptcha", "Allow CAPTCHA solving"],
             ["askBeforeLogin", "Ask before login walls"],
             ["askBeforeSubmit", "Ask before submit clicks"],
+            ["visionEnabled", "Enable vision screenshots (error recovery on cloud worker)"],
           ].map(([key, label]) => (
             <label key={key} className="flex min-h-11 items-center gap-2 text-sm">
               <input

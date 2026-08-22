@@ -1,7 +1,7 @@
 /**
  * @fileoverview JWT auth middleware for protected API routes.
- * Purpose: Attach `req.userId` after verifying Bearer token from web or extension.
- * Downstream: settings, chats, extension routers.
+ * Purpose: Attach `req.userId` after verifying Bearer token from web or cloud worker.
+ * Downstream: settings, chats, worker routers.
  */
 
 import jwt from "jsonwebtoken";
@@ -21,7 +21,7 @@ export function authRequired(req, res, next) {
       ok: false,
       title: "Unauthorized",
       detail: "Missing Bearer token",
-      hint: "Log in on the website, or paste your token in the extension Settings.",
+      hint: "Log in on the website, or use a valid worker token.",
     });
     return;
   }

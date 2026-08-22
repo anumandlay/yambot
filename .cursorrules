@@ -4,7 +4,7 @@
 - Frontend: React 19.2.8, Vite 6, React Router 7, Tailwind CSS v4
 - Backend: Node.js v24.18.0 (ES Modules format), Express.js
 - Database: MongoDB via Mongoose ODM
-- Extension: Chrome Manifest V3 worker that executes browser tasks for YamBot
+- Extension: removed — cloud-only product (Playwright workers on VPS)
 
 # 2. DOCUMENTATION & HANDOFF STANDARDS
 - Every single file must start with a comprehensive block comment outlining its architectural purpose, inputs, and down-stream system dependencies.
@@ -29,9 +29,9 @@
 - Production server should `git pull` without rewriting its secret `.env` values.
 - Non-secret production base URLs live in committed `*.env.production` / Vite production env files.
 - Secrets (Mongo URI, JWT secret, etc.) stay in server-local untracked `.env` / `.env.local` overlays.
-- LLM credentials are stored per-user in MongoDB via the Settings page — not only in the Chrome extension.
+- LLM credentials are stored per-user in MongoDB via the Settings page.
 
 # 7. PRODUCT ARCHITECTURE
 - Web app: auth, chats, goals/instructions, live results, Settings (LLM + DeathByCaptcha).
-- Chrome extension: authenticated worker that claims pending tasks and reports events/results.
+- Cloud worker: Playwright Chromium container per agent claims tasks via `/api/worker/*`.
 - Mobile-first UI per `.cursor/rules/responsive.mdc`.

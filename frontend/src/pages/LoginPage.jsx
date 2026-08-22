@@ -1,6 +1,6 @@
 /**
  * @fileoverview Login page.
- * Purpose: Authenticate existing users and store JWT for API + extension pairing copy.
+ * Purpose: Authenticate existing users and store JWT for the web app.
  */
 
 import { useState } from "react";
@@ -39,7 +39,7 @@ export function LoginPage() {
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-3 py-8 sm:px-4 sm:py-10 md:px-0">
       <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Sign in to YamBot</h1>
       <p className="text-sm text-teal-900/70">
-        Enter goals on the web. Your Chrome extension runs them on real tabs.
+        Enter goals on the web. Your agent&apos;s cloud computer runs them in Chromium.
       </p>
       {error ? (
         <ErrorAlert
