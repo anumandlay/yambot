@@ -174,7 +174,7 @@ async function ensureRunning(agent) {
       `YAMBOT_WORKER_NAME=${name}`,
       "YAMBOT_PROFILE_DIR=/data/browser-profile",
       "YAMBOT_POLL_MS=5000",
-      "YAMBOT_SCREEN_MS=3000",
+      "YAMBOT_SCREEN_MS=1200",
       "YAMBOT_HEADED=1",
       "DISPLAY=:99",
       "YAMBOT_NOVNC_PORT=6080",

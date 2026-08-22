@@ -81,7 +81,9 @@ export function LiveScreen({
   const [viewError, setViewError] = useState("");
   const [openingView, setOpeningView] = useState(false);
   const [desktopSrc, setDesktopSrc] = useState("");
+  const [desktopSessionKey, setDesktopSessionKey] = useState(0);
   const [desktopError, setDesktopError] = useState("");
+  const desktopIframeRef = useRef(null);
   const imgRef = useRef(null);
   const stageRef = useRef(null);
   const controlOnRef = useRef(false);
@@ -241,14 +243,20 @@ export function LiveScreen({
       });
       setControlOn(active);
       if (active) {
+        setViewSrc("");
+        setViewError("");
         if (!zoomed) setZoomed(true);
         try {
           const desk = await api(`/api/agents/${agentId}/desktop/session`, {
             method: "POST",
+            body: JSON.stringify({ viewOnly: false }),
           });
           const path = desk.embedPath || "";
+          setDesktopSessionKey((k) => k + 1);
           setDesktopSrc(path);
-          setStatus("Remote desktop connected — use your mouse and keyboard on the screen.");
+          setStatus(
+            "Remote desktop connected — click inside the screen once, then use your mouse and keyboard."
+          );
         } catch (deskErr) {
           setDesktopSrc("");
           setDesktopError(
@@ -259,6 +267,7 @@ export function LiveScreen({
         }
       } else {
         setDesktopSrc("");
+        setDesktopSessionKey((k) => k + 1);
         setStatus("Control returned to agent.");
         if (zoomed) await openLiveView();
       }
@@ -470,7 +479,7 @@ export function LiveScreen({
         {controlOn ? (
           <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
             {desktopSrc
-              ? "Agent paused — real remote desktop (noVNC). Move your mouse and type like a local computer. When finished, press Give control back."
+              ? "Agent paused — real remote desktop (noVNC). Click inside the screen once, then move your mouse and type. Press Give control back when finished."
               : "Agent paused — fallback click map (desktop stream unavailable). Click the screenshot; Shift+wheel scrolls. Prefer Give control back when done."}
             {desktopError ? ` (${desktopError})` : ""}
           </p>
@@ -495,13 +504,23 @@ export function LiveScreen({
         >
           {controlOn && desktopSrc ? (
             <iframe
+              key={`desktop-${desktopSessionKey}`}
+              ref={desktopIframeRef}
               title={`${agentName || "Agent"} remote desktop`}
               src={desktopSrc}
               className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"
               allow="clipboard-read; clipboard-write"
+              onLoad={() => {
+                try {
+                  desktopIframeRef.current?.contentWindow?.focus();
+                } catch {
+                  /* ignore */
+                }
+              }}
             />
           ) : modal && viewSrc && !controlOn ? (
             <iframe
+              key={`view-${viewSrc}`}
               title={`${agentName || "Agent"} live screen`}
               src={viewSrc}
               className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"

@@ -31,7 +31,7 @@ sleep 0.3
 
 echo "[desktop] starting x11vnc on :${VNC_PORT}"
 x11vnc -display "${DISPLAY}" -forever -shared -rfbport "${VNC_PORT}" -localhost -nopw \
-  -xkb -repeat -o /tmp/x11vnc.log >/tmp/x11vnc.out 2>&1 &
+  -xkb -repeat -cursor most -o /tmp/x11vnc.log >/tmp/x11vnc.out 2>&1 &
 sleep 0.5
 
 NOVNC_WEB="${NOVNC_WEB:-/usr/share/novnc}"

@@ -6,12 +6,16 @@
 
 import fs from "node:fs";
 import path from "node:path";
+import { execFile } from "node:child_process";
+import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
 import { observeInPage, executeInPage, captchaMetaInPage } from "./pageDom.js";
 import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
+
+const execFileAsync = promisify(execFile);
 
 /**
  * @param {{ api: Function, config: import('./config.js').WorkerConfig, log?: Function }} deps
@@ -22,6 +26,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   /** @type {import('playwright').Page|null} */
   let page = null;
   let running = false;
+  /** Whether the dashboard user currently has Take control (from last heartbeat). */
+  let remoteHumanControl = false;
   /** Last full-page screenshot CSS size — used to map dashboard clicks onto the document. */
   let lastShotSize = {
     w: config.viewportWidth || 1280,
@@ -103,6 +109,31 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * Focuses the headed Chromium window on Xvfb so noVNC mouse/keyboard events land in the browser.
+   */
+  async function focusBrowserForHuman() {
+    if (!config.headed || !page || page.isClosed()) return;
+    try {
+      await page.bringToFront();
+    } catch (err) {
+      log(`[${config.workerName}] bringToFront failed:`, err?.message || err);
+    }
+    const searches = [
+      ["search", "--onlyvisible", "--class", "chromium", "windowactivate", "--sync"],
+      ["search", "--onlyvisible", "--class", "chrome", "windowactivate", "--sync"],
+      ["search", "--onlyvisible", "--name", "Chromium", "windowactivate", "--sync"],
+    ];
+    for (const args of searches) {
+      try {
+        await execFileAsync("xdotool", args);
+        return;
+      } catch {
+        /* try next */
+      }
+    }
+  }
+
+  /**
    * Captures a JPEG, posts heartbeat, and applies any dashboard takeover commands.
    * @param {{ taskId?: string|null }} [opts]
    */
@@ -118,42 +149,45 @@ export function createCloudAgent({ api, config, log = console.log }) {
     let screenshotBase64 = "";
     let shotW = config.viewportWidth || 1280;
     let shotH = config.viewportHeight || 800;
-    try {
-      // Why: full-page capture so the dashboard shows the whole scrollable page, not only the viewport.
-      const metrics = await page.evaluate(() => {
-        const de = document.documentElement;
-        const body = document.body;
-        return {
-          w: Math.max(de?.scrollWidth || 0, body?.scrollWidth || 0, window.innerWidth || 0),
-          h: Math.max(de?.scrollHeight || 0, body?.scrollHeight || 0, window.innerHeight || 0),
-          vw: window.innerWidth || 1280,
-          vh: window.innerHeight || 800,
-        };
-      });
-      // Why: cap height so Mongo + heartbeat stay under size limits on infinite-scroll sites.
-      const maxH = 10000;
-      shotW = Math.max(1, Math.ceil(Math.min(metrics.w, metrics.vw * 2)));
-      shotH = Math.max(1, Math.ceil(Math.min(metrics.h, maxH)));
-      const buf = await page.screenshot({
-        type: "jpeg",
-        quality: 36,
-        clip: { x: 0, y: 0, width: shotW, height: shotH },
-      });
-      screenshotBase64 = Buffer.from(buf).toString("base64");
-      lastShotSize = { w: shotW, h: shotH };
-    } catch (err) {
-      log(`[${config.workerName}] screenshot failed:`, err?.message || err);
+    // Why: Playwright screenshots during Take control steal X focus and fight noVNC input.
+    if (!remoteHumanControl) {
       try {
-        const buf = await page.screenshot({ type: "jpeg", quality: 50, fullPage: false });
+        // Why: full-page capture so the dashboard shows the whole scrollable page, not only the viewport.
+        const metrics = await page.evaluate(() => {
+          const de = document.documentElement;
+          const body = document.body;
+          return {
+            w: Math.max(de?.scrollWidth || 0, body?.scrollWidth || 0, window.innerWidth || 0),
+            h: Math.max(de?.scrollHeight || 0, body?.scrollHeight || 0, window.innerHeight || 0),
+            vw: window.innerWidth || 1280,
+            vh: window.innerHeight || 800,
+          };
+        });
+        // Why: cap height so Mongo + heartbeat stay under size limits on infinite-scroll sites.
+        const maxH = 10000;
+        shotW = Math.max(1, Math.ceil(Math.min(metrics.w, metrics.vw * 2)));
+        shotH = Math.max(1, Math.ceil(Math.min(metrics.h, maxH)));
+        const buf = await page.screenshot({
+          type: "jpeg",
+          quality: 36,
+          clip: { x: 0, y: 0, width: shotW, height: shotH },
+        });
         screenshotBase64 = Buffer.from(buf).toString("base64");
-        lastShotSize = {
-          w: config.viewportWidth || 1280,
-          h: config.viewportHeight || 800,
-        };
-        shotW = lastShotSize.w;
-        shotH = lastShotSize.h;
-      } catch {
-        /* ignore */
+        lastShotSize = { w: shotW, h: shotH };
+      } catch (err) {
+        log(`[${config.workerName}] screenshot failed:`, err?.message || err);
+        try {
+          const buf = await page.screenshot({ type: "jpeg", quality: 50, fullPage: false });
+          screenshotBase64 = Buffer.from(buf).toString("base64");
+          lastShotSize = {
+            w: config.viewportWidth || 1280,
+            h: config.viewportHeight || 800,
+          };
+          shotW = lastShotSize.w;
+          shotH = lastShotSize.h;
+        } catch {
+          /* ignore */
+        }
       }
     }
     const data = await api("/api/extension/computer/heartbeat", {
@@ -164,7 +198,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         pageUrl,
         taskId: opts.taskId || null,
         screenshotBase64,
-        mime: "image/jpeg",
+        mime: screenshotBase64 ? "image/jpeg" : "",
         viewportWidth: config.viewportWidth || 1280,
         viewportHeight: config.viewportHeight || 800,
         screenshotWidth: shotW,
@@ -173,6 +207,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }),
     });
     const commands = Array.isArray(data?.commands) ? data.commands : [];
+    const wasHuman = remoteHumanControl;
+    remoteHumanControl = Boolean(data?.humanControl);
+    if (remoteHumanControl && !wasHuman) {
+      await focusBrowserForHuman();
+    }
     for (const cmd of commands) {
       try {
         await applyControlCommand(cmd);
@@ -181,7 +220,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
     }
     return {
-      humanControl: Boolean(data?.humanControl),
+      humanControl: remoteHumanControl,
       commands,
     };
   }

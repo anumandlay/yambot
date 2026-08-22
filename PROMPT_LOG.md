@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 09:15] Fix: Take control noVNC mouse/keyboard not working
+
+- **Prompt Provided:** when i take control, i am not able to move my mouse and type keyboard
+- **Architectural Flow:** Explicit `view_only=0` + remount control iframe after Zoom; skip Playwright screenshots + xdotool window focus during humanControl; x11vnc `-cursor most`; faster screen heartbeat
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/LiveScreen.jsx`, `backend/src/index.js`, `worker/src/agent.js`, `worker/entrypoint.sh`, `deploy/Dockerfile.worker`, `computer-manager/src/index.js`
+
 ## [2026-08-22 09:05] Feature: Zoom shows live noVNC stream; Take control stays interactive
 
 - **Prompt Provided:** when i click on zoom, i want to see the live screen, not just the screenshots. zoom let me see whats going on, take control button allow me to take control

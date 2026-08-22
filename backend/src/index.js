@@ -131,8 +131,8 @@ app.post("/api/agents/:agentId/desktop/session", authRequired, async (req, res, 
     const viewOnly = req.body?.viewOnly === true;
     const embedPath =
       `/api/agents/${agentId}/desktop/vnc.html` +
-      `?autoconnect=1&resize=scale&reconnect=1` +
-      (viewOnly ? "&view_only=1" : "") +
+      `?autoconnect=1&resize=scale&reconnect=1&show_dot=1` +
+      (viewOnly ? "&view_only=1" : "&view_only=0") +
       `&path=${encodeURIComponent(wsPath)}` +
       `&t=${encodeURIComponent(ticket)}`;
     res.json({
