@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 14:50] Feature: Extension Phase 1–5 parity (learn, skills, loops, wait_for, tabs)
+
+- **Prompt Provided:** complete remaining requirements across all phases — extension parity with cloud worker learn layer and missing actions
+- **Architectural Flow:** extension `shared/{learn,loops,skills}.js` mirrors worker; agent loop injects SITE MEMORY + SKILL PROGRESS + LOOP DETECTED; trajectory + site learning on cloud task complete; content script adds structures, wait_for polling; switch_tab/open_tab via chrome.tabs; upload_file cloud-only
+- **Impacted Files:** `PROMPT_LOG.md`, `extension/shared/{learn,loops,skills,pageObservation}.js`, `extension/background/agent.js`, `extension/content/content.js`, `extension/manifest.json`
+
 ## [2026-08-22 14:40] Feature: Phase 5 UI + extension macro parity + skill progress
 
 - **Prompt Provided:** continue Phase 5 — site profile UI, trajectory replay, skill step progress, extension macro execution

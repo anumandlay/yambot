@@ -3,6 +3,21 @@ import { solveCaptchaWithDbc } from "./captcha.js";
 import { extensionApi } from "./api.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
 import { sanitizePageObservation } from "../shared/pageObservation.js";
+import {
+  buildTrajectory,
+  extractDomain,
+  formatSiteHintsBlock,
+  loadSiteProfile,
+  deriveSiteHint,
+  recordSiteLearning,
+} from "../shared/learn.js";
+import { detectActionLoop } from "../shared/loops.js";
+import {
+  detectSkill,
+  formatSkillBlock,
+  computeSkillProgress,
+  formatSkillProgressBlock,
+} from "../shared/skills.js";
 import { runResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 export function createAgentController({ emit }) {
@@ -11,6 +26,9 @@ export function createAgentController({ emit }) {
   let abort = false;
   let waitingForUser = null;
   let state = idleState();
+  let siteDomain = "";
+  let siteProfile = null;
+  let activeSkill = null;
 
   function idleState() {
     return {
@@ -127,13 +145,22 @@ export function createAgentController({ emit }) {
       return;
     }
     if (type === "agent:done") {
+      const trajectory = buildTrajectory(state.history);
+      const success = extra.success !== false;
+      const summary = extra.summary || "Done";
       await extensionApi(`/api/extension/tasks/${taskId}/complete`, {
         method: "POST",
-        body: JSON.stringify({
-          success: extra.success !== false,
-          summary: extra.summary || "Done",
-        }),
+        body: JSON.stringify({ success, summary, trajectory }),
       });
+      const agentId = state.agentSnapshot?.id;
+      if (agentId && siteDomain) {
+        const hint = deriveSiteHint({ success, summary, domain: siteDomain, trajectory });
+        void recordSiteLearning(extensionApi, agentId, {
+          domain: siteDomain,
+          success,
+          hint: hint || undefined,
+        });
+      }
       return;
     }
     if (type === "agent:note") {
@@ -148,14 +175,24 @@ export function createAgentController({ emit }) {
       return;
     }
     if (type === "agent:error") {
+      const trajectory = buildTrajectory(state.history);
+      const summary = extra.detail || extra.error || "Agent error";
       await extensionApi(`/api/extension/tasks/${taskId}/complete`, {
         method: "POST",
         body: JSON.stringify({
           success: false,
-          summary: extra.detail || extra.error || "Agent error",
-          error: extra.detail || extra.error || "Agent error",
+          summary,
+          error: summary,
+          trajectory,
         }),
       });
+      const agentId = state.agentSnapshot?.id;
+      if (agentId && siteDomain) {
+        void recordSiteLearning(extensionApi, agentId, {
+          domain: siteDomain,
+          success: false,
+        });
+      }
     }
   }
 
@@ -282,6 +319,27 @@ export function createAgentController({ emit }) {
         }
       }
     }
+    if (Array.isArray(obs.structures?.forms) && obs.structures.forms.length) {
+      lines.push("FORMS:");
+      for (const form of obs.structures.forms.slice(0, 4)) {
+        lines.push(`  ${form.name || form.id}:`);
+        for (const f of form.fields || []) {
+          lines.push(`    - ${f.name}: ${f.ref}`);
+        }
+        for (const a of form.actions || []) {
+          lines.push(`    - [submit] ${a.name}: ${a.ref}`);
+        }
+      }
+    }
+    if (Array.isArray(obs.structures?.dialogs) && obs.structures.dialogs.length) {
+      lines.push("DIALOGS:");
+      for (const dlg of obs.structures.dialogs.slice(0, 2)) {
+        lines.push(`  ${dlg.title || "Dialog"}:`);
+        for (const a of dlg.actions || []) {
+          lines.push(`    - ${a.name}: ${a.ref}`);
+        }
+      }
+    }
     lines.push("Interactive elements:");
     for (const el of obs.interactives || []) {
       lines.push(
@@ -301,6 +359,25 @@ export function createAgentController({ emit }) {
 
   async function runStep(settings) {
     const obs = await observeTab(state.tabId);
+    const pageDomain = extractDomain(obs.url || "");
+    if (pageDomain && pageDomain !== siteDomain) {
+      siteDomain = pageDomain;
+      const agentId = state.agentSnapshot?.id;
+      if (agentId) {
+        siteProfile = await loadSiteProfile(extensionApi, agentId, siteDomain);
+      }
+    }
+    if (!activeSkill) {
+      activeSkill = detectSkill(state.goal, obs.url || "");
+    }
+    const loopCheck = detectActionLoop(state.history, 3);
+    const loopNote = loopCheck.detected ? loopCheck.message : "";
+    const skillBlock = formatSkillBlock(activeSkill);
+    const skillProgressBlock = formatSkillProgressBlock(
+      computeSkillProgress(activeSkill, state.history, obs)
+    );
+    const siteHintsBlock = formatSiteHintsBlock(siteProfile);
+
     const meta = await sendToContent(state.tabId, "CAPTCHA_META");
     const sitekey = meta.recaptchaSitekey || meta.hcaptchaSitekey;
     const captchaVisible = Boolean(obs.captcha?.present || sitekey);
@@ -362,6 +439,10 @@ export function createAgentController({ emit }) {
           ACTION_SCHEMA_FOR_PROMPT,
           "You are YamBot Browser Agent. Achieve the user goal using safe steps.",
           "There is no step limit — keep working until the goal is met, then call finish.",
+          "Prefer wait_for over blind wait; use fill_form, dismiss_dialog, choose_menu_item when appropriate.",
+          skillBlock,
+          skillProgressBlock,
+          siteHintsBlock,
           agentBlock
             ? `You are operating AS the following specialized agent. Obey its skill, instructions, facts, autonomy, and success criteria.\n\n${agentBlock}`
             : "",
@@ -374,6 +455,7 @@ export function createAgentController({ emit }) {
         content: [
           `GOAL:\n${state.goal}`,
           `STEP: ${state.step + 1}`,
+          loopNote,
           state.notes.length ? `NOTES SO FAR:\n${state.notes.join("\n---\n")}` : "",
           state.history.length
             ? `RECENT ACTIONS:\n${state.history
@@ -388,7 +470,11 @@ export function createAgentController({ emit }) {
       },
     ];
 
-    broadcast("agent:thinking", { observation: obs });
+    broadcast("agent:thinking", {
+      observation: obs,
+      siteProfile,
+      skill: activeSkill?.id,
+    });
 
     const { content } = await chatCompletion({
       apiKey: settings.llmApiKey,
@@ -478,6 +564,46 @@ export function createAgentController({ emit }) {
       case "wait": {
         await sleep(Math.min(Number(action.ms) || 1000, 10000));
         return { ok: true };
+      }
+      case "wait_for": {
+        const timeout = Math.min(Number(action.timeout_ms) || 10000, 30000);
+        const start = Date.now();
+        while (Date.now() - start < timeout) {
+          const result = await sendToContent(state.tabId, "WAIT_FOR", { condition: action });
+          if (result?.matched) return { ok: true, wait_for: result };
+          await sleep(300);
+        }
+        return { ok: false, error: "WAIT_FOR_TIMEOUT" };
+      }
+      case "switch_tab": {
+        const tabs = await chrome.tabs.query({ currentWindow: true });
+        let targetId = state.tabId;
+        if (action.index != null && tabs[action.index]) {
+          targetId = tabs[action.index].id;
+        } else if (action.url_contains) {
+          const needle = String(action.url_contains).toLowerCase();
+          const hit = tabs.find((t) => String(t.url || "").toLowerCase().includes(needle));
+          if (hit?.id) targetId = hit.id;
+        }
+        await chrome.tabs.update(targetId, { active: true });
+        state.tabId = targetId;
+        await waitForTabLoad(targetId);
+        return { ok: true, tabId: targetId };
+      }
+      case "open_tab": {
+        const url =
+          action.url && /^https?:\/\//i.test(action.url) ? action.url : undefined;
+        const tab = await chrome.tabs.create({ url, active: true });
+        state.tabId = tab.id;
+        await waitForTabLoad(tab.id);
+        return { ok: true, tabId: tab.id, url: tab.url };
+      }
+      case "upload_file": {
+        throw Object.assign(new Error("upload_file requires cloud worker"), {
+          title: "Cloud only",
+          detail:
+            "Uploading files from disk is supported on cloud agents. Switch runner to cloud or use Take control to pick a file manually.",
+        });
       }
       case "ask_user": {
         const answer = await waitForUser(action.question || "Need your input");
@@ -827,6 +953,9 @@ export function createAgentController({ emit }) {
     state.agentSnapshot = agentSnapshot || null;
     state.status = "starting";
     state.maxSteps = 0;
+    siteDomain = "";
+    siteProfile = null;
+    activeSkill = detectSkill(trimmedGoal, tab.url || bootUrl);
 
     // fire and forget — running stays true until loop() finally{}
     loop();

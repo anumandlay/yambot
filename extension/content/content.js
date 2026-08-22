@@ -338,6 +338,7 @@
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     const smartXPath = xpath || buildSmartXPath(el);
+    const form = el.closest("form");
     return {
       ref,
       tag,
@@ -350,6 +351,10 @@
       hasSubmenu: hasSubmenu(el) || undefined,
       href: tag === "a" ? el.href?.slice(0, 200) : undefined,
       value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
+      inForm: Boolean(form),
+      formId: form?.id || form?.getAttribute("name") || undefined,
+      formName: form?.getAttribute("name") || form?.id || undefined,
+      required: el.required || el.getAttribute("aria-required") === "true" || undefined,
     };
   }
 
@@ -539,12 +544,104 @@
     return cleanText(clone.innerText, max);
   }
 
+  /**
+   * Builds forms/dialogs summary from stamped interactives (Phase 3 parity).
+   * @param {object[]} interactives
+   */
+  function collectStructures(interactives) {
+    const forms = new Map();
+    for (const item of interactives) {
+      if (!item.inForm && !item.formId) continue;
+      const key = item.formId || item.formName || "form";
+      if (!forms.has(key)) {
+        forms.set(key, { id: key, name: item.formName || key, fields: [], actions: [] });
+      }
+      const form = forms.get(key);
+      const entry = {
+        ref: item.ref,
+        name: item.name,
+        type: item.type || item.role,
+        required: item.required,
+        value: item.value,
+      };
+      if (
+        item.role === "button" ||
+        item.type === "submit" ||
+        /submit|send|sign in|continue|apply/i.test(item.name || "")
+      ) {
+        form.actions.push(entry);
+      } else {
+        form.fields.push(entry);
+      }
+    }
+    const dialogs = [];
+    const modalOpen = Boolean(
+      [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].some(isVisible)
+    );
+    if (modalOpen) {
+      const inDialog = interactives.filter((i) => i.overlay);
+      if (inDialog.length) {
+        dialogs.push({
+          title: "Dialog",
+          fields: inDialog
+            .filter((i) => ["textbox", "combobox", "checkbox", "radio"].includes(i.role || ""))
+            .slice(0, 12),
+          actions: inDialog.filter((i) => i.role === "button" || i.tag === "button").slice(0, 8),
+        });
+      }
+    }
+    return { forms: [...forms.values()].slice(0, 5), dialogs: dialogs.slice(0, 3), tables: [] };
+  }
+
+  /**
+   * Pollable wait condition for wait_for action.
+   * @param {object} condition
+   */
+  function waitForConditionInPage(condition) {
+    const c = condition || {};
+    const href = location.href;
+    if (c.url_contains && !href.includes(String(c.url_contains))) {
+      return { matched: false, detail: "url" };
+    }
+    if (c.text) {
+      const body = (document.body?.innerText || "").toLowerCase();
+      if (!body.includes(String(c.text).toLowerCase())) {
+        return { matched: false, detail: "text" };
+      }
+    }
+    if (c.ref) {
+      const el = document.querySelector(`[${REF_ATTR}="${c.ref}"]`);
+      if (!el || !isVisible(el)) return { matched: false, detail: "ref" };
+    }
+    if (c.role || c.name) {
+      const wantedRole = String(c.role || "").toLowerCase();
+      const wantedName = String(c.name || "").toLowerCase();
+      const pool = [...document.querySelectorAll("[data-ba-ref], [role], button, a, input")];
+      const hit = pool.some((el) => {
+        if (!isVisible(el)) return false;
+        const role = (el.getAttribute("role") || el.tagName || "").toLowerCase();
+        const name = (el.getAttribute("aria-label") || el.innerText || "").toLowerCase();
+        const roleOk = !wantedRole || role.includes(wantedRole);
+        const nameOk = !wantedName || name.includes(wantedName);
+        return roleOk && nameOk;
+      });
+      if (!hit) return { matched: false, detail: "role_name" };
+    }
+    if (c.loading_gone) {
+      const loading = document.querySelector('[aria-busy="true"], .loading, .spinner');
+      if (loading && isVisible(loading)) return { matched: false, detail: "loading" };
+    }
+    return { matched: true, detail: "ok", url: href };
+  }
+
   function observe() {
+    const interactives = collectInteractives();
     return {
       url: location.href,
       title: document.title,
       openMenus: collectOpenMenusMeta(),
-      interactives: collectInteractives(),
+      interactives,
+      structures: collectStructures(interactives),
       captcha: detectCaptcha(),
       text: pageText(),
     };
@@ -1394,6 +1491,9 @@
       }
       if (msg.type === "EXECUTE") {
         return execute(msg.action);
+      }
+      if (msg.type === "WAIT_FOR") {
+        return waitForConditionInPage(msg.condition || msg.action || {});
       }
       if (msg.type === "CAPTCHA_META") {
         return {
