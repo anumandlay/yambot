@@ -114,50 +114,128 @@ export function observeInPage() {
   }
 
   /**
-   * Leaf-ish clickable rows inside open dropdowns / menus (Passport, etc.).
+   * Whether any ARIA menu panel is open (Gmail bulk actions, nested submenus, etc.).
+   * @returns {boolean}
+   */
+  function hasOpenMenus() {
+    return [...document.querySelectorAll('[role="menu"]')].some(isVisible);
+  }
+
+  /**
+   * Whether an element is list/grid row noise while menus are open (e.g. Gmail email rows).
+   * @param {Element} el
+   * @returns {boolean}
+   */
+  function isListRowNoise(el) {
+    if (!hasOpenMenus()) return false;
+    if (el.closest('[role="menu"], [role="listbox"], [role="dialog"], [role="toolbar"]')) {
+      return false;
+    }
+    if (el.closest("header, nav, [role='banner'], [role='navigation']")) return false;
+    return Boolean(
+      el.closest(
+        [
+          '[role="row"]',
+          '[role="grid"]',
+          '[role="rowgroup"]',
+          "table tbody tr",
+          "tr.zA",
+          "[data-message-id]",
+          "[data-legacy-message-id]",
+        ].join(",")
+      )
+    );
+  }
+
+  function hasSubmenu(el) {
+    const popup = (el.getAttribute("aria-haspopup") || "").toLowerCase();
+    return popup === "menu" || popup === "true";
+  }
+
+  /**
+   * Structured summary of every visible menu panel (for LLM + nested submenu flows).
+   * @returns {object[]}
+   */
+  function collectOpenMenusMeta() {
+    const menus = [...document.querySelectorAll('[role="menu"]')].filter(isVisible);
+    return menus.map((menu, menuIndex) => ({
+      menuIndex,
+      items: [...menu.querySelectorAll('[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]')]
+        .filter(isVisible)
+        .map((el) => ({
+          name: labelFor(el),
+          hasSubmenu: hasSubmenu(el),
+          checked: el.getAttribute("aria-checked") || undefined,
+        })),
+    }));
+  }
+
+  /**
+   * Leaf-ish clickable rows inside open dropdowns / menus (Passport, Gmail submenus, etc.).
    * @returns {Element[]}
    */
   function collectOverlayOptions() {
+    const seen = new Set();
+    const out = [];
+
+    /**
+     * @param {Element} el
+     */
+    function pushItem(el) {
+      if (!el || seen.has(el)) return;
+      if (!isVisible(el)) return;
+      const name = cleanText(
+        el.getAttribute("aria-label") || el.innerText || el.getAttribute("data-value") || "",
+        120
+      );
+      if (!name) return;
+      seen.add(el);
+      out.push(el);
+    }
+
+    // Why: Gmail/MUI render each submenu as its own `[role="menu"]` sibling — collect every panel.
+    for (const menu of [...document.querySelectorAll('[role="menu"]')].filter(isVisible)) {
+      for (const el of menu.querySelectorAll(
+        '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], [role="option"]'
+      )) {
+        pushItem(el);
+      }
+    }
+
     const roots = [
       ...document.querySelectorAll(
         [
           '[role="listbox"]',
-          '[role="menu"]',
-          '[role="listbox"] *',
           "[data-radix-popper-content-wrapper]",
           '[data-state="open"]',
           "[class*='popover']",
           "[class*='dropdown']",
-          "[class*='menu']",
         ].join(",")
       ),
     ].filter((el) => isVisible(el) && overlayRoot(el));
 
-    const seen = new Set();
-    const out = [];
     for (const root of roots) {
       const container = overlayRoot(root) || root;
-      if (seen.has(container)) continue;
-      seen.add(container);
+      if (container.getAttribute("role") === "menu") continue;
       const candidates = [
         ...container.querySelectorAll(
-          '[role="option"], [role="menuitem"], li, button, [data-value], [data-radix-collection-item]'
+          '[role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], li, button, [data-value], [data-radix-collection-item]'
         ),
       ];
       for (const el of candidates) {
         if (!isVisible(el)) continue;
-        const text = cleanText(el.innerText || el.getAttribute("data-value") || "", 80);
-        if (!text || text.length > 80) continue;
-        // Why: skip containers that only wrap other options.
+        const text = cleanText(el.innerText || el.getAttribute("data-value") || "", 120);
+        if (!text) continue;
         if (
           el.querySelector(
-            '[role="option"], [role="menuitem"], li button, li [role="option"]'
+            '[role="option"], [role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"], li button, li [role="option"]'
           ) &&
-          el.tagName !== "LI"
+          el.tagName !== "LI" &&
+          !hasSubmenu(el)
         ) {
           continue;
         }
-        out.push(el);
+        pushItem(el);
       }
     }
     return out;
@@ -211,7 +289,8 @@ export function observeInPage() {
       role: impliedRole(el),
       name: labelFor(el),
       cssHint: cssHintFor(el),
-      overlay: Boolean(overlayRoot(el)),
+      overlay: Boolean(overlayRoot(el) || el.closest('[role="menu"]')),
+      hasSubmenu: hasSubmenu(el) || undefined,
       href: tag === "a" ? el.href?.slice(0, 200) : undefined,
       value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
     };
@@ -317,6 +396,8 @@ export function observeInPage() {
       "[role='radio']",
       "[role='option']",
       "[role='menuitem']",
+      "[role='menuitemcheckbox']",
+      "[role='menuitemradio']",
       "[role='gridcell']",
       "[role='tab']",
       "[role='switch']",
@@ -330,6 +411,7 @@ export function observeInPage() {
       const type = (el.getAttribute("type") || "").toLowerCase();
       if (type === "hidden") continue;
       if (!isVisible(el)) continue;
+      if (isListRowNoise(el)) continue;
       if (isShopPriority(el)) accept(el, shop);
       else if (inPageChrome(el)) accept(el, chrome);
       else accept(el, body);
@@ -407,6 +489,7 @@ export function observeInPage() {
   return {
     url: location.href,
     title: document.title,
+    openMenus: collectOpenMenusMeta(),
     interactives: collectInteractives(),
     captcha: detectCaptcha(),
     text: pageText(),

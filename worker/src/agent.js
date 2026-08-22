@@ -370,15 +370,34 @@ export function createCloudAgent({ api, config, log = console.log }) {
       `URL: ${obs.url}`,
       `Title: ${obs.title}`,
       `CAPTCHA: ${obs.captcha?.present ? obs.captcha.signals.join(",") : "none"}`,
-      "Interactive elements:",
     ];
+    if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
+      lines.push(
+        "Open menus (click [submenu] items first to reveal nested options; use overlay refs below):"
+      );
+      for (const menu of obs.openMenus) {
+        lines.push(`Menu ${menu.menuIndex + 1}:`);
+        for (const item of menu.items || []) {
+          const flags = [
+            item.hasSubmenu ? "submenu" : "",
+            item.checked ? `checked=${item.checked}` : "",
+          ]
+            .filter(Boolean)
+            .join(", ");
+          lines.push(`  - "${item.name}"${flags ? ` [${flags}]` : ""}`);
+        }
+      }
+    }
+    lines.push("Interactive elements:");
     for (const el of obs.interactives || []) {
       lines.push(
         `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
           el.role ? ` role=${el.role}` : ""
         }> "${el.name}"${el.cssHint ? ` css=${el.cssHint}` : ""}${
           el.overlay ? " [overlay]" : ""
-        }${el.href ? ` href=${el.href}` : ""}${el.value ? ` value=${el.value}` : ""}`
+        }${el.hasSubmenu ? " [submenu]" : ""}${el.href ? ` href=${el.href}` : ""}${
+          el.value ? ` value=${el.value}` : ""
+        }`
       );
     }
     lines.push("Page text (truncated):");

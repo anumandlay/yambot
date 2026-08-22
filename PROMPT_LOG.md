@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 12:20] Fix: Gmail-style nested menus missing from agent page snapshot
+
+- **Prompt Provided:** Gmail bulk-action menus/submenus not visible to LLM after select all → options → submenu
+- **Architectural Flow:** Collect all visible `[role="menu"]` panels + menuitem/checkbox/radio; mark `[submenu]` parents; suppress email/grid row noise when menus open; `openMenus` summary in LLM prompt
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `extension/content/content.js`, `worker/src/agent.js`, `extension/background/agent.js`
+
 ## [2026-08-22 10:25] Feature: agent work queue in chat (view, edit, delete pending goals)
 
 - **Prompt Provided:** show queued work for the agent in every chat related to that agent; option to delete and edit queued items
