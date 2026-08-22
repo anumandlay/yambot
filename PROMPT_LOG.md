@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:00] Fix: worker crash loop (backticks in ACTION_SCHEMA template literal)
+
+- **Prompt Provided:** STARTING… stuck, Take control/Zoom disabled, goals not running
+- **Architectural Flow:** Worker exit 1 from ReferenceError in actions.js — nested backticks in template string; fix prompt text and redeploy worker image
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/actions.js`, `extension/shared/actions.js`
+
 ## [2026-08-22 12:45] Feature: stable smart XPath in snapshots + auto fallback on click
 
 - **Prompt Provided:** do we have stable xpaths already? can we use smart xpath as a fallback?

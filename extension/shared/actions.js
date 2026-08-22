@@ -43,7 +43,7 @@ Action fields:
 
 Locator rules (click/type/select):
 - Prefer "ref" from the latest snapshot (fast path). Never invent refs.
-- Each snapshot line may include a stable xpath (id/aria-label based — not DevTools `/html/body/div[n]`). The runtime auto-applies it if the ref goes stale.
+- Each snapshot line may include a stable xpath (id/aria-label based — not DevTools absolute /html/body/div paths). The runtime auto-applies it if the ref goes stale.
 - Also pass role+name (or label) and/or cssHint as css when available.
 - Without a ref, you MUST supply at least one of: name, label, css, xpath (optionally with role).
 - Resolution order: ref → xpath → role+name → label/name → css.
