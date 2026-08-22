@@ -7,6 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { PageGuideBanner } from "../components/FieldLabel.jsx";
 
 const HISTORY_LEN = 40;
 
@@ -183,6 +184,8 @@ export function SystemPage() {
           Live Docker containers on the VPS and processor load. Refreshes every few seconds.
         </p>
       </div>
+
+      <PageGuideBanner helpId="system.page" />
 
       {error ? (
         <ErrorAlert

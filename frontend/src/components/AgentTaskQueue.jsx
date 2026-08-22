@@ -6,6 +6,7 @@
 
 import { useState } from "react";
 import { api } from "../lib/api.js";
+import { SectionTitle } from "./FieldLabel.jsx";
 
 /**
  * @typedef {{ _id: string, goal: string, status: string, createdAt?: string, chat?: { _id?: string, title?: string } }} QueueTask
@@ -91,7 +92,7 @@ export function AgentTaskQueue({ chatId, agentQueue, onChanged, onError }) {
       aria-label="Agent work queue"
     >
       <div className="flex items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-teal-900/80">Agent queue</h2>
+        <SectionTitle helpId="chat.taskQueue">Agent queue</SectionTitle>
         {pending.length ? (
           <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
             {pending.length} pending

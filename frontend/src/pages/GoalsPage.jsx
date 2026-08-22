@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function GoalsPage() {
   const [goals, setGoals] = useState([]);
@@ -63,13 +64,17 @@ export function GoalsPage() {
             Durable objectives with success criteria and KPIs — run on an agent&apos;s cloud computer.
           </p>
         </div>
-        <Link
-          to="/goals/new"
-          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-4 font-semibold text-white sm:w-auto"
-        >
-          New goal
-        </Link>
+        <ButtonWithHelp helpId="goals.new">
+          <Link
+            to="/goals/new"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-4 font-semibold text-white sm:w-auto"
+          >
+            New goal
+          </Link>
+        </ButtonWithHelp>
       </div>
+
+      <PageGuideBanner helpId="goals.page" />
 
       {error ? (
         <ErrorAlert
@@ -108,20 +113,24 @@ export function GoalsPage() {
                 ) : null}
               </div>
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row">
-                <Link
-                  to={`/goals/${g._id}`}
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-100 px-3 text-sm font-semibold"
-                >
-                  Edit
-                </Link>
-                <button
-                  type="button"
-                  disabled={Boolean(busyId) || !g.agent || g.status === "archived"}
-                  onClick={() => runGoal(g._id)}
-                  className="inline-flex min-h-11 items-center justify-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  {busyId === g._id ? "Running…" : "Run now"}
-                </button>
+                <ButtonWithHelp helpId="goals.page">
+                  <Link
+                    to={`/goals/${g._id}`}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-100 px-3 text-sm font-semibold"
+                  >
+                    Edit
+                  </Link>
+                </ButtonWithHelp>
+                <ButtonWithHelp helpId="goals.run">
+                  <button
+                    type="button"
+                    disabled={Boolean(busyId) || !g.agent || g.status === "archived"}
+                    onClick={() => runGoal(g._id)}
+                    className="inline-flex min-h-11 items-center justify-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50"
+                  >
+                    {busyId === g._id ? "Running…" : "Run now"}
+                  </button>
+                </ButtonWithHelp>
               </div>
             </li>
           ))

@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function OperationsPage() {
   const [tab, setTab] = useState("events");
@@ -111,6 +112,8 @@ export function OperationsPage() {
         </p>
       </div>
 
+      <PageGuideBanner helpId="ops.page" />
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -123,16 +126,17 @@ export function OperationsPage() {
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={`min-h-10 rounded-xl px-3 text-sm font-semibold ${
-              tab === id ? "bg-teal-700 text-white" : "border border-teal-100 bg-white text-teal-900"
-            }`}
-          >
-            {label}
-          </button>
+          <ButtonWithHelp key={id} helpId={`ops.${id}`}>
+            <button
+              type="button"
+              onClick={() => setTab(id)}
+              className={`min-h-10 rounded-xl px-3 text-sm font-semibold ${
+                tab === id ? "bg-teal-700 text-white" : "border border-teal-100 bg-white text-teal-900"
+              }`}
+            >
+              {label}
+            </button>
+          </ButtonWithHelp>
         ))}
       </div>
 
@@ -143,7 +147,7 @@ export function OperationsPage() {
             className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:items-end"
           >
             <label className="flex flex-1 flex-col gap-1 text-sm">
-              Type
+              <FieldLabel helpId="ops.emitType">Type</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={emitType}
@@ -151,7 +155,7 @@ export function OperationsPage() {
               />
             </label>
             <label className="flex flex-[2] flex-col gap-1 text-sm">
-              Summary
+              <FieldLabel helpId="ops.emitSummary">Summary</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={emitSummary}
@@ -159,9 +163,11 @@ export function OperationsPage() {
                 placeholder="What happened?"
               />
             </label>
-            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-              Emit
-            </button>
+            <ButtonWithHelp helpId="ops.emit">
+              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Emit
+              </button>
+            </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {events.map((ev) => (
@@ -184,15 +190,20 @@ export function OperationsPage() {
             onSubmit={createTrigger}
             className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
           >
-            <input
-              className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 text-sm"
-              value={triggerName}
-              onChange={(e) => setTriggerName(e.target.value)}
-              placeholder="Trigger name"
-            />
-            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-              Add
-            </button>
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.triggerName">Trigger name</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={triggerName}
+                onChange={(e) => setTriggerName(e.target.value)}
+                placeholder="Trigger name"
+              />
+            </label>
+            <ButtonWithHelp helpId="ops.triggerAdd">
+              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Add
+              </button>
+            </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {triggers.map((t) => (
@@ -213,15 +224,20 @@ export function OperationsPage() {
             onSubmit={createWatcher}
             className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
           >
-            <input
-              className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 text-sm"
-              value={watcherUrl}
-              onChange={(e) => setWatcherUrl(e.target.value)}
-              placeholder="https://status.example.com"
-            />
-            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-              Watch
-            </button>
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.watcherUrl">URL to watch</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={watcherUrl}
+                onChange={(e) => setWatcherUrl(e.target.value)}
+                placeholder="https://status.example.com"
+              />
+            </label>
+            <ButtonWithHelp helpId="ops.watcherAdd">
+              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Watch
+              </button>
+            </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {watchers.map((w) => (

@@ -62,6 +62,15 @@ const userSchema = new mongoose.Schema(
       trim: true,
     },
     passwordHash: { type: String, required: true },
+    /** SaaS platform role — superadmin sees all tenants in /admin. */
+    role: {
+      type: String,
+      enum: ["user", "superadmin"],
+      default: "user",
+      index: true,
+    },
+    /** Prepaid wallet balance in USD cents (Stripe top-ups + admin credits). */
+    walletBalanceCents: { type: Number, default: 0, min: 0 },
     settings: { type: settingsSchema, default: () => ({}) },
   },
   { timestamps: true }

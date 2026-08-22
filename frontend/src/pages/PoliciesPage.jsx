@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 const EMPTY = {
   requireApprovalForSubmit: false,
@@ -88,6 +89,8 @@ export function PoliciesPage() {
         </p>
       </div>
 
+      <PageGuideBanner helpId="nav.policies" />
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -108,7 +111,9 @@ export function PoliciesPage() {
                 setForm((f) => ({ ...f, requireApprovalForSubmit: e.target.checked }))
               }
             />
-            Require Governance approval before submit / purchase clicks
+            <FieldLabel helpId="policies.requireApproval">
+              Require Governance approval before submit / purchase clicks
+            </FieldLabel>
           </label>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
@@ -118,12 +123,16 @@ export function PoliciesPage() {
                 setForm((f) => ({ ...f, confirmBeforeSubmit: e.target.checked }))
               }
             />
-            Ask in chat before submit clicks (lighter gate than full approval queue)
+            <FieldLabel helpId="policies.confirmBeforeSubmit">
+              Ask in chat before submit clicks (lighter gate than full approval queue)
+            </FieldLabel>
           </label>
         </div>
 
         <label className="flex flex-col gap-1 text-sm">
-          Monthly LLM budget (USD, 0 = unlimited)
+          <FieldLabel helpId="policies.monthlyBudget">
+            Monthly LLM budget (USD, 0 = unlimited)
+          </FieldLabel>
           <input
             type="number"
             min={0}
@@ -135,7 +144,7 @@ export function PoliciesPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Daily LLM budget (USD, 0 = unlimited)
+          <FieldLabel helpId="policies.dailyBudget">Daily LLM budget (USD, 0 = unlimited)</FieldLabel>
           <input
             type="number"
             min={0}
@@ -147,7 +156,9 @@ export function PoliciesPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Max task duration (minutes, 0 = unlimited)
+          <FieldLabel helpId="policies.maxTaskMinutes">
+            Max task duration (minutes, 0 = unlimited)
+          </FieldLabel>
           <input
             type="number"
             min={0}
@@ -158,7 +169,9 @@ export function PoliciesPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Escalate waiting_user tasks after (minutes)
+          <FieldLabel helpId="policies.escalateWaiting">
+            Escalate waiting_user tasks after (minutes)
+          </FieldLabel>
           <input
             type="number"
             min={5}
@@ -171,7 +184,9 @@ export function PoliciesPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          Blocked URL patterns (one per line — substring or regex)
+          <FieldLabel helpId="policies.blockedUrls">
+            Blocked URL patterns (one per line — substring or regex)
+          </FieldLabel>
           <textarea
             className="min-h-24 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
             value={form.blockedUrlPatterns}
@@ -181,7 +196,9 @@ export function PoliciesPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          HTTP tool allowed hosts (one per line — empty = any non-blocked host)
+          <FieldLabel helpId="policies.httpAllowHosts">
+            HTTP tool allowed hosts (one per line — empty = any non-blocked host)
+          </FieldLabel>
           <textarea
             className="min-h-24 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
             value={form.httpAllowHosts}
@@ -190,13 +207,15 @@ export function PoliciesPage() {
           />
         </label>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-        >
-          {busy ? "Saving…" : "Save policies"}
-        </button>
+        <ButtonWithHelp helpId="policies.save">
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save policies"}
+          </button>
+        </ButtonWithHelp>
       </form>
     </div>
   );

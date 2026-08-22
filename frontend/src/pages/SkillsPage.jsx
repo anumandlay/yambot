@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
 
 export function SkillsPage() {
   const [skills, setSkills] = useState([]);
@@ -82,6 +83,8 @@ export function SkillsPage() {
         </p>
       </div>
 
+      <PageGuideBanner helpId="skills.page" />
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -93,7 +96,9 @@ export function SkillsPage() {
       {okMsg ? <p className="text-sm font-semibold text-teal-800">{okMsg}</p> : null}
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-teal-900/80">Training requests</h2>
+        <SectionTitle helpId="skills.training" className="text-teal-900/80">
+          Training requests
+        </SectionTitle>
         <ul className="flex flex-col gap-2">
           {training.map((r) => (
             <li key={r._id} className="rounded-xl border border-amber-100 bg-amber-50/40 p-3 text-sm">
@@ -116,7 +121,9 @@ export function SkillsPage() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-teal-900/80">Demonstrations</h2>
+        <SectionTitle helpId="skills.demos" className="text-teal-900/80">
+          Demonstrations
+        </SectionTitle>
         <ul className="flex flex-col gap-2">
           {demos.map((d) => (
             <li key={d._id} className="flex items-center justify-between gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm">
@@ -125,13 +132,15 @@ export function SkillsPage() {
                 <div className="text-teal-900/70">{d.steps?.length || 0} steps</div>
               </div>
               {!d.convertedSkill ? (
-                <button
-                  type="button"
-                  onClick={() => convertDemo(d._id)}
-                  className="min-h-9 shrink-0 rounded-lg border border-teal-200 px-3 text-xs font-semibold text-teal-800"
-                >
-                  → Skill
-                </button>
+                <ButtonWithHelp helpId="skills.convertDemo">
+                  <button
+                    type="button"
+                    onClick={() => convertDemo(d._id)}
+                    className="min-h-9 shrink-0 rounded-lg border border-teal-200 px-3 text-xs font-semibold text-teal-800"
+                  >
+                    → Skill
+                  </button>
+                </ButtonWithHelp>
               ) : (
                 <span className="text-xs text-teal-700">Converted</span>
               )}
@@ -141,17 +150,24 @@ export function SkillsPage() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-semibold text-teal-900/80">Skills</h2>
+        <SectionTitle helpId="skills.list" className="text-teal-900/80">
+          Skills
+        </SectionTitle>
         <form onSubmit={createSkill} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-          <input
-            className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 text-sm"
-            value={skillName}
-            onChange={(e) => setSkillName(e.target.value)}
-            placeholder="Skill name"
-          />
-          <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-            Add
-          </button>
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            <FieldLabel helpId="skills.name">Skill name</FieldLabel>
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+              value={skillName}
+              onChange={(e) => setSkillName(e.target.value)}
+              placeholder="Skill name"
+            />
+          </label>
+          <ButtonWithHelp helpId="skills.add">
+            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+              Add
+            </button>
+          </ButtonWithHelp>
         </form>
         <ul className="flex flex-col gap-2">
           {skills.map((s) => (

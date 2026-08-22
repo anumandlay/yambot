@@ -7,6 +7,12 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import {
+  ButtonWithHelp,
+  FieldLabel,
+  PageGuideBanner,
+  SectionTitle,
+} from "../components/FieldLabel.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { SiteProfilesPanel } from "../components/SiteProfilesPanel.jsx";
 
@@ -84,6 +90,19 @@ export function AgentEditPage() {
   const [memoryNote, setMemoryNote] = useState("");
   const [memory, setMemory] = useState([]);
   const [allAgents, setAllAgents] = useState([]);
+  const [walletInfo, setWalletInfo] = useState({ balanceUsd: 0, agentPriceUsd: 0 });
+
+  useEffect(() => {
+    if (!isNew) return;
+    api("/api/wallet")
+      .then((data) => {
+        setWalletInfo({
+          balanceUsd: Number(data.wallet?.balanceUsd) || 0,
+          agentPriceUsd: Number(data.agentPriceUsd) || 0,
+        });
+      })
+      .catch(() => {});
+  }, [isNew]);
 
   useEffect(() => {
     (async () => {
@@ -269,6 +288,28 @@ export function AgentEditPage() {
           {isNew ? "New agent" : "Edit agent"}
         </h1>
       </div>
+      <PageGuideBanner helpId="agents.page" title="Agent editor guide" />
+
+      {isNew && walletInfo.agentPriceUsd > 0 ? (
+        <div
+          className={`rounded-xl border p-3 text-sm ${
+            walletInfo.balanceUsd >= walletInfo.agentPriceUsd
+              ? "border-teal-200 bg-teal-50 text-teal-900"
+              : "border-amber-200 bg-amber-50 text-amber-950"
+          }`}
+        >
+          Creating this agent costs <strong>${walletInfo.agentPriceUsd.toFixed(2)}</strong>. Wallet
+          balance: <strong>${walletInfo.balanceUsd.toFixed(2)}</strong>.
+          {walletInfo.balanceUsd < walletInfo.agentPriceUsd ? (
+            <>
+              {" "}
+              <Link to="/wallet" className="font-semibold underline">
+                Top up wallet
+              </Link>
+            </>
+          ) : null}
+        </div>
+      ) : null}
 
       {error ? (
         <ErrorAlert
@@ -286,7 +327,9 @@ export function AgentEditPage() {
 
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <label className="flex flex-col gap-1 text-sm">
-          Name
+          <FieldLabel helpId="agent.name" required>
+            Name
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.name}
@@ -295,7 +338,7 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Short description
+          <FieldLabel helpId="agent.description">Short description</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.description}
@@ -303,7 +346,7 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Skill
+          <FieldLabel helpId="agent.skill">Skill</FieldLabel>
           <textarea
             className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
             value={form.skill}
@@ -312,7 +355,7 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Profile / persona
+          <FieldLabel helpId="agent.profile">Profile / persona</FieldLabel>
           <textarea
             className="min-h-24 rounded-xl border border-teal-100 px-3 py-2"
             value={form.profile}
@@ -321,7 +364,7 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Standing instructions
+          <FieldLabel helpId="agent.instructions">Standing instructions</FieldLabel>
           <textarea
             className="min-h-28 rounded-xl border border-teal-100 px-3 py-2"
             value={form.instructions}
@@ -330,7 +373,7 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Success criteria
+          <FieldLabel helpId="agent.successCriteria">Success criteria</FieldLabel>
           <textarea
             className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
             value={form.successCriteria}
@@ -339,7 +382,9 @@ export function AgentEditPage() {
           />
         </label>
         <div className="rounded-xl border border-teal-100 bg-teal-50/50 p-3 text-sm text-teal-900/80">
-          <div className="font-semibold text-teal-900/90">Cloud computer</div>
+          <SectionTitle helpId="agent.cloudComputer" className="font-semibold text-teal-900/90">
+            Cloud computer
+          </SectionTitle>
           <p className="mt-1 text-xs text-teal-900/70">
             Each agent gets a dedicated Chromium container on the VPS. Use{" "}
             <strong>Take control</strong> on the live screen to click, type, or solve captchas.
@@ -353,17 +398,23 @@ export function AgentEditPage() {
         </div>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
-          <legend className="px-1 text-sm font-semibold text-teal-900">Scheduler</legend>
+          <legend className="px-1">
+            <SectionTitle helpId="agent.schedule.enabled" as="div" className="text-sm font-semibold text-teal-900">
+              Scheduler
+            </SectionTitle>
+          </legend>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
               type="checkbox"
               checked={Boolean(form.schedule?.enabled)}
               onChange={(e) => updateSchedule("enabled", e.target.checked)}
             />
-            Run a goal on a schedule for this agent
+            <FieldLabel helpId="agent.schedule.enabled">
+              Run a goal on a schedule for this agent
+            </FieldLabel>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Scheduled goal
+            <FieldLabel helpId="agent.schedule.goal">Scheduled goal</FieldLabel>
             <textarea
               className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2"
               value={form.schedule?.goal || ""}
@@ -373,7 +424,7 @@ export function AgentEditPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Frequency
+            <FieldLabel helpId="agent.schedule.interval">Frequency</FieldLabel>
             <select
               className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
               value={form.schedule?.interval || "1h"}
@@ -401,7 +452,7 @@ export function AgentEditPage() {
           </label>
           {form.schedule?.interval === "daily" ? (
             <label className="flex flex-col gap-1 text-sm">
-              Daily time (UTC)
+              <FieldLabel helpId="agent.schedule.dailyAt">Daily time (UTC)</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
                 type="time"
@@ -428,7 +479,11 @@ export function AgentEditPage() {
         </fieldset>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">
-          <legend className="px-1 text-sm font-semibold text-teal-900">Email (SMTP)</legend>
+          <legend className="px-1">
+            <SectionTitle helpId="agent.email.enabled" as="div" className="text-sm font-semibold text-teal-900">
+              Email (SMTP)
+            </SectionTitle>
+          </legend>
           <p className="text-xs text-teal-900/60">
             Give this agent a real mailbox so it can send mail and read the inbox (verification codes,
             outreach) like a human. Password is stored encrypted on the server.
@@ -439,11 +494,11 @@ export function AgentEditPage() {
               checked={Boolean(form.email?.enabled)}
               onChange={(e) => updateEmail("enabled", e.target.checked)}
             />
-            Enable email for this agent
+            <FieldLabel helpId="agent.email.enabled">Enable email for this agent</FieldLabel>
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
-              From name
+              <FieldLabel helpId="agent.email.fromName">From name</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={form.email?.fromName || ""}
@@ -453,7 +508,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              From address
+              <FieldLabel helpId="agent.email.fromAddress">From address</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 type="email"
@@ -464,7 +519,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              SMTP host
+              <FieldLabel helpId="agent.email.smtpHost">SMTP host</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={form.email?.smtpHost || ""}
@@ -474,7 +529,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              SMTP port
+              <FieldLabel helpId="agent.email.smtpPort">SMTP port</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 type="number"
@@ -484,7 +539,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              SMTP username
+              <FieldLabel helpId="agent.email.smtpUser">SMTP username</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={form.email?.smtpUser || ""}
@@ -494,7 +549,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              SMTP password
+              <FieldLabel helpId="agent.email.smtpPassword">SMTP password</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 type="password"
@@ -508,7 +563,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              IMAP host (inbox)
+              <FieldLabel helpId="agent.email.imapHost">IMAP host (inbox)</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={form.email?.imapHost || ""}
@@ -518,7 +573,7 @@ export function AgentEditPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              IMAP port
+              <FieldLabel helpId="agent.email.imapPort">IMAP port</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
                 type="number"
@@ -535,32 +590,34 @@ export function AgentEditPage() {
               onChange={(e) => updateEmail("smtpSecure", e.target.checked)}
               disabled={!form.email?.enabled}
             />
-            SMTP TLS on connect (port 465)
+            <FieldLabel helpId="agent.email.smtpSecure">SMTP TLS on connect (port 465)</FieldLabel>
           </label>
           {!isNew ? (
-            <button
-              type="button"
-              disabled={busy || !form.email?.enabled}
-              onClick={async () => {
-                setBusy(true);
-                setError(null);
-                setOkMsg("");
-                try {
-                  await api(`/api/agents/${agentId}/email/test`, {
-                    method: "POST",
-                    body: JSON.stringify({}),
-                  });
-                  setOkMsg("Test email sent to the from address.");
-                } catch (err) {
-                  setError(err);
-                } finally {
-                  setBusy(false);
-                }
-              }}
-              className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
-            >
-              Send test email
-            </button>
+            <ButtonWithHelp helpId="agent.email.test">
+              <button
+                type="button"
+                disabled={busy || !form.email?.enabled}
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  setOkMsg("");
+                  try {
+                    await api(`/api/agents/${agentId}/email/test`, {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                    setOkMsg("Test email sent to the from address.");
+                  } catch (err) {
+                    setError(err);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+              >
+                Send test email
+              </button>
+            </ButtonWithHelp>
           ) : (
             <p className="text-xs text-teal-900/60">Save the agent first, then you can send a test email.</p>
           )}
@@ -568,13 +625,13 @@ export function AgentEditPage() {
 
         {!isNew ? (
           <div className="flex flex-col gap-2">
-            <div className="text-sm font-semibold text-teal-900/80">Live cloud screen</div>
+            <SectionTitle helpId="agent.liveScreen">Live cloud screen</SectionTitle>
             <LiveScreen agentId={agentId} compact />
           </div>
         ) : null}
 
         <label className="flex flex-col gap-1 text-sm">
-          Start URL (optional)
+          <FieldLabel helpId="agent.startUrl">Start URL (optional)</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.startUrl}
@@ -583,7 +640,9 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Allowed domains (comma-separated, empty = any)
+          <FieldLabel helpId="agent.allowedDomains">
+            Allowed domains (comma-separated, empty = any)
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.allowedDomains}
@@ -593,7 +652,9 @@ export function AgentEditPage() {
         </label>
 
         <div>
-          <div className="mb-2 text-sm font-semibold text-teal-900/80">Facts</div>
+          <SectionTitle helpId="agent.facts" className="mb-2">
+            Facts
+          </SectionTitle>
           <div className="flex flex-col gap-2">
             {form.facts.map((f, i) => (
               <div key={i} className="flex flex-col gap-2 sm:flex-row">
@@ -611,25 +672,27 @@ export function AgentEditPage() {
                 />
               </div>
             ))}
-            <button
-              type="button"
-              className="min-h-11 self-start rounded-xl border border-teal-100 px-3 text-sm font-semibold"
-              onClick={() =>
-                setForm((prev) => ({
-                  ...prev,
-                  facts: [...prev.facts, { key: "", value: "" }],
-                }))
-              }
-            >
-              Add fact
-            </button>
+            <ButtonWithHelp helpId="agent.facts.add">
+              <button
+                type="button"
+                className="min-h-11 self-start rounded-xl border border-teal-100 px-3 text-sm font-semibold"
+                onClick={() =>
+                  setForm((prev) => ({
+                    ...prev,
+                    facts: [...prev.facts, { key: "", value: "" }],
+                  }))
+                }
+              >
+                Add fact
+              </button>
+            </ButtonWithHelp>
           </div>
         </div>
 
         <div className="flex flex-col gap-2 border-t border-teal-100 pt-3">
-          <div className="text-sm font-semibold text-teal-900/80">Workforce role</div>
+          <SectionTitle helpId="agent.role">Workforce role</SectionTitle>
           <label className="flex flex-col gap-1 text-sm">
-            Role
+            <FieldLabel helpId="agent.role">Role</FieldLabel>
             <select
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={form.role}
@@ -641,7 +704,7 @@ export function AgentEditPage() {
           </label>
           {form.role === "manager" && !isNew ? (
             <div className="flex flex-col gap-1 text-sm">
-              <span>Managed agents</span>
+              <FieldLabel helpId="agent.managedAgents">Managed agents</FieldLabel>
               <div className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-xl border border-teal-100 p-2">
                 {allAgents.length === 0 ? (
                   <span className="text-teal-900/50">Create more agents to manage.</span>
@@ -679,10 +742,14 @@ export function AgentEditPage() {
                 }))
               }
             />
-            Agent policy: require Governance approval before submit
+            <FieldLabel helpId="agent.policy.requireApproval">
+              Agent policy: require Governance approval before submit
+            </FieldLabel>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Agent monthly budget (USD, 0 = use org default)
+            <FieldLabel helpId="agent.policy.monthlyBudget">
+              Agent monthly budget (USD, 0 = use org default)
+            </FieldLabel>
             <input
               type="number"
               min={0}
@@ -697,7 +764,7 @@ export function AgentEditPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Agent daily budget (USD)
+            <FieldLabel helpId="agent.policy.dailyBudget">Agent daily budget (USD)</FieldLabel>
             <input
               type="number"
               min={0}
@@ -712,7 +779,7 @@ export function AgentEditPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Max task duration (minutes)
+            <FieldLabel helpId="agent.policy.maxTaskMinutes">Max task duration (minutes)</FieldLabel>
             <input
               type="number"
               min={0}
@@ -743,7 +810,7 @@ export function AgentEditPage() {
                 checked={Boolean(form.autonomy[key])}
                 onChange={(e) => updateAutonomy(key, e.target.checked)}
               />
-              {label}
+              <FieldLabel helpId={`agent.autonomy.${key}`}>{label}</FieldLabel>
             </label>
           ))}
           <label className="flex min-h-11 items-center gap-2 text-sm">
@@ -752,13 +819,13 @@ export function AgentEditPage() {
               checked={Boolean(form.active)}
               onChange={(e) => update("active", e.target.checked)}
             />
-            Active
+            <FieldLabel helpId="agent.active">Active</FieldLabel>
           </label>
         </div>
 
         {!isNew ? (
           <div className="flex flex-col gap-2 border-t border-teal-100 pt-3">
-            <div className="text-sm font-semibold text-teal-900/80">Memory</div>
+            <SectionTitle helpId="agent.memory">Memory</SectionTitle>
             <p className="text-xs text-teal-900/60">
               Filled automatically after runs. You can also add notes the agent should remember.
             </p>
@@ -830,22 +897,26 @@ export function AgentEditPage() {
         {!isNew ? <SiteProfilesPanel agentId={agentId} /> : null}
 
         <div className="flex flex-wrap gap-2">
-          <button
-            type="submit"
-            disabled={busy}
-            className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-          >
-            {busy ? "Saving…" : "Save agent"}
-          </button>
-          {!isNew ? (
+          <ButtonWithHelp helpId="agent.save">
             <button
-              type="button"
+              type="submit"
               disabled={busy}
-              onClick={onDelete}
-              className="min-h-11 rounded-xl border border-red-200 bg-red-50 px-4 font-semibold text-red-700"
+              className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
             >
-              Delete
+              {busy ? "Saving…" : "Save agent"}
             </button>
+          </ButtonWithHelp>
+          {!isNew ? (
+            <ButtonWithHelp helpId="agent.delete">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={onDelete}
+                className="min-h-11 rounded-xl border border-red-200 bg-red-50 px-4 font-semibold text-red-700"
+              >
+                Delete
+              </button>
+            </ButtonWithHelp>
           ) : null}
         </div>
       </form>

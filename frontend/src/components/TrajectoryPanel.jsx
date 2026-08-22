@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { SectionTitle } from "./FieldLabel.jsx";
 
 /**
  * Builds trajectory rows from stored trajectory or live step events.
@@ -54,8 +55,10 @@ export function TrajectoryPanel({ task, className = "" }) {
       open={open}
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
-      <summary className="cursor-pointer list-none px-3 py-2 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
-        Trajectory
+      <summary className="cursor-pointer list-none px-3 py-2 [&::-webkit-details-marker]:hidden">
+        <SectionTitle as="span" helpId="chat.trajectory" className="inline-flex">
+          Trajectory
+        </SectionTitle>
         <span className="ml-2 rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
           {rows.length} steps
           {failed ? ` · ${failed} failed` : ""}

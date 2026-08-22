@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function AgentsPage() {
   const [agents, setAgents] = useState([]);
@@ -81,13 +82,17 @@ export function AgentsPage() {
             , or open a chat / agent page for one computer.
           </p>
         </div>
-        <Link
-          to="/agents/new"
-          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-4 font-semibold text-white sm:w-auto"
-        >
-          New agent
-        </Link>
+        <ButtonWithHelp helpId="agents.new">
+          <Link
+            to="/agents/new"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-4 font-semibold text-white sm:w-auto"
+          >
+            New agent
+          </Link>
+        </ButtonWithHelp>
       </div>
+
+      <PageGuideBanner helpId="agents.page" />
 
       {error ? (
         <ErrorAlert
@@ -148,28 +153,34 @@ export function AgentsPage() {
                 ) : null}
               </div>
               <div className="flex w-full flex-col gap-2 sm:w-auto sm:flex-row sm:flex-wrap">
-                <Link
-                  to={`/agents/${a._id}`}
-                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-3 text-sm font-semibold sm:w-auto"
-                >
-                  Edit
-                </Link>
-                <button
-                  type="button"
-                  disabled={busy || a.active === false}
-                  onClick={() => startChat(a._id)}
-                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
-                >
-                  Start chat
-                </button>
-                <button
-                  type="button"
-                  disabled={Boolean(deletingId)}
-                  onClick={() => deleteAgent(a)}
-                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
-                >
-                  {deletingId === a._id ? "Deleting…" : "Delete"}
-                </button>
+                <ButtonWithHelp helpId="agents.edit">
+                  <Link
+                    to={`/agents/${a._id}`}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-3 text-sm font-semibold sm:w-auto"
+                  >
+                    Edit
+                  </Link>
+                </ButtonWithHelp>
+                <ButtonWithHelp helpId="agents.chat">
+                  <button
+                    type="button"
+                    disabled={busy || a.active === false}
+                    onClick={() => startChat(a._id)}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
+                  >
+                    Start chat
+                  </button>
+                </ButtonWithHelp>
+                <ButtonWithHelp helpId="agents.delete">
+                  <button
+                    type="button"
+                    disabled={Boolean(deletingId)}
+                    onClick={() => deleteAgent(a)}
+                    className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
+                  >
+                    {deletingId === a._id ? "Deleting…" : "Delete"}
+                  </button>
+                </ButtonWithHelp>
               </div>
             </li>
           ))

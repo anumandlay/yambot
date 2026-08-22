@@ -7,6 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { api } from "../lib/api.js";
+import { ButtonWithHelp } from "./FieldLabel.jsx";
 
 /**
  * Maps a browser KeyboardEvent to a Playwright key / combo string.
@@ -434,14 +435,16 @@ export function LiveScreen({
                 Give control back
               </button>
             ) : (
-              <button
-                type="button"
-                disabled={busySession || !live?.online}
-                onClick={() => setHumanSession(true)}
-                className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
-              >
-                Take control
-              </button>
+              <ButtonWithHelp helpId="chat.takeControl">
+                <button
+                  type="button"
+                  disabled={busySession || !live?.online}
+                  onClick={() => setHumanSession(true)}
+                  className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
+                >
+                  Take control
+                </button>
+              </ButtonWithHelp>
             )}
             <button
               type="button"

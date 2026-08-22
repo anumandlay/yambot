@@ -7,6 +7,12 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import {
+  ButtonWithHelp,
+  FieldLabel,
+  PageGuideBanner,
+  SectionTitle,
+} from "../components/FieldLabel.jsx";
 
 const EMPTY = {
   title: "",
@@ -151,6 +157,7 @@ export function GoalEditPage() {
         </Link>
       </div>
       <h1 className="text-2xl font-bold tracking-tight">{isNew ? "New goal" : "Edit goal"}</h1>
+      <PageGuideBanner helpId="goals.page" />
 
       {error ? (
         <ErrorAlert
@@ -168,7 +175,9 @@ export function GoalEditPage() {
 
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <label className="flex flex-col gap-1 text-sm">
-          Title
+          <FieldLabel helpId="goal.title" required>
+            Title
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.title}
@@ -177,7 +186,7 @@ export function GoalEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Assigned agent
+          <FieldLabel helpId="goal.agent">Assigned agent</FieldLabel>
           <select
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.agent}
@@ -192,7 +201,7 @@ export function GoalEditPage() {
           </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Parent goal (delegation)
+          <FieldLabel helpId="goal.parent">Parent goal (delegation)</FieldLabel>
           <select
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.parentGoal}
@@ -208,7 +217,7 @@ export function GoalEditPage() {
         </label>
         <div className="grid gap-3 sm:grid-cols-2">
           <label className="flex flex-col gap-1 text-sm">
-            Status
+            <FieldLabel helpId="goal.status">Status</FieldLabel>
             <select
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={form.status}
@@ -222,7 +231,7 @@ export function GoalEditPage() {
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Priority
+            <FieldLabel helpId="goal.priority">Priority</FieldLabel>
             <select
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={form.priority}
@@ -237,7 +246,7 @@ export function GoalEditPage() {
           </label>
         </div>
         <label className="flex flex-col gap-1 text-sm">
-          Description
+          <FieldLabel helpId="goal.description">Description</FieldLabel>
           <textarea
             className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
             value={form.description}
@@ -245,7 +254,7 @@ export function GoalEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Instructions (sent to worker on Run)
+          <FieldLabel helpId="goal.instructions">Instructions (sent to worker on Run)</FieldLabel>
           <textarea
             className="min-h-28 rounded-xl border border-teal-100 px-3 py-2"
             value={form.instructions}
@@ -253,7 +262,7 @@ export function GoalEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Success criteria
+          <FieldLabel helpId="goal.successCriteria">Success criteria</FieldLabel>
           <textarea
             className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
             value={form.successCriteria}
@@ -265,50 +274,62 @@ export function GoalEditPage() {
           <div className="text-sm font-semibold text-teal-900/80">KPIs</div>
           {form.kpis.map((k, i) => (
             <div key={i} className="grid gap-2 rounded-xl border border-teal-50 bg-teal-50/30 p-2 sm:grid-cols-4">
-              <input
-                className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
-                placeholder="Name"
-                value={k.name}
-                onChange={(e) => updateKpi(i, "name", e.target.value)}
-              />
-              <input
-                className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
-                placeholder="Target"
-                type="number"
-                value={k.target}
-                onChange={(e) => updateKpi(i, "target", e.target.value)}
-              />
-              <input
-                className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
-                placeholder="Current"
-                type="number"
-                value={k.current}
-                onChange={(e) => updateKpi(i, "current", e.target.value)}
-              />
-              <input
-                className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
-                placeholder="Unit"
-                value={k.unit}
-                onChange={(e) => updateKpi(i, "unit", e.target.value)}
-              />
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="goal.kpi.name">Name</FieldLabel>
+                <input
+                  className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
+                  value={k.name}
+                  onChange={(e) => updateKpi(i, "name", e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="goal.kpi.target">Target</FieldLabel>
+                <input
+                  className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
+                  type="number"
+                  value={k.target}
+                  onChange={(e) => updateKpi(i, "target", e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="goal.kpi.current">Current</FieldLabel>
+                <input
+                  className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
+                  type="number"
+                  value={k.current}
+                  onChange={(e) => updateKpi(i, "current", e.target.value)}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="goal.kpi.unit">Unit</FieldLabel>
+                <input
+                  className="min-h-10 rounded-lg border border-teal-100 px-2 text-sm"
+                  value={k.unit}
+                  onChange={(e) => updateKpi(i, "unit", e.target.value)}
+                />
+              </label>
             </div>
           ))}
-          <button
-            type="button"
-            className="min-h-10 self-start rounded-xl border border-teal-100 px-3 text-sm font-semibold"
-            onClick={() =>
-              setForm((prev) => ({
-                ...prev,
-                kpis: [...prev.kpis, { name: "", target: "", current: "0", unit: "" }],
-              }))
-            }
-          >
-            Add KPI
-          </button>
+          <ButtonWithHelp helpId="goal.kpi.add">
+            <button
+              type="button"
+              className="min-h-10 self-start rounded-xl border border-teal-100 px-3 text-sm font-semibold"
+              onClick={() =>
+                setForm((prev) => ({
+                  ...prev,
+                  kpis: [...prev.kpis, { name: "", target: "", current: "0", unit: "" }],
+                }))
+              }
+            >
+              Add KPI
+            </button>
+          </ButtonWithHelp>
         </div>
 
         <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/20 p-3">
-          <div className="text-sm font-semibold text-teal-900/80">Goal autonomy</div>
+          <SectionTitle helpId="goal.autonomy.enabled" className="text-teal-900/80">
+            Goal autonomy
+          </SectionTitle>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
               type="checkbox"
@@ -320,10 +341,12 @@ export function GoalEditPage() {
                 }))
               }
             />
-            Periodically self-assess KPIs and spawn tasks
+            <FieldLabel helpId="goal.autonomy.enabled">
+              Periodically self-assess KPIs and spawn tasks
+            </FieldLabel>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Check interval (minutes)
+            <FieldLabel helpId="goal.autonomy.interval">Check interval (minutes)</FieldLabel>
             <input
               type="number"
               min={15}
@@ -340,9 +363,11 @@ export function GoalEditPage() {
         </div>
 
         <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/20 p-3">
-          <div className="text-sm font-semibold text-teal-900/80">SLA</div>
+          <SectionTitle helpId="goal.sla.name" className="text-teal-900/80">
+            SLA
+          </SectionTitle>
           <label className="flex flex-col gap-1 text-sm">
-            SLA name
+            <FieldLabel helpId="goal.sla.name">SLA name</FieldLabel>
             <input
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={form.sla.name}
@@ -352,7 +377,9 @@ export function GoalEditPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Response target (minutes, 0 = none)
+            <FieldLabel helpId="goal.sla.responseMinutes">
+              Response target (minutes, 0 = none)
+            </FieldLabel>
             <input
               type="number"
               min={0}
@@ -368,13 +395,15 @@ export function GoalEditPage() {
           </label>
         </div>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-        >
-          {busy ? "Saving…" : isNew ? "Create goal" : "Save goal"}
-        </button>
+        <ButtonWithHelp helpId="goal.save">
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Saving…" : isNew ? "Create goal" : "Save goal"}
+          </button>
+        </ButtonWithHelp>
       </form>
     </div>
   );

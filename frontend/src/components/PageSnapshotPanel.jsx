@@ -5,6 +5,7 @@
  */
 
 import { useMemo, useState } from "react";
+import { SectionTitle } from "./FieldLabel.jsx";
 
 /**
  * @param {object|null|undefined} obs
@@ -168,8 +169,10 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
   if (!snapshots.length) {
     return (
       <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-        <summary className="shrink-0 cursor-pointer list-none px-3 py-2 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
-          Page snapshot
+        <summary className="shrink-0 cursor-pointer list-none px-3 py-2 [&::-webkit-details-marker]:hidden">
+          <SectionTitle as="span" helpId="chat.snapshot" className="inline-flex">
+            Page snapshot
+          </SectionTitle>
           <span className="ml-2 text-xs font-normal text-teal-800/50">waiting for agent step…</span>
         </summary>
         {!compact ? (
@@ -183,10 +186,12 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
 
   return (
     <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary className="flex shrink-0 cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
-        <span>
-          Page snapshot
-          <span className="ml-2 rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
+      <summary className="flex shrink-0 cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <SectionTitle as="span" helpId="chat.snapshot" className="inline-flex">
+            Page snapshot
+          </SectionTitle>
+          <span className="rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
             {count} elements
           </span>
         </span>

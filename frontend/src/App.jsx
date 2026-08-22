@@ -25,6 +25,10 @@ import { WorkforcePage } from "./pages/WorkforcePage.jsx";
 import { OperationsPage } from "./pages/OperationsPage.jsx";
 import { CompanyPage } from "./pages/CompanyPage.jsx";
 import { SkillsPage } from "./pages/SkillsPage.jsx";
+import { HowToPage } from "./pages/HowToPage.jsx";
+import { AdminLoginPage } from "./pages/AdminLoginPage.jsx";
+import { AdminUsersPage } from "./pages/AdminUsersPage.jsx";
+import { WalletPage } from "./pages/WalletPage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
 
@@ -99,6 +103,7 @@ export default function App() {
       <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<ChatsPage />} />
           <Route path="/agents" element={<AgentsPage />} />
@@ -113,10 +118,13 @@ export default function App() {
           <Route path="/operations" element={<OperationsPage />} />
           <Route path="/company" element={<CompanyPage />} />
           <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/how-to" element={<HowToPage />} />
           <Route path="/live" element={<LiveWallPage />} />
           <Route path="/chats/:chatId" element={<ChatDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/wallet" element={<WalletPage />} />
           <Route path="/system" element={<SystemPage />} />
+          <Route path="/admin/users" element={<AdminUsersPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

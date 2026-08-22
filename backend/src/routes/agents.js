@@ -20,6 +20,8 @@ import {
   checkAgentInbox,
 } from "../utils/agentEmail.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
+import { getPlatformSettings } from "../models/PlatformSettings.js";
+import { debitWallet } from "../utils/wallet.js";
 
 export const agentsRouter = Router();
 
@@ -361,10 +363,46 @@ agentsRouter.post("/", async (req, res, next) => {
     if (fields.mode == null) fields.mode = "browser";
     fields.runner = "cloud";
 
+    const settings = await getPlatformSettings();
+    const agentPriceCents = Math.max(0, Number(settings.agentPriceCents) || 0);
+
     const agent = new Agent({ ...fields, user: req.userId });
     ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
-    await agent.save();
+
+    /** @type {{ transaction?: { _id: unknown } } | null} */
+    let debitResult = null;
+    if (agentPriceCents > 0) {
+      debitResult = await debitWallet({
+        userId: req.userId,
+        amountCents: agentPriceCents,
+        type: "agent_create",
+        note: `New agent: ${fields.name}`,
+        meta: { agentName: fields.name, priceCents: agentPriceCents },
+      });
+    }
+
+    try {
+      await agent.save();
+      if (debitResult?.transaction?._id) {
+        const { WalletTransaction } = await import("../models/WalletTransaction.js");
+        await WalletTransaction.findByIdAndUpdate(debitResult.transaction._id, {
+          agent: agent._id,
+        });
+      }
+    } catch (saveErr) {
+      if (agentPriceCents > 0) {
+        const { creditWallet } = await import("../utils/wallet.js");
+        await creditWallet({
+          userId: req.userId,
+          amountCents: agentPriceCents,
+          type: "refund",
+          note: `Refund — agent create failed: ${fields.name}`,
+          meta: { reason: saveErr.message },
+        }).catch((refundErr) => console.error("[agents] refund after failed create", refundErr));
+      }
+      throw saveErr;
+    }
 
     res.status(201).json({
       ok: true,

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel } from "../components/FieldLabel.jsx";
 
 export function RegisterPage() {
   const { user, register } = useAuth();
@@ -48,7 +49,7 @@ export function RegisterPage() {
       ) : null}
       <form onSubmit={onSubmit} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <label className="flex flex-col gap-1 text-sm">
-          Name
+          <FieldLabel helpId="auth.name">Name</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={name}
@@ -57,7 +58,7 @@ export function RegisterPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Email
+          <FieldLabel helpId="auth.email">Email</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             type="email"
@@ -67,7 +68,9 @@ export function RegisterPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Password (min 6)
+          <FieldLabel helpId="auth.password" required>
+            Password (min 6)
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             type="password"
@@ -77,13 +80,15 @@ export function RegisterPage() {
             required
           />
         </label>
-        <button
-          type="submit"
-          disabled={busy}
-          className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-        >
-          {busy ? "Creating…" : "Create account"}
-        </button>
+        <ButtonWithHelp helpId="auth.register">
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Creating…" : "Create account"}
+          </button>
+        </ButtonWithHelp>
       </form>
       <p className="text-sm">
         Already have an account?{" "}

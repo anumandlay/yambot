@@ -8,6 +8,7 @@
 import mongoose from "mongoose";
 import { env } from "./env.js";
 import { AGENT_MODES } from "../models/Agent.js";
+import { ensureSuperAdminAccounts } from "./superAdmin.js";
 
 /**
  * Connects to MongoDB. Throws if unreachable — fail fast at boot.
@@ -33,6 +34,8 @@ export async function connectDb() {
   } catch {
     /* collection may not exist */
   }
+
+  await ensureSuperAdminAccounts();
 
   return mongoose;
 }

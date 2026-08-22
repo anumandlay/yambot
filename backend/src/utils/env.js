@@ -19,6 +19,10 @@
  * @property {string} DEFAULT_LLM_BASE_URL
  * @property {string} DEFAULT_LLM_MODEL
  * @property {string} COMPUTER_MANAGER_URL
+ * @property {string} SUPERADMIN_EMAILS
+ * @property {string} SUPERADMIN_BOOTSTRAP_EMAIL
+ * @property {string} SUPERADMIN_BOOTSTRAP_PASSWORD
+ * @property {string} SUPERADMIN_BOOTSTRAP_NAME
  */
 
 import {
@@ -43,4 +47,16 @@ export const env = {
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
   /** Internal computer-manager HTTP (Compose network). */
   COMPUTER_MANAGER_URL: process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050",
+  /** Public web app URL for Stripe redirects (defaults to first CORS origin). */
+  PUBLIC_WEB_URL:
+    process.env.PUBLIC_WEB_URL ||
+    (process.env.CORS_ORIGINS || "http://localhost:5173").split(",")[0].trim(),
+  STRIPE_SECRET_KEY: process.env.STRIPE_SECRET_KEY || "",
+  STRIPE_WEBHOOK_SECRET: process.env.STRIPE_WEBHOOK_SECRET || "",
+  /** Comma-separated emails always treated as superadmin (promoted on boot). */
+  SUPERADMIN_EMAILS: process.env.SUPERADMIN_EMAILS || "",
+  /** Optional first-run bootstrap super-admin (created if missing). */
+  SUPERADMIN_BOOTSTRAP_EMAIL: process.env.SUPERADMIN_BOOTSTRAP_EMAIL || "",
+  SUPERADMIN_BOOTSTRAP_PASSWORD: process.env.SUPERADMIN_BOOTSTRAP_PASSWORD || "",
+  SUPERADMIN_BOOTSTRAP_NAME: process.env.SUPERADMIN_BOOTSTRAP_NAME || "Platform Admin",
 };

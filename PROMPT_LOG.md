@@ -1,5 +1,41 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 17:30] SaaS wallet — Stripe top-up, agent pricing, admin credits
+
+- **Prompt Provided:** Per-user wallet with Stripe load; super-admin sets price per agent (deduct on create); super-admin can grant free credits
+- **Architectural Flow:** User.walletBalanceCents + WalletTransaction ledger; PlatformSettings.agentPriceCents; debit on POST /api/agents; Stripe Checkout + webhook credit; admin PUT pricing + POST grant credits; WalletPage + admin UI
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/package.json`, `backend/src/models/{User,WalletTransaction,PlatformSettings}.js`, `backend/src/utils/{wallet,stripeClient,env}.js`, `backend/src/routes/{wallet,admin,agents,auth}.js`, `backend/src/index.js`, `frontend/src/pages/{WalletPage,AdminUsersPage,AgentEditPage}.jsx`, `frontend/src/{App.jsx,components/AppSidebar.jsx}`, `frontend/src/help/helpContent.js`, `deploy/.env.example`
+
+## [2026-08-22 17:15] SaaS super-admin — all users dashboard
+
+- **Prompt Provided:** Create super admin login to see all registered users (SaaS platform operator)
+- **Architectural Flow:** User.role superadmin + env SUPERADMIN_BOOTSTRAP_* / SUPERADMIN_EMAILS; boot promotes admins; `/api/admin/users` + `/api/admin/overview` behind authRequired+superAdminRequired; `/admin/login` and `/admin/users` UI with tenant table and stats
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/User.js`, `backend/src/utils/{env,superAdmin,userPublic,db}.js`, `backend/src/middleware/superAdmin.js`, `backend/src/routes/{auth,admin}.js`, `backend/src/index.js`, `frontend/src/pages/{AdminLoginPage,AdminUsersPage}.jsx`, `frontend/src/{App.jsx,components/AppSidebar.jsx}`, `frontend/src/help/helpContent.js`, `deploy/.env.example`
+
+## [2026-08-22 17:00] Project-wide help tooltips + How To manual
+
+- **Prompt Provided:** Very detailed tooltip (?) on every button, text box, and control across the whole project; How To menu explaining agents, skills, goals, and all features in depth
+- **Architectural Flow:** `help/helpContent.js` centralizes ~120 HELP entries + HOW_TO_SECTIONS manual; `HelpTooltip` modal popover; `FieldLabel`/`SectionTitle`/`ButtonWithHelp`/`PageGuideBanner` wrappers; `/how-to` page with TOC; sidebar How To nav + per-nav-item help; all pages wired to helpIds
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/help/helpContent.js`, `frontend/src/components/{HelpTooltip,FieldLabel}.jsx`, `frontend/src/pages/HowToPage.jsx`, `frontend/src/{App.jsx,components/AppSidebar.jsx}`, all `frontend/src/pages/*.jsx`, `frontend/src/components/{AgentTaskQueue,LiveScreen,PageSnapshotPanel,TrajectoryPanel}.jsx`
+
+## [2026-08-22 16:45] Help tooltips across all remaining pages
+
+- **Prompt Provided:** Add help tooltips on ALL form fields and buttons across 14 page files using FieldLabel, SectionTitle, ButtonWithHelp, PageGuideBanner from FieldLabel.jsx; map helpIds from helpContent.js; LoginPage link to /how-to; append PROMPT_LOG entry
+- **Architectural Flow:** Import help UI components from `FieldLabel.jsx`; add PageGuideBanner per page; replace plain labels/section titles with FieldLabel/SectionTitle; wrap action buttons with ButtonWithHelp — no business logic or API changes
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/{GoalEditPage,GoalsPage,ChatsPage,SettingsPage,PoliciesPage,GovernancePage,WorkforcePage,OperationsPage,CompanyPage,SkillsPage,LiveWallPage,SystemPage,LoginPage,RegisterPage}.jsx`
+
+## [2026-08-22 16:35] Chat detail page help tooltips
+
+- **Prompt Provided:** Add help tooltips to ChatDetailPage — PageGuideBanner, FieldLabel, ButtonWithHelp, SectionTitle for goal/send/stop/answer inputs, section titles, and take control
+- **Architectural Flow:** Chat detail UI surfaces contextual help via `FieldLabel.jsx` helpers and `helpContent.js` chat.* / chats.page keys; child panels (queue, snapshot, trajectory, live screen) get SectionTitle/ButtonWithHelp — no API or polling logic changes
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/{AgentTaskQueue,LiveScreen,PageSnapshotPanel,TrajectoryPanel}.jsx`
+
+## [2026-08-22 16:30] Agent editor contextual help tooltips
+
+- **Prompt Provided:** Add contextual help on every form field and button in AgentEditPage using FieldLabel, SectionTitle, ButtonWithHelp, and PageGuideBanner with agent.* helpId mappings
+- **Architectural Flow:** Import help components from FieldLabel.jsx; PageGuideBanner after page title; replace plain labels/legends/section titles with help-aware components; wrap action buttons with ButtonWithHelp — no form logic changes
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/AgentEditPage.jsx`
+
 ## [2026-08-22 16:00] AI Workforce OS (vision items 1–19, 24–31; exclude 20, 21–23)
 
 - **Prompt Provided:** implement full AI workforce vision except certification/sandbox (#20) and synthetic companies/chaos testing (#21–23)

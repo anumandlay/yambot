@@ -1,0 +1,1463 @@
+/**
+ * @fileoverview Central help text for tooltips and the How To guide.
+ * Purpose: Single source of truth for detailed UI explanations across YamBot.
+ * Downstream: HelpTooltip, FieldLabel, HowToPage.
+ */
+
+/**
+ * @typedef {{ title: string, body: string, learnMore?: string }} HelpEntry
+ */
+
+/**
+ * Builds a multi-paragraph help body from sections.
+ * @param  {...string} parts
+ * @returns {string}
+ */
+export function helpBody(...parts) {
+  return parts.filter(Boolean).join("\n\n");
+}
+
+/** @type {Record<string, HelpEntry>} */
+export const HELP = {
+  // ─── Global / navigation ─────────────────────────────────────────────
+  "nav.agents": {
+    title: "Agents",
+    body: helpBody(
+      "Agents are your AI employees — each one is a named browser worker with its own personality, skills, memory, and dedicated cloud Chromium computer on the VPS.",
+      "Create an agent when you need a repeatable role (researcher, shopper, support rep). One agent = one persistent browser profile, one queue of tasks, and one live screen you can watch or take over.",
+      "From here you open agent settings, start chats, or delete agents (which also removes their cloud container)."
+    ),
+    learnMore: "howto-agents",
+  },
+  "nav.goals": {
+    title: "Goals",
+    body: helpBody(
+      "Goals are durable business objectives — not one-off chat messages. They store title, instructions, KPIs, priority, SLA, and optional autonomy (the agent checks KPIs on a schedule and spawns work itself).",
+      "Use Goals when work should outlive a single chat: weekly reporting, monitoring a metric, ongoing outreach. Click Run on a goal to enqueue a task linked to that goal.",
+      "Goals differ from Chats: chats are conversational threads; goals are the Employee OS layer that tracks outcomes over time."
+    ),
+    learnMore: "howto-goals",
+  },
+  "nav.live": {
+    title: "Live Wall",
+    body: helpBody(
+      "Live Wall shows a grid of every agent's cloud browser screen in real time. Use it to supervise many workers at once without opening each chat.",
+      "Screens refresh automatically. If an agent is stuck on a CAPTCHA or login, open its chat and use Take control on the live screen."
+    ),
+    learnMore: "howto-live",
+  },
+  "nav.chats": {
+    title: "Chats",
+    body: helpBody(
+      "Chats are conversation threads tied to one agent. You type a goal in plain English; the agent's cloud worker claims the task, opens Chromium, and executes step by step.",
+      "Each message can enqueue a new browser task. Progress appears as agent messages, live screen updates, and task events in the right rail."
+    ),
+    learnMore: "howto-chats",
+  },
+  "nav.workforce": {
+    title: "Workforce",
+    body: helpBody(
+      "Workforce is Layer 3 management: manager agents delegate child goals to worker agents they manage.",
+      "Set an agent's role to Manager on its edit page, pick managed agents, then use this page to delegate instructions under a parent goal."
+    ),
+    learnMore: "howto-workforce",
+  },
+  "nav.operations": {
+    title: "Operations",
+    body: helpBody(
+      "Operations is the company nervous system: the event bus (things that happened), triggers (rules that react to events or time), and watchers (URL monitors that emit change events).",
+      "External systems can POST to /api/events/webhook. Triggers can enqueue tasks or emit follow-up events when conditions match."
+    ),
+    learnMore: "howto-operations",
+  },
+  "nav.company": {
+    title: "Company",
+    body: helpBody(
+      "Company holds your world model: Entities (customers, leads, vendors with temporal observations), Company Memory (durable facts the OS injects into decisions), and Processes (defined workflows and instances).",
+      "This is the digital twin of your business — agents and autonomy engines read from here when investigating or planning."
+    ),
+    learnMore: "howto-company",
+  },
+  "nav.skills": {
+    title: "Skills",
+    body: helpBody(
+      "Skills are reusable playbooks learned from human demonstrations or authored manually. When an agent hits an unknown workflow it can file a Training Request; you record a demo (Take control) and convert it to a skill.",
+      "Skills differ from the agent 'Skill' text field: page Skills are structured step lists the system can replay and verify; the agent field is free-text capability description for the LLM."
+    ),
+    learnMore: "howto-skills",
+  },
+  "nav.policies": {
+    title: "Policies",
+    body: helpBody(
+      "Policies are organization-wide governance defaults (Layer 2): approval before submit/purchase, URL blocks, LLM budgets, HTTP tool allowlists, escalation timers.",
+      "Per-agent policy overrides on the agent edit page merge with these defaults — the stricter or agent-specific value wins where applicable."
+    ),
+    learnMore: "howto-policies",
+  },
+  "nav.governance": {
+    title: "Governance",
+    body: helpBody(
+      "Governance is Layer 5 oversight: audit log (who did what), pending approvals (submit/purchase gates), LLM spend vs budget, improvement proposals, and performance reviews.",
+      "Use this when you need accountability, cost control, or to approve autonomous suggestions before they take effect."
+    ),
+    learnMore: "howto-governance",
+  },
+  "nav.system": {
+    title: "System",
+    body: helpBody(
+      "System shows VPS health: API status, running cloud worker containers per agent, and controls to restart or inspect infrastructure.",
+      "Use when an agent's computer failed to start or you need to confirm deploy/version after an update."
+    ),
+    learnMore: "howto-system",
+  },
+  "nav.settings": {
+    title: "Settings",
+    body: helpBody(
+      "Settings stores your account secrets: LLM API credentials (required for agents to think), optional Vision LLM (screenshot error recovery), and DeathByCaptcha (automated CAPTCHA solving).",
+      "Secrets are encrypted on the server and injected into cloud workers at task runtime — never embedded in the browser extension (cloud-only product)."
+    ),
+    learnMore: "howto-settings",
+  },
+  "nav.howto": {
+    title: "How To guide",
+    body: helpBody(
+      "Open the full YamBot manual: step-by-step instructions for agents, goals, skills, chats, governance, and every major feature.",
+      "Use question-mark icons (?) next to fields for context-specific deep dives."
+    ),
+  },
+
+  // ─── Auth ────────────────────────────────────────────────────────────
+  "auth.email": {
+    title: "Email",
+    body: helpBody(
+      "Your login email. Must be unique in this YamBot instance. Used only for authentication — separate from agent SMTP mailboxes."
+    ),
+  },
+  "auth.password": {
+    title: "Password",
+    body: helpBody(
+      "Account password (hashed on server). Use a strong password; this protects all agents, chats, and API keys stored under your user."
+    ),
+  },
+  "auth.name": {
+    title: "Display name",
+    body: helpBody(
+      "Your human name for the account record. Not shown to agents; optional identification in multi-user setups."
+    ),
+  },
+  "auth.login": {
+    title: "Log in",
+    body: helpBody(
+      "Authenticates your session (JWT). After login you can create agents, chats, and goals. Session persists until logout or expiry."
+    ),
+  },
+  "auth.register": {
+    title: "Create account",
+    body: helpBody(
+      "Registers a new YamBot user on this server. You will need to add LLM API keys in Settings before agents can run tasks."
+    ),
+  },
+
+  "admin.nav": {
+    title: "Super admin",
+    body: helpBody(
+      "Platform operator console (SaaS). Lists every registered tenant user with agent counts, task volume, and estimated LLM spend.",
+      "Only accounts with role superadmin or email in server SUPERADMIN_EMAILS can access this."
+    ),
+  },
+  "admin.login": {
+    title: "Super-admin sign in",
+    body: helpBody(
+      "Uses the same user database as regular login but only allows superadmin accounts into /admin/users.",
+      "Configure SUPERADMIN_BOOTSTRAP_EMAIL on the server for first-time setup, or add emails to SUPERADMIN_EMAILS."
+    ),
+  },
+  "admin.users.page": {
+    title: "Platform admin console",
+    body: helpBody(
+      "Cross-tenant dashboard for YamBot as a SaaS product. See all sign-ups, their usage, and total platform LLM cost.",
+      "Regular tenant users never see other accounts — this view is operator-only."
+    ),
+  },
+  "admin.users.table": {
+    title: "Users table",
+    body: helpBody(
+      "Each row is one tenant account. Wallet = prepaid USD balance. Agents = browser workers they created. Tasks = all queued/running/completed jobs. LLM USD = sum of estimated cost on completed tasks.",
+      "Use Grant credits to add promotional balance without Stripe."
+    ),
+  },
+  "admin.pricing.agentPrice": {
+    title: "Price per new agent",
+    body: helpBody(
+      "Platform-wide fee in USD charged from the user's wallet when they create a new agent. Set to 0 for free agent creation.",
+      "Existing agents are not re-charged on edit."
+    ),
+  },
+  "admin.pricing.save": {
+    title: "Save pricing",
+    body: helpBody(
+      "Applies immediately to all new agent creations on this YamBot instance."
+    ),
+  },
+  "admin.grantCredits": {
+    title: "Grant free credits",
+    body: helpBody(
+      "Add promotional or support credits to a user's wallet without Stripe. Creates an admin_credit ledger entry.",
+      "Use for trials, refunds, or enterprise deals."
+    ),
+  },
+  "admin.grantCredits.user": {
+    title: "Select user",
+    body: helpBody(
+      "Tenant account to receive credits. Current wallet balance shown in dropdown."
+    ),
+  },
+  "admin.grantCredits.amount": {
+    title: "Credit amount",
+    body: helpBody(
+      "USD amount added to wallet instantly."
+    ),
+  },
+  "admin.grantCredits.note": {
+    title: "Credit note",
+    body: helpBody(
+      "Shown in user's transaction history (e.g. 'Launch promo', 'Support refund')."
+    ),
+  },
+  "admin.grantCredits.submit": {
+    title: "Grant credits",
+    body: helpBody(
+      "Credits the selected user's wallet and refreshes the table."
+    ),
+  },
+
+  "nav.wallet": {
+    title: "Wallet",
+    body: helpBody(
+      "Prepaid USD balance. Top up via Stripe; spent when creating agents (if platform price is set) and future usage billing.",
+      "View balance and transaction history here."
+    ),
+    learnMore: "howto-wallet",
+  },
+  "wallet.page": {
+    title: "Wallet page",
+    body: helpBody(
+      "Your prepaid account balance for YamBot SaaS. Stripe checkout adds funds; agent creation debits the configured per-agent price.",
+      "Admin can also grant free credits from the super-admin console."
+    ),
+    learnMore: "howto-wallet",
+  },
+  "wallet.balance": {
+    title: "Current balance",
+    body: helpBody(
+      "Available USD in your wallet. Must cover agent creation fee before POST /api/agents succeeds."
+    ),
+  },
+  "wallet.agentPrice": {
+    title: "Agent creation fee",
+    body: helpBody(
+      "Set by platform super-admin. One-time charge per new agent, not per edit or per task."
+    ),
+  },
+  "wallet.topup": {
+    title: "Stripe top-up",
+    body: helpBody(
+      "Redirects to Stripe Checkout. Funds appear after webhook confirms payment (usually seconds)."
+    ),
+  },
+  "wallet.topupAmount": {
+    title: "Preset top-up",
+    body: helpBody(
+      "Quick amounts — opens Stripe Checkout for that USD value."
+    ),
+  },
+  "wallet.customAmount": {
+    title: "Custom top-up amount",
+    body: helpBody(
+      "Minimum $1, maximum $5,000 per transaction."
+    ),
+  },
+  "wallet.checkout": {
+    title: "Pay with Stripe",
+    body: helpBody(
+      "Secure payment via Stripe. You return to this page after success or cancel."
+    ),
+  },
+  "wallet.transactions": {
+    title: "Transaction history",
+    body: helpBody(
+      "Ledger: stripe_topup (credit), admin_credit (credit), agent_create (debit), refund (credit)."
+    ),
+  },
+
+  // ─── Agents list ─────────────────────────────────────────────────────
+  "agents.page": {
+    title: "Agents page",
+    body: helpBody(
+      "Lists all browser agents you own. Each row shows name, skill summary, and actions: Chat (new thread), Edit (full config), Delete (stops cloud container).",
+      "New agent provisions a fresh Docker Chromium worker bound to that agent ID on the VPS."
+    ),
+    learnMore: "howto-agents",
+  },
+  "agents.new": {
+    title: "New agent",
+    body: helpBody(
+      "Opens the agent editor to define name, persona, instructions, autonomy, schedule, email, and policies. Saving creates the agent record and starts its cloud computer container.",
+      "Minimum: a name. Strongly recommended: Skill, Profile, and Standing instructions so the LLM knows how to behave."
+    ),
+    learnMore: "howto-create-agent",
+  },
+  "agents.chat": {
+    title: "Start chat",
+    body: helpBody(
+      "Creates a new chat thread bound to this agent. You'll land in the chat view where you can type goals; each goal becomes a queued browser task for this agent's cloud worker."
+    ),
+  },
+  "agents.edit": {
+    title: "Edit agent",
+    body: helpBody(
+      "Opens full agent configuration: persona, scheduler, email identity, facts, memory, site profiles, workforce role, and per-agent policy overrides."
+    ),
+  },
+  "agents.delete": {
+    title: "Delete agent",
+    body: helpBody(
+      "Permanently removes the agent, its cloud Chromium container, and associated data you don't need elsewhere. Chats may remain but lose the agent link. Confirm carefully."
+    ),
+  },
+
+  // ─── Agent edit ──────────────────────────────────────────────────────
+  "agent.name": {
+    title: "Agent name",
+    body: helpBody(
+      "Short unique label shown in lists, Live Wall, and chats (e.g. 'Pricing Analyst', 'Support Bot').",
+      "The cloud container is labeled with this agent's ID internally; name is for humans only."
+    ),
+  },
+  "agent.description": {
+    title: "Short description",
+    body: helpBody(
+      "One-line summary for the agents list. Optional but helps you distinguish similar agents at a glance."
+    ),
+  },
+  "agent.skill": {
+    title: "Skill (capability text)",
+    body: helpBody(
+      "Free-text description of what this agent is good at — injected into every LLM prompt. Example: 'Compare competitor pricing on public sites and summarize with URLs.'",
+      "Not the same as Skills page playbooks: this field shapes reasoning style; structured Skills are separate reusable workflows."
+    ),
+    learnMore: "howto-skills",
+  },
+  "agent.profile": {
+    title: "Profile / persona",
+    body: helpBody(
+      "Who the agent 'is': tone, role, constraints ('You are a careful paralegal assistant…'). Combined with Skill and Instructions to form the system persona.",
+      "Use for voice (formal/casual), domain expertise, and boundaries ('never purchase without approval')."
+    ),
+  },
+  "agent.instructions": {
+    title: "Standing instructions",
+    body: helpBody(
+      "Persistent rules applied on every task run: cite sources, prefer official sites, always screenshot checkout, ask before login, etc.",
+      "These override casual chat tone — treat as mandatory operating procedures."
+    ),
+  },
+  "agent.successCriteria": {
+    title: "Success criteria",
+    body: helpBody(
+      "Defines when a task should finish successfully: 'Return top 5 links with titles', 'Confirm order number visible', 'Email summary to user'.",
+      "The LLM sees this when deciding to call finish; task evaluation may score runs against goal success criteria too."
+    ),
+  },
+  "agent.cloudComputer": {
+    title: "Cloud computer",
+    body: helpBody(
+      "Each agent gets a dedicated Playwright Chromium container on the VPS with a persistent profile (cookies, local storage).",
+      "Take control in chat streams your mouse/keyboard to that browser. One agent = one box — tasks for the same agent never run in parallel on different machines."
+    ),
+  },
+  "agent.schedule.enabled": {
+    title: "Scheduled runs",
+    body: helpBody(
+      "When enabled, the server enqueues the Scheduled goal text on the chosen interval without you opening chat.",
+      "Creates/uses a chat titled 'Schedule · {agent name}'. Skips a tick if a task is already pending or running for this agent."
+    ),
+  },
+  "agent.schedule.goal": {
+    title: "Scheduled goal",
+    body: helpBody(
+      "Plain-English task text enqueued automatically — same as typing in chat. Example: 'Check competitor homepage for pricing changes and summarize.'"
+    ),
+  },
+  "agent.schedule.interval": {
+    title: "Schedule frequency",
+    body: helpBody(
+      "How often to enqueue the scheduled goal: 15m–24h or once daily at a UTC time. Server scheduler checks every minute; actual run may drift slightly under load."
+    ),
+  },
+  "agent.schedule.dailyAt": {
+    title: "Daily time (UTC)",
+    body: helpBody(
+      "For 'daily' interval only: hour:minute in UTC when the scheduled goal fires. Convert from your local timezone when planning."
+    ),
+  },
+  "agent.email.enabled": {
+    title: "Agent email",
+    body: helpBody(
+      "Gives this agent its own SMTP/IMAP identity so it can send_email and check_email actions — verification codes, outreach, human-like mail without Gmail web UI.",
+      "Credentials encrypted at rest. Prefer app passwords for Gmail/Outlook."
+    ),
+  },
+  "agent.email.fromName": {
+    title: "From name",
+    body: helpBody(
+      "Display name recipients see (e.g. 'Alex from Acme'). Shown in send_email and test messages."
+    ),
+  },
+  "agent.email.fromAddress": {
+    title: "From address",
+    body: helpBody(
+      "SMTP From email address. Must be authorized on your mail provider. Test email sends to this address."
+    ),
+  },
+  "agent.email.smtpHost": {
+    title: "SMTP host",
+    body: helpBody(
+      "Outgoing mail server hostname (smtp.gmail.com, smtp.sendgrid.net, etc.). Required for send_email."
+    ),
+  },
+  "agent.email.smtpPort": {
+    title: "SMTP port",
+    body: helpBody(
+      "Usually 587 (STARTTLS) or 465 (SSL). Match your provider docs; enable 'SMTP TLS on connect' for 465."
+    ),
+  },
+  "agent.email.smtpUser": {
+    title: "SMTP username",
+    body: helpBody(
+      "Often the same as From address. Some providers use 'apikey' for API-based SMTP."
+    ),
+  },
+  "agent.email.smtpPassword": {
+    title: "SMTP password",
+    body: helpBody(
+      "App password or SMTP secret. Leave blank on save to keep existing encrypted password. Never share in chat messages."
+    ),
+  },
+  "agent.email.imapHost": {
+    title: "IMAP host",
+    body: helpBody(
+      "Incoming mail server for check_email (imap.gmail.com). If blank, worker may derive from SMTP host."
+    ),
+  },
+  "agent.email.imapPort": {
+    title: "IMAP port",
+    body: helpBody(
+      "Typically 993 (SSL). Used when agent reads inbox for codes or replies."
+    ),
+  },
+  "agent.email.smtpSecure": {
+    title: "SMTP TLS on connect",
+    body: helpBody(
+      "Enable for port 465 (implicit TLS). Leave off for 587 with STARTTLS."
+    ),
+  },
+  "agent.email.test": {
+    title: "Send test email",
+    body: helpBody(
+      "Sends a test message to the From address using saved SMTP settings. Save agent first if newly created."
+    ),
+  },
+  "agent.startUrl": {
+    title: "Start URL",
+    body: helpBody(
+      "Optional URL opened when a new task begins if the agent navigates nowhere else first. Leave empty for about:blank.",
+      "Useful for always starting on your app dashboard or intranet home."
+    ),
+  },
+  "agent.allowedDomains": {
+    title: "Allowed domains",
+    body: helpBody(
+      "Comma-separated hostnames the agent may visit. Empty = any non-blocked URL (still subject to Policies blocked patterns).",
+      "Extra safety for specialized agents that should never leave approved sites."
+    ),
+  },
+  "agent.facts": {
+    title: "Facts",
+    body: helpBody(
+      "Key-value pairs injected into prompts (product_url, account_id, support_phone). Use for stable reference data the agent must not invent.",
+      "Example: competitor_urls → https://a.com, https://b.com"
+    ),
+  },
+  "agent.facts.add": {
+    title: "Add fact",
+    body: helpBody(
+      "Adds another key-value row. Empty keys are ignored on save."
+    ),
+  },
+  "agent.role": {
+    title: "Workforce role",
+    body: helpBody(
+      "Worker: executes browser tasks only. Manager: can own managed agents and delegate child goals from Workforce page (and manager autonomy may react to events).",
+      "Managers do not replace human oversight — they organize work across workers."
+    ),
+    learnMore: "howto-workforce",
+  },
+  "agent.managedAgents": {
+    title: "Managed agents",
+    body: helpBody(
+      "When role is Manager, select worker agents this manager may delegate to. Delegation creates child goals assigned to those workers."
+    ),
+  },
+  "agent.policy.requireApproval": {
+    title: "Require approval before submit",
+    body: helpBody(
+      "Per-agent override: submit/purchase clicks pause until approved in Governance → Pending approvals. Merges with org Policies setting."
+    ),
+  },
+  "agent.policy.monthlyBudget": {
+    title: "Agent monthly LLM budget",
+    body: helpBody(
+      "USD cap on estimated LLM spend for this agent per calendar month. 0 = inherit org default / unlimited. Worker stops claiming tasks when exceeded."
+    ),
+  },
+  "agent.policy.dailyBudget": {
+    title: "Agent daily LLM budget",
+    body: helpBody(
+      "USD cap per UTC day for this agent. Prevents runaway costs from a single bad loop. 0 = no daily cap."
+    ),
+  },
+  "agent.policy.maxTaskMinutes": {
+    title: "Max task duration",
+    body: helpBody(
+      "Hard stop: worker aborts task after this many minutes and marks error time_budget_exceeded. 0 = use org policy or unlimited.",
+      "Protects against infinite browse loops."
+    ),
+  },
+  "agent.autonomy.allowSubmit": {
+    title: "Allow submit / apply clicks",
+    body: helpBody(
+      "If off, agent skips submit-like clicks (forms, purchases). Use with Policies approval for high-risk flows."
+    ),
+  },
+  "agent.autonomy.allowCaptcha": {
+    title: "Allow CAPTCHA solving",
+    body: helpBody(
+      "If on, agent may call solve_captcha (DeathByCaptcha). Image CAPTCHAs on Amazon etc. still often need human Take control."
+    ),
+  },
+  "agent.autonomy.askBeforeLogin": {
+    title: "Ask before login walls",
+    body: helpBody(
+      "Agent uses ask_user before entering credentials on login pages — you type secrets in chat or take control."
+    ),
+  },
+  "agent.autonomy.askBeforeSubmit": {
+    title: "Ask before submit clicks",
+    body: helpBody(
+      "Lighter than full Governance approval: agent asks in chat ('Reply yes to continue') before submit-like clicks."
+    ),
+  },
+  "agent.autonomy.visionEnabled": {
+    title: "Vision screenshots",
+    body: helpBody(
+      "When enabled, cloud worker may attach viewport screenshots to LLM on verification failures (uses Vision LLM from Settings).",
+      "Costs more tokens but recovers from stale refs and hidden UI."
+    ),
+  },
+  "agent.active": {
+    title: "Agent active",
+    body: helpBody(
+      "Inactive agents may be skipped by schedulers and shown as paused. Cloud container may still exist until deleted."
+    ),
+  },
+  "agent.save": {
+    title: "Save agent",
+    body: helpBody(
+      "Writes configuration to MongoDB and syncs cloud worker container (create/restart as needed). Changes apply to the next task run."
+    ),
+  },
+  "agent.delete": {
+    title: "Delete this agent",
+    body: helpBody(
+      "Removes agent and stops/removes its cloud container. Irreversible."
+    ),
+  },
+  "agent.memory": {
+    title: "Agent memory notes",
+    body: helpBody(
+      "Long-term notes the agent (or you) append across runs — surfaced in future prompts. Use for lessons learned, site quirks, customer context."
+    ),
+  },
+  "agent.liveScreen": {
+    title: "Live cloud screen",
+    body: helpBody(
+      "Embedded stream of this agent's Chromium viewport. From chat you can Take control; here you only watch."
+    ),
+  },
+  "agent.siteProfiles": {
+    title: "Site profiles",
+    body: helpBody(
+      "Per-domain learning: visit counts, success/failure stats, and hints the agent discovered (selectors, flows). Editable or deletable.",
+      "Built automatically as the agent works sites; speeds up return visits."
+    ),
+  },
+  "agent.siteProfile.domain": {
+    title: "Site domain",
+    body: helpBody(
+      "Hostname only (example.com) — hints you add apply to that domain on future tasks for this agent."
+    ),
+  },
+  "agent.siteProfile.hintKind": {
+    title: "Hint kind",
+    body: helpBody(
+      "note: general tip. flow: step sequence. avoid: do not click paths. selector: stable CSS/xpath guidance for controls."
+    ),
+  },
+  "agent.siteProfile.hintText": {
+    title: "Hint content",
+    body: helpBody(
+      "Free-text injected into SITE MEMORY on tasks for this domain. Be specific ('Checkout button is #buy-now')."
+    ),
+  },
+  "agent.siteProfile.add": {
+    title: "Add site hint",
+    body: helpBody(
+      "Creates or updates SiteProfile for domain and appends hint. Worker learn layer reads these on next visit."
+    ),
+  },
+
+  // ─── Goals ───────────────────────────────────────────────────────────
+  "goals.page": {
+    title: "Goals page",
+    body: helpBody(
+      "Lists durable objectives (Employee OS Layer 1). Each goal can have KPIs, priority, assigned agent, parent goal for delegation, autonomy, and SLA.",
+      "Run enqueues a browser task using the goal's instructions. Stats track runs and outcomes over time."
+    ),
+    learnMore: "howto-goals",
+  },
+  "goals.new": {
+    title: "New goal",
+    body: helpBody(
+      "Create a persistent objective. Fill instructions as you would tell an employee. Assign an agent responsible for execution."
+    ),
+  },
+  "goals.run": {
+    title: "Run goal",
+    body: helpBody(
+      "Enqueues one browser task now: builds goal text from title + instructions + success criteria, links task.goalRef, applies priority rank.",
+      "Does not replace autonomy — scheduled self-checks are separate."
+    ),
+  },
+  "goal.title": {
+    title: "Goal title",
+    body: helpBody(
+      "Short name for dashboards and delegation ('Weekly competitor scan', 'Monitor support queue')."
+    ),
+  },
+  "goal.agent": {
+    title: "Assigned agent",
+    body: helpBody(
+      "Which agent's cloud worker executes Run and autonomy-spawned tasks. Required for execution."
+    ),
+  },
+  "goal.parent": {
+    title: "Parent goal",
+    body: helpBody(
+      "Links this goal as a child in a hierarchy — used with Workforce delegation and reporting rollups."
+    ),
+  },
+  "goal.status": {
+    title: "Goal status",
+    body: helpBody(
+      "active: normal. paused: skip autonomy checks. completed/archived: historical, no new auto-runs."
+    ),
+  },
+  "goal.priority": {
+    title: "Goal priority",
+    body: helpBody(
+      "Maps to task priorityRank when enqueued: urgent > high > normal > low. Affects claim order when multiple tasks pending."
+    ),
+  },
+  "goal.description": {
+    title: "Goal description",
+    body: helpBody(
+      "Human-readable context not always sent to worker — use Instructions for executable text. Good for your team's notes."
+    ),
+  },
+  "goal.instructions": {
+    title: "Instructions",
+    body: helpBody(
+      "Primary executable brief sent to the cloud worker on Run — step-by-step what to do in the browser.",
+      "Be specific: URLs, data sources, output format, stop conditions."
+    ),
+  },
+  "goal.successCriteria": {
+    title: "Success criteria",
+    body: helpBody(
+      "Measurable done-state for evaluation and autonomy ('KPI current updated', 'PDF downloaded', '3 sources cited')."
+    ),
+  },
+  "goal.kpi.name": {
+    title: "KPI name",
+    body: helpBody(
+      "Metric label tracked on the goal (leads_contacted, tickets_closed, error_rate)."
+    ),
+  },
+  "goal.kpi.target": {
+    title: "KPI target",
+    body: helpBody(
+      "Numeric target value. Autonomy engine compares current vs target when enabled."
+    ),
+  },
+  "goal.kpi.current": {
+    title: "KPI current",
+    body: helpBody(
+      "Latest measured value — update manually or via future integrations. Autonomy may spawn tasks when below target."
+    ),
+  },
+  "goal.kpi.unit": {
+    title: "KPI unit",
+    body: helpBody(
+      "Display unit: %, USD, count, hours — for human readability only."
+    ),
+  },
+  "goal.kpi.add": {
+    title: "Add KPI",
+    body: helpBody(
+      "Another KPI row. Up to 20 per goal."
+    ),
+  },
+  "goal.autonomy.enabled": {
+    title: "Goal autonomy",
+    body: helpBody(
+      "When on, scheduler periodically evaluates KPIs and goal health; may enqueue tasks or emit events without you clicking Run.",
+      "autoRun (default on) allows spawning tasks; interval minimum 15 minutes."
+    ),
+    learnMore: "howto-autonomy",
+  },
+  "goal.autonomy.interval": {
+    title: "Autonomy check interval",
+    body: helpBody(
+      "Minutes between autonomous self-assessments for this goal. Lower = more proactive, higher LLM cost."
+    ),
+  },
+  "goal.sla.name": {
+    title: "SLA name",
+    body: helpBody(
+      "Label for this response SLA ('First response', 'Resolution'). Shown in ops reporting."
+    ),
+  },
+  "goal.sla.responseMinutes": {
+    title: "SLA response target",
+    body: helpBody(
+      "Minutes within which linked tasks should start or complete. Breaches may emit events and raise priority. 0 = disabled."
+    ),
+  },
+  "goal.save": {
+    title: "Save goal",
+    body: helpBody(
+      "Persists goal document. Does not automatically run — use Run on Goals list or enable autonomy."
+    ),
+  },
+
+  // ─── Chats ───────────────────────────────────────────────────────────
+  "chats.page": {
+    title: "Chats page",
+    body: helpBody(
+      "All conversation threads. Pick agent → New chat → send goals in the thread. Each agent maintains its own task queue.",
+      "Scheduled runs also appear as chats titled 'Schedule · {agent}'."
+    ),
+    learnMore: "howto-chats",
+  },
+  "chats.agentSelect": {
+    title: "Select agent",
+    body: helpBody(
+      "Which agent owns the new chat. All tasks in this thread run on that agent's cloud computer with its persona and policies."
+    ),
+  },
+  "chats.newChat": {
+    title: "New chat",
+    body: helpBody(
+      "Creates empty thread. First message you send becomes the first goal/task."
+    ),
+  },
+  "chats.newAgentLink": {
+    title: "New agent (from chats)",
+    body: helpBody(
+      "Shortcut to agent editor if you have no agents yet."
+    ),
+  },
+  "chat.goalInput": {
+    title: "Goal message",
+    body: helpBody(
+      "Type what you want the browser agent to do in plain English. Sending enqueues a Task (status pending → running on cloud worker).",
+      "Examples: 'Go to example.com and find pricing', 'Fill the contact form with …' Be explicit about constraints."
+    ),
+  },
+  "chat.send": {
+    title: "Send goal",
+    body: helpBody(
+      "Posts your message and enqueues a browser task at the back of this agent's queue (or runs next if queue empty)."
+    ),
+  },
+  "chat.stop": {
+    title: "Stop agent",
+    body: helpBody(
+      "Cancels the currently running task for this chat's agent. Pending queued goals remain — stop only the active run."
+    ),
+  },
+  "chat.answer": {
+    title: "Answer agent question",
+    body: helpBody(
+      "When task status is waiting_user, the agent used ask_user (CAPTCHA, confirmation, missing info). Your reply unblocks the run."
+    ),
+  },
+  "chat.takeControl": {
+    title: "Take control",
+    body: helpBody(
+      "Streams your mouse/keyboard to the agent's cloud Chromium — solve CAPTCHAs, manual login, or demo a workflow for Skills.",
+      "Release control to let the agent continue autonomously."
+    ),
+  },
+  "chat.taskQueue": {
+    title: "Task queue",
+    body: helpBody(
+      "Shows pending and active tasks for this agent across chats. One running task per agent; others wait.",
+      "Priority and SLA from goals affect claim order globally for that agent."
+    ),
+  },
+  "chat.liveScreen": {
+    title: "Live screen (chat)",
+    body: helpBody(
+      "Real-time view of what the cloud browser shows. Updates during task execution."
+    ),
+  },
+  "chat.snapshot": {
+    title: "Page snapshot",
+    body: helpBody(
+      "Accessibility tree snapshot the LLM sees: refs (e12), roles, names. Useful for debugging why agent clicked wrong control."
+    ),
+  },
+  "chat.trajectory": {
+    title: "Trajectory",
+    body: helpBody(
+      "Step-by-step record of actions on the current/recent task — replay what the agent did for audits and skill authoring."
+    ),
+  },
+
+  // ─── Settings ────────────────────────────────────────────────────────
+  "settings.llmApiKey": {
+    title: "LLM API key",
+    body: helpBody(
+      "Secret key for your LLM provider (MiniMax, OpenAI-compatible, etc.). Required for any agent to plan actions.",
+      "Stored encrypted. Cloud workers fetch decrypted value per task via runtime-config. Use Test LLM to verify."
+    ),
+  },
+  "settings.llmBaseUrl": {
+    title: "LLM base URL",
+    body: helpBody(
+      "API root URL (e.g. https://api.minimax.io/v1). Must match your provider's OpenAI-compatible endpoint."
+    ),
+  },
+  "settings.llmModel": {
+    title: "LLM model",
+    body: helpBody(
+      "Model id sent in chat completions (MiniMax-M2.7, gpt-4o, etc.). Affects quality, speed, and cost."
+    ),
+  },
+  "settings.testLlm": {
+    title: "Test LLM connection",
+    body: helpBody(
+      "Sends a minimal completion using current key/URL/model. Fails fast if misconfigured before you run a long browser task."
+    ),
+  },
+  "settings.visionApiKey": {
+    title: "Vision API key",
+    body: helpBody(
+      "Optional separate key for multimodal/vision models. Blank = use main LLM key for screenshot analysis."
+    ),
+  },
+  "settings.visionBaseUrl": {
+    title: "Vision base URL",
+    body: helpBody(
+      "Optional vision endpoint. Blank = main LLM base URL."
+    ),
+  },
+  "settings.visionModel": {
+    title: "Vision model",
+    body: helpBody(
+      "Model for image inputs (e.g. gpt-4o-mini). Blank = main LLM model. Used when agent.autonomy.visionEnabled and error recovery attaches screenshots."
+    ),
+  },
+  "settings.dbcUsername": {
+    title: "DeathByCaptcha username",
+    body: helpBody(
+      "Account for automated CAPTCHA solving service. Paired with DBC password."
+    ),
+  },
+  "settings.dbcPassword": {
+    title: "DeathByCaptcha password",
+    body: helpBody(
+      "DBC account password, encrypted at rest. Required for solve_captcha on supported puzzle types."
+    ),
+  },
+  "settings.testDbc": {
+    title: "Test DeathByCaptcha",
+    body: helpBody(
+      "Verifies DBC credentials with provider. Does not solve a live site CAPTCHA."
+    ),
+  },
+  "settings.confirmBeforeSubmit": {
+    title: "Confirm before submit (global)",
+    body: helpBody(
+      "Org default: agent asks in chat before submit-like clicks. Per-agent and Policies can add stricter Governance approval."
+    ),
+  },
+  "settings.save": {
+    title: "Save settings",
+    body: helpBody(
+      "Persists credentials. Running workers pick up changes on next task claim."
+    ),
+  },
+
+  // ─── Policies ────────────────────────────────────────────────────────
+  "policies.requireApproval": {
+    title: "Require Governance approval",
+    body: helpBody(
+      "Submit/purchase/application clicks create Pending approval items. Worker polls until you Approve/Deny in Governance.",
+      "Strongest gate for financial or legal actions."
+    ),
+  },
+  "policies.confirmBeforeSubmit": {
+    title: "Ask in chat before submit",
+    body: helpBody(
+      "Softer gate: agent ask_user before submit. Good for teams without formal approval workflow."
+    ),
+  },
+  "policies.monthlyBudget": {
+    title: "Monthly LLM budget",
+    body: helpBody(
+      "Org-wide USD cap per calendar month (sum of task llmUsage.estimatedUsd). 0 = unlimited. Workers see budget.exceeded in runtime-config."
+    ),
+  },
+  "policies.dailyBudget": {
+    title: "Daily LLM budget",
+    body: helpBody(
+      "Org-wide USD cap per UTC day. Stops runaway spend from bugs or loops."
+    ),
+  },
+  "policies.maxTaskMinutes": {
+    title: "Max task duration (org)",
+    body: helpBody(
+      "Default maximum minutes per task for all agents unless overridden per agent. Worker aborts with time_budget_exceeded."
+    ),
+  },
+  "policies.escalateWaiting": {
+    title: "Escalate waiting_user",
+    body: helpBody(
+      "After N minutes stuck waiting for your chat answer, scheduler may bump priority or emit escalation events."
+    ),
+  },
+  "policies.blockedUrls": {
+    title: "Blocked URL patterns",
+    body: helpBody(
+      "One pattern per line — substring or regex. navigate and http_request blocked if URL matches. Merged with per-agent blocks."
+    ),
+  },
+  "policies.httpAllowHosts": {
+    title: "HTTP tool allowed hosts",
+    body: helpBody(
+      "Hosts permitted for http_request action (api.example.com). Empty = any non-blocked host. One per line."
+    ),
+  },
+  "policies.save": {
+    title: "Save policies",
+    body: helpBody(
+      "Writes user-level defaults. Audit log records policy.updated."
+    ),
+  },
+
+  // ─── Governance ──────────────────────────────────────────────────────
+  "governance.budget": {
+    title: "Monthly LLM budget (dashboard)",
+    body: helpBody(
+      "Live spend vs cap from completed tasks this month. exceeded flag when at or over cap."
+    ),
+  },
+  "governance.approvals": {
+    title: "Pending approvals",
+    body: helpBody(
+      "Submit/purchase clicks waiting for human decision. Approve lets worker continue; Deny skips action."
+    ),
+  },
+  "governance.improvements": {
+    title: "Improvement proposals",
+    body: helpBody(
+      "Autonomous suggestions from improvement loop after failures or anomalies. Approve to accept; Reject to dismiss.",
+      "Does not auto-change production without your review."
+    ),
+  },
+  "governance.performance": {
+    title: "Performance reviews",
+    body: helpBody(
+      "Periodic summaries of agent task success rates, cost, and patterns. Generated by scheduler or POST /governance/performance/:agentId."
+    ),
+  },
+  "governance.usage": {
+    title: "LLM usage stats",
+    body: helpBody(
+      "Rollup of tokens and estimated USD from completed tasks in last 30 days, by agent."
+    ),
+  },
+  "governance.audit": {
+    title: "Audit log",
+    body: helpBody(
+      "Immutable-style event list: goal created, task completed, policy updated, etc. For compliance and debugging."
+    ),
+  },
+
+  // ─── Workforce ───────────────────────────────────────────────────────
+  "workforce.page": {
+    title: "Workforce page",
+    body: helpBody(
+      "Delegate work from manager-owned parent goals to worker agents. Requires at least one manager agent with managedAgents configured.",
+      "Creates child goals with instructions copied or customized per assignee."
+    ),
+    learnMore: "howto-workforce",
+  },
+  "workforce.parentGoal": {
+    title: "Parent goal",
+    body: helpBody(
+      "Goal owned by a manager agent — delegation breaks it into sub-goals for workers."
+    ),
+  },
+  "workforce.assignAgent": {
+    title: "Assign to agent",
+    body: helpBody(
+      "Worker agent who receives the delegated child goal and executes browser tasks."
+    ),
+  },
+  "workforce.instructions": {
+    title: "Delegation instructions",
+    body: helpBody(
+      "Specific brief for this worker — overrides or narrows parent goal instructions."
+    ),
+  },
+  "workforce.delegate": {
+    title: "Delegate",
+    body: helpBody(
+      "Creates child goal(s) linked to parent. Workers see them on Goals page and can Run or receive via autonomy."
+    ),
+  },
+
+  // ─── Operations ──────────────────────────────────────────────────────
+  "ops.page": {
+    title: "Operations",
+    body: helpBody(
+      "Monitor and configure the company event bus, automation triggers, and URL watchers.",
+      "Foundation for reactive AI workforce: something happens → trigger fires → task or event."
+    ),
+    learnMore: "howto-operations",
+  },
+  "ops.events": {
+    title: "Events tab",
+    body: helpBody(
+      "Chronological feed of CompanyEvent records: task.completed, watcher.change, training.requested, user.note, etc.",
+      "Emit manually for testing or receive via webhook from CRM, Zapier, your app."
+    ),
+  },
+  "ops.emitType": {
+    title: "Event type",
+    body: helpBody(
+      "Dot-namespaced identifier (order.created, support.escalated). Triggers filter on this string."
+    ),
+  },
+  "ops.emitSummary": {
+    title: "Event summary",
+    body: helpBody(
+      "Human-readable one-liner stored on the event and shown in feeds."
+    ),
+  },
+  "ops.emit": {
+    title: "Emit event",
+    body: helpBody(
+      "Creates event with source=user, runs trigger engine matching rules, may enqueue tasks."
+    ),
+  },
+  "ops.triggers": {
+    title: "Triggers tab",
+    body: helpBody(
+      "Automation rules: types include time, event, condition, threshold, change, anomaly. Actions: enqueue_task, emit_event, etc.",
+      "Quick-add creates a basic event→enqueue_task rule; edit via API for advanced config."
+    ),
+  },
+  "ops.triggerName": {
+    title: "Trigger name",
+    body: helpBody(
+      "Label for your reference in lists."
+    ),
+  },
+  "ops.triggerAdd": {
+    title: "Add trigger",
+    body: helpBody(
+      "Creates enabled event trigger listening for user.note by default — customize via API PUT."
+    ),
+  },
+  "ops.watchers": {
+    title: "Watchers tab",
+    body: helpBody(
+      "Poll URLs on interval; hash content; emit watcher.change when page changes. Good for status pages, competitor pricing HTML."
+    ),
+  },
+  "ops.watcherUrl": {
+    title: "Watcher URL",
+    body: helpBody(
+      "Full HTTPS URL to fetch server-side. Respects reasonable intervals (default 30 min)."
+    ),
+  },
+  "ops.watcherAdd": {
+    title: "Watch URL",
+    body: helpBody(
+      "Creates watcher and begins polling on scheduler ticks."
+    ),
+  },
+
+  // ─── Company ─────────────────────────────────────────────────────────
+  "company.page": {
+    title: "Company page",
+    body: helpBody(
+      "World model + operating memory + process definitions for your AI workforce digital twin.",
+      "Agents and investigation tools read entities and memory when reasoning about customers and facts."
+    ),
+    learnMore: "howto-company",
+  },
+  "company.entities": {
+    title: "Entities",
+    body: helpBody(
+      "Customers, leads, vendors, custom objects with name, externalId, status, attributes, and temporal observations (notes that age over time).",
+      "POST observations when new facts arrive from tasks or integrations."
+    ),
+  },
+  "company.entityName": {
+    title: "Entity name",
+    body: helpBody(
+      "Display name for the record (Acme Corp, Lead #442)."
+    ),
+  },
+  "company.memory": {
+    title: "Company memory",
+    body: helpBody(
+      "Key-value facts (category + key + value) injected into autonomous loops — pricing policy, brand voice, fiscal year end.",
+      "Unlike agent memory, these are org-wide truths."
+    ),
+  },
+  "company.memoryKey": {
+    title: "Memory key",
+    body: helpBody(
+      "Stable identifier (return_policy, main_competitor)."
+    ),
+  },
+  "company.memoryValue": {
+    title: "Memory value",
+    body: helpBody(
+      "Fact content the OS and agents should treat as authoritative."
+    ),
+  },
+  "company.processes": {
+    title: "Processes",
+    body: helpBody(
+      "Named workflows with steps — definitions for onboarding, support escalation, etc. Instances track running executions and bottlenecks.",
+      "API supports bottleneck analysis for ops tuning."
+    ),
+  },
+  "company.processName": {
+    title: "Process name",
+    body: helpBody(
+      "Label for the process definition (Customer onboarding, Refund handling)."
+    ),
+  },
+
+  // ─── Skills page ─────────────────────────────────────────────────────
+  "skills.page": {
+    title: "Skills page",
+    body: helpBody(
+      "Structured skill library + human demonstrations + training queue from agents.",
+      "Pipeline: agent stuck → training request → you demo with Take control → convert demo to skill → assign/replay."
+    ),
+    learnMore: "howto-skills",
+  },
+  "skills.training": {
+    title: "Training requests",
+    body: helpBody(
+      "Created when agent uses request_training action or worker API. Shows workflow gap observation. Mark done when you've recorded a demo or skill."
+    ),
+  },
+  "skills.demos": {
+    title: "Demonstrations",
+    body: helpBody(
+      "Captured step sequences (observation, action, result) from human Take control sessions via worker /demos API.",
+      "Convert to Skill generates draft steps for review."
+    ),
+  },
+  "skills.convertDemo": {
+    title: "Convert to skill",
+    body: helpBody(
+      "Creates Skill in training status from demonstration steps. Edit skill before relying on it in production."
+    ),
+  },
+  "skills.list": {
+    title: "Skills library",
+    body: helpBody(
+      "Named playbooks with steps, triggers, verification rules, status (draft/training/active).",
+      "Future: agent loop matches skill triggers to inject step hints."
+    ),
+  },
+  "skills.name": {
+    title: "Skill name",
+    body: helpBody(
+      "Short label (Checkout Amazon guest, Export CRM report)."
+    ),
+  },
+  "skills.add": {
+    title: "Add skill",
+    body: helpBody(
+      "Creates empty draft skill you can populate with steps manually or via demo conversion."
+    ),
+  },
+
+  // ─── Live & System ───────────────────────────────────────────────────
+  "live.page": {
+    title: "Live Wall",
+    body: helpBody(
+      "Grid of all active agents' cloud browser screenshots. Supervise parallel work, spot stuck CAPTCHAs, click through to agent chat.",
+      "Updates on interval; not pixel-perfect video but sufficient for oversight."
+    ),
+    learnMore: "howto-live",
+  },
+  "system.page": {
+    title: "System page",
+    body: helpBody(
+      "Infrastructure dashboard: API health, docker worker containers per agent, restart actions.",
+      "Use when agent shows offline or after deploy to confirm version."
+    ),
+    learnMore: "howto-system",
+  },
+  "system.restartWorker": {
+    title: "Restart worker",
+    body: helpBody(
+      "Recreates that agent's Chromium container. Clears stuck browser state; in-flight task may error and requeue."
+    ),
+  },
+};
+
+/**
+ * Full How To guide sections (anchor id = first arg in learnMore without prefix).
+ * @type {Array<{ id: string, title: string, body: string }>}
+ */
+export const HOW_TO_SECTIONS = [
+  {
+    id: "overview",
+    title: "What is YamBot?",
+    body: helpBody(
+      "YamBot is a cloud browser agent platform: you define AI employees (Agents), give them goals in natural language, and dedicated Chromium workers on your VPS execute those goals step by step — clicking, typing, reading pages, sending email, and calling HTTP APIs.",
+      "Unlike a chatbot that only generates text, YamBot controls a real browser. You watch on Live Wall, answer questions when stuck, or Take control to handle CAPTCHAs and demos.",
+      "The product layers: (1) Employee OS — Goals with KPIs and autonomy; (2) Governance — policies, budgets, approvals; (3) Workforce — manager delegation; (4) Integrations — HTTP, email, events; (5) Audit & spend tracking; plus Operations (event bus), Company (world model), and Skills (learned workflows)."
+    ),
+  },
+  {
+    id: "getting-started",
+    title: "Getting started",
+    body: helpBody(
+      "1. Register / log in.",
+      "2. Open Settings → add LLM API key, base URL, model → Test LLM connection.",
+      "3. Optional: Vision LLM for screenshot recovery; DeathByCaptcha for some CAPTCHAs.",
+      "4. Agents → New agent → fill Name, Skill, Profile, Standing instructions → Save.",
+      "5. Chats → pick agent → New chat → type a goal → watch live screen.",
+      "6. Optional: Policies for budgets and approval gates; Goals for recurring objectives."
+    ),
+  },
+  {
+    id: "howto-settings",
+    title: "Settings & credentials",
+    body: helpBody(
+      "All agents under your account share LLM credentials from Settings unless you add per-agent email SMTP.",
+      "Keys are encrypted in MongoDB and delivered to cloud workers only during task execution over authenticated worker API.",
+      "confirmBeforeSubmit here is the org default for chat confirmation before risky clicks."
+    ),
+  },
+  {
+    id: "howto-create-agent",
+    title: "How to create an agent (step by step)",
+    body: helpBody(
+      "Step 1: Go to Agents → New agent.",
+      "Step 2: Name — pick a memorable role name.",
+      "Step 3: Skill — one paragraph on capabilities ('Researches B2B pricing pages').",
+      "Step 4: Profile — persona and tone ('You are meticulous, cite sources').",
+      "Step 5: Standing instructions — hard rules ('Never checkout without approval').",
+      "Step 6: Success criteria — default done conditions for tasks.",
+      "Step 7: Optional Start URL and Allowed domains to constrain navigation.",
+      "Step 8: Facts — stable key-values (login_portal_url, etc.).",
+      "Step 9: Autonomy checkboxes — submit, CAPTCHA, login, vision per risk tolerance.",
+      "Step 10: Optional Scheduler — recurring goal text + interval.",
+      "Step 11: Optional Email — SMTP/IMAP for send_email/check_email actions.",
+      "Step 12: Save — wait for cloud container; open chat or Live Wall to verify.",
+      "Each agent = one cloud computer. Create separate agents for separate roles or security boundaries."
+    ),
+  },
+  {
+    id: "howto-agents",
+    title: "Understanding agents",
+    body: helpBody(
+      "An agent is three things at once: (a) a configuration document — persona, policies, memory; (b) a task queue consumer; (c) a Docker Chromium instance on the VPS.",
+      "Tasks are claimed atomically: one running task per agent. Priority comes from goal priority, SLA breaches, and priority arbitrator.",
+      "Deleting an agent removes its container. Inactive flag pauses scheduling but does not delete infrastructure."
+    ),
+  },
+  {
+    id: "howto-chats",
+    title: "How chats & tasks work",
+    body: helpBody(
+      "Chat message → Task created (pending) → cloud worker claims → status running → agent loop: observe page → LLM chooses action → execute in Playwright → repeat until finish or error.",
+      "Statuses: pending, running, waiting_user (needs your answer), done, error, cancelled, blocked (waiting on dependsOn).",
+      "Stop cancels running only. Answer unblocks waiting_user. Take control sends your input to the browser.",
+      "Right rail: queue, live screen, DOM snapshot, trajectory for debugging."
+    ),
+  },
+  {
+    id: "howto-goals",
+    title: "What are goals?",
+    body: helpBody(
+      "Goals are durable assignments — the Employee OS layer. They survive beyond one chat message and track KPIs, priority, SLA, and run statistics.",
+      "Use goals when: work repeats on a schedule, you need KPI tracking, manager delegation, or autonomy should self-spawn tasks when metrics slip.",
+      "Run button enqueues one task now. Autonomy enabled runs periodic checks without you.",
+      "Difference from chat: chat is conversational and ephemeral; goal is a managed objective with identity in Governance and Workforce."
+    ),
+  },
+  {
+    id: "howto-autonomy",
+    title: "Goal autonomy & manager autonomy",
+    body: helpBody(
+      "Goal autonomy: scheduler reads active goals with autonomy.enabled, compares KPIs and last check time, may enqueue tasks or emit events.",
+      "Manager autonomy: manager agents react to recent company events and may create delegated goals for managed workers (rate-limited by scheduler).",
+      "Both require careful policy budgets to avoid runaway LLM spend."
+    ),
+  },
+  {
+    id: "howto-skills",
+    title: "What are skills?",
+    body: helpBody(
+      "Two related concepts:",
+      "A) Agent edit → Skill field: free-text capability description for the LLM every run.",
+      "B) Skills page: structured workflow library — steps, verification rules, demonstrations, training requests.",
+      "Workflow: agent hits unknown UI → request_training → you Take control and perform task → demo captured via worker API → Convert to skill → refine steps → mark training request done.",
+      "Skills are how institutional knowledge transfers from humans to the workforce without rewriting prompts each time."
+    ),
+  },
+  {
+    id: "howto-workforce",
+    title: "Workforce & delegation",
+    body: helpBody(
+      "Set agent role Manager, select managedAgents (workers). Create parent goal owned by manager. Workforce page: pick parent, assign worker, add instructions → Delegate creates child goal for worker agent.",
+      "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers."
+    ),
+  },
+  {
+    id: "howto-operations",
+    title: "Operations: events, triggers, watchers",
+    body: helpBody(
+      "Events: universal bus. Emit from UI, worker completes, webhooks POST /api/events/webhook with { type, summary, payload }.",
+      "Triggers: when event type matches (or cron/time), action runs — typically enqueue_task with goal text in actionConfig.",
+      "Watchers: HTTP poll URL; content hash change emits watcher.change → can trigger downstream automation.",
+      "Together they turn YamBot from 'chat-only' into reactive operations center."
+    ),
+  },
+  {
+    id: "howto-company",
+    title: "Company: entities, memory, processes",
+    body: helpBody(
+      "Entities: CRM-like records with observation timeline — 'as of March, status was trial'.",
+      "Company memory: org facts key-value for prompts and autonomy.",
+      "Processes: document SOPs as steps; track instances and bottlenecks.",
+      "Investigation action on worker aggregates multi-source evidence with contradiction detection."
+    ),
+  },
+  {
+    id: "howto-policies",
+    title: "Policies & agent policy overrides",
+    body: helpBody(
+      "Org Policies: approvals, budgets, URL blocks, HTTP allowlist, escalation.",
+      "Agent edit policy section overrides monthly/daily budget, max task minutes, require approval.",
+      "Effective policy merges both layers in runtime-config for workers.",
+      "Economic stop: worker compares estimated task value vs LLM spend; time budget from maxTaskMinutes."
+    ),
+  },
+  {
+    id: "howto-governance",
+    title: "Governance & oversight",
+    body: helpBody(
+      "Audit: who changed what. Approvals: human gate on risky clicks. Budget dashboard: monthly spend.",
+      "Improvement proposals: autonomous suggestions after failures — approve before treating as accepted.",
+      "Performance reviews: periodic agent scorecards from task history.",
+      "Use Governance weekly for cost and compliance review."
+    ),
+  },
+  {
+    id: "howto-live",
+    title: "Live Wall supervision",
+    body: helpBody(
+      "Open Live Wall to see all agents at once. Click agent to jump to chat. Best for ops floor monitoring.",
+      "If screen frozen, check System for container health or restart worker."
+    ),
+  },
+  {
+    id: "howto-system",
+    title: "System & troubleshooting",
+    body: helpBody(
+      "API health should return ok. Each agent should show a worker container when active.",
+      "After deploy, confirm new UI here. Restart worker if browser zombie. Check Settings LLM if tasks error immediately.",
+      "Stuck running tasks requeue after timeout automatically."
+    ),
+  },
+  {
+    id: "howto-wallet",
+    title: "Wallet & Stripe billing",
+    body: helpBody(
+      "Each user has a prepaid wallet (USD). Top up via Wallet → Pay with Stripe (requires STRIPE_SECRET_KEY and webhook on server).",
+      "Super-admin sets price per agent at /admin/users. When a user creates an agent, that amount is debited once. Insufficient balance returns HTTP 402 — top up first.",
+      "Super-admin can grant free credits to any user without Stripe. Configure Stripe webhook: POST https://your-api/api/wallet/webhook with checkout.session.completed."
+    ),
+  },
+  {
+    id: "howto-superadmin",
+    title: "Super-admin (SaaS operator)",
+    body: helpBody(
+      "Platform operators use /admin/login with a superadmin account to see all registered users, agent counts, tasks, and LLM spend.",
+      "On the server deploy/.env set SUPERADMIN_BOOTSTRAP_EMAIL and SUPERADMIN_BOOTSTRAP_PASSWORD (min 8 chars) — created on API boot if missing. Or add emails to SUPERADMIN_EMAILS to promote existing accounts.",
+      "Super-admins also see a Super admin link in the sidebar. Tenant users cannot access /api/admin or other users' data."
+    ),
+  },
+  {
+    id: "glossary",
+    title: "Glossary",
+    body: helpBody(
+      "Agent — AI employee + cloud browser. Task — single browser job. Goal — durable objective. Chat — message thread. Skill — workflow playbook. Event — bus message. Trigger — automation rule. Watcher — URL monitor. Entity — world model record. Policy — governance rule. Approval — human gate. Demonstration — recorded human steps. Training request — agent asks for help learning."
+    ),
+  },
+];
+
+/**
+ * @param {string} id
+ * @returns {HelpEntry|undefined}
+ */
+export function getHelp(id) {
+  return HELP[id];
+}
+
+/**
+ * @param {string} sectionId
+ * @returns {{ id: string, title: string, body: string }|undefined}
+ */
+export function getHowToSection(sectionId) {
+  return HOW_TO_SECTIONS.find((s) => s.id === sectionId);
+}

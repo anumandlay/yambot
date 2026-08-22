@@ -7,6 +7,8 @@
 import { Router } from "express";
 import { User } from "../models/User.js";
 import { signToken } from "../middleware/auth.js";
+import { toUserPublic } from "../utils/userPublic.js";
+import { isSuperAdmin } from "../utils/superAdmin.js";
 
 export const authRouter = Router();
 
@@ -37,12 +39,12 @@ authRouter.post("/register", async (req, res, next) => {
       return;
     }
     const passwordHash = await User.hashPassword(password);
-    const user = await User.create({ name, email, passwordHash });
+    const user = await User.create({ name, email, passwordHash, role: "user" });
     const token = signToken(user._id);
     res.status(201).json({
       ok: true,
       token,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: { ...toUserPublic(user), isSuperAdmin: isSuperAdmin(user) },
     });
   } catch (err) {
     next(err);
@@ -70,7 +72,7 @@ authRouter.post("/login", async (req, res, next) => {
     res.json({
       ok: true,
       token,
-      user: { id: user._id, name: user.name, email: user.email },
+      user: { ...toUserPublic(user), isSuperAdmin: isSuperAdmin(user) },
     });
   } catch (err) {
     next(err);
@@ -146,12 +148,22 @@ authRouter.get("/me", async (req, res, next) => {
       res.status(401).json({ ok: false, title: "Unauthorized", detail: "Invalid token" });
       return;
     }
-    const user = await User.findById(payload.sub).select("name email");
+    const user = await User.findById(payload.sub).select("name email role walletBalanceCents createdAt");
     if (!user) {
       res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
       return;
     }
-    res.json({ ok: true, user: { id: user._id, name: user.name, email: user.email } });
+    const pub = toUserPublic(user);
+    res.json({
+      ok: true,
+      user: { ...pub, isSuperAdmin: isSuperAdmin(user) },
+      wallet: {
+        balanceCents: Math.max(0, Number(user.walletBalanceCents) || 0),
+        balanceUsd: Number(
+          (Math.max(0, Number(user.walletBalanceCents) || 0) / 100).toFixed(2)
+        ),
+      },
+    });
   } catch (err) {
     next(err);
   }

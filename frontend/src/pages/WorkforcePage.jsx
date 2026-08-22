@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function WorkforcePage() {
   const [agents, setAgents] = useState([]);
@@ -69,6 +70,8 @@ export function WorkforcePage() {
         </p>
       </div>
 
+      <PageGuideBanner helpId="workforce.page" />
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -125,7 +128,9 @@ export function WorkforcePage() {
         >
           <h2 className="text-sm font-semibold text-teal-900/80">Delegate child goal</h2>
           <label className="flex flex-col gap-1 text-sm">
-            Parent goal (owned by a manager agent)
+            <FieldLabel helpId="workforce.parentGoal">
+              Parent goal (owned by a manager agent)
+            </FieldLabel>
             <select
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={parentGoalId}
@@ -140,7 +145,7 @@ export function WorkforcePage() {
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Assign to worker
+            <FieldLabel helpId="workforce.assignAgent">Assign to worker</FieldLabel>
             <select
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={assignAgentId}
@@ -157,7 +162,7 @@ export function WorkforcePage() {
             </select>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            Optional instructions override
+            <FieldLabel helpId="workforce.instructions">Optional instructions override</FieldLabel>
             <textarea
               className="min-h-20 rounded-xl border border-teal-100 px-3 py-2"
               value={instructions}
@@ -165,13 +170,15 @@ export function WorkforcePage() {
               placeholder="Leave empty to copy parent goal instructions"
             />
           </label>
-          <button
-            type="submit"
-            disabled={busy || !parentGoalId || !assignAgentId}
-            className="min-h-11 self-start rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-          >
-            {busy ? "Delegating…" : "Delegate"}
-          </button>
+          <ButtonWithHelp helpId="workforce.delegate">
+            <button
+              type="submit"
+              disabled={busy || !parentGoalId || !assignAgentId}
+              className="min-h-11 self-start rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+            >
+              {busy ? "Delegating…" : "Delegate"}
+            </button>
+          </ButtonWithHelp>
         </form>
       ) : (
         <p className="text-sm text-teal-900/60">

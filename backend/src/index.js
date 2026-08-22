@@ -92,6 +92,14 @@ app.use(
     credentials: true,
   })
 );
+
+const { handleStripeWebhook } = await import("./routes/wallet.js");
+app.post(
+  "/api/wallet/webhook",
+  express.raw({ type: "application/json" }),
+  handleStripeWebhook
+);
+
 app.use(express.json({ limit: "3mb" }));
 app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 
@@ -147,6 +155,7 @@ const server = createServer(app);
 attachDesktopProxy(server, app);
 
 app.use("/api/settings", authRequired, settingsRouter);
+app.use("/api/wallet", authRequired, (await import("./routes/wallet.js")).walletRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
 app.use("/api/goals", authRequired, (await import("./routes/goals.js")).goalsRouter);
@@ -164,6 +173,13 @@ app.use("/api/skills", authRequired, (await import("./routes/skills.js")).skills
 app.use("/api/improvements", authRequired, (await import("./routes/improvements.js")).improvementsRouter);
 app.use("/api/worker", authRequired, workerRouter);
 app.use("/api/system", authRequired, (await import("./routes/system.js")).systemRouter);
+const { superAdminRequired } = await import("./middleware/superAdmin.js");
+app.use(
+  "/api/admin",
+  authRequired,
+  superAdminRequired,
+  (await import("./routes/admin.js")).adminRouter
+);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

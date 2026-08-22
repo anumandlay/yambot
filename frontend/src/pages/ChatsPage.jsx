@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function ChatsPage() {
   const [chats, setChats] = useState([]);
@@ -71,9 +72,11 @@ export function ChatsPage() {
         </div>
       </div>
 
+      <PageGuideBanner helpId="chats.page" />
+
       <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:flex-row sm:items-end sm:p-4">
         <label className="flex w-full min-w-0 flex-col gap-1 text-sm sm:flex-1">
-          Agent
+          <FieldLabel helpId="chats.agentSelect">Agent</FieldLabel>
           <select
             className="min-h-11 w-full rounded-xl border border-teal-100 px-3"
             value={agentId}
@@ -90,20 +93,24 @@ export function ChatsPage() {
             )}
           </select>
         </label>
-        <button
-          type="button"
-          disabled={busy || !agentId}
-          onClick={createChat}
-          className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
-        >
-          {busy ? "Creating…" : "New chat"}
-        </button>
-        <Link
-          to="/agents/new"
-          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold sm:w-auto"
-        >
-          New agent
-        </Link>
+        <ButtonWithHelp helpId="chats.newChat">
+          <button
+            type="button"
+            disabled={busy || !agentId}
+            onClick={createChat}
+            className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+          >
+            {busy ? "Creating…" : "New chat"}
+          </button>
+        </ButtonWithHelp>
+        <ButtonWithHelp helpId="chats.newAgentLink">
+          <Link
+            to="/agents/new"
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold sm:w-auto"
+          >
+            New agent
+          </Link>
+        </ButtonWithHelp>
       </div>
 
       <div className="break-words rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">

@@ -8,6 +8,7 @@ import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { PageGuideBanner } from "../components/FieldLabel.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 
 export function LiveWallPage() {
@@ -66,6 +67,8 @@ export function LiveWallPage() {
           </Link>
         </div>
       </div>
+
+      <PageGuideBanner helpId="live.page" />
 
       {error ? <ErrorAlert error={error} /> : null}
 

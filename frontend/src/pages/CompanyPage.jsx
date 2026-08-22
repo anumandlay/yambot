@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function CompanyPage() {
   const [tab, setTab] = useState("entities");
@@ -102,6 +103,8 @@ export function CompanyPage() {
         </p>
       </div>
 
+      <PageGuideBanner helpId="company.page" />
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -114,31 +117,37 @@ export function CompanyPage() {
 
       <div className="flex flex-wrap gap-2">
         {tabs.map(([id, label]) => (
-          <button
-            key={id}
-            type="button"
-            onClick={() => setTab(id)}
-            className={`min-h-10 rounded-xl px-3 text-sm font-semibold ${
-              tab === id ? "bg-teal-700 text-white" : "border border-teal-100 bg-white text-teal-900"
-            }`}
-          >
-            {label}
-          </button>
+          <ButtonWithHelp key={id} helpId={`company.${id}`}>
+            <button
+              type="button"
+              onClick={() => setTab(id)}
+              className={`min-h-10 rounded-xl px-3 text-sm font-semibold ${
+                tab === id ? "bg-teal-700 text-white" : "border border-teal-100 bg-white text-teal-900"
+              }`}
+            >
+              {label}
+            </button>
+          </ButtonWithHelp>
         ))}
       </div>
 
       {tab === "entities" ? (
         <div className="flex flex-col gap-3">
           <form onSubmit={addEntity} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-            <input
-              className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 text-sm"
-              value={entityName}
-              onChange={(e) => setEntityName(e.target.value)}
-              placeholder="Customer / lead name"
-            />
-            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-              Add
-            </button>
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.entityName">Customer / lead name</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={entityName}
+                onChange={(e) => setEntityName(e.target.value)}
+                placeholder="Customer / lead name"
+              />
+            </label>
+            <ButtonWithHelp helpId="company.entities">
+              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Add
+              </button>
+            </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {entities.map((en) => (
@@ -159,21 +168,29 @@ export function CompanyPage() {
             onSubmit={addMemory}
             className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row"
           >
-            <input
-              className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 text-sm"
-              value={memoryKey}
-              onChange={(e) => setMemoryKey(e.target.value)}
-              placeholder="Key"
-            />
-            <input
-              className="min-h-11 flex-[2] rounded-xl border border-teal-100 px-3 text-sm"
-              value={memoryValue}
-              onChange={(e) => setMemoryValue(e.target.value)}
-              placeholder="Value / fact"
-            />
-            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-              Save
-            </button>
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.memoryKey">Key</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={memoryKey}
+                onChange={(e) => setMemoryKey(e.target.value)}
+                placeholder="Key"
+              />
+            </label>
+            <label className="flex min-w-0 flex-[2] flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.memoryValue">Value / fact</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={memoryValue}
+                onChange={(e) => setMemoryValue(e.target.value)}
+                placeholder="Value / fact"
+              />
+            </label>
+            <ButtonWithHelp helpId="company.memory">
+              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Save
+              </button>
+            </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {memories.map((m) => (
@@ -189,15 +206,20 @@ export function CompanyPage() {
       {tab === "processes" ? (
         <div className="flex flex-col gap-3">
           <form onSubmit={addProcess} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-            <input
-              className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 text-sm"
-              value={processName}
-              onChange={(e) => setProcessName(e.target.value)}
-              placeholder="Process name"
-            />
-            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-              Add
-            </button>
+            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.processName">Process name</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={processName}
+                onChange={(e) => setProcessName(e.target.value)}
+                placeholder="Process name"
+              />
+            </label>
+            <ButtonWithHelp helpId="company.processes">
+              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Add
+              </button>
+            </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {processes.map((p) => (

@@ -6,6 +6,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function SettingsPage() {
   const [form, setForm] = useState({
@@ -139,6 +140,7 @@ export function SettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+      <PageGuideBanner helpId="nav.settings" />
       <p className="text-sm text-teal-900/70">
         Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).
         Secrets are saved on the server — leave the API key blank to keep the current value.
@@ -160,7 +162,9 @@ export function SettingsPage() {
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-teal-900/80">LLM</h2>
         <label className="flex flex-col gap-1 text-sm">
-          API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
+          <FieldLabel helpId="settings.llmApiKey">
+            API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             type="password"
@@ -171,7 +175,7 @@ export function SettingsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Base URL
+          <FieldLabel helpId="settings.llmBaseUrl">Base URL</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.llmBaseUrl}
@@ -179,21 +183,23 @@ export function SettingsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Model
+          <FieldLabel helpId="settings.llmModel">Model</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.llmModel}
             onChange={(e) => update("llmModel", e.target.value)}
           />
         </label>
-        <button
-          type="button"
-          onClick={testLlm}
-          disabled={testingLlm || busy}
-          className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
-        >
-          {testingLlm ? "Testing…" : "Test LLM connection"}
-        </button>
+        <ButtonWithHelp helpId="settings.testLlm">
+          <button
+            type="button"
+            onClick={testLlm}
+            disabled={testingLlm || busy}
+            className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+          >
+            {testingLlm ? "Testing…" : "Test LLM connection"}
+          </button>
+        </ButtonWithHelp>
 
         <h2 className="mt-2 text-sm font-semibold text-teal-900/80">Vision LLM (optional)</h2>
         <p className="text-xs text-teal-900/60">
@@ -202,7 +208,9 @@ export function SettingsPage() {
           does not accept images.
         </p>
         <label className="flex flex-col gap-1 text-sm">
-          Vision API key {form.hasVisionApiKey ? `(saved: ${form.visionApiKeyMasked})` : ""}
+          <FieldLabel helpId="settings.visionApiKey">
+            Vision API key {form.hasVisionApiKey ? `(saved: ${form.visionApiKeyMasked})` : ""}
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             type="password"
@@ -213,7 +221,7 @@ export function SettingsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Vision base URL
+          <FieldLabel helpId="settings.visionBaseUrl">Vision base URL</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             placeholder="Same as main LLM if empty"
@@ -222,7 +230,7 @@ export function SettingsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Vision model
+          <FieldLabel helpId="settings.visionModel">Vision model</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             placeholder="e.g. gpt-4o-mini — same as main LLM if empty"
@@ -233,7 +241,7 @@ export function SettingsPage() {
 
         <h2 className="mt-2 text-sm font-semibold text-teal-900/80">DeathByCaptcha</h2>
         <label className="flex flex-col gap-1 text-sm">
-          Username
+          <FieldLabel helpId="settings.dbcUsername">Username</FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.dbcUsername}
@@ -241,7 +249,9 @@ export function SettingsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          Password / authtoken {form.hasDbcPassword ? `(saved: ${form.dbcPasswordMasked})` : ""}
+          <FieldLabel helpId="settings.dbcPassword">
+            Password / authtoken {form.hasDbcPassword ? `(saved: ${form.dbcPasswordMasked})` : ""}
+          </FieldLabel>
           <input
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             type="password"
@@ -249,14 +259,16 @@ export function SettingsPage() {
             onChange={(e) => update("dbcPassword", e.target.value)}
           />
         </label>
-        <button
-          type="button"
-          onClick={testDbc}
-          disabled={testingDbc || busy}
-          className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
-        >
-          {testingDbc ? "Testing…" : "Test DeathByCaptcha connection"}
-        </button>
+        <ButtonWithHelp helpId="settings.testDbc">
+          <button
+            type="button"
+            onClick={testDbc}
+            disabled={testingDbc || busy}
+            className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+          >
+            {testingDbc ? "Testing…" : "Test DeathByCaptcha connection"}
+          </button>
+        </ButtonWithHelp>
 
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input
@@ -264,16 +276,20 @@ export function SettingsPage() {
             checked={Boolean(form.confirmBeforeSubmit)}
             onChange={(e) => update("confirmBeforeSubmit", e.target.checked)}
           />
-          Ask me before submit/apply clicks (off = fully automatic)
+          <FieldLabel helpId="settings.confirmBeforeSubmit">
+            Ask me before submit/apply clicks (off = fully automatic)
+          </FieldLabel>
         </label>
 
-        <button
-          type="submit"
-          disabled={busy}
-          className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-        >
-          {busy ? "Saving…" : "Save settings"}
-        </button>
+        <ButtonWithHelp helpId="settings.save">
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Saving…" : "Save settings"}
+          </button>
+        </ButtonWithHelp>
       </form>
     </div>
   );

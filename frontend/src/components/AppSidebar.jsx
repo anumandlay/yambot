@@ -7,6 +7,7 @@
 import { useEffect } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { HelpTooltip } from "./HelpTooltip.jsx";
 
 /**
  * @param {{
@@ -36,80 +37,44 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
         : "text-teal-950 hover:bg-teal-50 border border-transparent hover:border-teal-100"
     } ${collapsed ? "justify-center px-2 lg:px-2" : ""}`;
 
+  /**
+   * @param {{ to: string, helpId: string, letter: string, label: string, end?: boolean }} props
+   */
+  function NavItem({ to, helpId, letter, label, end = false }) {
+    return (
+      <NavLink to={to} end={end} className={linkClass} onClick={onClose} title={label}>
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          {letter}
+        </span>
+        {!collapsed ? (
+          <span className="inline-flex min-w-0 flex-1 items-center gap-1">
+            <span className="truncate">{label}</span>
+            <HelpTooltip helpId={helpId} size="sm" />
+          </span>
+        ) : null}
+      </NavLink>
+    );
+  }
+
   const nav = (
     <nav className="flex flex-1 flex-col gap-1.5 p-3" aria-label="Main">
-      <NavLink to="/agents" className={linkClass} onClick={onClose} title="Agents">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          A
-        </span>
-        {!collapsed ? <span>Agents</span> : null}
-      </NavLink>
-      <NavLink to="/goals" className={linkClass} onClick={onClose} title="Goals">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          G
-        </span>
-        {!collapsed ? <span>Goals</span> : null}
-      </NavLink>
-      <NavLink to="/live" className={linkClass} onClick={onClose} title="Live Wall">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          L
-        </span>
-        {!collapsed ? <span>Live Wall</span> : null}
-      </NavLink>
-      <NavLink to="/" end className={linkClass} onClick={onClose} title="Chats">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          C
-        </span>
-        {!collapsed ? <span>Chats</span> : null}
-      </NavLink>
-      <NavLink to="/workforce" className={linkClass} onClick={onClose} title="Workforce">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          W
-        </span>
-        {!collapsed ? <span>Workforce</span> : null}
-      </NavLink>
-      <NavLink to="/operations" className={linkClass} onClick={onClose} title="Operations">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          O
-        </span>
-        {!collapsed ? <span>Operations</span> : null}
-      </NavLink>
-      <NavLink to="/company" className={linkClass} onClick={onClose} title="Company">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          Co
-        </span>
-        {!collapsed ? <span>Company</span> : null}
-      </NavLink>
-      <NavLink to="/skills" className={linkClass} onClick={onClose} title="Skills">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          Sk
-        </span>
-        {!collapsed ? <span>Skills</span> : null}
-      </NavLink>
-      <NavLink to="/policies" className={linkClass} onClick={onClose} title="Policies">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          P
-        </span>
-        {!collapsed ? <span>Policies</span> : null}
-      </NavLink>
-      <NavLink to="/governance" className={linkClass} onClick={onClose} title="Governance">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          ⊛
-        </span>
-        {!collapsed ? <span>Governance</span> : null}
-      </NavLink>
-      <NavLink to="/system" className={linkClass} onClick={onClose} title="System">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          S
-        </span>
-        {!collapsed ? <span>System</span> : null}
-      </NavLink>
-      <NavLink to="/settings" className={linkClass} onClick={onClose} title="Settings">
-        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
-          ⚙
-        </span>
-        {!collapsed ? <span>Settings</span> : null}
-      </NavLink>
+      {user?.isSuperAdmin || user?.role === "superadmin" ? (
+        <NavItem to="/admin/users" helpId="admin.nav" letter="SA" label="Super admin" />
+      ) : null}
+      <NavItem to="/how-to" helpId="nav.howto" letter="?" label="How To" />
+      <NavItem to="/agents" helpId="nav.agents" letter="A" label="Agents" />
+      <NavItem to="/goals" helpId="nav.goals" letter="G" label="Goals" />
+      <NavItem to="/live" helpId="nav.live" letter="L" label="Live Wall" />
+      <NavItem to="/" helpId="nav.chats" letter="C" label="Chats" end />
+      <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
+      <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
+      <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
+      <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
+      <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
+      <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
+      <NavItem to="/system" helpId="nav.system" letter="S" label="System" />
+      <NavItem to="/settings" helpId="nav.settings" letter="⚙" label="Settings" />
+      <NavItem to="/wallet" helpId="nav.wallet" letter="$" label="Wallet" />
     </nav>
   );
 

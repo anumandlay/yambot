@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import { ButtonWithHelp, FieldLabel, SectionTitle } from "./FieldLabel.jsx";
 
 const KINDS = ["note", "flow", "avoid", "selector"];
 
@@ -76,7 +77,9 @@ export function SiteProfilesPanel({ agentId }) {
   return (
     <div className="flex flex-col gap-3 border-t border-teal-100 pt-3">
       <div>
-        <div className="text-sm font-semibold text-teal-900/80">Site memory</div>
+        <SectionTitle helpId="agent.siteProfiles" as="div" className="text-sm font-semibold text-teal-900/80">
+          Site memory
+        </SectionTitle>
         <p className="text-xs text-teal-900/60">
           Per-domain hints learned from runs and manual notes — injected into the agent prompt on
           repeat visits.
@@ -89,37 +92,48 @@ export function SiteProfilesPanel({ agentId }) {
 
       <form onSubmit={addHint} className="flex flex-col gap-2 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
         <div className="flex flex-col gap-2 sm:flex-row">
-          <input
-            className="min-h-10 flex-1 rounded-lg border border-teal-100 bg-white px-3 text-sm"
-            placeholder="Domain (e.g. amazon.com)"
-            value={domain}
-            onChange={(e) => setDomain(e.target.value)}
-          />
-          <select
-            className="min-h-10 rounded-lg border border-teal-100 bg-white px-2 text-sm"
-            value={hintKind}
-            onChange={(e) => setHintKind(e.target.value)}
-          >
-            {KINDS.map((k) => (
-              <option key={k} value={k}>
-                {k}
-              </option>
-            ))}
-          </select>
+          <label className="flex flex-1 flex-col gap-1 text-xs">
+            <FieldLabel helpId="agent.siteProfile.domain">Domain</FieldLabel>
+            <input
+              className="min-h-10 flex-1 rounded-lg border border-teal-100 bg-white px-3 text-sm"
+              placeholder="amazon.com"
+              value={domain}
+              onChange={(e) => setDomain(e.target.value)}
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-xs sm:w-28">
+            <FieldLabel helpId="agent.siteProfile.hintKind">Kind</FieldLabel>
+            <select
+              className="min-h-10 rounded-lg border border-teal-100 bg-white px-2 text-sm"
+              value={hintKind}
+              onChange={(e) => setHintKind(e.target.value)}
+            >
+              {KINDS.map((k) => (
+                <option key={k} value={k}>
+                  {k}
+                </option>
+              ))}
+            </select>
+          </label>
         </div>
-        <textarea
-          className="min-h-16 w-full resize-none rounded-lg border border-teal-100 bg-white px-3 py-2 text-sm"
-          placeholder="Hint for the agent on this site…"
-          value={hintText}
-          onChange={(e) => setHintText(e.target.value)}
-        />
-        <button
-          type="submit"
-          disabled={busy || !domain.trim() || !hintText.trim()}
-          className="min-h-10 self-start rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-        >
-          Add hint
-        </button>
+        <label className="flex flex-col gap-1 text-xs">
+          <FieldLabel helpId="agent.siteProfile.hintText">Hint</FieldLabel>
+          <textarea
+            className="min-h-16 w-full resize-none rounded-lg border border-teal-100 bg-white px-3 py-2 text-sm"
+            placeholder="Hint for the agent on this site…"
+            value={hintText}
+            onChange={(e) => setHintText(e.target.value)}
+          />
+        </label>
+        <ButtonWithHelp helpId="agent.siteProfile.add">
+          <button
+            type="submit"
+            disabled={busy || !domain.trim() || !hintText.trim()}
+            className="min-h-10 self-start rounded-lg bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Add hint
+          </button>
+        </ButtonWithHelp>
       </form>
 
       {loading ? (

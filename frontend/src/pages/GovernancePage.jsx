@@ -6,6 +6,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
 
 export function GovernancePage() {
   const [usage, setUsage] = useState(null);
@@ -72,6 +73,8 @@ export function GovernancePage() {
         </p>
       </div>
 
+      <PageGuideBanner helpId="nav.governance" />
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -83,7 +86,9 @@ export function GovernancePage() {
 
       {budget ? (
         <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-teal-900/80">Monthly LLM budget</h2>
+          <SectionTitle helpId="governance.budget" className="text-teal-900/80">
+            Monthly LLM budget
+          </SectionTitle>
           <p className="mt-1 text-sm text-teal-900/70">
             Spent ${budget.spentUsd?.toFixed(4) ?? "0"}
             {budget.monthlyUsd > 0 ? ` of $${budget.monthlyUsd} cap` : " (no cap set)"}
@@ -96,7 +101,9 @@ export function GovernancePage() {
 
       {approvals.length > 0 ? (
         <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-amber-900">Pending approvals</h2>
+          <SectionTitle helpId="governance.approvals" className="text-amber-900">
+            Pending approvals
+          </SectionTitle>
           <ul className="mt-2 flex flex-col gap-2 text-sm">
             {approvals.map((ap) => (
               <li
@@ -134,7 +141,9 @@ export function GovernancePage() {
 
       {improvements.length > 0 ? (
         <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-violet-900">Improvement proposals</h2>
+          <SectionTitle helpId="governance.improvements" className="text-violet-900">
+            Improvement proposals
+          </SectionTitle>
           <ul className="mt-2 flex flex-col gap-2 text-sm">
             {improvements.map((p) => (
               <li
@@ -169,7 +178,9 @@ export function GovernancePage() {
 
       {reviews.length > 0 ? (
         <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-teal-900/80">Performance reviews</h2>
+          <SectionTitle helpId="governance.performance" className="text-teal-900/80">
+            Performance reviews
+          </SectionTitle>
           <ul className="mt-2 flex flex-col gap-2 text-sm">
             {reviews.slice(0, 5).map((r) => (
               <li key={r._id} className="rounded-xl border border-teal-50 p-3">
@@ -182,7 +193,11 @@ export function GovernancePage() {
       ) : null}
 
       {usage ? (
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <div className="flex flex-col gap-3">
+          <SectionTitle helpId="governance.usage" className="text-teal-900/80">
+            Usage summary
+          </SectionTitle>
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {[
             ["Tasks completed", usage.summary?.tasks ?? 0],
             ["LLM calls", usage.summary?.llmCalls ?? 0],
@@ -199,12 +214,15 @@ export function GovernancePage() {
               <div className="mt-1 text-2xl font-bold text-teal-950">{value}</div>
             </div>
           ))}
+          </div>
         </div>
       ) : null}
 
       {usage?.byAgent?.length ? (
         <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-          <h2 className="text-sm font-semibold text-teal-900/80">Usage by agent</h2>
+          <SectionTitle helpId="governance.usage" className="text-teal-900/80">
+            Usage by agent
+          </SectionTitle>
           <ul className="mt-2 flex flex-col gap-1 text-sm">
             {usage.byAgent.map((row) => (
               <li key={row.agentId || "none"} className="flex justify-between gap-2 border-b border-teal-50 py-1">
@@ -219,7 +237,9 @@ export function GovernancePage() {
       ) : null}
 
       <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-        <h2 className="text-sm font-semibold text-teal-900/80">Audit log</h2>
+        <SectionTitle helpId="governance.audit" className="text-teal-900/80">
+          Audit log
+        </SectionTitle>
         <ul className="mt-2 max-h-[28rem] overflow-y-auto text-sm">
           {events.length === 0 ? (
             <li className="text-teal-900/60">No events yet.</li>
