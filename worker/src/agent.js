@@ -365,6 +365,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
     return { handled: true, obs, captchaMeta };
   }
 
+  /**
+   * Fills css/xpath/name from the latest snapshot when the LLM only passed a ref.
+   * @param {object} action
+   * @param {object} obs
+   */
+  function enrichLocatorAction(action, obs) {
+    if (!action?.ref || !obs?.interactives) return action;
+    const item = obs.interactives.find((i) => i.ref === action.ref);
+    if (!item) return action;
+    return {
+      ...action,
+      role: action.role || item.role,
+      name: action.name || item.name,
+      css: action.css || item.cssHint,
+      xpath: action.xpath || item.xpath,
+    };
+  }
+
   function formatObservation(obs) {
     const lines = [
       `URL: ${obs.url}`,
@@ -397,7 +415,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           el.overlay ? " [overlay]" : ""
         }${el.hasSubmenu ? " [submenu]" : ""}${el.href ? ` href=${el.href}` : ""}${
           el.value ? ` value=${el.value}` : ""
-        }`
+        }${el.xpath ? ` xpath=${String(el.xpath).slice(0, 120)}` : ""}`
       );
     }
     lines.push("Page text (truncated):");
@@ -893,7 +911,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
           }
         }
         // Why: Playwright real mouse hits React/custom dropdowns & calendars more reliably than el.click().
-        const point = await page.evaluate(executeInPage, { ...action, type: "resolve_point" });
+        const point = await page.evaluate(executeInPage, {
+          ...enrichLocatorAction(action, obs),
+          type: "resolve_point",
+        });
         await page.mouse.click(point.x, point.y, { delay: 40 });
         return { ok: true, clicked: point.name, x: point.x, y: point.y };
       }
@@ -901,7 +922,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       case "select":
       case "press_key":
       case "scroll": {
-        const result = await page.evaluate(executeInPage, action);
+        const result = await page.evaluate(executeInPage, enrichLocatorAction(action, obs));
         // Why: custom select returns a click point — finish with a real mouse click too.
         if (action.type === "select" && result?.custom && result.x != null && result.y != null) {
           await page.mouse.click(result.x, result.y, { delay: 40 });

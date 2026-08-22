@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 12:45] Feature: stable smart XPath in snapshots + auto fallback on click
+
+- **Prompt Provided:** do we have stable xpaths already? can we use smart xpath as a fallback?
+- **Architectural Flow:** `buildSmartXPath` (id/testid/aria-label/name, not DevTools `/html/body/div[n]`) on each interactive; shown in LLM snapshot; agent enriches click/type/select with snapshot xpath when ref stale; resolution ref → name → css → xpath
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `extension/content/content.js`, `worker/src/agent.js`, `extension/background/agent.js`, `worker/src/actions.js`, `extension/shared/actions.js`
+
 ## [2026-08-22 12:20] Fix: Gmail-style nested menus missing from agent page snapshot
 
 - **Prompt Provided:** Gmail bulk-action menus/submenus not visible to LLM after select all → options → submenu

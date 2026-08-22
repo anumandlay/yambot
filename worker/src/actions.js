@@ -46,9 +46,10 @@ Action fields:
 
 Locator rules (click/type/select):
 - Prefer "ref" from the latest snapshot (fast path). Never invent refs.
-- Also pass role+name (or label) and/or cssHint as css when available — used if the ref goes stale.
+- Each snapshot line may include a stable xpath (id/aria-label based — not DevTools `/html/body/div[n]`). The runtime auto-applies it if the ref goes stale.
+- Also pass role+name (or label) and/or cssHint as css when available.
 - Without a ref, you MUST supply at least one of: name, label, css, xpath (optionally with role).
-- Resolution order: ref → role+name → label/name → css → xpath.
+- Resolution order: ref → xpath → role+name → label/name → css.
 - Custom dropdowns (not native <select>): open the control, then click/select the option by exact name (e.g. name:"Passport", role:"option"). You may use select with value:"Passport".
 - Date pickers / calendars: click the day number or quick chip (Today, Tomorrow) by name (e.g. name:"21" or name:"Today"). Do not use type into the date field unless it accepts typed dates.
 

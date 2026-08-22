@@ -234,6 +234,24 @@ export function createAgentController({ emit }) {
     return sendToContent(tabId, "OBSERVE");
   }
 
+  /**
+   * Fills css/xpath/name from the latest snapshot when the LLM only passed a ref.
+   * @param {object} action
+   * @param {object} obs
+   */
+  function enrichLocatorAction(action, obs) {
+    if (!action?.ref || !obs?.interactives) return action;
+    const item = obs.interactives.find((i) => i.ref === action.ref);
+    if (!item) return action;
+    return {
+      ...action,
+      role: action.role || item.role,
+      name: action.name || item.name,
+      css: action.css || item.cssHint,
+      xpath: action.xpath || item.xpath,
+    };
+  }
+
   function formatObservation(obs) {
     const lines = [
       `URL: ${obs.url}`,
@@ -266,7 +284,7 @@ export function createAgentController({ emit }) {
           el.overlay ? " [overlay]" : ""
         }${el.hasSubmenu ? " [submenu]" : ""}${el.href ? ` href=${el.href}` : ""}${
           el.value ? ` value=${el.value}` : ""
-        }`
+        }${el.xpath ? ` xpath=${String(el.xpath).slice(0, 120)}` : ""}`
       );
     }
     lines.push("Page text (truncated):");
@@ -552,7 +570,7 @@ export function createAgentController({ emit }) {
             return { ok: true, skippedSubmit: true, userAnswer: answer };
           }
         }
-        return sendToContent(state.tabId, "EXECUTE", { action });
+        return sendToContent(state.tabId, "EXECUTE", { action: enrichLocatorAction(action, obs) });
       }
       default:
         throw new Error(`Unhandled action: ${action.type}`);

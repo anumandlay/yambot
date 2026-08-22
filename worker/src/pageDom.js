@@ -276,12 +276,106 @@ export function observeInPage() {
   }
 
   function clearRefs() {
-    document.querySelectorAll(`[${REF_ATTR}]`).forEach((el) => el.removeAttribute(REF_ATTR));
+    document.querySelectorAll(`[${REF_ATTR}], [data-ba-xpath]`).forEach((el) => {
+      el.removeAttribute(REF_ATTR);
+      el.removeAttribute("data-ba-xpath");
+    });
   }
 
-  function toItem(el, ref) {
+  /**
+   * Escapes a string for use inside an XPath literal.
+   * @param {string} value
+   * @returns {string}
+   */
+  function xpathLiteral(value) {
+    const s = String(value || "");
+    if (!s.includes("'")) return `'${s}'`;
+    if (!s.includes('"')) return `"${s}"`;
+    return `concat('${s.split("'").join(`', "'", '`)}')`;
+  }
+
+  /**
+   * Builds a stable XPath (attribute-based), not brittle DevTools `/html/body/div[6]/...` paths.
+   * @param {Element} el
+   * @returns {string}
+   */
+  function buildSmartXPath(el) {
+    if (!el || el.nodeType !== 1) return "";
+
+    if (el.id && /^[A-Za-z][\w.-]*$/.test(el.id)) {
+      const xp = `//*[@id=${xpathLiteral(el.id)}]`;
+      try {
+        const found = document.evaluate(
+          xp,
+          document,
+          null,
+          XPathResult.ORDERED_NODE_SNAPSHOT_TYPE,
+          null
+        );
+        if (found.snapshotLength === 1) return xp;
+      } catch {
+        /* try other strategies */
+      }
+    }
+
+    const testId = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
+    if (testId) {
+      return `//*[@data-testid=${xpathLiteral(testId)}]`;
+    }
+
+    const aria = el.getAttribute("aria-label");
+    if (aria && aria.length <= 120) {
+      const tag = el.tagName.toLowerCase();
+      return `//${tag}[@aria-label=${xpathLiteral(aria)}]`;
+    }
+
+    const nameAttr = el.getAttribute("name");
+    if (nameAttr && /^(input|select|textarea|button)$/i.test(el.tagName)) {
+      return `//${el.tagName.toLowerCase()}[@name=${xpathLiteral(nameAttr)}]`;
+    }
+
+    if (el.tagName === "A") {
+      const href = el.getAttribute("href");
+      if (href && href.length <= 160) {
+        return `//a[@href=${xpathLiteral(href)}]`;
+      }
+    }
+
+    const role = el.getAttribute("role");
+    const text = cleanText(el.innerText || el.textContent || "", 48);
+    if (role && text.length >= 2) {
+      return `//*[@role=${xpathLiteral(role)}][contains(normalize-space(.), ${xpathLiteral(text.slice(0, 40))})]`;
+    }
+
+    const segments = [];
+    let node = el;
+    let depth = 0;
+    while (node && node.nodeType === 1 && node !== document.documentElement && depth < 8) {
+      const tag = node.tagName.toLowerCase();
+      let seg = tag;
+      const nid = node.id;
+      if (nid && /^[A-Za-z][\w.-]*$/.test(nid)) {
+        segments.unshift(`${tag}[@id=${xpathLiteral(nid)}]`);
+        break;
+      }
+      const parent = node.parentElement;
+      if (parent) {
+        const sameTag = [...parent.children].filter((c) => c.tagName === node.tagName);
+        if (sameTag.length > 1) {
+          seg = `${tag}[${sameTag.indexOf(node) + 1}]`;
+        }
+      }
+      segments.unshift(seg);
+      node = parent;
+      depth += 1;
+    }
+    return segments.length ? `/${segments.join("/")}` : "";
+  }
+
+  function toItem(el, ref, xpath) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
+    const smartXPath = xpath || buildSmartXPath(el);
     return {
       ref,
       tag,
@@ -289,6 +383,7 @@ export function observeInPage() {
       role: impliedRole(el),
       name: labelFor(el),
       cssHint: cssHintFor(el),
+      xpath: smartXPath || undefined,
       overlay: Boolean(overlayRoot(el) || el.closest('[role="menu"]')),
       hasSubmenu: hasSubmenu(el) || undefined,
       href: tag === "a" ? el.href?.slice(0, 200) : undefined,
@@ -422,8 +517,10 @@ export function observeInPage() {
     let i = 0;
     for (const el of ordered) {
       const ref = `e${i}`;
+      const xpath = buildSmartXPath(el);
       el.setAttribute(REF_ATTR, ref);
-      items.push(toItem(el, ref));
+      if (xpath) el.setAttribute("data-ba-xpath", xpath);
+      items.push(toItem(el, ref, xpath));
       i += 1;
     }
     return items;
@@ -656,6 +753,16 @@ export function executeInPage(action) {
       if (el && isVisible(el)) return el;
     }
 
+    if (action.xpath) {
+      tried.push(`xpath=${action.xpath}`);
+      try {
+        const el = byXPath(String(action.xpath));
+        if (el && isVisible(el)) return el;
+      } catch {
+        /* invalid xpath */
+      }
+    }
+
     const role = action.role ? String(action.role) : "";
     const name = action.name ? String(action.name) : "";
     if (role && name) {
@@ -686,16 +793,6 @@ export function executeInPage(action) {
         if (el && isVisible(el)) return el;
       } catch {
         /* invalid selector */
-      }
-    }
-
-    if (action.xpath) {
-      tried.push(`xpath=${action.xpath}`);
-      try {
-        const el = byXPath(String(action.xpath));
-        if (el) return el;
-      } catch {
-        /* invalid xpath */
       }
     }
 
