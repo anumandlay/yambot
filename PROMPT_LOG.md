@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 08:55] Fix: Settings LLM changes reset after save/deploy
+
+- **Prompt Provided:** i am updating new llm but its not getting udpated why ?
+- **Architectural Flow:** `seedDefaultLlmSettings` no longer overwrites every user on API boot — only users without a saved key; settings PUT uses `markModified('settings')`; GET shows saved key only (not server default mask)
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/seedLlm.js`, `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`
+
 ## [2026-08-22 08:50] Feature: Settings test LLM connection button
 
 - **Prompt Provided:** i need test button in settings page to test the llm connection

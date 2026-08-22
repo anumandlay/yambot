@@ -33,18 +33,18 @@ settingsRouter.get("/", async (req, res, next) => {
       return;
     }
     const s = user.settings || {};
-    const apiKey = decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "";
-    const dbcPass = decryptSecret(s.dbcPasswordEnc || "");
+    const savedKey = decryptSecret(s.llmApiKeyEnc || "");
+    const savedDbcPass = decryptSecret(s.dbcPasswordEnc || "");
     res.json({
       ok: true,
       settings: {
-        llmApiKeyMasked: mask(apiKey),
-        hasLlmApiKey: Boolean(apiKey),
+        llmApiKeyMasked: mask(savedKey),
+        hasLlmApiKey: Boolean(savedKey),
         llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
         llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
         dbcUsername: s.dbcUsername || "",
-        dbcPasswordMasked: mask(dbcPass),
-        hasDbcPassword: Boolean(dbcPass),
+        dbcPasswordMasked: mask(savedDbcPass),
+        hasDbcPassword: Boolean(savedDbcPass),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
       },
     });
@@ -65,23 +65,23 @@ settingsRouter.put("/", async (req, res, next) => {
       return;
     }
     const body = req.body || {};
-    const nextSettings = { ...(user.settings?.toObject?.() || user.settings || {}) };
+    if (!user.settings) user.settings = {};
 
-    if (typeof body.llmBaseUrl === "string") nextSettings.llmBaseUrl = body.llmBaseUrl.trim();
-    if (typeof body.llmModel === "string") nextSettings.llmModel = body.llmModel.trim();
-    if (typeof body.dbcUsername === "string") nextSettings.dbcUsername = body.dbcUsername.trim();
+    if (typeof body.llmBaseUrl === "string") user.settings.llmBaseUrl = body.llmBaseUrl.trim();
+    if (typeof body.llmModel === "string") user.settings.llmModel = body.llmModel.trim();
+    if (typeof body.dbcUsername === "string") user.settings.dbcUsername = body.dbcUsername.trim();
     if (typeof body.confirmBeforeSubmit === "boolean") {
-      nextSettings.confirmBeforeSubmit = body.confirmBeforeSubmit;
+      user.settings.confirmBeforeSubmit = body.confirmBeforeSubmit;
     }
     // Why: blank string means "leave unchanged" so the UI can omit re-entry of secrets.
     if (typeof body.llmApiKey === "string" && body.llmApiKey.trim()) {
-      nextSettings.llmApiKeyEnc = encryptSecret(body.llmApiKey.trim());
+      user.settings.llmApiKeyEnc = encryptSecret(body.llmApiKey.trim());
     }
     if (typeof body.dbcPassword === "string" && body.dbcPassword.trim()) {
-      nextSettings.dbcPasswordEnc = encryptSecret(body.dbcPassword.trim());
+      user.settings.dbcPasswordEnc = encryptSecret(body.dbcPassword.trim());
     }
 
-    user.settings = nextSettings;
+    user.markModified("settings");
     await user.save();
     res.json({ ok: true, message: "Settings saved" });
   } catch (err) {

@@ -9,8 +9,9 @@ import { encryptSecret } from "./crypto.js";
 import { env } from "./env.js";
 
 /**
- * When DEFAULT_LLM_API_KEY is set on the server, push base URL / model / key to all users.
- * Why: single-operator VPS — one provider config for website, extension, and cloud workers.
+ * When DEFAULT_LLM_API_KEY is set on the server, seed base URL / model / key only for users
+ * who have not saved their own LLM key yet.
+ * Why: a blanket updateMany on every boot wiped Settings changes after each deploy.
  */
 export async function seedDefaultLlmSettings() {
   if (!env.DEFAULT_LLM_API_KEY?.trim()) {
@@ -19,7 +20,13 @@ export async function seedDefaultLlmSettings() {
   }
   const enc = encryptSecret(env.DEFAULT_LLM_API_KEY.trim());
   const result = await User.updateMany(
-    {},
+    {
+      $or: [
+        { "settings.llmApiKeyEnc": { $exists: false } },
+        { "settings.llmApiKeyEnc": null },
+        { "settings.llmApiKeyEnc": "" },
+      ],
+    },
     {
       $set: {
         "settings.llmApiKeyEnc": enc,
@@ -29,6 +36,6 @@ export async function seedDefaultLlmSettings() {
     }
   );
   console.log(
-    `[llm-seed] applied ${env.DEFAULT_LLM_MODEL} @ ${env.DEFAULT_LLM_BASE_URL} to ${result.modifiedCount}/${result.matchedCount} users`
+    `[llm-seed] seeded defaults for ${result.modifiedCount}/${result.matchedCount} users without a saved LLM key`
   );
 }

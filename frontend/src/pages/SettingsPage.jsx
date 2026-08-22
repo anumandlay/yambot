@@ -66,7 +66,7 @@ export function SettingsPage() {
           confirmBeforeSubmit: Boolean(form.confirmBeforeSubmit),
         }),
       });
-      setOkMsg("Settings saved. The Chrome extension will use these on the next task.");
+      setOkMsg("Settings saved. Agents use these on the next task — click Test LLM connection to verify.");
       setForm((prev) => ({ ...prev, llmApiKey: "", dbcPassword: "" }));
       const data = await api("/api/settings");
       setForm((prev) => ({ ...prev, ...data.settings, llmApiKey: "", dbcPassword: "" }));
