@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 08:50] Feature: Settings test LLM connection button
+
+- **Prompt Provided:** i need test button in settings page to test the llm connection
+- **Architectural Flow:** `POST /api/settings/test-llm` sends a tiny chat completion using form values or saved secrets; Settings page adds Test LLM connection button beside existing DBC test
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`
+
 ## [2026-08-21 18:35] Fix: mobile goal dock still showed strip (sticky + page pad)
 
 - **Prompt Provided:** still there (strip under goal/instruction on mobile)

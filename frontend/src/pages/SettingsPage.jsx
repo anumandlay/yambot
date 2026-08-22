@@ -24,6 +24,7 @@ export function SettingsPage() {
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(false);
+  const [testingLlm, setTestingLlm] = useState(false);
   const [testingDbc, setTestingDbc] = useState(false);
 
   useEffect(() => {
@@ -73,6 +74,31 @@ export function SettingsPage() {
       setError(err);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Verifies LLM credentials with values in the form (or the saved key if blank).
+   */
+  async function testLlm() {
+    setTestingLlm(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api("/api/settings/test-llm", {
+        method: "POST",
+        body: JSON.stringify({
+          llmApiKey: form.llmApiKey,
+          llmBaseUrl: form.llmBaseUrl,
+          llmModel: form.llmModel,
+        }),
+      });
+      const preview = data.preview ? ` Reply: "${data.preview}"` : "";
+      setOkMsg(`${data.message || "LLM connected."} Model: ${data.model || form.llmModel}.${preview}`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setTestingLlm(false);
     }
   }
 
@@ -153,6 +179,14 @@ export function SettingsPage() {
             onChange={(e) => update("llmModel", e.target.value)}
           />
         </label>
+        <button
+          type="button"
+          onClick={testLlm}
+          disabled={testingLlm || busy}
+          className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+        >
+          {testingLlm ? "Testing…" : "Test LLM connection"}
+        </button>
 
         <h2 className="mt-2 text-sm font-semibold text-teal-900/80">DeathByCaptcha</h2>
         <label className="flex flex-col gap-1 text-sm">

@@ -173,3 +173,120 @@ settingsRouter.post("/test-dbc", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * Extracts a human-readable error from an OpenAI-compatible JSON body.
+ * @param {string} bodyText
+ * @returns {string|null}
+ */
+function extractLlmApiMessage(bodyText) {
+  try {
+    const json = JSON.parse(bodyText);
+    return json?.error?.message || json?.error?.code || json?.message || json?.error || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * POST /api/settings/test-llm — verify OpenAI-compatible LLM credentials.
+ * Body: { llmApiKey?, llmBaseUrl?, llmModel? } — blank key uses the saved secret.
+ */
+settingsRouter.post("/test-llm", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    const s = user.settings || {};
+    const bodyKey = String(req.body?.llmApiKey ?? "").trim();
+    const apiKey = bodyKey || decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "";
+    const baseUrl = String(req.body?.llmBaseUrl ?? s.llmBaseUrl ?? env.DEFAULT_LLM_BASE_URL).trim();
+    const model = String(req.body?.llmModel ?? s.llmModel ?? env.DEFAULT_LLM_MODEL).trim();
+
+    if (!apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "Missing API key",
+        detail: "Enter an LLM API key (or save one first).",
+        hint: "Key can be left blank in the form if a saved value already exists.",
+      });
+      return;
+    }
+
+    const root = baseUrl.replace(/\/$/, "");
+    const url = `${root}/chat/completions`;
+
+    let response;
+    try {
+      response = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${apiKey}`,
+        },
+        body: JSON.stringify({
+          model,
+          temperature: 0,
+          max_tokens: 16,
+          messages: [{ role: "user", content: "Reply with exactly: ok" }],
+        }),
+      });
+    } catch (err) {
+      res.status(502).json({
+        ok: false,
+        title: "Connection failed",
+        detail: String(err?.message || err || "Could not reach the LLM server"),
+        hint: "Check the base URL and your network.",
+      });
+      return;
+    }
+
+    const text = await response.text();
+    if (!response.ok) {
+      const apiMsg = extractLlmApiMessage(text);
+      const detail = apiMsg ? String(apiMsg) : text.slice(0, 500) || `HTTP ${response.status}`;
+      let hint = "Verify API key, base URL, and model.";
+      if (response.status === 401 || response.status === 403) hint = "Check your API key (and model access).";
+      else if (response.status === 404) hint = "Check the base URL ends with /v1 and the model name.";
+      else if (response.status === 429) hint = "Rate limited or out of quota.";
+      res.status(502).json({
+        ok: false,
+        title: `LLM request failed (${response.status})`,
+        detail,
+        hint,
+      });
+      return;
+    }
+
+    let data;
+    try {
+      data = JSON.parse(text);
+    } catch {
+      res.status(502).json({
+        ok: false,
+        title: "Invalid LLM response",
+        detail: "Provider returned non-JSON.",
+        hint: "Check base URL and model.",
+      });
+      return;
+    }
+
+    const rawContent =
+      data.choices?.[0]?.message?.content ?? data.choices?.[0]?.message?.reasoning_content ?? "";
+    const preview =
+      typeof rawContent === "string"
+        ? rawContent.trim().slice(0, 120)
+        : String(rawContent || "").slice(0, 120);
+
+    res.json({
+      ok: true,
+      message: "LLM connected",
+      model: data.model || model,
+      preview: preview || "(empty reply)",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
