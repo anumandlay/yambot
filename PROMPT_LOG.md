@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 14:10] Feature: Browser State Engine Phase 3 (structures, planner, progress, relevance)
+
+- **Prompt Provided:** implement Phase 3 — forms/tables/dialogs, proximity context, goal-aware ranking, subgoal planner, progress scoring
+- **Architectural Flow:** observeInPage collects `structures`; upfront `createGoalPlan` LLM call; each step updates subgoals + `computeGoalProgress`; `formatStateProjection` shows PLAN/PROGRESS/STRUCTURES + scored interactives with nearby context
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/{planner,progress,relevance,structures,format}.js`, `worker/src/pageDom.js`, `worker/src/agent.js`, `worker/src/browserState/index.js`, `frontend/src/components/PageSnapshotPanel.jsx`
+
 ## [2026-08-22 14:00] Feature: Browser State Engine Phase 2 (semantic waits, recovery, loops, stops)
 
 - **Prompt Provided:** implement Phase 2 — semantic waits, failure classification, recovery ladder, loop detection, stop conditions

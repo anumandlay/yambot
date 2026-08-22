@@ -18,6 +18,8 @@ import {
   attachFingerprints,
   buildPageState,
   checkPreconditions,
+  createGoalPlan,
+  computeGoalProgress,
   detectActionLoop,
   diffObservations,
   enrichActionResult,
@@ -25,8 +27,10 @@ import {
   executeWaitFor,
   formatStateProjection,
   formatStopHints,
+  getCurrentSubgoalTitle,
   isRecoverableAction,
   runRecoveryLadder,
+  updatePlanFromObservation,
   waitForDomSettle,
   waitForSemantic,
 } from "./browserState/index.js";
@@ -408,9 +412,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @param {object|null} stateDiff
    * @param {string} goal
    */
-  function formatObservation(obs, pageState, stateDiff, goal) {
+  function formatObservation(obs, pageState, stateDiff, goal, extras = {}) {
     if (pageState) {
-      return formatStateProjection({ obs, pageState, stateDiff, goal });
+      return formatStateProjection({
+        obs,
+        pageState,
+        stateDiff,
+        goal,
+        plan: extras.plan,
+        progress: extras.progress,
+        currentSubgoal: extras.currentSubgoal,
+      });
     }
     const lines = [
       `URL: ${obs.url}`,
@@ -642,6 +654,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await pushLiveScreen({ taskId }).catch(() => {});
       }
 
+      /** @type {object|null} */
+      let goalPlan = await createGoalPlan({
+        goal: workingGoal,
+        chatCompletion,
+        apiKey: settings.llmApiKey,
+        baseUrl: settings.llmBaseUrl,
+        model: settings.llmModel,
+      });
+      await mirror(taskId, "plan", {
+        payload: { plan: goalPlan },
+        appendMessage:
+          `Plan (${goalPlan.subgoals.length} subgoals):\n` +
+          goalPlan.subgoals.map((s) => `• ${s.title}`).join("\n"),
+      }).catch(() => {});
+
       let step = 0;
       /** @type {object|null} */
       let prevObs = null;
@@ -664,6 +691,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let obs = attachFingerprints(captchaGate.obs);
         const pageState = buildPageState(obs, { previousUrl: prevUrl || undefined });
         const stateDiff = prevObs ? diffObservations(prevObs, obs) : null;
+
+        goalPlan = updatePlanFromObservation(goalPlan, pageState, obs);
+        const goalProgress = computeGoalProgress({
+          goal: workingGoal,
+          pageState,
+          obs,
+          plan: goalPlan,
+          history,
+        });
+        const currentSubgoal = getCurrentSubgoalTitle(goalPlan);
+        if (goalProgress.stalled) {
+          notes.push("NO PROGRESS DETECTED — change strategy, use wait_for, ask_user, or finish.");
+        }
 
         const stopEval = evaluateStopConditions(pageState, obs, workingGoal, agentSnapshot);
         if (stopEval.shouldFinish) {
@@ -688,7 +728,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
               ACTION_SCHEMA_FOR_PROMPT,
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "Each step includes PAGE STATE and CHANGES SINCE LAST STEP — use verified action results in RECENT ACTIONS.",
+              "Each step includes PLAN, PROGRESS, PAGE STATE, STRUCTURES (forms/tables), and ranked interactives.",
+              "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
               "Prefer wait_for over blind wait when waiting for UI, URL, or text.",
               formatAgentSnapshot(agentSnapshot),
             ]
@@ -709,7 +750,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
                     .map((h) => JSON.stringify(h))
                     .join("\n")}`
                 : "",
-              `CURRENT PAGE SNAPSHOT:\n${formatObservation(obs, pageState, stateDiff, workingGoal)}`,
+              `CURRENT PAGE SNAPSHOT:\n${formatObservation(obs, pageState, stateDiff, workingGoal, {
+                plan: goalPlan,
+                progress: goalProgress,
+                currentSubgoal,
+              })}`,
             ]
               .filter(Boolean)
               .join("\n\n"),
@@ -721,9 +766,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
             step,
             url: obs.url,
             title: obs.title,
-            pageObservation: sanitizePageObservation(obs, { pageState, stateDiff }),
+            pageObservation: sanitizePageObservation(obs, {
+              pageState,
+              stateDiff,
+              plan: goalPlan,
+              progress: goalProgress,
+            }),
             pageState,
             stateDiff,
+            plan: goalPlan,
+            progress: goalProgress,
+            structures: obs.structures,
           },
           appendMessage: obs.url
             ? `Looking at: ${obs.title || ""} (${obs.url})`

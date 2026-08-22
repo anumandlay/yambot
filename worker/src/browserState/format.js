@@ -1,36 +1,13 @@
 /**
  * @fileoverview Compact LLM projection of browser state (not full 6k text dump).
- * Purpose: Layered observation — state, diff, top interactives, truncated text.
+ * Purpose: Layered observation — plan, progress, structures, ranked interactives, truncated text.
  * Downstream: agent.js replaces formatObservation for LLM prompts.
  */
 
-/**
- * Ranks interactives by simple goal keyword overlap.
- * @param {object[]} interactives
- * @param {string} goal
- * @returns {object[]}
- */
-function rankInteractives(interactives, goal) {
-  const words = String(goal || "")
-    .toLowerCase()
-    .split(/\W+/)
-    .filter((w) => w.length > 3);
-  if (!words.length) return interactives;
-
-  return [...interactives].sort((a, b) => {
-    const score = (item) => {
-      const blob = `${item.name || ""} ${item.role || ""} ${item.tag || ""}`.toLowerCase();
-      let s = 0;
-      if (item.overlay) s += 2;
-      if (item.hasSubmenu) s += 1;
-      for (const w of words) {
-        if (blob.includes(w)) s += 3;
-      }
-      return s;
-    };
-    return score(b) - score(a);
-  });
-}
+import { scoreInteractives } from "./relevance.js";
+import { formatStructuresBlock, buildStructuresFromObs } from "./structures.js";
+import { formatProgressBlock } from "./progress.js";
+import { formatPlanBlock } from "./planner.js";
 
 /**
  * Formats page state block for the LLM.
@@ -55,14 +32,6 @@ function formatStateBlock(pageState) {
     lines.push("  errors:");
     for (const err of pageState.errors.slice(0, 5)) {
       lines.push(`    - ${err.field ? `${err.field}: ` : ""}${err.message}`);
-    }
-  }
-  if (pageState.forms?.length) {
-    lines.push("  forms:");
-    for (const form of pageState.forms.slice(0, 3)) {
-      const fields = (form.fields || []).map((f) => f.name || f.ref).join(", ");
-      const actions = (form.actions || []).map((a) => a.name || a.ref).join(", ");
-      lines.push(`    - ${form.name}: fields=[${fields}] actions=[${actions}]`);
     }
   }
   lines.push(`  interactives: ${pageState.interactive_count ?? 0}`);
@@ -103,7 +72,7 @@ function formatDiffBlock(stateDiff) {
 
 /**
  * Builds the compact observation string for the LLM.
- * @param {{ obs: object, pageState: object, stateDiff?: object|null, goal?: string, maxInteractives?: number, maxText?: number }} params
+ * @param {{ obs: object, pageState: object, stateDiff?: object|null, goal?: string, plan?: object|null, progress?: object|null, currentSubgoal?: string, maxInteractives?: number, maxText?: number }} params
  * @returns {string}
  */
 export function formatStateProjection({
@@ -111,12 +80,27 @@ export function formatStateProjection({
   pageState,
   stateDiff = null,
   goal = "",
-  maxInteractives = 70,
-  maxText = 2500,
+  plan = null,
+  progress = null,
+  currentSubgoal = "",
+  maxInteractives = 65,
+  maxText = 2000,
 }) {
-  const lines = [formatStateBlock(pageState)];
+  const lines = [];
+
+  const planBlock = formatPlanBlock(plan);
+  if (planBlock) lines.push(planBlock);
+
+  const progressBlock = formatProgressBlock(progress);
+  if (progressBlock) lines.push("", progressBlock);
+
+  lines.push("", formatStateBlock(pageState));
   const diffBlock = formatDiffBlock(stateDiff);
   if (diffBlock) lines.push("", diffBlock);
+
+  const structures = buildStructuresFromObs(obs);
+  const structuresBlock = formatStructuresBlock(structures);
+  if (structuresBlock) lines.push("", structuresBlock);
 
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
     lines.push("", "Open menus (use overlay refs; [submenu] first):");
@@ -134,13 +118,16 @@ export function formatStateProjection({
     }
   }
 
-  const ranked = rankInteractives(obs.interactives || [], goal).slice(0, maxInteractives);
-  lines.push("", `Interactive elements (top ${ranked.length} by relevance):`);
+  const subgoal = currentSubgoal || "";
+  const ranked = scoreInteractives(obs.interactives || [], goal, subgoal).slice(0, maxInteractives);
+  lines.push("", `Interactive elements (top ${ranked.length} by goal relevance):`);
   for (const el of ranked) {
+    const rel = el.relevance != null ? ` score=${el.relevance}` : "";
+    const ctx = el.nearbyText ? ` context="${String(el.nearbyText).slice(0, 50)}"` : "";
     lines.push(
       `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
         el.role ? ` role=${el.role}` : ""
-      }> "${el.name}"${el.cssHint ? ` css=${el.cssHint}` : ""}${
+      }> "${el.name}"${rel}${ctx}${el.cssHint ? ` css=${el.cssHint}` : ""}${
         el.overlay ? " [overlay]" : ""
       }${el.hasSubmenu ? " [submenu]" : ""}${el.href ? ` href=${el.href}` : ""}${
         el.value ? ` value=${el.value}` : ""

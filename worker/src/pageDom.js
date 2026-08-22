@@ -642,6 +642,114 @@ export function observeInPage() {
     return items;
   }
 
+  /**
+   * Forms, dialogs, and tables — structured view for the LLM (refs already stamped).
+   * @param {object[]} interactives
+   * @returns {object}
+   */
+  function collectStructures(interactives) {
+    const forms = new Map();
+    for (const item of interactives) {
+      if (!item.inForm && !item.formId) continue;
+      const key = item.formId || item.formName || "form";
+      if (!forms.has(key)) {
+        forms.set(key, { id: key, name: item.formName || key, fields: [], actions: [] });
+      }
+      const form = forms.get(key);
+      const entry = {
+        ref: item.ref,
+        name: item.name,
+        type: item.type || item.role,
+        required: item.required,
+        value: item.value,
+      };
+      if (
+        item.role === "button" ||
+        item.type === "submit" ||
+        /submit|send|sign in|continue|apply/i.test(item.name || "")
+      ) {
+        form.actions.push(entry);
+      } else {
+        form.fields.push(entry);
+      }
+    }
+
+    const dialogs = [];
+    const modalOpen = Boolean(
+      [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].some(isVisible)
+    );
+    if (modalOpen) {
+      const inDialog = interactives.filter(
+        (i) => i.parentRole === "dialog" || (i.overlay && i.parentRole)
+      );
+      if (inDialog.length) {
+        const fields = inDialog
+          .filter((i) => ["textbox", "combobox", "checkbox", "radio"].includes(i.role || ""))
+          .map((i) => ({
+            ref: i.ref,
+            name: i.name,
+            role: i.role,
+            required: i.required,
+          }));
+        const actions = inDialog
+          .filter((i) => i.role === "button" || i.tag === "button")
+          .map((i) => ({ ref: i.ref, name: i.name, role: i.role }));
+        const titleEl = document.querySelector(
+          '[role="dialog"] h1, [role="dialog"] h2, [aria-modal="true"] [aria-label]'
+        );
+        dialogs.push({
+          title: cleanText(
+            titleEl?.innerText || titleEl?.getAttribute("aria-label") || "Dialog",
+            80
+          ),
+          fields: fields.slice(0, 12),
+          actions: actions.slice(0, 8),
+        });
+      }
+    }
+
+    const tables = [];
+    for (const root of [...document.querySelectorAll('table, [role="grid"]')]
+      .filter(isVisible)
+      .slice(0, 5)) {
+      const title = cleanText(
+        root.querySelector("caption")?.innerText ||
+          root.getAttribute("aria-label") ||
+          root.getAttribute("aria-labelledby") ||
+          "Table",
+        80
+      );
+      const rows = [];
+      for (const row of [...root.querySelectorAll('tr, [role="row"]')]
+        .filter(isVisible)
+        .slice(0, 25)) {
+        const cells = [...row.querySelectorAll('td, th, [role="gridcell"], [role="cell"]')]
+          .filter(isVisible)
+          .map((c) => cleanText(c.innerText, 60))
+          .filter(Boolean);
+        const rowLabel = cells[0] || cleanText(row.innerText, 80);
+        const actions = [];
+        for (const el of row.querySelectorAll(`[${REF_ATTR}]`)) {
+          actions.push({
+            ref: el.getAttribute(REF_ATTR),
+            name: labelFor(el),
+            role: impliedRole(el),
+          });
+        }
+        if (rowLabel || actions.length) {
+          rows.push({ label: rowLabel, cells: cells.slice(0, 6), actions });
+        }
+      }
+      if (rows.length) tables.push({ title, rows });
+    }
+
+    return {
+      forms: [...forms.values()].slice(0, 5),
+      dialogs: dialogs.slice(0, 3),
+      tables: tables.slice(0, 4),
+    };
+  }
+
   function detectCaptcha() {
     const signals = [];
     if (
@@ -700,12 +808,15 @@ export function observeInPage() {
   }
 
   const pageHints = collectPageHints();
+  const interactives = collectInteractives();
+  const structures = collectStructures(interactives);
 
   return {
     url: location.href,
     title: document.title,
     openMenus: collectOpenMenusMeta(),
-    interactives: collectInteractives(),
+    interactives,
+    structures,
     captcha: detectCaptcha(),
     text: pageText(),
     pageHints,
@@ -747,6 +858,9 @@ export function sanitizePageObservation(obs, extras = {}) {
     interactiveCount: Array.isArray(obs.interactives) ? obs.interactives.length : 0,
     pageState: extras.pageState || undefined,
     stateDiff: extras.stateDiff || undefined,
+    structures: obs.structures || undefined,
+    plan: extras.plan || undefined,
+    progress: extras.progress || undefined,
     capturedAt: new Date().toISOString(),
   };
 }

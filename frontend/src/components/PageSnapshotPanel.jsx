@@ -34,6 +34,21 @@ export function formatPageObservationText(obs) {
     if (d.dom_changed) parts.push(`dom(+${(d.added_refs || []).length}/-${(d.removed_refs || []).length})`);
     if (parts.length) lines.push(`Changes: ${parts.join(", ")}`);
   }
+  if (obs.progress) {
+    lines.push(
+      `Progress: ${Math.round((obs.progress.score || 0) * 100)}% — ${obs.progress.label || ""}`
+    );
+  }
+  if (obs.plan?.subgoals?.length) {
+    const done = obs.plan.subgoals.filter((s) => s.status === "done").length;
+    lines.push(`Plan: ${done}/${obs.plan.subgoals.length} subgoals done`);
+  }
+  if (obs.structures?.tables?.length) {
+    lines.push(`Tables: ${obs.structures.tables.length}`);
+  }
+  if (obs.structures?.forms?.length) {
+    lines.push(`Forms: ${obs.structures.forms.length}`);
+  }
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
     lines.push("Open menus:");
     for (const menu of obs.openMenus) {
@@ -82,6 +97,9 @@ export function snapshotsFromTaskEvents(events) {
       pageObservation: evt.payload.pageObservation,
       pageState: evt.payload?.pageState,
       stateDiff: evt.payload?.stateDiff,
+      plan: evt.payload?.plan,
+      progress: evt.payload?.progress,
+      structures: evt.payload?.structures,
     }));
 }
 
@@ -98,9 +116,18 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
   const current = snapshots[activeIndex]?.pageObservation || null;
   const currentState = snapshots[activeIndex]?.pageState;
   const currentDiff = snapshots[activeIndex]?.stateDiff;
+  const currentPlan = snapshots[activeIndex]?.plan;
+  const currentProgress = snapshots[activeIndex]?.progress;
   const displayObs =
-    current && (currentState || currentDiff)
-      ? { ...current, pageState: currentState || current.pageState, stateDiff: currentDiff || current.stateDiff }
+    current && (currentState || currentDiff || currentPlan || currentProgress)
+      ? {
+          ...current,
+          pageState: currentState || current.pageState,
+          stateDiff: currentDiff || current.stateDiff,
+          plan: currentPlan || current.plan,
+          progress: currentProgress || current.progress,
+          structures: snapshots[activeIndex]?.structures || current.structures,
+        }
       : current;
   const count = displayObs?.interactiveCount ?? displayObs?.interactives?.length ?? 0;
 

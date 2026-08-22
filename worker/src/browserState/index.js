@@ -1,6 +1,6 @@
 /**
- * @fileoverview Browser State Engine — Phase 1–2 exports for the cloud worker agent loop.
- * Purpose: Observe → state → diff → act → verify → recover pipeline outside the LLM.
+ * @fileoverview Browser State Engine — Phase 1–3 exports for the cloud worker agent loop.
+ * Purpose: Observe → plan → state → diff → act → verify → recover pipeline outside the LLM.
  * Downstream: worker/src/agent.js
  */
 
@@ -15,3 +15,13 @@ export { detectActionLoop, actionKey } from "./loops.js";
 export { evaluateStopConditions, formatStopHints } from "./stopConditions.js";
 export { runRecoveryLadder, isRecoverableAction } from "./recovery.js";
 export { waitForDomSettle, waitForSemantic, executeWaitFor, pollUntilCondition } from "./semanticWait.js";
+export { scoreInteractives, filterByRelevance } from "./relevance.js";
+export { formatStructuresBlock, buildStructuresFromObs } from "./structures.js";
+export { computeGoalProgress, formatProgressBlock } from "./progress.js";
+export {
+  createGoalPlan,
+  defaultPlan,
+  formatPlanBlock,
+  getCurrentSubgoalTitle,
+  updatePlanFromObservation,
+} from "./planner.js";
