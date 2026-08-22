@@ -44,6 +44,12 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
         </span>
         {!collapsed ? <span>Agents</span> : null}
       </NavLink>
+      <NavLink to="/goals" className={linkClass} onClick={onClose} title="Goals">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          G
+        </span>
+        {!collapsed ? <span>Goals</span> : null}
+      </NavLink>
       <NavLink to="/live" className={linkClass} onClick={onClose} title="Live Wall">
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
           L
@@ -55,6 +61,12 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
           C
         </span>
         {!collapsed ? <span>Chats</span> : null}
+      </NavLink>
+      <NavLink to="/governance" className={linkClass} onClick={onClose} title="Governance">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          ⊛
+        </span>
+        {!collapsed ? <span>Governance</span> : null}
       </NavLink>
       <NavLink to="/system" className={linkClass} onClick={onClose} title="System">
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">

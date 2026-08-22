@@ -10,6 +10,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
+import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
@@ -296,11 +297,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
     });
   }
 
-  async function complete(taskId, { success, summary, error = "", history = [], siteDomain = "" }) {
+  async function complete(taskId, { success, summary, error = "", history = [], siteDomain = "", llmUsage = null }) {
     const trajectory = buildTrajectory(history);
     await api(`/api/worker/tasks/${taskId}/complete`, {
       method: "POST",
-      body: JSON.stringify({ success, summary, error, trajectory }),
+      body: JSON.stringify({
+        success,
+        summary,
+        error,
+        trajectory,
+        llmUsage: llmUsage ? snapshotLlmUsage(llmUsage) : undefined,
+      }),
     });
     if (siteDomain && config.agentId) {
       const hint = deriveSiteHint({
@@ -627,6 +634,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const notes = [];
     const history = [];
     let siteDomain = "";
+    const llmUsage = createLlmUsageTracker();
+
+    /**
+     * Wraps chatCompletion and records token usage for governance.
+     * @param {object} opts
+     */
+    async function trackedChatCompletion(opts) {
+      const result = await chatCompletion(opts);
+      addLlmUsage(llmUsage, result.usage);
+      return result;
+    }
 
     try {
       await ensureBrowser();
@@ -666,6 +684,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             error: "cancelled",
             history,
             siteDomain,
+            llmUsage,
           });
           return;
         }
@@ -715,7 +734,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       /** @type {object|null} */
       let goalPlan = await createGoalPlan({
         goal: workingGoal,
-        chatCompletion,
+        chatCompletion: trackedChatCompletion,
         apiKey: settings.llmApiKey,
         baseUrl: settings.llmBaseUrl,
         model: settings.llmModel,
@@ -742,6 +761,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             error: "cancelled",
             history,
             siteDomain,
+            llmUsage,
           });
           log(`[${config.workerName}] Task ${taskId} cancelled by user`);
           return;
@@ -779,6 +799,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             summary: stopEval.finishSummary || "Stop condition met",
             history,
             siteDomain,
+            llmUsage,
           });
           log(`[${config.workerName}] Task ${taskId} stopped: payment boundary`);
           return;
@@ -910,7 +931,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                 baseUrl: settings.llmBaseUrl,
                 model: settings.llmModel,
               };
-          const llm = await chatCompletion({
+          const llm = await trackedChatCompletion({
             apiKey: llmCreds.apiKey,
             baseUrl: llmCreds.baseUrl,
             model: llmCreds.model,
@@ -1132,7 +1153,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (actionToRun.type === "finish" || result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
-          await complete(taskId, { success, summary, history, siteDomain });
+          await complete(taskId, { success, summary, history, siteDomain, llmUsage });
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           return;
         }
@@ -1146,6 +1167,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             error: "cancelled",
             history,
             siteDomain,
+            llmUsage,
           });
         } catch {
           /* ignore */
@@ -1162,6 +1184,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           error: detail,
           history,
           siteDomain,
+          llmUsage,
         });
       } catch (completeErr) {
         log(`[${config.workerName}] complete failed`, completeErr);

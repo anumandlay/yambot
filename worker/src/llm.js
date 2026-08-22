@@ -119,7 +119,7 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
       url,
     });
   }
-  return { content, raw: data, model: usedModel, url };
+  return { content, raw: data, model: usedModel, url, usage: data.usage || null };
 }
 
 /**

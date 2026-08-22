@@ -17,6 +17,9 @@ import { AgentsPage } from "./pages/AgentsPage.jsx";
 import { AgentEditPage } from "./pages/AgentEditPage.jsx";
 import { SystemPage } from "./pages/SystemPage.jsx";
 import { LiveWallPage } from "./pages/LiveWallPage.jsx";
+import { GoalsPage } from "./pages/GoalsPage.jsx";
+import { GoalEditPage } from "./pages/GoalEditPage.jsx";
+import { GovernancePage } from "./pages/GovernancePage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
 
@@ -96,6 +99,10 @@ export default function App() {
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agents/new" element={<AgentEditPage />} />
           <Route path="/agents/:agentId" element={<AgentEditPage />} />
+          <Route path="/goals" element={<GoalsPage />} />
+          <Route path="/goals/new" element={<GoalEditPage />} />
+          <Route path="/goals/:goalId" element={<GoalEditPage />} />
+          <Route path="/governance" element={<GovernancePage />} />
           <Route path="/live" element={<LiveWallPage />} />
           <Route path="/chats/:chatId" element={<ChatDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />

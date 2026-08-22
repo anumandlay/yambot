@@ -7,6 +7,38 @@
 
 import mongoose from "mongoose";
 
+/** Task priority for queue ordering (Layer 2 escalation seed). */
+export const TASK_PRIORITIES = ["low", "normal", "high", "urgent"];
+
+/**
+ * @param {string} priority
+ * @returns {number}
+ */
+export function priorityRank(priority) {
+  switch (String(priority || "normal")) {
+    case "urgent":
+      return 4;
+    case "high":
+      return 3;
+    case "low":
+      return 1;
+    default:
+      return 2;
+  }
+}
+
+const llmUsageSchema = new mongoose.Schema(
+  {
+    promptTokens: { type: Number, default: 0 },
+    completionTokens: { type: Number, default: 0 },
+    totalTokens: { type: Number, default: 0 },
+    calls: { type: Number, default: 0 },
+    /** Rough USD estimate from token counts (governance Layer 5). */
+    estimatedUsd: { type: Number, default: 0 },
+  },
+  { _id: false }
+);
+
 const eventSchema = new mongoose.Schema(
   {
     type: { type: String, required: true },
@@ -36,6 +68,21 @@ const taskSchema = new mongoose.Schema(
       required: true,
     },
     goal: { type: String, required: true },
+    /** Link to durable Goal document when enqueued from Goals (Layer 1). */
+    goalRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Goal",
+      default: null,
+      index: true,
+    },
+    priority: {
+      type: String,
+      enum: TASK_PRIORITIES,
+      default: "normal",
+      index: true,
+    },
+    priorityRank: { type: Number, default: 2, index: true },
+    llmUsage: { type: llmUsageSchema, default: () => ({}) },
     agent: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Agent",
@@ -51,7 +98,7 @@ const taskSchema = new mongoose.Schema(
     runner: {
       type: String,
       enum: ["cloud", "any", "extension"],
-      default: "any",
+      default: "cloud",
       index: true,
     },
     status: {

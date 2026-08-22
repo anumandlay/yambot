@@ -9,8 +9,10 @@ import { Task } from "../models/Task.js";
 import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
 import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
+import { Goal, recordGoalRun } from "../models/Goal.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
+import { writeAudit } from "../utils/audit.js";
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
@@ -107,7 +109,7 @@ async function claimNextTask(userId, opts = {}) {
         },
       },
     },
-    { sort: { createdAt: 1 }, new: true }
+    { sort: { priorityRank: -1, createdAt: 1 }, new: true }
   );
 }
 
@@ -319,6 +321,16 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     const summary = String(req.body?.summary || "");
     const error = String(req.body?.error || "");
     const trajectory = Array.isArray(req.body?.trajectory) ? req.body.trajectory.slice(0, 100) : [];
+    const usageBody = req.body?.llmUsage;
+    if (usageBody && typeof usageBody === "object") {
+      task.llmUsage = {
+        promptTokens: Number(usageBody.promptTokens) || 0,
+        completionTokens: Number(usageBody.completionTokens) || 0,
+        totalTokens: Number(usageBody.totalTokens) || 0,
+        calls: Number(usageBody.calls) || 0,
+        estimatedUsd: Number(usageBody.estimatedUsd) || 0,
+      };
+    }
     task.status = success ? "done" : "error";
     task.resultSummary = summary;
     task.lastError = error;
@@ -354,6 +366,23 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
         });
       }
     }
+
+    if (task.goalRef) {
+      const goalDoc = await Goal.findOne({ _id: task.goalRef, user: req.userId });
+      if (goalDoc) {
+        await recordGoalRun(goalDoc, success);
+      }
+    }
+
+    await writeAudit({
+      userId: req.userId,
+      action: success ? "task.completed" : "task.failed",
+      taskId: String(task._id),
+      agentId: task.agent ? String(task.agent) : null,
+      goalId: task.goalRef ? String(task.goalRef) : null,
+      detail: (summary || error || "").slice(0, 500),
+      meta: { llmUsage: task.llmUsage || {} },
+    });
 
     res.json({ ok: true, task });
   } catch (err) {

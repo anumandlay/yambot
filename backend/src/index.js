@@ -149,6 +149,8 @@ attachDesktopProxy(server, app);
 app.use("/api/settings", authRequired, settingsRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
+app.use("/api/goals", authRequired, (await import("./routes/goals.js")).goalsRouter);
+app.use("/api/governance", authRequired, (await import("./routes/governance.js")).governanceRouter);
 app.use("/api/worker", authRequired, workerRouter);
 app.use("/api/research", (await import("./routes/research.js")).researchRouter);
 app.use("/api/system", authRequired, (await import("./routes/system.js")).systemRouter);

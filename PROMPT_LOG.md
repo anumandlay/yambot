@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 15:20] Phase 1: Employee OS goals + governance (Layers 1, 2, 5)
+
+- **Prompt Provided:** "lets go" — start building five-layer architecture around cloud execution
+- **Architectural Flow:** `Goal` model (title, KPIs, priority, parentGoal delegation seed, stats) + `/api/goals` CRUD/run; `AuditEvent` + `writeAudit` on goal/task lifecycle; `Task.goalRef`, `priorityRank`, `llmUsage`; worker `llmUsage.js` tracker on complete; claim sorts by priority; Goals + Governance UI pages
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/{Goal,AuditEvent,Task}.js`, `backend/src/utils/audit.js`, `backend/src/routes/{goals,governance,worker}.js`, `backend/src/index.js`, `worker/src/{llm.js,llmUsage.js,agent.js}`, `frontend/src/pages/{GoalsPage,GoalEditPage,GovernancePage}.jsx`, `frontend/src/{App.jsx,components/AppSidebar.jsx}`
+
 ## [2026-08-22 15:10] Remove Chrome extension — cloud-only product
 
 - **Prompt Provided:** remove all Chrome extension related code; user only uses cloud
