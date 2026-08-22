@@ -40,12 +40,21 @@ export async function runRecoveryLadder(params) {
     prevObs,
     page,
     observeFn,
+    observeFull,
     conditionFn,
     precheckFn,
     enrichLocatorAction,
     runAction,
     attachFingerprints,
   } = params;
+
+  /**
+   * @returns {Promise<object>}
+   */
+  async function pullObs() {
+    if (observeFull) return observeFull();
+    return attachFingerprints(await page.evaluate(observeFn));
+  }
 
   if (!isRecoverableAction(action)) {
     return { recovered: false, attempts: [] };
@@ -73,7 +82,7 @@ export async function runRecoveryLadder(params) {
   }
 
   // 1. Fresh observe + fingerprint re-resolve
-  let freshObs = attachFingerprints(await page.evaluate(observeFn));
+  let freshObs = await pullObs();
   const pre = checkPreconditions(action, freshObs, prevObs || obs);
   if (pre.resolvedAction && pre.recovery) {
     attempts.push({ strategy: "fingerprint_resolve", detail: pre.recovery });
@@ -88,7 +97,7 @@ export async function runRecoveryLadder(params) {
     loadingGone: true,
     domStable: true,
   });
-  freshObs = attachFingerprints(await page.evaluate(observeFn));
+  freshObs = await pullObs();
   const hitWait = await tryStrategy("retry_after_wait", pre.resolvedAction || action, freshObs);
   if (hitWait) return { ...hitWait, obs: freshObs };
 
@@ -151,7 +160,7 @@ export async function runRecoveryLadder(params) {
         freshObs
       );
       if (dismissHit) {
-        freshObs = attachFingerprints(await page.evaluate(observeFn));
+        freshObs = await pullObs();
         const retry = await tryStrategy("retry_after_overlay", pre.resolvedAction || action, freshObs);
         if (retry) return { ...retry, obs: freshObs };
       }

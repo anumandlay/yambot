@@ -12,6 +12,9 @@ export const ACTION_TYPES = [
   "scroll",
   "wait",
   "wait_for",
+  "switch_tab",
+  "open_tab",
+  "upload_file",
   "extract",
   "solve_captcha",
   "ask_user",
@@ -25,7 +28,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|extract|solve_captcha|ask_user|send_email|check_email|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|extract|solve_captcha|ask_user|send_email|check_email|finish>",
     ...fields depending on type
   }
 }
@@ -41,6 +44,9 @@ Action fields:
 - wait: { "type":"wait", "ms": 1500 } — prefer wait_for when you know what should appear
 - wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000, "network_idle": false, "dom_stable": true }
   Semantic wait until condition met (role+name, text on page, url_contains, or ref visible). Avoid blind long sleeps.
+- switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }
+- open_tab: { "type":"open_tab", "url":"https://..." } — optional url
+- upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }
@@ -56,6 +62,8 @@ Locator rules (click/type/select):
 - Resolution order: ref → xpath → role+name → label/name → css.
 - Custom dropdowns (not native <select>): open the control, then click/select the option by exact name (e.g. name:"Passport", role:"option"). You may use select with value:"Passport".
 - Date pickers / calendars: click the day number or quick chip (Today, Tomorrow) by name (e.g. name:"21" or name:"Today"). Do not use type into the date field unless it accepts typed dates.
+- Refs in iframes are prefixed frame_N_eM — use as-is; the runtime resolves the frame automatically.
+- A viewport screenshot may be attached when verification fails — correlate refs with visible UI.
 
 Rules:
 - CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.

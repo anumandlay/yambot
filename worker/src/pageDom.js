@@ -401,6 +401,24 @@ export function observeInPage() {
     return parent.getAttribute("role") || (parent.tagName === "FORM" ? "form" : undefined);
   }
 
+  /**
+   * Shadow host label when element lives inside a web component.
+   * @param {Element} el
+   * @returns {string|undefined}
+   */
+  function shadowHostFor(el) {
+    const root = el.getRootNode?.();
+    if (root && root instanceof ShadowRoot) {
+      const host = root.host;
+      if (!host) return "shadow";
+      const tag = host.tagName?.toLowerCase();
+      const id = host.id ? `#${host.id}` : "";
+      const testId = host.getAttribute("data-testid");
+      return testId ? `${tag}[data-testid=${testId}]` : `${tag}${id}` || "shadow-host";
+    }
+    return undefined;
+  }
+
   function toItem(el, ref, xpath) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
@@ -412,6 +430,7 @@ export function observeInPage() {
     const ariaLabel = el.getAttribute("aria-label") || undefined;
     const nearbyText = nearbyTextFor(el);
     const parentRole = parentRoleFor(el);
+    const shadowHost = shadowHostFor(el);
     const disabled =
       el.disabled ||
       el.getAttribute("aria-disabled") === "true" ||
@@ -438,6 +457,7 @@ export function observeInPage() {
       ariaLabel,
       nearbyText,
       parentRole,
+      shadowHost,
       inForm: Boolean(formEl),
       formId: formEl?.id || formEl?.getAttribute("name") || undefined,
       formName: formEl?.getAttribute("aria-label") || formEl?.id || undefined,
@@ -457,6 +477,7 @@ export function observeInPage() {
         testid: testId || undefined,
         nearby_text: nearbyText,
         parent_role: parentRole,
+        shadow_host: shadowHost,
         type: type || undefined,
       },
     };
@@ -628,7 +649,27 @@ export function observeInPage() {
       else accept(el, body);
     }
 
-    const ordered = [...overlays, ...shop, ...chrome, ...body];
+    // Why: Web Components hide controls inside shadow roots — pierce one level deep per host.
+    const shadowBucket = [];
+    function walkShadow(node) {
+      if (!node || node.nodeType !== 1) return;
+      if (node.shadowRoot) {
+        for (const el of node.shadowRoot.querySelectorAll(selectors)) {
+          if (seen.has(el)) continue;
+          const type = (el.getAttribute("type") || "").toLowerCase();
+          if (type === "hidden") continue;
+          if (!isVisible(el)) continue;
+          accept(el, shadowBucket);
+        }
+        for (const child of node.shadowRoot.querySelectorAll("*")) {
+          if (child.shadowRoot) walkShadow(child);
+        }
+      }
+      for (const child of node.children) walkShadow(child);
+    }
+    if (document.body) walkShadow(document.body);
+
+    const ordered = [...overlays, ...shop, ...chrome, ...body, ...shadowBucket];
     const items = [];
     let i = 0;
     for (const el of ordered) {
@@ -750,6 +791,22 @@ export function observeInPage() {
     };
   }
 
+  /**
+   * Visible iframe metadata for cross-origin payment/login embeds.
+   * @returns {object[]}
+   */
+  function collectIframeMeta() {
+    return [...document.querySelectorAll("iframe")]
+      .filter(isVisible)
+      .slice(0, 10)
+      .map((f, index) => ({
+        index,
+        src: (f.src || f.getAttribute("src") || "").slice(0, 200),
+        title: f.title || f.getAttribute("aria-label") || f.getAttribute("name") || "",
+        name: f.getAttribute("name") || undefined,
+      }));
+  }
+
   function detectCaptcha() {
     const signals = [];
     if (
@@ -810,6 +867,7 @@ export function observeInPage() {
   const pageHints = collectPageHints();
   const interactives = collectInteractives();
   const structures = collectStructures(interactives);
+  const iframes = collectIframeMeta();
 
   return {
     url: location.href,
@@ -817,6 +875,7 @@ export function observeInPage() {
     openMenus: collectOpenMenusMeta(),
     interactives,
     structures,
+    iframes,
     captcha: detectCaptcha(),
     text: pageText(),
     pageHints,
@@ -836,6 +895,11 @@ export function sanitizePageObservation(obs, extras = {}) {
     title: String(obs.title || ""),
     captcha: obs.captcha || { present: false, signals: [] },
     openMenus: Array.isArray(obs.openMenus) ? obs.openMenus : [],
+    iframes: Array.isArray(obs.iframes) ? obs.iframes.slice(0, 12) : undefined,
+    frames: Array.isArray(obs.frames) ? obs.frames.slice(0, 12) : undefined,
+    a11y: obs.a11y?.yaml
+      ? { yaml: String(obs.a11y.yaml).slice(0, 2000), truncated: Boolean(obs.a11y.truncated) }
+      : undefined,
     interactives: Array.isArray(obs.interactives)
       ? obs.interactives.map((el) => ({
           ref: el.ref,
@@ -852,6 +916,9 @@ export function sanitizePageObservation(obs, extras = {}) {
           fingerprint: el.fingerprint,
           disabled: el.disabled,
           nearbyText: el.nearbyText,
+          frameId: el.frameId,
+          frameUrl: el.frameUrl,
+          shadowHost: el.shadowHost,
         }))
       : [],
     text: String(obs.text || "").slice(0, 8000),
@@ -861,6 +928,8 @@ export function sanitizePageObservation(obs, extras = {}) {
     structures: obs.structures || undefined,
     plan: extras.plan || undefined,
     progress: extras.progress || undefined,
+    visionAttached: extras.visionAttached || undefined,
+    telemetry: extras.telemetry || undefined,
     capturedAt: new Date().toISOString(),
   };
 }

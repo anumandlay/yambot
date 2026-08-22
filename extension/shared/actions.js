@@ -9,6 +9,9 @@ export const ACTION_TYPES = [
   "scroll",
   "wait",
   "wait_for",
+  "switch_tab",
+  "open_tab",
+  "upload_file",
   "extract",
   "solve_captcha",
   "ask_user",
@@ -22,7 +25,7 @@ You control a real Chrome browser. Reply with ONE JSON object only (no markdown)
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|extract|solve_captcha|ask_user|send_email|check_email|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|extract|solve_captcha|ask_user|send_email|check_email|finish>",
     ...fields depending on type
   }
 }
@@ -37,6 +40,9 @@ Action fields:
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 }
 - wait: { "type":"wait", "ms": 1500 } — prefer wait_for when you know what should appear
 - wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000 }
+- switch_tab: { "type":"switch_tab", "index": 1 } or { "url_contains":"checkout" }
+- open_tab: { "type":"open_tab", "url":"https://..." }
+- upload_file: { "type":"upload_file", "ref":"e5", "path":"file.pdf" }
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }

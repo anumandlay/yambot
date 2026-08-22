@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 14:25] Feature: Browser State Engine Phase 4 (vision, a11y, telemetry, tabs, frames)
+
+- **Prompt Provided:** implement Phase 4 — vision + a11y + navigation telemetry + tabs/downloads/uploads + iframes/shadow DOM
+- **Architectural Flow:** `observePageFull` merges main DOM + child frames + `ariaSnapshot`; `createBrowserTelemetry` logs navigation/popups/downloads; `shouldAttachVision` attaches viewport JPEG on failures/intervals; new actions `switch_tab`/`open_tab`/`upload_file`; frame-prefixed refs (`frame_N_eM`) route click/type via `getPlaywrightFrame`; shadow DOM pierced in `collectInteractives`; LLM projection adds TABS/A11Y/FRAMES blocks
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/{telemetry,a11y,vision,tabs,observe,format,recovery}.js`, `worker/src/browserState/index.js`, `worker/src/pageDom.js`, `worker/src/agent.js`, `worker/src/actions.js`, `extension/shared/actions.js`, `frontend/src/components/PageSnapshotPanel.jsx`
+
 ## [2026-08-22 14:10] Feature: Browser State Engine Phase 3 (structures, planner, progress, relevance)
 
 - **Prompt Provided:** implement Phase 3 — forms/tables/dialogs, proximity context, goal-aware ranking, subgoal planner, progress scoring

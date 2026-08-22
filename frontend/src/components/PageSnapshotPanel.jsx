@@ -49,6 +49,21 @@ export function formatPageObservationText(obs) {
   if (obs.structures?.forms?.length) {
     lines.push(`Forms: ${obs.structures.forms.length}`);
   }
+  if (obs.telemetry?.tab_count) {
+    lines.push(`Tabs: ${obs.telemetry.tab_count} (active ${obs.telemetry.active_tab ?? 0})`);
+  }
+  if (obs.frames?.length) {
+    lines.push(`Frames: ${obs.frames.length} accessible`);
+  }
+  if (obs.iframes?.length) {
+    lines.push(`Iframes: ${obs.iframes.length}`);
+  }
+  if (obs.a11y?.yaml) {
+    lines.push(`A11y tree: ${obs.a11y.yaml.split("\n").length} lines${obs.a11y.truncated ? " (truncated)" : ""}`);
+  }
+  if (obs.visionAttached) {
+    lines.push("Vision: screenshot attached to LLM this step");
+  }
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
     lines.push("Open menus:");
     for (const menu of obs.openMenus) {
@@ -100,6 +115,8 @@ export function snapshotsFromTaskEvents(events) {
       plan: evt.payload?.plan,
       progress: evt.payload?.progress,
       structures: evt.payload?.structures,
+      visionAttached: evt.payload?.visionAttached,
+      telemetry: evt.payload?.telemetry,
     }));
 }
 
@@ -118,6 +135,8 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
   const currentDiff = snapshots[activeIndex]?.stateDiff;
   const currentPlan = snapshots[activeIndex]?.plan;
   const currentProgress = snapshots[activeIndex]?.progress;
+  const currentVision = snapshots[activeIndex]?.visionAttached;
+  const currentTelemetry = snapshots[activeIndex]?.telemetry;
   const displayObs =
     current && (currentState || currentDiff || currentPlan || currentProgress)
       ? {
@@ -127,6 +146,8 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
           plan: currentPlan || current.plan,
           progress: currentProgress || current.progress,
           structures: snapshots[activeIndex]?.structures || current.structures,
+          visionAttached: currentVision ?? current.visionAttached,
+          telemetry: currentTelemetry || current.telemetry,
         }
       : current;
   const count = displayObs?.interactiveCount ?? displayObs?.interactives?.length ?? 0;
@@ -258,7 +279,12 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
                       {el.type ? `:${el.type}` : ""}
                     </td>
                     <td className="px-1 py-1 text-teal-800/70">
-                      {[el.overlay ? "overlay" : "", el.hasSubmenu ? "submenu" : ""]
+                      {[
+                        el.overlay ? "overlay" : "",
+                        el.hasSubmenu ? "submenu" : "",
+                        el.frameId && el.frameId !== "main" ? el.frameId : "",
+                        el.shadowHost ? "shadow" : "",
+                      ]
                         .filter(Boolean)
                         .join(", ") || "—"}
                     </td>

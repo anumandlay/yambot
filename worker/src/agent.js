@@ -17,7 +17,10 @@ import {
   attachFailureClass,
   attachFingerprints,
   buildPageState,
+  buildVisionUserContent,
+  captureViewportBase64,
   checkPreconditions,
+  createBrowserTelemetry,
   createGoalPlan,
   computeGoalProgress,
   detectActionLoop,
@@ -28,8 +31,14 @@ import {
   formatStateProjection,
   formatStopHints,
   getCurrentSubgoalTitle,
+  getPlaywrightFrame,
   isRecoverableAction,
+  observePageFull,
+  openTab,
+  parseFrameRef,
   runRecoveryLadder,
+  shouldAttachVision,
+  switchTab,
   updatePlanFromObservation,
   waitForDomSettle,
   waitForSemantic,
@@ -46,6 +55,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   let context = null;
   /** @type {import('playwright').Page|null} */
   let page = null;
+  /** @type {ReturnType<typeof createBrowserTelemetry>|null} */
+  let telemetry = null;
   let running = false;
   /** Whether the dashboard user currently has Take control (from last heartbeat). */
   let remoteHumanControl = false;
@@ -110,6 +121,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
         : {}),
     });
     page = context.pages()[0] || (await context.newPage());
+    fs.mkdirSync(path.join(config.profileDir, "uploads"), { recursive: true });
+    fs.mkdirSync(path.join(config.profileDir, "downloads"), { recursive: true });
+    telemetry = createBrowserTelemetry(context, page, {
+      log,
+      downloadsDir: path.join(config.profileDir, "downloads"),
+    });
+    telemetry.attach();
     // Why: no default website — stay on about:blank unless YAMBOT_START_URL or agent startUrl is set.
     const bootEnv = process.env.YAMBOT_START_URL && String(process.env.YAMBOT_START_URL).trim();
     if (bootEnv && /^https?:\/\//i.test(bootEnv)) {
@@ -127,6 +145,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
         (canLoadExt ? `, extension=${extDir}` : ", extension=off") +
         ")"
     );
+  }
+
+  /**
+   * Full observation: DOM + frames + a11y (Phase 4).
+   * @returns {Promise<object>}
+   */
+  async function observeNow() {
+    await ensureBrowser();
+    const obs = await observePageFull(page, observeInPage);
+    telemetry?.setActivePage(page);
+    return obs;
   }
 
   /**
@@ -310,7 +339,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @returns {Promise<{ handled: boolean, obs: object, captchaMeta: object }>}
    */
   async function handleCaptchaIfPresent(taskId, settings, notes) {
-    let obs = await page.evaluate(observeInPage);
+    let obs = await observeNow();
     let captchaMeta = await page.evaluate(captchaMetaInPage);
     let sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
 
@@ -352,7 +381,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           appendMessage: "CAPTCHA solved via DeathByCaptcha.",
         });
         await sleep(300);
-        obs = await page.evaluate(observeInPage);
+        obs = await observeNow();
         captchaMeta = await page.evaluate(captchaMetaInPage);
         const stillVisible = Boolean(
           obs.captcha?.present || captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey
@@ -381,7 +410,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
     await waitForUserAnswer(taskId, handoffMsg);
     notes.push(`User continued after CAPTCHA handoff (${sig}).`);
-    obs = await page.evaluate(observeInPage);
+    obs = await observeNow();
     captchaMeta = await page.evaluate(captchaMetaInPage);
     return { handled: true, obs, captchaMeta };
   }
@@ -402,6 +431,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       css: action.css || item.cssHint,
       xpath: action.xpath || item.xpath,
       fingerprint: item.fingerprint,
+      frameId: item.frameId || action.frameId,
     };
   }
 
@@ -422,6 +452,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         plan: extras.plan,
         progress: extras.progress,
         currentSubgoal: extras.currentSubgoal,
+        telemetry: extras.telemetry,
       });
     }
     const lines = [
@@ -688,7 +719,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
         const captchaGate = await handleCaptchaIfPresent(taskId, settings, notes);
         if (captchaGate.handled) continue;
-        let obs = attachFingerprints(captchaGate.obs);
+        let obs = captchaGate.obs;
         const pageState = buildPageState(obs, { previousUrl: prevUrl || undefined });
         const stateDiff = prevObs ? diffObservations(prevObs, obs) : null;
 
@@ -721,6 +752,49 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const loopCheck = detectActionLoop(history, 3);
         const loopNote = loopCheck.detected ? loopCheck.message : "";
 
+        const sessionTelemetry = telemetry?.getSummary();
+        const prevResult = history[history.length - 1]?.result;
+        const wantVision =
+          shouldAttachVision({ step, result: prevResult }) && !remoteHumanControl;
+
+        const snapshotText = formatObservation(obs, pageState, stateDiff, workingGoal, {
+          plan: goalPlan,
+          progress: goalProgress,
+          currentSubgoal,
+          telemetry: sessionTelemetry,
+        });
+
+        const userTextParts = [
+          `GOAL:\n${workingGoal}`,
+          `STEP: ${step}`,
+          loopNote,
+          stopEval.hints.length ? formatStopHints(stopEval) : "",
+          notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
+          history.length
+            ? `RECENT ACTIONS:\n${history
+                .slice(-6)
+                .map((h) => JSON.stringify(h))
+                .join("\n")}`
+            : "",
+          `CURRENT PAGE SNAPSHOT:\n${snapshotText}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n");
+
+        let userContent = userTextParts;
+        let visionAttached = false;
+        if (wantVision) {
+          try {
+            const b64 = await captureViewportBase64(page);
+            if (b64) {
+              userContent = buildVisionUserContent(userTextParts, b64);
+              visionAttached = true;
+            }
+          } catch (err) {
+            log(`[${config.workerName}] vision capture failed:`, err?.message || err);
+          }
+        }
+
         const messages = [
           {
             role: "system",
@@ -728,7 +802,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
               ACTION_SCHEMA_FOR_PROMPT,
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "Each step includes PLAN, PROGRESS, PAGE STATE, STRUCTURES (forms/tables), and ranked interactives.",
+              "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
+              visionAttached
+                ? "A viewport screenshot is attached — correlate refs with visible UI."
+                : "A screenshot may attach after failed verification steps.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
               "Prefer wait_for over blind wait when waiting for UI, URL, or text.",
               formatAgentSnapshot(agentSnapshot),
@@ -738,26 +815,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           },
           {
             role: "user",
-            content: [
-              `GOAL:\n${workingGoal}`,
-              `STEP: ${step}`,
-              loopNote,
-              stopEval.hints.length ? formatStopHints(stopEval) : "",
-              notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
-              history.length
-                ? `RECENT ACTIONS:\n${history
-                    .slice(-6)
-                    .map((h) => JSON.stringify(h))
-                    .join("\n")}`
-                : "",
-              `CURRENT PAGE SNAPSHOT:\n${formatObservation(obs, pageState, stateDiff, workingGoal, {
-                plan: goalPlan,
-                progress: goalProgress,
-                currentSubgoal,
-              })}`,
-            ]
-              .filter(Boolean)
-              .join("\n\n"),
+            content: userContent,
           },
         ];
 
@@ -771,12 +829,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
               stateDiff,
               plan: goalPlan,
               progress: goalProgress,
+              visionAttached,
+              telemetry: sessionTelemetry,
             }),
             pageState,
             stateDiff,
             plan: goalPlan,
             progress: goalProgress,
             structures: obs.structures,
+            visionAttached,
+            telemetry: sessionTelemetry,
           },
           appendMessage: obs.url
             ? `Looking at: ${obs.title || ""} (${obs.url})`
@@ -854,8 +916,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const locatorTypes = new Set(["click", "type", "select"]);
         if (locatorTypes.has(actionToRun.type) && precondition.ok) {
-          const enriched = enrichLocatorAction(actionToRun, obs);
-          const precheck = await page.evaluate(precheckLocatorInPage, enriched);
+          const precheck = await runPrecheck(actionToRun, obs);
           if (!precheck.ok) {
             precondition = {
               ok: false,
@@ -896,11 +957,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                 domStable: true,
               });
             }
-            const obsAfter = attachFingerprints(
-              actionToRun.type === "wait_for"
-                ? await page.evaluate(observeInPage)
-                : await waitForDomSettle(page, observeInPage)
-            );
+            const obsAfter = await observeNow();
             result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
             prevObs = obsAfter;
             prevUrl = String(obsAfter.url || "");
@@ -922,6 +979,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               prevObs,
               page,
               observeFn: observeInPage,
+              observeFull: observeNow,
               conditionFn: waitForConditionInPage,
               precheckFn: precheckLocatorInPage,
               enrichLocatorAction,
@@ -940,7 +998,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   loadingGone: true,
                   domStable: true,
                 });
-                const after = attachFingerprints(await waitForDomSettle(page, observeInPage));
+                const after = await observeNow();
                 const pre = checkPreconditions(act, currentObs, prevObs);
                 return enrichActionResult(act, raw, currentObs, after, pre);
               },
@@ -1047,6 +1105,39 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * Resolves frame + local ref for iframe-prefixed interactives.
+   * @param {object} action
+   * @param {object} obs
+   */
+  function resolveActionTarget(action, obs) {
+    const enriched = enrichLocatorAction(action, obs);
+    const { frameId, localRef } = parseFrameRef(enriched.ref);
+    const frame = getPlaywrightFrame(page, frameId);
+    const inChildFrame = frame !== page.mainFrame();
+    return {
+      enriched: { ...enriched, ref: localRef },
+      frame,
+      frameId,
+      inChildFrame,
+      localRef,
+    };
+  }
+
+  /**
+   * Runs locator precheck in the correct frame (main or iframe).
+   * @param {object} action
+   * @param {object} obs
+   * @returns {Promise<object>}
+   */
+  async function runPrecheck(action, obs) {
+    const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+    if (inChildFrame) {
+      return frame.evaluate(precheckLocatorInPage, enriched);
+    }
+    return page.evaluate(precheckLocatorInPage, enriched);
+  }
+
+  /**
    * @param {object} action
    * @param {object} ctx
    */
@@ -1066,6 +1157,28 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       case "wait_for": {
         return executeWaitFor(page, observeInPage, waitForConditionInPage, action);
+      }
+      case "switch_tab": {
+        const switched = await switchTab(context, page, action);
+        page = switched.page;
+        telemetry?.setActivePage(page);
+        return { ok: true, tab: switched.tab };
+      }
+      case "open_tab": {
+        page = await openTab(context, action.url);
+        telemetry?.setActivePage(page);
+        return { ok: true, url: page.url(), title: await page.title().catch(() => "") };
+      }
+      case "upload_file": {
+        const { frame, localRef } = resolveActionTarget(action, obs);
+        const relPath = String(action.path || action.filename || "").trim();
+        if (!relPath) throw new Error("upload_file requires path");
+        const filePath = path.isAbsolute(relPath)
+          ? relPath
+          : path.join(config.profileDir, "uploads", relPath);
+        if (!fs.existsSync(filePath)) throw new Error(`Upload file not found: ${relPath}`);
+        await frame.locator(`[data-ba-ref="${localRef}"]`).setInputFiles(filePath);
+        return { ok: true, uploaded: path.basename(filePath), ref: action.ref };
       }
       case "ask_user": {
         const answer = await waitForUserAnswer(taskId, action.question || "Need your input");
@@ -1168,16 +1281,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
           }
         }
         // Why: Playwright real mouse hits React/custom dropdowns & calendars more reliably than el.click().
-        const point = await page.evaluate(executeInPage, {
-          ...enrichLocatorAction(action, obs),
+        const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+        if (inChildFrame) {
+          await frame.locator(`[data-ba-ref="${enriched.ref}"]`).click({ timeout: 10000 });
+          return { ok: true, clicked: enriched.name, frame: frame.url() };
+        }
+        const point = await frame.evaluate(executeInPage, {
+          ...enriched,
           type: "resolve_point",
         });
         await page.mouse.click(point.x, point.y, { delay: 40 });
         return { ok: true, clicked: point.name, x: point.x, y: point.y };
       }
       case "type": {
-        const enriched = enrichLocatorAction(action, obs);
-        const meta = await page.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
+        const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+        if (inChildFrame) {
+          const result = await frame.evaluate(executeInPage, enriched);
+          return result;
+        }
+        const meta = await frame.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
         await page.mouse.click(meta.x, meta.y, { delay: 40 });
         // Why: Gmail compose body is contenteditable — real keyboard input is most reliable.
         if (meta.contentEditable) {
@@ -1191,7 +1313,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       case "select":
       case "press_key":
       case "scroll": {
-        const result = await page.evaluate(executeInPage, enrichLocatorAction(action, obs));
+        const { enriched, frame } = resolveActionTarget(action, obs);
+        const result = await frame.evaluate(executeInPage, enriched);
         // Why: custom select returns a click point — finish with a real mouse click too.
         if (action.type === "select" && result?.custom && result.x != null && result.y != null) {
           await page.mouse.click(result.x, result.y, { delay: 40 });
@@ -1211,6 +1334,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     }
     context = null;
     page = null;
+    telemetry = null;
   }
 
   return {

@@ -25,3 +25,12 @@ export {
   getCurrentSubgoalTitle,
   updatePlanFromObservation,
 } from "./planner.js";
+export { createBrowserTelemetry, formatTelemetryBlock } from "./telemetry.js";
+export { captureA11ySnapshot, formatA11yBlock, flattenA11yLines } from "./a11y.js";
+export {
+  shouldAttachVision,
+  captureViewportBase64,
+  buildVisionUserContent,
+} from "./vision.js";
+export { listTabs, switchTab, openTab } from "./tabs.js";
+export { observePageFull, parseFrameRef, getPlaywrightFrame } from "./observe.js";

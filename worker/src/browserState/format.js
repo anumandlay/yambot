@@ -1,6 +1,6 @@
 /**
  * @fileoverview Compact LLM projection of browser state (not full 6k text dump).
- * Purpose: Layered observation — plan, progress, structures, ranked interactives, truncated text.
+ * Purpose: Layered observation — plan, progress, structures, a11y, tabs, ranked interactives.
  * Downstream: agent.js replaces formatObservation for LLM prompts.
  */
 
@@ -8,6 +8,8 @@ import { scoreInteractives } from "./relevance.js";
 import { formatStructuresBlock, buildStructuresFromObs } from "./structures.js";
 import { formatProgressBlock } from "./progress.js";
 import { formatPlanBlock } from "./planner.js";
+import { formatA11yBlock } from "./a11y.js";
+import { formatTelemetryBlock } from "./telemetry.js";
 
 /**
  * Formats page state block for the LLM.
@@ -71,8 +73,33 @@ function formatDiffBlock(stateDiff) {
 }
 
 /**
+ * @param {object} obs
+ * @returns {string}
+ */
+function formatFramesBlock(obs) {
+  const parts = [];
+  if (obs.iframes?.length) {
+    parts.push("IFRAMES (may be cross-origin):");
+    for (const f of obs.iframes.slice(0, 6)) {
+      parts.push(`  - [${f.index}] ${f.title || f.name || "iframe"} ${f.src || ""}`);
+    }
+  }
+  if (obs.frames?.length) {
+    parts.push("ACCESSIBLE FRAMES:");
+    for (const f of obs.frames.slice(0, 6)) {
+      if (f.cross_origin) {
+        parts.push(`  - ${f.frameId}: cross-origin ${f.url || ""}`);
+      } else {
+        parts.push(`  - ${f.frameId}: ${f.interactive_count ?? 0} refs ${f.url || ""}`);
+      }
+    }
+  }
+  return parts.join("\n");
+}
+
+/**
  * Builds the compact observation string for the LLM.
- * @param {{ obs: object, pageState: object, stateDiff?: object|null, goal?: string, plan?: object|null, progress?: object|null, currentSubgoal?: string, maxInteractives?: number, maxText?: number }} params
+ * @param {object} params
  * @returns {string}
  */
 export function formatStateProjection({
@@ -83,8 +110,9 @@ export function formatStateProjection({
   plan = null,
   progress = null,
   currentSubgoal = "",
+  telemetry = null,
   maxInteractives = 65,
-  maxText = 2000,
+  maxText = 1800,
 }) {
   const lines = [];
 
@@ -94,6 +122,9 @@ export function formatStateProjection({
   const progressBlock = formatProgressBlock(progress);
   if (progressBlock) lines.push("", progressBlock);
 
+  const telBlock = formatTelemetryBlock(telemetry);
+  if (telBlock) lines.push("", telBlock);
+
   lines.push("", formatStateBlock(pageState));
   const diffBlock = formatDiffBlock(stateDiff);
   if (diffBlock) lines.push("", diffBlock);
@@ -101,6 +132,12 @@ export function formatStateProjection({
   const structures = buildStructuresFromObs(obs);
   const structuresBlock = formatStructuresBlock(structures);
   if (structuresBlock) lines.push("", structuresBlock);
+
+  const framesBlock = formatFramesBlock(obs);
+  if (framesBlock) lines.push("", framesBlock);
+
+  const a11yBlock = formatA11yBlock(obs.a11y);
+  if (a11yBlock) lines.push("", a11yBlock);
 
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
     lines.push("", "Open menus (use overlay refs; [submenu] first):");
@@ -124,10 +161,12 @@ export function formatStateProjection({
   for (const el of ranked) {
     const rel = el.relevance != null ? ` score=${el.relevance}` : "";
     const ctx = el.nearbyText ? ` context="${String(el.nearbyText).slice(0, 50)}"` : "";
+    const frame = el.frameId && el.frameId !== "main" ? ` frame=${el.frameId}` : "";
+    const shadow = el.shadowHost ? ` shadow=${el.shadowHost}` : "";
     lines.push(
       `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
         el.role ? ` role=${el.role}` : ""
-      }> "${el.name}"${rel}${ctx}${el.cssHint ? ` css=${el.cssHint}` : ""}${
+      }> "${el.name}"${rel}${frame}${shadow}${ctx}${el.cssHint ? ` css=${el.cssHint}` : ""}${
         el.overlay ? " [overlay]" : ""
       }${el.hasSubmenu ? " [submenu]" : ""}${el.href ? ` href=${el.href}` : ""}${
         el.value ? ` value=${el.value}` : ""
