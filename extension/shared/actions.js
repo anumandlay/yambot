@@ -30,6 +30,7 @@ Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
 - click: { "type":"click", "ref":"e12", "role":"button", "name":"Sign in", "css":"#login", "xpath":"//button[@id='login']" }
 - type: { "type":"type", "ref":"e5", "text":"...", "submit": false, "role":"textbox", "name":"Email", "css":"input[name=email]", "xpath":"//input[@name='email']" }
+  Also works on contenteditable compose bodies (Gmail message body) — use role textbox, name like "Message body".
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 }
@@ -58,7 +59,7 @@ Rules:
 - Before submitting forms / purchases / applications, prefer ask_user unless the user already said to submit.
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
 - Image/Amazon captchas cannot be solved automatically — ask_user so the human solves it in the tab.
-- When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail.
+- When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail. Prefer send_email over Gmail web compose when SMTP is set.
 `.trim();
 
 export function extractFirstJsonObject(text) {

@@ -687,7 +687,7 @@ export function executeInPage(action) {
       return true;
     }
     if (r === "gridcell" && (actual === "gridcell" || /^\d{1,2}$/.test(labelFor(el)))) return true;
-    if (r === "textbox" && (actual === "textbox" || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+    if (r === "textbox" && (actual === "textbox" || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) {
       return true;
     }
     if (r === "combobox" && (actual === "combobox" || el.tagName === "SELECT")) return true;
@@ -840,6 +840,10 @@ export function executeInPage(action) {
     return { x, y };
   }
 
+  function isContentEditableEl(el) {
+    return Boolean(el?.isContentEditable || el?.getAttribute?.("contenteditable") === "true");
+  }
+
   function setNativeValue(el, value) {
     const proto =
       el.tagName === "TEXTAREA"
@@ -850,6 +854,42 @@ export function executeInPage(action) {
     else el.value = value;
     el.dispatchEvent(new Event("input", { bubbles: true }));
     el.dispatchEvent(new Event("change", { bubbles: true }));
+  }
+
+  /**
+   * Gmail/Outlook compose bodies use contenteditable divs — not input.value.
+   * @param {Element} el
+   * @param {string} value
+   */
+  function setContentEditableValue(el, value) {
+    const text = String(value ?? "");
+    el.focus();
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, text);
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) {
+      el.textContent = text;
+    }
+    try {
+      el.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          cancelable: true,
+          data: text,
+          inputType: "insertText",
+        })
+      );
+    } catch {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
   }
 
   function pageText(max = 8000) {
@@ -917,6 +957,7 @@ export function executeInPage(action) {
         y: Math.round(r.top + r.height / 2),
         name: labelFor(el),
         role: impliedRole(el),
+        contentEditable: isContentEditableEl(el),
       };
     }
     case "click": {
@@ -928,14 +969,19 @@ export function executeInPage(action) {
       const el = resolveElement(action);
       robustClick(el);
       el.focus();
-      setNativeValue(el, action.text ?? "");
+      const text = String(action.text ?? "");
+      if (isContentEditableEl(el)) {
+        setContentEditableValue(el, text);
+        return { ok: true, contentEditable: true, name: labelFor(el) };
+      }
+      setNativeValue(el, text);
       // Why: React controlled inputs often need InputEvent as well.
       try {
         el.dispatchEvent(
           new InputEvent("input", {
             bubbles: true,
             cancelable: true,
-            data: String(action.text ?? ""),
+            data: text,
             inputType: "insertText",
           })
         );

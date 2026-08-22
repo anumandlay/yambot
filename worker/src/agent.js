@@ -918,7 +918,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await page.mouse.click(point.x, point.y, { delay: 40 });
         return { ok: true, clicked: point.name, x: point.x, y: point.y };
       }
-      case "type":
+      case "type": {
+        const enriched = enrichLocatorAction(action, obs);
+        const meta = await page.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
+        await page.mouse.click(meta.x, meta.y, { delay: 40 });
+        // Why: Gmail compose body is contenteditable — real keyboard input is most reliable.
+        if (meta.contentEditable) {
+          await page.keyboard.press("Control+a");
+          await sleep(40);
+          await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
+          return { ok: true, contentEditable: true, typed: true, name: meta.name };
+        }
+        return page.evaluate(executeInPage, enriched);
+      }
       case "select":
       case "press_key":
       case "scroll": {

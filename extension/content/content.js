@@ -571,7 +571,7 @@
       return true;
     }
     if (r === "gridcell" && (actual === "gridcell" || /^\d{1,2}$/.test(labelFor(el)))) return true;
-    if (r === "textbox" && (actual === "textbox" || el.tagName === "INPUT" || el.tagName === "TEXTAREA")) {
+    if (r === "textbox" && (actual === "textbox" || el.tagName === "INPUT" || el.tagName === "TEXTAREA" || el.isContentEditable)) {
       return true;
     }
     if (r === "combobox" && (actual === "combobox" || el.tagName === "SELECT")) return true;
@@ -727,6 +727,41 @@
     }, 800);
   }
 
+  function isContentEditableEl(el) {
+    return Boolean(el?.isContentEditable || el?.getAttribute?.("contenteditable") === "true");
+  }
+
+  function setContentEditableValue(el, value) {
+    const text = String(value ?? "");
+    el.focus();
+    const sel = window.getSelection();
+    const range = document.createRange();
+    range.selectNodeContents(el);
+    sel?.removeAllRanges();
+    sel?.addRange(range);
+    let inserted = false;
+    try {
+      inserted = document.execCommand("insertText", false, text);
+    } catch {
+      inserted = false;
+    }
+    if (!inserted) {
+      el.textContent = text;
+    }
+    try {
+      el.dispatchEvent(
+        new InputEvent("input", {
+          bubbles: true,
+          cancelable: true,
+          data: text,
+          inputType: "insertText",
+        })
+      );
+    } catch {
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    }
+  }
+
   function setNativeValue(el, value) {
     const proto =
       el.tagName === "TEXTAREA"
@@ -764,7 +799,12 @@
         highlight(el);
         robustClick(el);
         el.focus();
-        setNativeValue(el, action.text ?? "");
+        const text = String(action.text ?? "");
+        if (isContentEditableEl(el)) {
+          setContentEditableValue(el, text);
+        } else {
+          setNativeValue(el, text);
+        }
         if (action.submit) {
           const form = el.closest("form");
           if (form) form.requestSubmit?.() || form.submit();

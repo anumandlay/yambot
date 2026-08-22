@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:20] Fix: type into Gmail/contenteditable compose bodies
+
+- **Prompt Provided:** agent said compose body could not be typed due to contenteditable div issue
+- **Architectural Flow:** `type` on contenteditable uses execCommand/insertText in page DOM; cloud worker uses real keyboard after focus for rich editors (Gmail compose)
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/agent.js`, `extension/content/content.js`, `worker/src/actions.js`, `extension/shared/actions.js`
+
 ## [2026-08-22 13:10] Feature: periodic orphan `yambot_profile_*` volume sweep
 
 - **Prompt Provided:** confirm delete cleans orphans; yes — add orphan volume sweep
