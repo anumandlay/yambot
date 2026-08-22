@@ -809,6 +809,79 @@ export function precheckLocatorInPage(action) {
 }
 
 /**
+ * Pollable wait condition for semantic wait_for (runs in page context).
+ * @param {object} condition
+ * @returns {{ matched: boolean, detail?: string }}
+ */
+export function waitForConditionInPage(condition) {
+  const c = condition || {};
+
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  const href = location.href;
+  if (c.url_matches) {
+    try {
+      if (!new RegExp(String(c.url_matches), "i").test(href)) {
+        return { matched: false, detail: "url_regex" };
+      }
+    } catch {
+      return { matched: false, detail: "url_regex_invalid" };
+    }
+  } else if (c.url && !href.includes(String(c.url))) {
+    return { matched: false, detail: "url" };
+  }
+
+  if (c.text) {
+    const body = (document.body?.innerText || "").toLowerCase();
+    if (!body.includes(String(c.text).toLowerCase())) {
+      return { matched: false, detail: "text" };
+    }
+  }
+
+  if (c.ref) {
+    const el = document.querySelector(`[data-ba-ref="${c.ref}"]`);
+    if (!el || !isVisible(el)) return { matched: false, detail: "ref" };
+  }
+
+  if (c.role || c.name) {
+    const wantedRole = String(c.role || "").toLowerCase();
+    const wantedName = String(c.name || "").toLowerCase();
+    const pool = [...document.querySelectorAll("[data-ba-ref], [role], button, a, input, textarea, select")];
+    const hit = pool.some((el) => {
+      if (!isVisible(el)) return false;
+      const role = (el.getAttribute("role") || el.tagName || "").toLowerCase();
+      const name = (
+        el.getAttribute("aria-label") ||
+        el.innerText ||
+        el.getAttribute("placeholder") ||
+        ""
+      ).toLowerCase();
+      const roleOk = !wantedRole || role.includes(wantedRole) || el.tagName.toLowerCase() === wantedRole;
+      const nameOk = !wantedName || name.includes(wantedName);
+      return roleOk && nameOk;
+    });
+    if (!hit) return { matched: false, detail: "role_name" };
+  }
+
+  if (c.loading_gone) {
+    const loading = document.querySelector(
+      '[aria-busy="true"], .loading, .spinner, [class*="skeleton"], [class*="Spinner"]'
+    );
+    if (loading && isVisible(loading)) return { matched: false, detail: "loading" };
+  }
+
+  return { matched: true, detail: "ok", url: href };
+}
+
+/**
  * @param {object} action
  */
 export function executeInPage(action) {

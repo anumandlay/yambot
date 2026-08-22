@@ -11,6 +11,7 @@ export const ACTION_TYPES = [
   "press_key",
   "scroll",
   "wait",
+  "wait_for",
   "extract",
   "solve_captcha",
   "ask_user",
@@ -24,7 +25,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|extract|solve_captcha|ask_user|send_email|check_email|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|extract|solve_captcha|ask_user|send_email|check_email|finish>",
     ...fields depending on type
   }
 }
@@ -37,7 +38,9 @@ Action fields:
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 }
-- wait: { "type":"wait", "ms": 1500 }
+- wait: { "type":"wait", "ms": 1500 } — prefer wait_for when you know what should appear
+- wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000, "network_idle": false, "dom_stable": true }
+  Semantic wait until condition met (role+name, text on page, url_contains, or ref visible). Avoid blind long sleeps.
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }
@@ -58,7 +61,7 @@ Rules:
 - CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.
 - For Google research: navigate or use the search box, then open promising links, extract notes, finish with a summary + URLs.
 - Shopping (any store): if the goal mentions cart/basket/bag/trolley, open the header Cart/Basket FIRST (icons often say "items in cart" / "shopping bag"). Do not browse products. Prefer the early snapshot refs for cart/checkout. If missing, navigate on the same host to a common cart path: /cart, /basket, /bag, /gp/cart/view.html, /checkout/cart — pick what matches the site, do not invent a different domain.
-- Do not loop forever. If stuck twice on the same issue, ask_user or finish with what you have.
+- Do not loop forever. If RECENT ACTIONS show LOOP DETECTED or the same action failed twice, change strategy — wait_for, ask_user, or finish.
 - Before submitting forms / purchases / applications, prefer ask_user unless autonomy allows submit.
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
 - Image/Amazon captchas cannot be solved automatically — ask_user so the human uses Take control on the live screen.

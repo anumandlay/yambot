@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 14:00] Feature: Browser State Engine Phase 2 (semantic waits, recovery, loops, stops)
+
+- **Prompt Provided:** implement Phase 2 — semantic waits, failure classification, recovery ladder, loop detection, stop conditions
+- **Architectural Flow:** `wait_for` action + `waitForSemantic`/`waitForConditionInPage`; `failureClass.js` taxonomy; `recovery.js` ladder (resolve, wait, scroll, keyboard, overlay); `loops.js` + `stopConditions.js` injected into LLM prompt; agent auto-recovers before reporting failure
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/*`, `worker/src/pageDom.js`, `worker/src/agent.js`, `worker/src/actions.js`, `extension/shared/actions.js`
+
 ## [2026-08-22 13:50] Feature: Browser State Engine Phase 1 (state, diff, verify, fingerprints)
 
 - **Prompt Provided:** implement Phase 1 browser automation architecture (page state model, rich action results, preconditions, fingerprints, DOM diff, verification, compact LLM projection)

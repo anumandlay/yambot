@@ -12,15 +12,23 @@ import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
-import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage } from "./pageDom.js";
+import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
 import {
+  attachFailureClass,
   attachFingerprints,
   buildPageState,
   checkPreconditions,
+  detectActionLoop,
   diffObservations,
   enrichActionResult,
+  evaluateStopConditions,
+  executeWaitFor,
   formatStateProjection,
+  formatStopHints,
+  isRecoverableAction,
+  runRecoveryLadder,
   waitForDomSettle,
+  waitForSemantic,
 } from "./browserState/index.js";
 import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
@@ -657,6 +665,22 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const pageState = buildPageState(obs, { previousUrl: prevUrl || undefined });
         const stateDiff = prevObs ? diffObservations(prevObs, obs) : null;
 
+        const stopEval = evaluateStopConditions(pageState, obs, workingGoal, agentSnapshot);
+        if (stopEval.shouldFinish) {
+          await complete(taskId, {
+            success: true,
+            summary: stopEval.finishSummary || "Stop condition met",
+          });
+          log(`[${config.workerName}] Task ${taskId} stopped: payment boundary`);
+          return;
+        }
+        if (stopEval.hints.length) {
+          notes.push(formatStopHints(stopEval));
+        }
+
+        const loopCheck = detectActionLoop(history, 3);
+        const loopNote = loopCheck.detected ? loopCheck.message : "";
+
         const messages = [
           {
             role: "system",
@@ -665,6 +689,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "Each step includes PAGE STATE and CHANGES SINCE LAST STEP — use verified action results in RECENT ACTIONS.",
+              "Prefer wait_for over blind wait when waiting for UI, URL, or text.",
               formatAgentSnapshot(agentSnapshot),
             ]
               .filter(Boolean)
@@ -675,6 +700,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
             content: [
               `GOAL:\n${workingGoal}`,
               `STEP: ${step}`,
+              loopNote,
+              stopEval.hints.length ? formatStopHints(stopEval) : "",
               notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
               history.length
                 ? `RECENT ACTIONS:\n${history
@@ -788,11 +815,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let result;
         try {
           if (!precondition.ok && locatorTypes.has(actionToRun.type)) {
-            result = {
-              ok: false,
-              error: precondition.issues?.join("; ") || "Precondition failed",
-              failure_class: precondition.precheck?.error || "PRECONDITION_FAILED",
-            };
+            result = attachFailureClass(
+              {
+                ok: false,
+                error: precondition.issues?.join("; ") || "Precondition failed",
+                failure_class: precondition.precheck?.error || "PRECONDITION_FAILED",
+              },
+              { precondition }
+            );
           } else {
             result = await executeAction(actionToRun, {
               settings,
@@ -803,8 +833,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
             });
           }
 
-          if (!["finish", "ask_user", "wait"].includes(actionToRun.type)) {
-            const obsAfter = attachFingerprints(await waitForDomSettle(page, observeInPage));
+          const skipSettle = ["finish", "ask_user", "wait"].includes(actionToRun.type);
+          if (!skipSettle) {
+            if (actionToRun.type !== "wait_for") {
+              await waitForSemantic(page, observeInPage, waitForConditionInPage, {
+                timeoutMs: 3500,
+                networkIdle: false,
+                loadingGone: true,
+                domStable: true,
+              });
+            }
+            const obsAfter = attachFingerprints(
+              actionToRun.type === "wait_for"
+                ? await page.evaluate(observeInPage)
+                : await waitForDomSettle(page, observeInPage)
+            );
             result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
             prevObs = obsAfter;
             prevUrl = String(obsAfter.url || "");
@@ -812,13 +855,89 @@ export function createCloudAgent({ api, config, log = console.log }) {
             prevObs = obsBefore;
             prevUrl = String(obsBefore.url || "");
           }
+
+          const needsRecovery =
+            isRecoverableAction(actionToRun) &&
+            (result?.ok === false ||
+              result?.success === false ||
+              result?.verification?.passed === false);
+
+          if (needsRecovery) {
+            const recovery = await runRecoveryLadder({
+              action: actionToRun,
+              obs: obsBefore,
+              prevObs,
+              page,
+              observeFn: observeInPage,
+              conditionFn: waitForConditionInPage,
+              precheckFn: precheckLocatorInPage,
+              enrichLocatorAction,
+              attachFingerprints,
+              runAction: async (act, currentObs) => {
+                const raw = await executeAction(act, {
+                  settings,
+                  obs: currentObs,
+                  taskId,
+                  agentSnapshot,
+                  notes,
+                });
+                await waitForSemantic(page, observeInPage, waitForConditionInPage, {
+                  timeoutMs: 3000,
+                  networkIdle: false,
+                  loadingGone: true,
+                  domStable: true,
+                });
+                const after = attachFingerprints(await waitForDomSettle(page, observeInPage));
+                const pre = checkPreconditions(act, currentObs, prevObs);
+                return enrichActionResult(act, raw, currentObs, after, pre);
+              },
+            });
+            if (recovery.recovered && recovery.result) {
+              result = {
+                ...recovery.result,
+                recovery: true,
+                recovery_attempts: recovery.attempts,
+              };
+              if (recovery.obs) {
+                prevObs = recovery.obs;
+                prevUrl = String(recovery.obs.url || "");
+              }
+              notes.push(`Recovery succeeded after ${recovery.attempts.length} attempt(s).`);
+            } else if (recovery.attempts?.length) {
+              result = attachFailureClass(
+                {
+                  ...result,
+                  recovery: false,
+                  recovery_attempts: recovery.attempts,
+                },
+                { result, precondition, loop: loopCheck }
+              );
+              notes.push(
+                `Recovery failed (${recovery.attempts.length} strategies): ${recovery.attempts
+                  .map((a) => a.strategy)
+                  .join(" → ")}`
+              );
+            }
+          }
+
+          if (!result.failure_class) {
+            result = attachFailureClass(result, {
+              result,
+              precondition,
+              verification: result.verification,
+              loop: loopCheck.detected ? loopCheck : undefined,
+            });
+          }
         } catch (err) {
           if (err?.cancelled) throw err;
-          result = {
-            ok: false,
-            error: String(err?.message || err),
-            failure_class: "UNKNOWN",
-          };
+          result = attachFailureClass(
+            {
+              ok: false,
+              error: String(err?.message || err),
+              failure_class: "UNKNOWN",
+            },
+            { error: String(err?.message || err) }
+          );
         }
 
         history.push({ step, thought: parsed.thought, action: actionToRun, result });
@@ -891,6 +1010,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       case "wait": {
         await sleep(Math.min(Number(action.ms) || 1000, 10000));
         return { ok: true };
+      }
+      case "wait_for": {
+        return executeWaitFor(page, observeInPage, waitForConditionInPage, action);
       }
       case "ask_user": {
         const answer = await waitForUserAnswer(taskId, action.question || "Need your input");

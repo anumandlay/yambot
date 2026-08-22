@@ -5,6 +5,7 @@
  */
 
 import { diffObservations } from "./diff.js";
+import { attachFailureClass } from "./failureClass.js";
 import { buildPageState, computeStateChange } from "./pageState.js";
 
 /**
@@ -117,6 +118,7 @@ export function verifyAction(action, beforeObs, afterObs, domResult = {}) {
     }
     case "scroll":
     case "wait":
+    case "wait_for":
     case "press_key":
       return {
         ...base,
@@ -157,25 +159,28 @@ export function enrichActionResult(action, domResult, beforeObs, afterObs, preco
   const verification = verifyAction(action, beforeObs, afterObs, domResult);
   const diff = diffObservations(beforeObs, afterObs);
 
-  return {
-    ...domResult,
-    success: domResult?.ok !== false && verification.passed,
-    action: action?.type,
-    target: action?.ref || action?.url || undefined,
-    effects: verification.effects,
-    state_change: verification.state_change,
-    diff: {
-      added_refs: diff.added_refs.slice(0, 20),
-      removed_refs: diff.removed_refs.slice(0, 20),
-      url_changed: diff.url_changed,
-      dom_changed: diff.dom_changed,
+  return attachFailureClass(
+    {
+      ...domResult,
+      success: domResult?.ok !== false && verification.passed,
+      action: action?.type,
+      target: action?.ref || action?.url || undefined,
+      effects: verification.effects,
+      state_change: verification.state_change,
+      diff: {
+        added_refs: diff.added_refs.slice(0, 20),
+        removed_refs: diff.removed_refs.slice(0, 20),
+        url_changed: diff.url_changed,
+        dom_changed: diff.dom_changed,
+      },
+      verification: {
+        expected_condition: verification.expected_condition,
+        passed: verification.passed,
+        detail: verification.detail,
+      },
+      precondition: precondition.ok !== false ? undefined : precondition,
+      resolved_ref: precondition.resolvedRef || undefined,
     },
-    verification: {
-      expected_condition: verification.expected_condition,
-      passed: verification.passed,
-      detail: verification.detail,
-    },
-    precondition: precondition.ok !== false ? undefined : precondition,
-    resolved_ref: precondition.resolvedRef || undefined,
-  };
+    { result: domResult, precondition, verification }
+  );
 }
