@@ -20,6 +20,8 @@ import { LiveWallPage } from "./pages/LiveWallPage.jsx";
 import { GoalsPage } from "./pages/GoalsPage.jsx";
 import { GoalEditPage } from "./pages/GoalEditPage.jsx";
 import { GovernancePage } from "./pages/GovernancePage.jsx";
+import { PoliciesPage } from "./pages/PoliciesPage.jsx";
+import { WorkforcePage } from "./pages/WorkforcePage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
 
@@ -103,6 +105,8 @@ export default function App() {
           <Route path="/goals/new" element={<GoalEditPage />} />
           <Route path="/goals/:goalId" element={<GoalEditPage />} />
           <Route path="/governance" element={<GovernancePage />} />
+          <Route path="/policies" element={<PoliciesPage />} />
+          <Route path="/workforce" element={<WorkforcePage />} />
           <Route path="/live" element={<LiveWallPage />} />
           <Route path="/chats/:chatId" element={<ChatDetailPage />} />
           <Route path="/settings" element={<SettingsPage />} />

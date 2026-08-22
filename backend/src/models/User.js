@@ -38,6 +38,13 @@ const settingsSchema = new mongoose.Schema(
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 0 },
     confirmBeforeSubmit: { type: Boolean, default: false },
+    /** Layer 2 — global policy defaults */
+    requireApprovalForSubmit: { type: Boolean, default: false },
+    blockedUrlPatterns: { type: [String], default: [] },
+    monthlyBudgetUsd: { type: Number, default: 0 },
+    escalateWaitingMinutes: { type: Number, default: 30 },
+    /** Layer 4 — hosts allowed for http_request tool (empty = any non-blocked) */
+    httpAllowHosts: { type: [String], default: [] },
   },
   { _id: false }
 );

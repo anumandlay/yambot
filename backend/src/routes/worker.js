@@ -13,6 +13,9 @@ import { Goal, recordGoalRun } from "../models/Goal.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
 import { writeAudit } from "../utils/audit.js";
+import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "../utils/policy.js";
+import { evaluateTaskRun } from "../utils/evaluateTask.js";
+import { Approval } from "../models/Approval.js";
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
@@ -32,6 +35,30 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
       return;
     }
     const s = user.settings || {};
+    const agentId = String(req.query?.agentId || req.headers["x-yambot-agent-id"] || "").trim();
+    let agentDoc = null;
+    if (agentId) {
+      agentDoc = await Agent.findOne({ _id: agentId, user: req.userId }).lean();
+    }
+    const policy = getEffectivePolicy(s, agentDoc);
+
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+    const spendMatch = {
+      user: req.userId,
+      completedAt: { $gte: monthStart },
+      status: { $in: ["done", "error"] },
+    };
+    if (agentId) spendMatch.agent = agentId;
+    const [spendRow] = await Task.aggregate([
+      { $match: spendMatch },
+      { $group: { _id: null, usd: { $sum: "$llmUsage.estimatedUsd" } } },
+    ]);
+    const spentUsd = Number(spendRow?.usd) || 0;
+    const budgetUsd = policy.monthlyBudgetUsd || 0;
+    const budgetExceeded = budgetUsd > 0 && spentUsd >= budgetUsd;
+
     res.json({
       ok: true,
       config: {
@@ -44,6 +71,12 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
+        policy,
+        budget: {
+          monthlyUsd: budgetUsd,
+          spentUsd: Number(spentUsd.toFixed(4)),
+          exceeded: budgetExceeded,
+        },
       },
     });
   } catch (err) {
@@ -336,6 +369,18 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     task.lastError = error;
     task.completedAt = new Date();
     if (trajectory.length) task.trajectory = trajectory;
+    const evalResult = evaluateTaskRun({
+      success,
+      summary,
+      error,
+      trajectory: task.trajectory,
+      llmUsage: task.llmUsage,
+    });
+    task.evaluation = {
+      score: evalResult.score,
+      summary: evalResult.summary,
+      at: new Date(),
+    };
     task.events.push({
       type: "complete",
       payload: { success, summary, error },
@@ -381,11 +426,184 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       agentId: task.agent ? String(task.agent) : null,
       goalId: task.goalRef ? String(task.goalRef) : null,
       detail: (summary || error || "").slice(0, 500),
-      meta: { llmUsage: task.llmUsage || {} },
+      meta: { llmUsage: task.llmUsage || {}, evaluationScore: task.evaluation?.score },
     });
 
     res.json({ ok: true, task });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/approvals/request
+ * Body: { taskId, agentId, type?, question?, context? }
+ */
+workerRouter.post("/approvals/request", async (req, res, next) => {
+  try {
+    const taskId = String(req.body?.taskId || "").trim();
+    const agentId = String(req.body?.agentId || "").trim();
+    const type = String(req.body?.type || req.body?.kind || "submit").trim();
+    const question = String(req.body?.question || req.body?.summary || "").slice(0, 2000);
+    const context =
+      req.body?.context && typeof req.body.context === "object"
+        ? req.body.context
+        : req.body?.payload && typeof req.body.payload === "object"
+          ? req.body.payload
+          : {};
+
+    if (!taskId || !agentId) {
+      res.status(400).json({ ok: false, title: "Bad request", detail: "taskId and agentId required" });
+      return;
+    }
+
+    const task = await Task.findOne({ _id: taskId, user: req.userId });
+    if (!task) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
+      return;
+    }
+
+    const approval = await Approval.create({
+      user: req.userId,
+      task: taskId,
+      agent: agentId,
+      type,
+      question,
+      context,
+      status: "pending",
+    });
+
+    task.status = "waiting_user";
+    task.escalationLevel = task.escalationLevel || 0;
+    task.events.push({
+      type: "approval_requested",
+      payload: { approvalId: String(approval._id), type, question },
+    });
+    await task.save();
+    await setAgentNeedsAttention(agentId, question.slice(0, 200));
+
+    await writeAudit({
+      userId: req.userId,
+      action: "approval.requested",
+      taskId,
+      agentId,
+      detail: question.slice(0, 500),
+      meta: { approvalId: String(approval._id), type },
+    });
+
+    res.json({ ok: true, approvalId: String(approval._id) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/worker/approvals/:id — poll until resolved.
+ */
+workerRouter.get("/approvals/:id", async (req, res, next) => {
+  try {
+    const approval = await Approval.findOne({ _id: req.params.id, user: req.userId }).lean();
+    if (!approval) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Approval missing" });
+      return;
+    }
+    res.json({
+      ok: true,
+      approval: {
+        id: String(approval._id),
+        status: approval.status,
+        resolutionNote: approval.resolutionNote || "",
+        resolvedAt: approval.resolvedAt || null,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/tools/http — server-side HTTP for integrations (policy-gated).
+ */
+workerRouter.post("/tools/http", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    const agentId = String(req.body?.agentId || req.headers["x-yambot-agent-id"] || "").trim();
+    let agentDoc = null;
+    if (agentId) {
+      agentDoc = await Agent.findOne({ _id: agentId, user: req.userId }).lean();
+    }
+    const policy = getEffectivePolicy(user.settings || {}, agentDoc);
+
+    const method = String(req.body?.method || "GET").toUpperCase();
+    const url = String(req.body?.url || "").trim();
+    if (!url) {
+      res.status(400).json({ ok: false, title: "Bad request", detail: "url required" });
+      return;
+    }
+
+    let parsed;
+    try {
+      parsed = new URL(url);
+    } catch {
+      res.status(400).json({ ok: false, title: "Bad request", detail: "Invalid URL" });
+      return;
+    }
+
+    if (isUrlBlocked(url, policy.blockedUrlPatterns)) {
+      res.status(403).json({ ok: false, title: "Blocked", detail: "URL blocked by policy" });
+      return;
+    }
+    if (!isHttpHostAllowed(parsed.hostname, policy.httpAllowHosts)) {
+      res.status(403).json({ ok: false, title: "Blocked", detail: "Host not in httpAllowHosts" });
+      return;
+    }
+
+    const headers = req.body?.headers && typeof req.body.headers === "object" ? req.body.headers : {};
+    const body = req.body?.body != null ? String(req.body.body) : undefined;
+    const timeoutMs = Math.min(30_000, Math.max(1000, Number(req.body?.timeoutMs) || 15_000));
+
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(url, {
+        method,
+        headers,
+        body: ["GET", "HEAD"].includes(method) ? undefined : body,
+        signal: controller.signal,
+      });
+    } finally {
+      clearTimeout(timer);
+    }
+
+    const text = await response.text();
+    const maxLen = 50_000;
+    const truncated = text.length > maxLen;
+
+    await writeAudit({
+      userId: req.userId,
+      action: "tool.http",
+      agentId: agentId || null,
+      detail: `${method} ${parsed.hostname}${parsed.pathname}`.slice(0, 500),
+      meta: { status: response.status, truncated },
+    });
+
+    res.json({
+      ok: true,
+      status: response.status,
+      statusText: response.statusText,
+      body: truncated ? text.slice(0, maxLen) : text,
+      truncated,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      res.status(504).json({ ok: false, title: "Timeout", detail: "HTTP request timed out" });
+      return;
+    }
     next(err);
   }
 });

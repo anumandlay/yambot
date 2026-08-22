@@ -19,6 +19,20 @@ export const AGENT_RUNNERS = ["cloud"];
  */
 export const AGENT_MODES = ["browser", "research"];
 
+/** Workforce role — managers can delegate goals to managed agents (Layer 3). */
+export const AGENT_ROLES = ["worker", "manager"];
+
+const agentPolicySchema = new mongoose.Schema(
+  {
+    requireApprovalForSubmit: { type: Boolean, default: false },
+    blockedUrlPatterns: { type: [String], default: [] },
+    monthlyBudgetUsd: { type: Number, default: 0 },
+    escalateWaitingMinutes: { type: Number, default: 0 },
+    httpAllowHosts: { type: [String], default: [] },
+  },
+  { _id: false }
+);
+
 /** How often a scheduled goal is enqueued. */
 export const SCHEDULE_INTERVALS = [
   "15m",
@@ -134,6 +148,19 @@ const agentSchema = new mongoose.Schema(
       default: [],
     },
     autonomy: { type: autonomySchema, default: () => ({}) },
+    /** worker = executes tasks; manager = can delegate to managedAgents */
+    role: {
+      type: String,
+      enum: AGENT_ROLES,
+      default: "worker",
+      index: true,
+    },
+    /** Agents this manager may assign work to (Layer 3). */
+    managedAgents: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Agent" }],
+      default: [],
+    },
+    policy: { type: agentPolicySchema, default: () => ({}) },
     /** When to call finish — free-text success definition. */
     successCriteria: { type: String, default: "", trim: true },
     /** Optional comma-friendly list; empty = no restriction. */

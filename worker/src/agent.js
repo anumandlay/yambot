@@ -325,7 +325,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   async function getSettings() {
-    const remote = await api("/api/worker/runtime-config");
+    const remote = await api(
+      `/api/worker/runtime-config?agentId=${encodeURIComponent(config.agentId)}`
+    );
     const c = remote?.config || {};
     const llmApiKey = c.llmApiKey || "";
     const llmBaseUrl = c.llmBaseUrl || "https://api.minimax.io/v1";
@@ -346,7 +348,29 @@ export function createCloudAgent({ api, config, log = console.log }) {
       visionLlmModel: visionModel || llmModel,
       dbcUsername: c.dbcUsername || "",
       dbcPassword: c.dbcPassword || "",
+      confirmBeforeSubmit: c.confirmBeforeSubmit === true,
+      policy: c.policy || {},
+      budget: c.budget || { monthlyUsd: 0, spentUsd: 0, exceeded: false },
     };
+  }
+
+  /**
+   * @param {string} url
+   * @param {string[]} patterns
+   * @returns {boolean}
+   */
+  function urlBlocked(url, patterns) {
+    const u = String(url || "").toLowerCase();
+    for (const raw of patterns || []) {
+      const p = String(raw || "").trim().toLowerCase();
+      if (!p) continue;
+      try {
+        if (new RegExp(p, "i").test(u)) return true;
+      } catch {
+        if (u.includes(p)) return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -622,6 +646,46 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * Polls Governance approvals until approved/denied (policy gate).
+   * @param {string} taskId
+   * @param {string} agentId
+   * @param {{ type?: string, question: string, context?: object }} opts
+   * @returns {Promise<boolean>}
+   */
+  async function waitForApproval(taskId, agentId, opts) {
+    const question = String(opts.question || "Approval required").slice(0, 2000);
+    const data = await api("/api/worker/approvals/request", {
+      method: "POST",
+      body: JSON.stringify({
+        taskId,
+        agentId,
+        type: opts.type || "submit",
+        question,
+        context: opts.context || {},
+      }),
+    });
+    const approvalId = data.approvalId;
+    await mirror(taskId, "approval_requested", {
+      status: "waiting_user",
+      payload: { question, approvalId },
+      appendMessage: `Approval needed: ${question}`,
+    });
+    const started = Date.now();
+    while (Date.now() - started < 30 * 60 * 1000) {
+      if (await isTaskCancelled(taskId)) {
+        throw Object.assign(new Error("Stopped by user"), { cancelled: true });
+      }
+      const poll = await api(`/api/worker/approvals/${approvalId}`);
+      const status = poll.approval?.status;
+      if (status === "approved") return true;
+      if (status === "denied") return false;
+      await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+      await sleep(2000);
+    }
+    return false;
+  }
+
+  /**
    * Runs one cloud task to completion on this agent's browser.
    * @param {object} task
    */
@@ -706,6 +770,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       const settings = await getSettings();
+      if (settings.budget?.exceeded) {
+        await complete(taskId, {
+          success: false,
+          summary: "Monthly LLM budget exceeded — raise the cap in Policies or wait until next month.",
+          error: "budget_exceeded",
+          history,
+          siteDomain,
+          llmUsage,
+        });
+        return;
+      }
       if (!settings.llmApiKey) {
         throw Object.assign(new Error("Missing LLM API key"), {
           title: "LLM not configured",
@@ -1238,6 +1313,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (!/^https?:\/\//i.test(action.url || "")) {
           throw new Error(`Invalid navigate URL: ${action.url}`);
         }
+        if (urlBlocked(action.url, settings.policy?.blockedUrlPatterns)) {
+          throw new Error(`Navigation blocked by policy: ${action.url}`);
+        }
         await page.goto(action.url, { waitUntil: "domcontentloaded", timeout: 60000 });
         return { ok: true, navigated: action.url };
       }
@@ -1369,17 +1447,51 @@ export function createCloudAgent({ api, config, log = console.log }) {
         notes.push(`Inbox (${result.count || 0}):\n${lines.join("\n") || "(empty)"}`);
         return { ok: true, email: result };
       }
+      case "http_request": {
+        const result = await api("/api/worker/tools/http", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId,
+            method: action.method || "GET",
+            url: action.url,
+            headers: action.headers,
+            body: action.body,
+            timeoutMs: action.timeout_ms || action.timeoutMs,
+          }),
+        });
+        const preview = String(result.body || "").slice(0, 4000);
+        notes.push(
+          `HTTP ${action.method || "GET"} ${action.url} → ${result.status}\n${preview}`
+        );
+        return { ok: true, http: result };
+      }
       case "click": {
-        if (
-          agentSnapshot?.autonomy?.askBeforeSubmit === true &&
-          looksLikeSubmit(obs, action.ref)
-        ) {
-          const answer = await waitForUserAnswer(
-            taskId,
-            `About to click a likely submit control (${action.ref}). Reply "yes" to continue.`
-          );
-          if (!/^y(es)?$/i.test(String(answer).trim())) {
-            return { ok: true, skippedSubmit: true, userAnswer: answer };
+        const isSubmitLike = looksLikeSubmit(obs, action.ref);
+        const policy = settings.policy || {};
+        if (isSubmitLike && agentSnapshot?.autonomy?.allowSubmit === false) {
+          return { ok: true, skippedSubmit: true, reason: "allowSubmit disabled" };
+        }
+        if (isSubmitLike) {
+          if (policy.requireApprovalForSubmit) {
+            const approved = await waitForApproval(taskId, config.agentId, {
+              type: "submit",
+              question: `Approve submit click on ${action.ref} (${action.name || "control"})?`,
+              context: { ref: action.ref, name: action.name },
+            });
+            if (!approved) {
+              return { ok: true, skippedSubmit: true, denied: true };
+            }
+          } else if (
+            settings.confirmBeforeSubmit ||
+            agentSnapshot?.autonomy?.askBeforeSubmit === true
+          ) {
+            const answer = await waitForUserAnswer(
+              taskId,
+              `About to click a likely submit control (${action.ref}). Reply "yes" to continue.`
+            );
+            if (!/^y(es)?$/i.test(String(answer).trim())) {
+              return { ok: true, skippedSubmit: true, userAnswer: answer };
+            }
           }
         }
         // Why: Playwright real mouse hits React/custom dropdowns & calendars more reliably than el.click().

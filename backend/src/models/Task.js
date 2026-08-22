@@ -114,6 +114,12 @@ const taskSchema = new mongoose.Schema(
     lastError: { type: String, default: "" },
     claimedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
+    escalationLevel: { type: Number, default: 0 },
+    evaluation: {
+      score: { type: Number, default: null },
+      summary: { type: String, default: "" },
+      at: { type: Date, default: null },
+    },
   },
   { timestamps: true }
 );

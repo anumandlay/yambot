@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 15:35] Phases 2–4: Policies, workforce, HTTP tool, evaluation
+
+- **Prompt Provided:** "lets go with phase 2, 3, and 4" — complete governance (Layer 2), manager delegation (Layer 3), integrations + quality scoring (Layer 4)
+- **Architectural Flow:** `Approval` model + worker approval poll loop; `policy.js` merged user/agent policy in runtime-config; escalation scheduler bumps long `waiting_user` tasks; `http_request` action via `/api/worker/tools/http`; `evaluateTaskRun` on complete; manager `role`/`managedAgents` + `/api/workforce` delegate; Policies/Workforce/Governance approvals UI
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/{Approval,User,Agent,Task}.js`, `backend/src/utils/{policy,evaluateTask,scheduler}.js`, `backend/src/routes/{policies,approvals,workforce,worker,governance,agents}.js`, `backend/src/index.js`, `worker/src/{actions,agent}.js`, `frontend/src/pages/{PoliciesPage,WorkforcePage,GovernancePage,AgentEditPage}.jsx`, `frontend/src/{App.jsx,components/AppSidebar.jsx}`
+
 ## [2026-08-22 15:20] Phase 1: Employee OS goals + governance (Layers 1, 2, 5)
 
 - **Prompt Provided:** "lets go" — start building five-layer architecture around cloud execution

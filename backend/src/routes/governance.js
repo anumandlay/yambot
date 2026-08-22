@@ -7,6 +7,7 @@
 import { Router } from "express";
 import { AuditEvent } from "../models/AuditEvent.js";
 import { Task } from "../models/Task.js";
+import { User } from "../models/User.js";
 
 export const governanceRouter = Router();
 
@@ -95,6 +96,41 @@ governanceRouter.get("/usage", async (req, res, next) => {
         totalTokens: row.totalTokens || 0,
         estimatedUsd: Number((row.estimatedUsd || 0).toFixed(4)),
       })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/governance/budget — monthly spend vs configured cap.
+ */
+governanceRouter.get("/budget", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId).select("settings").lean();
+    const budgetUsd = Number(user?.settings?.monthlyBudgetUsd) || 0;
+    const monthStart = new Date();
+    monthStart.setUTCDate(1);
+    monthStart.setUTCHours(0, 0, 0, 0);
+    const match = {
+      user: req.userId,
+      completedAt: { $gte: monthStart },
+      status: { $in: ["done", "error"] },
+    };
+    if (req.query.agentId) match.agent = String(req.query.agentId);
+    const [row] = await Task.aggregate([
+      { $match: match },
+      { $group: { _id: null, usd: { $sum: "$llmUsage.estimatedUsd" } } },
+    ]);
+    const spentUsd = Number(row?.usd) || 0;
+    res.json({
+      ok: true,
+      budget: {
+        monthlyUsd: budgetUsd,
+        spentUsd: Number(spentUsd.toFixed(4)),
+        exceeded: budgetUsd > 0 && spentUsd >= budgetUsd,
+        monthStart,
+      },
     });
   } catch (err) {
     next(err);

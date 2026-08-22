@@ -30,6 +30,15 @@ const EMPTY = {
     askBeforeSubmit: false,
     visionEnabled: true,
   },
+  role: "worker",
+  managedAgents: [],
+  policy: {
+    requireApprovalForSubmit: false,
+    monthlyBudgetUsd: 0,
+    escalateWaitingMinutes: 30,
+    blockedUrlPatterns: [],
+    httpAllowHosts: [],
+  },
   schedule: {
     enabled: false,
     goal: "",
@@ -75,6 +84,7 @@ export function AgentEditPage() {
   const [okMsg, setOkMsg] = useState("");
   const [memoryNote, setMemoryNote] = useState("");
   const [memory, setMemory] = useState([]);
+  const [allAgents, setAllAgents] = useState([]);
 
   useEffect(() => {
     (async () => {
@@ -89,6 +99,8 @@ export function AgentEditPage() {
         if (!isNew) {
           const data = await api(`/api/agents/${agentId}`);
           const a = data.agent;
+          const agentsList = await api("/api/agents");
+          setAllAgents((agentsList.agents || []).filter((x) => x._id !== agentId));
           setForm({
             name: a.name || "",
             description: a.description || "",
@@ -108,6 +120,15 @@ export function AgentEditPage() {
               askBeforeLogin: a.autonomy?.askBeforeLogin === true,
               askBeforeSubmit: a.autonomy?.askBeforeSubmit === true,
               visionEnabled: a.autonomy?.visionEnabled !== false,
+            },
+            role: a.role === "manager" ? "manager" : "worker",
+            managedAgents: (a.managedAgents || []).map(String),
+            policy: {
+              requireApprovalForSubmit: a.policy?.requireApprovalForSubmit === true,
+              monthlyBudgetUsd: Number(a.policy?.monthlyBudgetUsd) || 0,
+              escalateWaitingMinutes: Number(a.policy?.escalateWaitingMinutes) || 30,
+              blockedUrlPatterns: a.policy?.blockedUrlPatterns || [],
+              httpAllowHosts: a.policy?.httpAllowHosts || [],
             },
             schedule: {
               enabled: Boolean(a.schedule?.enabled),
@@ -644,6 +665,63 @@ export function AgentEditPage() {
               Add fact
             </button>
           </div>
+        </div>
+
+        <div className="flex flex-col gap-2 border-t border-teal-100 pt-3">
+          <div className="text-sm font-semibold text-teal-900/80">Workforce role</div>
+          <label className="flex flex-col gap-1 text-sm">
+            Role
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.role}
+              onChange={(e) => update("role", e.target.value)}
+            >
+              <option value="worker">Worker — executes browser tasks</option>
+              <option value="manager">Manager — can delegate goals to managed agents</option>
+            </select>
+          </label>
+          {form.role === "manager" && !isNew ? (
+            <div className="flex flex-col gap-1 text-sm">
+              <span>Managed agents</span>
+              <div className="flex max-h-40 flex-col gap-1 overflow-y-auto rounded-xl border border-teal-100 p-2">
+                {allAgents.length === 0 ? (
+                  <span className="text-teal-900/50">Create more agents to manage.</span>
+                ) : (
+                  allAgents.map((ag) => (
+                    <label key={ag._id} className="flex min-h-9 items-center gap-2">
+                      <input
+                        type="checkbox"
+                        checked={form.managedAgents.includes(String(ag._id))}
+                        onChange={(e) => {
+                          const id = String(ag._id);
+                          setForm((prev) => ({
+                            ...prev,
+                            managedAgents: e.target.checked
+                              ? [...prev.managedAgents, id]
+                              : prev.managedAgents.filter((x) => x !== id),
+                          }));
+                        }}
+                      />
+                      {ag.name}
+                    </label>
+                  ))
+                )}
+              </div>
+            </div>
+          ) : null}
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.policy.requireApprovalForSubmit}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  policy: { ...prev.policy, requireApprovalForSubmit: e.target.checked },
+                }))
+              }
+            />
+            Agent policy: require Governance approval before submit
+          </label>
         </div>
 
         <div className="flex flex-col gap-2">

@@ -23,6 +23,7 @@ export const ACTION_TYPES = [
   "ask_user",
   "send_email",
   "check_email",
+  "http_request",
   "finish",
 ];
 
@@ -31,7 +32,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|http_request|finish>",
     ...fields depending on type
   }
 }
@@ -58,6 +59,7 @@ Action fields:
 - ask_user: { "type":"ask_user", "question":"..." }
 - send_email: { "type":"send_email", "to":"user@example.com", "subject":"...", "text":"..." }
 - check_email: { "type":"check_email", "limit": 8, "unseenOnly": false }
+- http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://api.example.com/...", "headers":{ "Authorization":"Bearer ..." }, "body":"..." } — server-side HTTP (host must be in Policies httpAllowHosts when configured)
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }
 
 Locator rules (click/type/select):

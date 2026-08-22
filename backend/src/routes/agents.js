@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_MODES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
+import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
 import { ResearchJob } from "../models/ResearchJob.js";
@@ -163,6 +163,30 @@ function pickAgentFields(body, opts = {}) {
       visionEnabled: body.autonomy.visionEnabled !== false,
     });
   }
+  if (body.role != null) {
+    const role = String(body.role || "worker");
+    set("role", AGENT_ROLES.includes(role) ? role : "worker");
+  }
+  if (body.managedAgents != null && Array.isArray(body.managedAgents)) {
+    set(
+      "managedAgents",
+      body.managedAgents.map((id) => String(id).trim()).filter(Boolean).slice(0, 20)
+    );
+  }
+  if (body.policy != null && typeof body.policy === "object") {
+    const p = body.policy;
+    set("policy", {
+      requireApprovalForSubmit: p.requireApprovalForSubmit === true,
+      monthlyBudgetUsd: Math.max(0, Number(p.monthlyBudgetUsd) || 0),
+      escalateWaitingMinutes: Math.max(5, Number(p.escalateWaitingMinutes) || 30),
+      blockedUrlPatterns: Array.isArray(p.blockedUrlPatterns)
+        ? p.blockedUrlPatterns.map((x) => String(x).trim()).filter(Boolean).slice(0, 50)
+        : [],
+      httpAllowHosts: Array.isArray(p.httpAllowHosts)
+        ? p.httpAllowHosts.map((h) => String(h).trim().toLowerCase()).filter(Boolean).slice(0, 100)
+        : [],
+    });
+  }
   if (body.schedule != null && typeof body.schedule === "object") {
     const s = body.schedule;
     const enabled = Boolean(s.enabled);
@@ -223,6 +247,7 @@ agentsRouter.get("/meta", (_req, res) => {
   res.json({
     ok: true,
     modes: AGENT_MODES,
+    roles: AGENT_ROLES,
     scheduleIntervals: SCHEDULE_INTERVALS,
   });
 });

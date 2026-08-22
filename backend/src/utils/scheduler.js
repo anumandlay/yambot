@@ -7,6 +7,7 @@
 import { Agent, computeNextRunAt, toAgentSnapshot } from "../models/Agent.js";
 import { Chat, Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
+import { User } from "../models/User.js";
 
 /**
  * Finds or creates the dedicated schedule chat for an agent.
@@ -160,6 +161,40 @@ export async function tickAgentSchedules() {
 }
 
 /**
+ * Bump priority for tasks stuck in waiting_user beyond policy threshold.
+ */
+export async function tickTaskEscalations() {
+  const users = await User.find({}).select("_id settings").lean();
+  let escalated = 0;
+
+  for (const u of users) {
+    const minutes = Number(u.settings?.escalateWaitingMinutes) || 0;
+    if (minutes <= 0) continue;
+
+    const cutoff = new Date(Date.now() - minutes * 60_000);
+    const stuck = await Task.find({
+      user: u._id,
+      status: "waiting_user",
+      updatedAt: { $lte: cutoff },
+      escalationLevel: { $lt: 3 },
+    }).limit(50);
+
+    for (const task of stuck) {
+      task.escalationLevel = (task.escalationLevel || 0) + 1;
+      task.priorityRank = Math.min(100, (task.priorityRank || 50) + 15);
+      task.events.push({
+        type: "escalated",
+        payload: { level: task.escalationLevel, reason: "waiting_user_timeout" },
+      });
+      await task.save();
+      escalated += 1;
+    }
+  }
+
+  return { escalated };
+}
+
+/**
  * Starts the in-process schedule loop (every ~60s).
  * @param {{ intervalMs?: number }} [opts]
  */
@@ -168,9 +203,10 @@ export function startAgentScheduler(opts = {}) {
   const tick = async () => {
     try {
       const result = await tickAgentSchedules();
-      if (result.ran || result.checked) {
+      const esc = await tickTaskEscalations();
+      if (result.ran || result.checked || esc.escalated) {
         console.log(
-          `[scheduler] checked=${result.checked} ran=${result.ran} skipped=${result.skipped}`
+          `[scheduler] checked=${result.checked} ran=${result.ran} skipped=${result.skipped} escalated=${esc.escalated}`
         );
       }
     } catch (err) {

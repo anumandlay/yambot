@@ -1,38 +1,55 @@
 /**
- * @fileoverview Governance dashboard — audit log and LLM usage (Layer 5).
- * Purpose: Review who did what and estimated token/cost spend across agents.
+ * @fileoverview Governance dashboard — audit log, LLM usage, approvals, budget (Layer 5 + 2).
+ * Purpose: Review who did what, estimated spend, pending approvals, and monthly budget cap.
  */
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 
 export function GovernancePage() {
   const [usage, setUsage] = useState(null);
+  const [budget, setBudget] = useState(null);
   const [events, setEvents] = useState([]);
+  const [approvals, setApprovals] = useState([]);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    (async () => {
-      try {
-        const [usageData, auditData] = await Promise.all([
-          api("/api/governance/usage?days=30"),
-          api("/api/governance/audit?limit=80"),
-        ]);
-        setUsage(usageData);
-        setEvents(auditData.events || []);
-      } catch (err) {
-        setError(err);
-      }
-    })();
+  const load = useCallback(async () => {
+    const [usageData, auditData, budgetData, approvalData] = await Promise.all([
+      api("/api/governance/usage?days=30"),
+      api("/api/governance/audit?limit=80"),
+      api("/api/governance/budget"),
+      api("/api/approvals?status=pending"),
+    ]);
+    setUsage(usageData);
+    setBudget(budgetData.budget);
+    setEvents(auditData.events || []);
+    setApprovals(approvalData.approvals || []);
   }, []);
+
+  useEffect(() => {
+    load().catch((err) => setError(err));
+  }, [load]);
+
+  async function resolveApproval(id, decision) {
+    setError(null);
+    try {
+      await api(`/api/approvals/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ decision }),
+      });
+      await load();
+    } catch (err) {
+      setError(err);
+    }
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div>
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Governance</h1>
         <p className="text-sm text-teal-900/70">
-          Audit trail and LLM usage for the last 30 days (Layer 5).
+          Audit trail, approvals, LLM usage, and monthly budget (Layers 2 & 5).
         </p>
       </div>
 
@@ -43,6 +60,57 @@ export function GovernancePage() {
           hint={error.hint}
           onClose={() => setError(null)}
         />
+      ) : null}
+
+      {budget ? (
+        <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-teal-900/80">Monthly LLM budget</h2>
+          <p className="mt-1 text-sm text-teal-900/70">
+            Spent ${budget.spentUsd?.toFixed(4) ?? "0"}
+            {budget.monthlyUsd > 0 ? ` of $${budget.monthlyUsd} cap` : " (no cap set)"}
+            {budget.exceeded ? (
+              <span className="ml-2 font-semibold text-red-700">— exceeded</span>
+            ) : null}
+          </p>
+        </div>
+      ) : null}
+
+      {approvals.length > 0 ? (
+        <div className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-amber-900">Pending approvals</h2>
+          <ul className="mt-2 flex flex-col gap-2 text-sm">
+            {approvals.map((ap) => (
+              <li
+                key={ap._id}
+                className="flex flex-col gap-2 rounded-xl border border-amber-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="font-semibold text-teal-950">{ap.type || "submit"}</div>
+                  <div className="text-teal-900/80">{ap.question}</div>
+                  <div className="text-xs text-teal-900/50">
+                    {ap.createdAt ? new Date(ap.createdAt).toLocaleString() : ""}
+                  </div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="min-h-10 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white"
+                    onClick={() => resolveApproval(ap._id, "approved")}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-10 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700"
+                    onClick={() => resolveApproval(ap._id, "denied")}
+                  >
+                    Deny
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
       ) : null}
 
       {usage ? (

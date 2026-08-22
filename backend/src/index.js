@@ -151,6 +151,9 @@ app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agents
 app.use("/api/chats", authRequired, chatsRouter);
 app.use("/api/goals", authRequired, (await import("./routes/goals.js")).goalsRouter);
 app.use("/api/governance", authRequired, (await import("./routes/governance.js")).governanceRouter);
+app.use("/api/policies", authRequired, (await import("./routes/policies.js")).policiesRouter);
+app.use("/api/approvals", authRequired, (await import("./routes/approvals.js")).approvalsRouter);
+app.use("/api/workforce", authRequired, (await import("./routes/workforce.js")).workforceRouter);
 app.use("/api/worker", authRequired, workerRouter);
 app.use("/api/research", (await import("./routes/research.js")).researchRouter);
 app.use("/api/system", authRequired, (await import("./routes/system.js")).systemRouter);
