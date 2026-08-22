@@ -4,12 +4,13 @@
  * On mobile, screen + goal stay sticky at the bottom. Stop cancels the active run.
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
+import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -76,6 +77,14 @@ export function ChatDetailPage() {
     agentQueue?.active?.status === "waiting_user" ? agentQueue.active : null;
   const activeRun = agentQueue?.active || null;
   const agentId = chat?.agent?._id || chat?.agent || null;
+
+  /** Task doc with full events (active run from queue may omit events until merged). */
+  const snapshotTask = useMemo(() => {
+    if (!activeRun?._id) return tasks[0] || null;
+    return tasks.find((t) => String(t._id) === String(activeRun._id)) || activeRun;
+  }, [activeRun, tasks]);
+
+  const snapshotEvents = snapshotTask?.events || [];
 
   /**
    * @param {React.FormEvent} e
@@ -174,6 +183,8 @@ export function ChatDetailPage() {
           This chat has no agent bound, so there is no cloud screen to show.
         </p>
       )}
+
+      <PageSnapshotPanel events={snapshotEvents} className="shrink-0" />
 
       {waitingTask ? (
         <form

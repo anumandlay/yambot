@@ -2,6 +2,7 @@ import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { extensionApi } from "./api.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "../shared/actions.js";
+import { sanitizePageObservation } from "../shared/pageObservation.js";
 import { runResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 export function createAgentController({ emit }) {
@@ -78,11 +79,17 @@ export function createAgentController({ emit }) {
       return;
     }
     if (type === "agent:thinking") {
+      const pageObservation = sanitizePageObservation(extra.observation);
       await extensionApi(`/api/extension/tasks/${taskId}/events`, {
         method: "POST",
         body: JSON.stringify({
           type: "thinking",
-          payload: { url: extra.observation?.url, title: extra.observation?.title },
+          payload: {
+            step: state.step + 1,
+            url: pageObservation?.url || extra.observation?.url,
+            title: pageObservation?.title || extra.observation?.title,
+            pageObservation,
+          },
           appendMessage: extra.observation?.url
             ? `Looking at: ${extra.observation.title || ""} (${extra.observation.url})`
             : "Thinking…",
@@ -381,7 +388,7 @@ export function createAgentController({ emit }) {
       },
     ];
 
-    broadcast("agent:thinking", { observation: { url: obs.url, title: obs.title } });
+    broadcast("agent:thinking", { observation: obs });
 
     const { content } = await chatCompletion({
       apiKey: settings.llmApiKey,

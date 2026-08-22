@@ -33,7 +33,7 @@ async function loadAgentQueue(userId, agentRef) {
       status: { $in: ["running", "waiting_user"] },
     })
       .sort({ claimedAt: -1, updatedAt: -1 })
-      .select("goal status createdAt chat message resultSummary")
+      .select("goal status createdAt chat message resultSummary events")
       .populate("chat", "title")
       .lean(),
   ]);

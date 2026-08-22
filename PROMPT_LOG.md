@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:25] Feature: live page snapshot debug panel in chat
+
+- **Prompt Provided:** show raw page observation / interactives in UI
+- **Architectural Flow:** worker/extension store `pageObservation` on `thinking` task events; ChatDetailPage `PageSnapshotPanel` shows summary/table/JSON per step
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/agent.js`, `extension/shared/pageObservation.js`, `extension/background/agent.js`, `backend/src/routes/chats.js`, `frontend/src/components/PageSnapshotPanel.jsx`, `frontend/src/pages/ChatDetailPage.jsx`
+
 ## [2026-08-22 13:20] Fix: type into Gmail/contenteditable compose bodies
 
 - **Prompt Provided:** agent said compose body could not be typed due to contenteditable div issue

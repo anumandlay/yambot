@@ -12,7 +12,7 @@ import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
-import { observeInPage, executeInPage, captchaMetaInPage } from "./pageDom.js";
+import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation } from "./pageDom.js";
 import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 const execFileAsync = promisify(execFile);
@@ -664,7 +664,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
         ];
 
         await mirror(taskId, "thinking", {
-          payload: { url: obs.url, title: obs.title },
+          payload: {
+            step,
+            url: obs.url,
+            title: obs.title,
+            pageObservation: sanitizePageObservation(obs),
+          },
           appendMessage: obs.url
             ? `Looking at: ${obs.title || ""} (${obs.url})`
             : "Thinking…",
