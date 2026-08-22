@@ -11,6 +11,19 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 const HISTORY_LEN = 40;
 
 /**
+ * @param {string} name
+ * @returns {"agent"|"platform"|"other"}
+ */
+function containerKind(name) {
+  const n = String(name || "");
+  if (/^yambot-agent-/i.test(n)) return "agent";
+  if (/research-scraper|computer-manager|worker-image|^deploy-(api|frontend|mongo)-/i.test(n)) {
+    return "platform";
+  }
+  return "other";
+}
+
+/**
  * @param {number} bytes
  * @returns {string}
  */
@@ -265,6 +278,7 @@ export function SystemPage() {
               ) : (
                 (overview?.containers || []).map((c) => {
                   const canStop = /^yambot-agent-/i.test(c.name || "");
+                  const kind = containerKind(c.name);
                   return (
                     <tr key={c.id} className="border-t border-teal-50 align-top">
                       <td className="px-3 py-2">
@@ -273,6 +287,11 @@ export function SystemPage() {
                         {c.labels?.["yambot.agentId"] ? (
                           <div className="text-[0.7rem] text-teal-800/60">
                             agent {c.labels["yambot.agentId"]}
+                          </div>
+                        ) : null}
+                        {kind === "platform" ? (
+                          <div className="text-[0.7rem] text-amber-800/80">
+                            Shared platform service (not tied to one agent)
                           </div>
                         ) : null}
                       </td>

@@ -8,6 +8,8 @@ import crypto from "node:crypto";
 import { Router } from "express";
 import { Agent, AGENT_RUNNERS, AGENT_MODES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
+import { Chat, Message } from "../models/Chat.js";
+import { ResearchJob } from "../models/ResearchJob.js";
 import {
   issueWorkerToken,
   containerNameForAgent,
@@ -665,7 +667,11 @@ agentsRouter.delete("/:id", async (req, res, next) => {
         await fetch(`${managerUrl}/internal/stop`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ name: containerName, agentId: String(agent._id) }),
+          body: JSON.stringify({
+            name: containerName,
+            agentId: String(agent._id),
+            removeVolume: true,
+          }),
         });
       } catch (err) {
         // Why: orphan cleanup in the manager loop still removes the box if this fails.
@@ -673,10 +679,21 @@ agentsRouter.delete("/:id", async (req, res, next) => {
       }
     }
 
+    const agentId = agent._id;
+    const chatIds = await Chat.find({ agent: agentId, user: req.userId }).distinct("_id");
+    await Promise.all([
+      Message.deleteMany({ chat: { $in: chatIds } }),
+      Task.deleteMany({ user: req.userId, $or: [{ agent: agentId }, { chat: { $in: chatIds } }] }),
+      ResearchJob.deleteMany({ user: req.userId, agent: agentId }),
+      Chat.deleteMany({ _id: { $in: chatIds } }),
+    ]);
+
     await Agent.deleteOne({ _id: agent._id });
     res.json({
       ok: true,
       stoppedContainer: containerName,
+      removedVolume: Boolean(containerName),
+      deletedChats: chatIds.length,
     });
   } catch (err) {
     next(err);

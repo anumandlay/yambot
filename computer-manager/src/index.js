@@ -154,7 +154,7 @@ async function ensureRunning(agent) {
     throw new Error(`Worker image missing: ${WORKER_IMAGE}. Run: docker compose build worker-image`);
   }
 
-  const volumeName = `yambot_profile_${name}`;
+  const volumeName = profileVolumeName(name);
   try {
     await docker.createVolume({ Name: volumeName });
   } catch (err) {
@@ -210,10 +210,35 @@ async function ensureRunning(agent) {
 }
 
 /**
+ * @param {string} containerName
+ * @returns {string}
+ */
+function profileVolumeName(containerName) {
+  return `yambot_profile_${containerName}`;
+}
+
+/**
+ * @param {string} volumeName
+ */
+async function removeProfileVolume(volumeName) {
+  try {
+    const vol = docker.getVolume(volumeName);
+    await vol.remove();
+    console.log(`[manager] removed volume ${volumeName}`);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (!/no such volume|not found|404/i.test(msg)) {
+      console.warn(`[manager] volume remove ${volumeName}:`, msg);
+    }
+  }
+}
+
+/**
  * @param {string} name
  * @param {string} [agentId]
+ * @param {{ removeVolume?: boolean }} [opts]
  */
-async function ensureStopped(name, agentId) {
+async function ensureStopped(name, agentId, opts = {}) {
   const container = await findContainerByName(name);
   if (!container) {
     if (agentId) {
@@ -234,6 +259,9 @@ async function ensureStopped(name, agentId) {
     await container.remove({ force: true });
   } catch (err) {
     console.warn(`[manager] remove ${name}:`, err?.message || err);
+  }
+  if (opts.removeVolume) {
+    await removeProfileVolume(profileVolumeName(name));
   }
   if (agentId) {
     await Agent.updateOne(

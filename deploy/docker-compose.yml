@@ -52,7 +52,9 @@ services:
     entrypoint: ["/bin/true"]
     restart: "no"
 
-  # Real Google Chrome SERP scraper (Desktop/api.py flow) — shared for research agents.
+  # Shared Google SERP scraper for research-mode agents only (one box for all users).
+  # Not tied to a single agent — safe to keep running; uses ~2GB RAM cap when active.
+  # To disable: comment out this service or use `docker compose stop research-scraper`.
   research-scraper:
     build:
       context: ..

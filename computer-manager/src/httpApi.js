@@ -130,8 +130,11 @@ export function startInternalServer({ docker, ensureStopped, port = 4050 }) {
           res.end(JSON.stringify({ ok: false, detail: "name required" }));
           return;
         }
-        await ensureStopped(name, parsed.agentId ? String(parsed.agentId) : undefined);
-        res.end(JSON.stringify({ ok: true, stopped: name }));
+        const removeVolume = Boolean(parsed.removeVolume);
+        await ensureStopped(name, parsed.agentId ? String(parsed.agentId) : undefined, {
+          removeVolume,
+        });
+        res.end(JSON.stringify({ ok: true, stopped: name, removeVolume }));
         return;
       }
 

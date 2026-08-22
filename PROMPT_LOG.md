@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:05] Fix: agent delete removes container volume + related Mongo data
+
+- **Prompt Provided:** what is deploy-research-scraper-1; deleting agent should remove all related resources (disk/RAM)
+- **Architectural Flow:** research-scraper is one shared SERP worker (not per-agent); DELETE agent stops box + removes `yambot_profile_*` volume; cascades tasks/chats/messages/research jobs
+- **Impacted Files:** `PROMPT_LOG.md`, `computer-manager/src/index.js`, `computer-manager/src/httpApi.js`, `backend/src/routes/agents.js`, `deploy/docker-compose.yml`, `frontend/src/pages/SystemPage.jsx`
+
 ## [2026-08-22 13:00] Fix: worker crash loop (backticks in ACTION_SCHEMA template literal)
 
 - **Prompt Provided:** STARTING… stuck, Take control/Zoom disabled, goals not running
