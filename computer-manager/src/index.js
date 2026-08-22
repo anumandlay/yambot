@@ -234,6 +234,52 @@ async function removeProfileVolume(volumeName) {
 }
 
 /**
+ * Profile volumes we must keep (any cloud agent still in Mongo, plus boxes being provisioned).
+ * @param {object[]} wantRunning
+ * @returns {Promise<Set<string>>}
+ */
+async function collectWantedProfileVolumes(wantRunning) {
+  const agents = await Agent.find({
+    runner: { $in: ["cloud", "any", null] },
+    "computer.containerName": { $nin: [null, ""] },
+  })
+    .select("computer.containerName")
+    .lean();
+
+  const wanted = new Set(
+    agents.map((a) => profileVolumeName(a.computer.containerName))
+  );
+  for (const agent of wantRunning) {
+    wanted.add(
+      profileVolumeName(agent.computer?.containerName || containerNameFor(agent._id))
+    );
+  }
+  return wanted;
+}
+
+/**
+ * Deletes browser profile volumes left behind when agents were removed from Mongo.
+ */
+async function reconcileOrphanProfileVolumes(wantRunning) {
+  let listed;
+  try {
+    listed = await docker.listVolumes();
+  } catch (err) {
+    console.warn("[manager] list volumes:", err?.message || err);
+    return;
+  }
+
+  const wanted = await collectWantedProfileVolumes(wantRunning);
+  const prefix = "yambot_profile_yambot-agent-";
+
+  for (const v of listed.Volumes || []) {
+    const name = v.Name || "";
+    if (!name.startsWith(prefix) || wanted.has(name)) continue;
+    await removeProfileVolume(name);
+  }
+}
+
+/**
  * @param {string} name
  * @param {string} [agentId]
  * @param {{ removeVolume?: boolean }} [opts]
@@ -241,6 +287,9 @@ async function removeProfileVolume(volumeName) {
 async function ensureStopped(name, agentId, opts = {}) {
   const container = await findContainerByName(name);
   if (!container) {
+    if (opts.removeVolume) {
+      await removeProfileVolume(profileVolumeName(name));
+    }
     if (agentId) {
       await Agent.updateOne(
         { _id: agentId },
@@ -334,13 +383,16 @@ async function reconcile() {
       const stillWanted = agentId && wantRunning.some((a) => String(a._id) === agentId);
       if (!stillWanted) {
         try {
-          await ensureStopped(name, agentId);
+          const agentGone = !agentId || !(await Agent.exists({ _id: agentId }));
+          await ensureStopped(name, agentId, { removeVolume: agentGone });
         } catch (err) {
           console.warn(`[manager] orphan cleanup ${name}:`, err?.message || err);
         }
       }
     }
   }
+
+  await reconcileOrphanProfileVolumes(wantRunning);
 }
 
 async function main() {

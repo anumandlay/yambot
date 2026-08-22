@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:10] Feature: periodic orphan `yambot_profile_*` volume sweep
+
+- **Prompt Provided:** confirm delete cleans orphans; yes — add orphan volume sweep
+- **Architectural Flow:** computer-manager reconcile removes profile volumes with no matching Agent in Mongo; delete path removes volume even when container already gone; orphan labeled containers drop volume when agent doc missing
+- **Impacted Files:** `PROMPT_LOG.md`, `computer-manager/src/index.js`
+
 ## [2026-08-22 13:05] Fix: agent delete removes container volume + related Mongo data
 
 - **Prompt Provided:** what is deploy-research-scraper-1; deleting agent should remove all related resources (disk/RAM)
