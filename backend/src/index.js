@@ -112,6 +112,7 @@ app.use("/api/auth", authRouter);
 
 /**
  * POST /api/agents/:agentId/desktop/session — JWT ticket for noVNC iframe.
+ * Body: { viewOnly?: boolean } — viewOnly=true for Zoom (watch); false/omit for Take control.
  * Why: registered before `/api/agents` auth mount so Take control can open a ticketed stream.
  */
 app.post("/api/agents/:agentId/desktop/session", authRequired, async (req, res, next) => {
@@ -127,9 +128,11 @@ app.post("/api/agents/:agentId/desktop/session", authRequired, async (req, res, 
     // wss://host/websockify and never hits our authenticated desktop proxy.
     // Include ticket in the WS path query so auth works even if the Set-Cookie race loses.
     const wsPath = `api/agents/${agentId}/desktop/websockify?t=${ticket}`;
+    const viewOnly = req.body?.viewOnly === true;
     const embedPath =
       `/api/agents/${agentId}/desktop/vnc.html` +
       `?autoconnect=1&resize=scale&reconnect=1` +
+      (viewOnly ? "&view_only=1" : "") +
       `&path=${encodeURIComponent(wsPath)}` +
       `&t=${encodeURIComponent(ticket)}`;
     res.json({

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 09:05] Feature: Zoom shows live noVNC stream; Take control stays interactive
+
+- **Prompt Provided:** when i click on zoom, i want to see the live screen, not just the screenshots. zoom let me see whats going on, take control button allow me to take control
+- **Architectural Flow:** Zoom opens view-only noVNC (`view_only=1`) via desktop session; Take control still pauses agent and opens interactive noVNC; inline panel keeps screenshot thumbnails
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/index.js`, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-22 09:00] UX: hide Chromium infobars on live screen (no-sandbox + Google API keys)
 
 - **Prompt Provided:** unsupported command-line flag no sandbox + google api keys are missing banners in live screen browser

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Live + interactive cloud-computer screen (remote-desktop style).
- * Purpose: Stream JPEG + Take control (click/keyboard/scroll); Zoom for full viewport.
+ * Purpose: Stream JPEG thumbnail inline; Zoom opens view-only noVNC; Take control for interactive remote desktop.
  * Inputs: agentId (+ optional attention / wallMode); Downstream: `/api/agents/:id/live|control`.
  */
 
@@ -77,6 +77,9 @@ export function LiveScreen({
   const [typeBuf, setTypeBuf] = useState("");
   const [status, setStatus] = useState("");
   const [zoomed, setZoomed] = useState(false);
+  const [viewSrc, setViewSrc] = useState("");
+  const [viewError, setViewError] = useState("");
+  const [openingView, setOpeningView] = useState(false);
   const [desktopSrc, setDesktopSrc] = useState("");
   const [desktopError, setDesktopError] = useState("");
   const imgRef = useRef(null);
@@ -121,6 +124,8 @@ export function LiveScreen({
       if (e.key === "Escape") {
         e.preventDefault();
         setZoomed(false);
+        setViewSrc("");
+        setViewError("");
       }
     }
     window.addEventListener("keydown", onKey);
@@ -147,6 +152,8 @@ export function LiveScreen({
       if (e.key === "Escape" && zoomed) {
         e.preventDefault();
         setZoomed(false);
+        setViewSrc("");
+        setViewError("");
         return;
       }
       const key = playwrightKeyFromEvent(e);
@@ -184,6 +191,43 @@ export function LiveScreen({
       : null;
 
   /**
+   * Opens a view-only noVNC stream (Zoom) without pausing the agent.
+   * @returns {Promise<boolean>}
+   */
+  async function openLiveView() {
+    setOpeningView(true);
+    setViewError("");
+    try {
+      const desk = await api(`/api/agents/${agentId}/desktop/session`, {
+        method: "POST",
+        body: JSON.stringify({ viewOnly: true }),
+      });
+      setViewSrc(desk.embedPath || "");
+      return true;
+    } catch (err) {
+      setViewSrc("");
+      setViewError(err.detail || err.message || "Live view unavailable");
+      return false;
+    } finally {
+      setOpeningView(false);
+    }
+  }
+
+  /**
+   * Zoom toggles a full-screen live noVNC view (watch only). Take control is separate.
+   */
+  async function toggleZoom() {
+    if (zoomed) {
+      setZoomed(false);
+      setViewSrc("");
+      setViewError("");
+      return;
+    }
+    setZoomed(true);
+    await openLiveView();
+  }
+
+  /**
    * @param {boolean} active
    */
   async function setHumanSession(active) {
@@ -216,6 +260,7 @@ export function LiveScreen({
       } else {
         setDesktopSrc("");
         setStatus("Control returned to agent.");
+        if (zoomed) await openLiveView();
       }
     } catch (err) {
       setStatus(err.detail || err.message || "Could not change control");
@@ -353,7 +398,9 @@ export function LiveScreen({
             ) : null}
             {controlOn
               ? "REMOTE DESKTOP"
-              : live?.online
+              : modal && viewSrc
+                ? "LIVE VIEW"
+                : live?.online
                 ? "LIVE"
                 : provisioning
                   ? "STARTING…"
@@ -363,7 +410,7 @@ export function LiveScreen({
             ) : null}
             {modal ? (
               <span className="rounded-md bg-white/10 px-2 py-0.5 font-normal text-white/70">
-                Full screen
+                {controlOn ? "Full screen · control" : "Full screen · live"}
               </span>
             ) : null}
           </div>
@@ -389,12 +436,13 @@ export function LiveScreen({
             )}
             <button
               type="button"
-              onClick={() => setZoomed((z) => !z)}
-              className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold"
+              onClick={() => void toggleZoom()}
+              disabled={openingView || !live?.online}
+              className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
               aria-pressed={zoomed}
-              title={zoomed ? "Close full screen (Esc)" : "Open full screen modal"}
+              title={zoomed ? "Close live view (Esc)" : "Open live screen (real-time)"}
             >
-              {zoomed ? "Close" : "Zoom"}
+              {openingView ? "Connecting…" : zoomed ? "Close" : "Zoom"}
             </button>
           </div>
         </div>
@@ -404,6 +452,18 @@ export function LiveScreen({
             {attentionReason.slice(0, 220)}
             {" — "}
             <strong>Take control</strong> to drive this machine (CAPTCHA, login, etc.).
+          </p>
+        ) : null}
+
+        {modal && viewError && !controlOn && !viewSrc ? (
+          <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
+            Live stream unavailable ({viewError}). Showing latest screenshot instead.
+          </p>
+        ) : null}
+
+        {modal && viewSrc && !controlOn ? (
+          <p className="shrink-0 border-b border-teal-500/30 bg-teal-950/50 px-3 py-2 text-xs text-teal-50">
+            Watching live — the agent keeps running. Use <strong>Take control</strong> to drive the browser.
           </p>
         ) : null}
 
@@ -440,6 +500,14 @@ export function LiveScreen({
               className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"
               allow="clipboard-read; clipboard-write"
             />
+          ) : modal && viewSrc && !controlOn ? (
+            <iframe
+              title={`${agentName || "Agent"} live screen`}
+              src={viewSrc}
+              className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"
+            />
+          ) : openingView && modal ? (
+            <p className="px-4 py-10 text-center text-sm text-white/60">Connecting to live screen…</p>
           ) : src ? (
             <img
               ref={modal || !zoomed ? imgRef : undefined}
@@ -549,7 +617,11 @@ export function LiveScreen({
             role="dialog"
             aria-modal="true"
             aria-label="Agent live screen full screen"
-            onClick={() => setZoomed(false)}
+            onClick={() => {
+              setZoomed(false);
+              setViewSrc("");
+              setViewError("");
+            }}
           >
             <div
               className={`flex h-full max-h-[100dvh] w-full max-w-[min(96rem,100%)] flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-2xl sm:max-h-[min(96dvh,100%)] ${
@@ -570,14 +642,14 @@ export function LiveScreen({
         {zoomed ? (
           <button
             type="button"
-            onClick={() => setZoomed(true)}
+            onClick={() => void toggleZoom()}
             className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-2 bg-slate-900 px-4 text-sm text-white/70"
           >
             <span className="font-semibold text-white">
-              {agentName ? `${agentName} — ` : ""}Remote desktop open
+              {agentName ? `${agentName} — ` : ""}Live view open
             </span>
             <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">
-              Click to re-open · Esc to close
+              Click to re-open · Esc to close · Take control to drive
             </span>
           </button>
         ) : (
