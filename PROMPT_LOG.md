@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:50] Feature: Browser State Engine Phase 1 (state, diff, verify, fingerprints)
+
+- **Prompt Provided:** implement Phase 1 browser automation architecture (page state model, rich action results, preconditions, fingerprints, DOM diff, verification, compact LLM projection)
+- **Architectural Flow:** `worker/src/browserState/*` builds pageState + diff + verify outside LLM; agent loop runs PRECONDITION → ACT → DOM settle → VERIFY; observeInPage adds fingerprints/pageHints; PageSnapshotPanel shows state/diff
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/*`, `worker/src/pageDom.js`, `worker/src/agent.js`, `frontend/src/components/PageSnapshotPanel.jsx`
+
 ## [2026-08-22 13:35] UX: sticky agent screen + page snapshot + goal in chat rail
 
 - **Prompt Provided:** make agent screen, page snapshot, and goal text box all visible (sticky)

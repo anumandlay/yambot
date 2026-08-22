@@ -18,6 +18,22 @@ export function formatPageObservationText(obs) {
     `CAPTCHA: ${obs.captcha?.present ? (obs.captcha.signals || []).join(",") : "none"}`,
     `Interactives: ${obs.interactiveCount ?? (obs.interactives || []).length}`,
   ];
+  if (obs.pageState) {
+    const ps = obs.pageState;
+    lines.push(
+      `State: modal=${ps.ui?.modal_open} menu=${ps.ui?.menu_open} loading=${ps.ui?.loading} auth=${ps.auth?.state || "unknown"}`
+    );
+    if (ps.errors?.length) {
+      lines.push(`Errors: ${ps.errors.map((e) => e.message).join("; ")}`);
+    }
+  }
+  if (obs.stateDiff) {
+    const d = obs.stateDiff;
+    const parts = [];
+    if (d.url_changed) parts.push("url");
+    if (d.dom_changed) parts.push(`dom(+${(d.added_refs || []).length}/-${(d.removed_refs || []).length})`);
+    if (parts.length) lines.push(`Changes: ${parts.join(", ")}`);
+  }
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
     lines.push("Open menus:");
     for (const menu of obs.openMenus) {
@@ -64,6 +80,8 @@ export function snapshotsFromTaskEvents(events) {
       url: evt.payload?.pageObservation?.url || evt.payload?.url || "",
       title: evt.payload?.pageObservation?.title || evt.payload?.title || "",
       pageObservation: evt.payload.pageObservation,
+      pageState: evt.payload?.pageState,
+      stateDiff: evt.payload?.stateDiff,
     }));
 }
 
@@ -78,12 +96,18 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
 
   const activeIndex = selected >= 0 && selected < snapshots.length ? selected : snapshots.length - 1;
   const current = snapshots[activeIndex]?.pageObservation || null;
-  const count = current?.interactiveCount ?? current?.interactives?.length ?? 0;
+  const currentState = snapshots[activeIndex]?.pageState;
+  const currentDiff = snapshots[activeIndex]?.stateDiff;
+  const displayObs =
+    current && (currentState || currentDiff)
+      ? { ...current, pageState: currentState || current.pageState, stateDiff: currentDiff || current.stateDiff }
+      : current;
+  const count = displayObs?.interactiveCount ?? displayObs?.interactives?.length ?? 0;
 
   async function copyJson() {
-    if (!current) return;
+    if (!displayObs) return;
     try {
-      await navigator.clipboard.writeText(JSON.stringify(current, null, 2));
+      await navigator.clipboard.writeText(JSON.stringify(displayObs, null, 2));
     } catch {
       /* ignore */
     }
@@ -175,17 +199,17 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
         >
           {view === "json" ? (
             <pre className="whitespace-pre-wrap break-all font-mono text-[0.68rem] text-teal-950">
-              {JSON.stringify(current, null, 2)}
+              {JSON.stringify(displayObs, null, 2)}
             </pre>
           ) : null}
 
           {view === "summary" ? (
             <pre className="whitespace-pre-wrap break-words font-mono text-[0.68rem] leading-relaxed text-teal-950">
-              {formatPageObservationText(current)}
+              {formatPageObservationText(displayObs)}
             </pre>
           ) : null}
 
-          {view === "table" && current ? (
+          {view === "table" && displayObs ? (
             <table className="min-w-full text-left font-mono text-[0.68rem]">
               <thead className="sticky top-0 bg-white text-teal-900/60">
                 <tr>
@@ -197,7 +221,7 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
                 </tr>
               </thead>
               <tbody>
-                {(current.interactives || []).map((el) => (
+                {(displayObs.interactives || []).map((el) => (
                   <tr key={el.ref} className="border-t border-teal-50 align-top">
                     <td className="px-1 py-1 font-bold text-teal-800">{el.ref}</td>
                     <td className="px-1 py-1">{el.role || "—"}</td>

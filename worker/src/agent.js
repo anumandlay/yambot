@@ -12,7 +12,16 @@ import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
-import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation } from "./pageDom.js";
+import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage } from "./pageDom.js";
+import {
+  attachFingerprints,
+  buildPageState,
+  checkPreconditions,
+  diffObservations,
+  enrichActionResult,
+  formatStateProjection,
+  waitForDomSettle,
+} from "./browserState/index.js";
 import { runCloudResearchPhase1, buildDeepResearchGoal } from "./research.js";
 
 const execFileAsync = promisify(execFile);
@@ -380,10 +389,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
       name: action.name || item.name,
       css: action.css || item.cssHint,
       xpath: action.xpath || item.xpath,
+      fingerprint: item.fingerprint,
     };
   }
 
-  function formatObservation(obs) {
+  /**
+   * Compact LLM observation (state + diff + ranked interactives). Legacy full dump kept for debugging.
+   * @param {object} obs
+   * @param {object} pageState
+   * @param {object|null} stateDiff
+   * @param {string} goal
+   */
+  function formatObservation(obs, pageState, stateDiff, goal) {
+    if (pageState) {
+      return formatStateProjection({ obs, pageState, stateDiff, goal });
+    }
     const lines = [
       `URL: ${obs.url}`,
       `Title: ${obs.title}`,
@@ -615,6 +635,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       let step = 0;
+      /** @type {object|null} */
+      let prevObs = null;
+      let prevUrl = "";
       for (;;) {
         step += 1;
         if (await isTaskCancelled(taskId)) {
@@ -630,7 +653,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
         const captchaGate = await handleCaptchaIfPresent(taskId, settings, notes);
         if (captchaGate.handled) continue;
-        const obs = captchaGate.obs;
+        let obs = attachFingerprints(captchaGate.obs);
+        const pageState = buildPageState(obs, { previousUrl: prevUrl || undefined });
+        const stateDiff = prevObs ? diffObservations(prevObs, obs) : null;
 
         const messages = [
           {
@@ -639,6 +664,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               ACTION_SCHEMA_FOR_PROMPT,
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
+              "Each step includes PAGE STATE and CHANGES SINCE LAST STEP — use verified action results in RECENT ACTIONS.",
               formatAgentSnapshot(agentSnapshot),
             ]
               .filter(Boolean)
@@ -656,7 +682,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                     .map((h) => JSON.stringify(h))
                     .join("\n")}`
                 : "",
-              `CURRENT PAGE SNAPSHOT:\n${formatObservation(obs)}`,
+              `CURRENT PAGE SNAPSHOT:\n${formatObservation(obs, pageState, stateDiff, workingGoal)}`,
             ]
               .filter(Boolean)
               .join("\n\n"),
@@ -668,7 +694,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
             step,
             url: obs.url,
             title: obs.title,
-            pageObservation: sanitizePageObservation(obs),
+            pageObservation: sanitizePageObservation(obs, { pageState, stateDiff }),
+            pageState,
+            stateDiff,
           },
           appendMessage: obs.url
             ? `Looking at: ${obs.title || ""} (${obs.url})`
@@ -736,32 +764,81 @@ export function createCloudAgent({ api, config, log = console.log }) {
           continue;
         }
         const action = parsed.action;
+        const obsBefore = obs;
+
+        let precondition = checkPreconditions(action, obs, prevObs);
+        let actionToRun = precondition.resolvedAction || action;
+        if (precondition.recovery) {
+          notes.push(precondition.recovery);
+        }
+
+        const locatorTypes = new Set(["click", "type", "select"]);
+        if (locatorTypes.has(actionToRun.type) && precondition.ok) {
+          const enriched = enrichLocatorAction(actionToRun, obs);
+          const precheck = await page.evaluate(precheckLocatorInPage, enriched);
+          if (!precheck.ok) {
+            precondition = {
+              ok: false,
+              issues: [precheck.error || "PRECHECK_FAILED"],
+              precheck,
+            };
+          }
+        }
 
         let result;
         try {
-          result = await executeAction(action, {
-            settings,
-            obs,
-            taskId,
-            agentSnapshot,
-            notes,
-          });
+          if (!precondition.ok && locatorTypes.has(actionToRun.type)) {
+            result = {
+              ok: false,
+              error: precondition.issues?.join("; ") || "Precondition failed",
+              failure_class: precondition.precheck?.error || "PRECONDITION_FAILED",
+            };
+          } else {
+            result = await executeAction(actionToRun, {
+              settings,
+              obs,
+              taskId,
+              agentSnapshot,
+              notes,
+            });
+          }
+
+          if (!["finish", "ask_user", "wait"].includes(actionToRun.type)) {
+            const obsAfter = attachFingerprints(await waitForDomSettle(page, observeInPage));
+            result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
+            prevObs = obsAfter;
+            prevUrl = String(obsAfter.url || "");
+          } else {
+            prevObs = obsBefore;
+            prevUrl = String(obsBefore.url || "");
+          }
         } catch (err) {
           if (err?.cancelled) throw err;
-          result = { ok: false, error: String(err?.message || err) };
+          result = {
+            ok: false,
+            error: String(err?.message || err),
+            failure_class: "UNKNOWN",
+          };
         }
 
-        history.push({ step, thought: parsed.thought, action, result });
+        history.push({ step, thought: parsed.thought, action: actionToRun, result });
         await mirror(taskId, "step", {
-          payload: { step, action, thought: parsed.thought, result },
+          payload: {
+            step,
+            action: actionToRun,
+            thought: parsed.thought,
+            result,
+            verification: result.verification,
+            stateDiff: result.diff,
+          },
           appendMessage: parsed.thought
-            ? `Step ${step}: ${action?.type} — ${parsed.thought}`
-            : `Step ${step}: ${action?.type}`,
+            ? `Step ${step}: ${actionToRun?.type} — ${parsed.thought}`
+            : `Step ${step}: ${actionToRun?.type}`,
         });
 
-        if (action.type === "finish" || result?.finished) {
-          const summary = action.summary || result?.summary || "Done";
-          const success = action.success !== false;
+        if (actionToRun.type === "finish" || result?.finished) {
+          const summary = actionToRun.summary || result?.summary || "Done";
+          const success = actionToRun.success !== false;
           await complete(taskId, { success, summary });
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           return;

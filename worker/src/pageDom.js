@@ -372,22 +372,138 @@ export function observeInPage() {
     return segments.length ? `/${segments.join("/")}` : "";
   }
 
+  /**
+   * Nearest heading or row label for disambiguating repeated buttons (e.g. Delete in a table).
+   * @param {Element} el
+   * @returns {string|undefined}
+   */
+  function nearbyTextFor(el) {
+    const row = el.closest('[role="row"], tr, li, [class*="row"]');
+    if (row) {
+      const t = cleanText(row.innerText || "", 80);
+      if (t) return t.split("\n")[0];
+    }
+    const heading = el.closest("section, article, div")?.querySelector("h1,h2,h3,h4,h5,h6");
+    if (heading) return cleanText(heading.innerText, 80);
+    return undefined;
+  }
+
+  /**
+   * Parent landmark role for fingerprint matching inside dialogs/forms.
+   * @param {Element} el
+   * @returns {string|undefined}
+   */
+  function parentRoleFor(el) {
+    const parent = el.closest(
+      '[role="dialog"], [role="form"], form, [role="menu"], [role="grid"], [aria-modal="true"]'
+    );
+    if (!parent) return undefined;
+    return parent.getAttribute("role") || (parent.tagName === "FORM" ? "form" : undefined);
+  }
+
   function toItem(el, ref, xpath) {
     const tag = el.tagName.toLowerCase();
     const type = (el.getAttribute("type") || "").toLowerCase();
     const smartXPath = xpath || buildSmartXPath(el);
+    const role = impliedRole(el);
+    const name = labelFor(el);
+    const formEl = el.closest("form");
+    const testId = el.getAttribute("data-testid") || el.getAttribute("data-test-id");
+    const ariaLabel = el.getAttribute("aria-label") || undefined;
+    const nearbyText = nearbyTextFor(el);
+    const parentRole = parentRoleFor(el);
+    const disabled =
+      el.disabled ||
+      el.getAttribute("aria-disabled") === "true" ||
+      el.getAttribute("disabled") != null;
+    const invalid =
+      el.getAttribute("aria-invalid") === "true" ||
+      el.matches?.(":invalid") ||
+      false;
+
     return {
       ref,
       tag,
       type: type || undefined,
-      role: impliedRole(el),
-      name: labelFor(el),
+      role,
+      name,
       cssHint: cssHintFor(el),
       xpath: smartXPath || undefined,
       overlay: Boolean(overlayRoot(el) || el.closest('[role="menu"]')),
       hasSubmenu: hasSubmenu(el) || undefined,
       href: tag === "a" ? el.href?.slice(0, 200) : undefined,
       value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
+      id: el.id || undefined,
+      testid: testId || undefined,
+      ariaLabel,
+      nearbyText,
+      parentRole,
+      inForm: Boolean(formEl),
+      formId: formEl?.id || formEl?.getAttribute("name") || undefined,
+      formName: formEl?.getAttribute("aria-label") || formEl?.id || undefined,
+      required: el.required || el.getAttribute("aria-required") === "true" || undefined,
+      disabled: disabled || undefined,
+      visible: true,
+      invalid: invalid || undefined,
+      validationMessage: invalid ? el.validationMessage || undefined : undefined,
+      fingerprint: {
+        tag,
+        role,
+        name,
+        text: name,
+        aria_label: ariaLabel,
+        href: tag === "a" ? el.href?.slice(0, 200) : undefined,
+        id: el.id || undefined,
+        testid: testId || undefined,
+        nearby_text: nearbyText,
+        parent_role: parentRole,
+        type: type || undefined,
+      },
+    };
+  }
+
+  /**
+   * Lightweight page-state hints computed in-page (modal, loading, blocking overlay).
+   * @returns {object}
+   */
+  function collectPageHints() {
+    const modalOpen = Boolean(
+      document.querySelector(
+        '[role="dialog"][aria-modal="true"], [role="dialog"]:not([aria-hidden="true"]), [aria-modal="true"]'
+      ) &&
+        [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].some(isVisible)
+    );
+    const loading = Boolean(
+      document.querySelector(
+        '[aria-busy="true"], .loading, .spinner, [class*="skeleton"], [class*="Spinner"]'
+      )
+    );
+    let blockingOverlay;
+    const cookie = [...document.querySelectorAll("button, a, [role='button']")].find((el) => {
+      if (!isVisible(el)) return false;
+      const t = cleanText(el.innerText || el.getAttribute("aria-label") || "", 80).toLowerCase();
+      return /accept all|accept cookies|agree|i agree|got it/.test(t);
+    });
+    if (cookie) {
+      blockingOverlay = cleanText(cookie.innerText || cookie.getAttribute("aria-label") || "", 80);
+    }
+    const dropdownOpen = Boolean(
+      document.querySelector(
+        '[role="listbox"]:not([hidden]), [role="menu"]:not([hidden]), [data-state="open"]'
+      )
+    );
+    let application;
+    const host = location.hostname.toLowerCase();
+    if (host.includes("mail.google")) application = "gmail";
+    else if (host.includes("amazon.")) application = "amazon";
+    else if (host.includes("google.")) application = "google";
+
+    return {
+      modalOpen,
+      loading,
+      blockingOverlay,
+      dropdownOpen,
+      application,
     };
   }
 
@@ -583,6 +699,8 @@ export function observeInPage() {
     return cleanText(clone.innerText, max);
   }
 
+  const pageHints = collectPageHints();
+
   return {
     url: location.href,
     title: document.title,
@@ -590,6 +708,8 @@ export function observeInPage() {
     interactives: collectInteractives(),
     captcha: detectCaptcha(),
     text: pageText(),
+    pageHints,
+    modalOpen: pageHints.modalOpen,
   };
 }
 
@@ -598,7 +718,7 @@ export function observeInPage() {
  * @param {object|null|undefined} obs
  * @returns {object|null}
  */
-export function sanitizePageObservation(obs) {
+export function sanitizePageObservation(obs, extras = {}) {
   if (!obs || typeof obs !== "object") return null;
   return {
     url: String(obs.url || ""),
@@ -618,11 +738,73 @@ export function sanitizePageObservation(obs) {
           hasSubmenu: el.hasSubmenu,
           href: el.href,
           value: el.value,
+          fingerprint: el.fingerprint,
+          disabled: el.disabled,
+          nearbyText: el.nearbyText,
         }))
       : [],
     text: String(obs.text || "").slice(0, 8000),
     interactiveCount: Array.isArray(obs.interactives) ? obs.interactives.length : 0,
+    pageState: extras.pageState || undefined,
+    stateDiff: extras.stateDiff || undefined,
     capturedAt: new Date().toISOString(),
+  };
+}
+
+/**
+ * Pre-action locator checks: exists, visible, enabled (runs in page context).
+ * @param {object} action - Enriched locator action with ref/role/name/css/xpath.
+ * @returns {object}
+ */
+export function precheckLocatorInPage(action) {
+  const REF_ATTR = "data-ba-ref";
+
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function isEnabled(el) {
+    if (!el) return false;
+    if (el.disabled || el.getAttribute("aria-disabled") === "true") return false;
+    return true;
+  }
+
+  let el = null;
+  if (action.ref) {
+    el = document.querySelector(`[${REF_ATTR}="${action.ref}"]`);
+  }
+  if (!el && action.css) {
+    try {
+      el = document.querySelector(String(action.css));
+    } catch {
+      /* ignore */
+    }
+  }
+
+  if (!el) {
+    return { ok: false, exists: false, visible: false, enabled: false, error: "TARGET_NOT_FOUND" };
+  }
+
+  const visible = isVisible(el);
+  const enabled = isEnabled(el);
+  if (visible) {
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  }
+
+  return {
+    ok: visible && enabled,
+    exists: true,
+    visible,
+    enabled,
+    error: !visible ? "TARGET_HIDDEN" : !enabled ? "TARGET_DISABLED" : undefined,
+    ref: action.ref,
+    name: el.getAttribute("aria-label") || el.innerText?.slice(0, 80),
   };
 }
 
