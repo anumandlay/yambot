@@ -13,6 +13,8 @@ import { chatCompletion } from "./llm.js";
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
+import { shouldContinueEconomically } from "./economicDecision.js";
+import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
 import {
   attachFailureClass,
@@ -350,6 +352,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       confirmBeforeSubmit: c.confirmBeforeSubmit === true,
       policy: c.policy || {},
       budget: c.budget || { monthlyUsd: 0, spentUsd: 0, exceeded: false },
+      maxTaskMinutes: Number(c.maxTaskMinutes) || 0,
     };
   }
 
@@ -693,6 +696,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
     running = true;
     const taskId = String(task._id);
     const goal = String(task.goal || "").trim();
+    const taskMaxMinutes = Number(task.maxDurationMinutes) || 0;
+    const taskValueUsd = Number(task.estimatedValueUsd) || 0;
+    const runStartedAt = Date.now();
     const agentSnapshot = task.agentSnapshot || null;
     const notes = [];
     const history = [];
@@ -761,6 +767,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }).catch(() => {});
 
       let step = 0;
+      const effectiveMaxMinutes = taskMaxMinutes || settings.maxTaskMinutes || 0;
       /** @type {object|null} */
       let prevObs = null;
       let prevUrl = "";
@@ -768,6 +775,37 @@ export function createCloudAgent({ api, config, log = console.log }) {
       let siteProfile = null;
       for (;;) {
         step += 1;
+        if (
+          effectiveMaxMinutes > 0 &&
+          Date.now() - runStartedAt > effectiveMaxMinutes * 60_000
+        ) {
+          await complete(taskId, {
+            success: false,
+            summary: "Task exceeded time budget — escalated for review.",
+            error: "time_budget_exceeded",
+            history,
+            siteDomain,
+            llmUsage,
+          });
+          return;
+        }
+        const econ = shouldContinueEconomically({
+          estimatedValueUsd: taskValueUsd,
+          spentUsd: llmUsage.estimatedUsd,
+          step,
+          maxSteps: 120,
+        });
+        if (!econ.continue && step > 5) {
+          await complete(taskId, {
+            success: false,
+            summary: `Stopped: ${econ.reason}`,
+            error: econ.reason,
+            history,
+            siteDomain,
+            llmUsage,
+          });
+          return;
+        }
         if (await isTaskCancelled(taskId)) {
           await complete(taskId, {
             success: false,
@@ -1040,6 +1078,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               settings,
               obs,
               taskId,
+              goal,
               agentSnapshot,
               notes,
             });
@@ -1087,6 +1126,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   settings,
                   obs: currentObs,
                   taskId,
+                  goal,
                   agentSnapshot,
                   notes,
                 });
@@ -1385,6 +1425,34 @@ export function createCloudAgent({ api, config, log = console.log }) {
         );
         notes.push(`Inbox (${result.count || 0}):\n${lines.join("\n") || "(empty)"}`);
         return { ok: true, email: result };
+      }
+      case "investigate": {
+        const question = String(action.question || ctx.goal || "").trim();
+        const sources = Array.isArray(action.sources) ? action.sources : [];
+        const guide = buildInvestigationGoal(question, sources);
+        if (Array.isArray(action.evidence) && action.evidence.length) {
+          const agg = aggregateEvidence(action.evidence);
+          notes.push(
+            `Investigation synthesis:\n${guide}\nConsensus: ${agg.consensus || "(none)"}\nContradictions: ${agg.contradictions.length}`
+          );
+        } else {
+          notes.push(`Investigation mode:\n${guide}`);
+        }
+        return { ok: true, investigation: true };
+      }
+      case "request_training": {
+        await api("/api/worker/training/request", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId,
+            taskId: ctx.taskId,
+            workflow: action.workflow || "",
+            observation: action.observation || "",
+            recommendation: action.recommendation || "Record a human demonstration",
+          }),
+        });
+        notes.push("Training request filed — a human can record a demonstration from Skills.");
+        return { ok: true, trainingRequested: true };
       }
       case "http_request": {
         const result = await api("/api/worker/tools/http", {

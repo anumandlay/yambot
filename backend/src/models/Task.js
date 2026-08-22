@@ -103,10 +103,20 @@ const taskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "running", "waiting_user", "done", "error", "cancelled"],
+      enum: ["pending", "blocked", "running", "waiting_user", "done", "error", "cancelled"],
       default: "pending",
       index: true,
     },
+    /** Tasks that must complete before this one can run. */
+    dependsOn: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Task" }],
+      default: [],
+    },
+    slaDeadline: { type: Date, default: null, index: true },
+    slaName: { type: String, default: "", trim: true },
+    maxDurationMinutes: { type: Number, default: 0, min: 0 },
+    estimatedValueUsd: { type: Number, default: 0, min: 0 },
+    startedAt: { type: Date, default: null },
     events: { type: [eventSchema], default: [] },
     /** Compact observe→action→verify chain recorded at task complete (Phase 5). */
     trajectory: { type: [mongoose.Schema.Types.Mixed], default: [] },

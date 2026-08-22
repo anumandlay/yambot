@@ -28,6 +28,8 @@ policiesRouter.get("/", async (req, res, next) => {
         requireApprovalForSubmit: s.requireApprovalForSubmit === true,
         blockedUrlPatterns: s.blockedUrlPatterns || [],
         monthlyBudgetUsd: Number(s.monthlyBudgetUsd) || 0,
+        dailyBudgetUsd: Number(s.dailyBudgetUsd) || 0,
+        maxTaskMinutes: Number(s.maxTaskMinutes) || 0,
         escalateWaitingMinutes: Number(s.escalateWaitingMinutes) || 30,
         httpAllowHosts: s.httpAllowHosts || [],
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
@@ -59,6 +61,12 @@ policiesRouter.put("/", async (req, res, next) => {
     }
     if (body.monthlyBudgetUsd != null) {
       user.settings.monthlyBudgetUsd = Math.max(0, Number(body.monthlyBudgetUsd) || 0);
+    }
+    if (body.dailyBudgetUsd != null) {
+      user.settings.dailyBudgetUsd = Math.max(0, Number(body.dailyBudgetUsd) || 0);
+    }
+    if (body.maxTaskMinutes != null) {
+      user.settings.maxTaskMinutes = Math.max(0, Number(body.maxTaskMinutes) || 0);
     }
     if (body.escalateWaitingMinutes != null) {
       user.settings.escalateWaitingMinutes = Math.max(5, Number(body.escalateWaitingMinutes) || 30);

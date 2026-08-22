@@ -70,6 +70,18 @@ const goalSchema = new mongoose.Schema(
       ref: "Chat",
       default: null,
     },
+    /** Goal-directed autonomy — periodic self-assessment and task spawning. */
+    autonomy: {
+      enabled: { type: Boolean, default: false },
+      checkIntervalMinutes: { type: Number, default: 60, min: 15 },
+      autoRun: { type: Boolean, default: true },
+      lastCheckAt: { type: Date, default: null },
+    },
+    /** SLA for response/completion when this goal drives work. */
+    sla: {
+      responseMinutes: { type: Number, default: 0, min: 0 },
+      name: { type: String, default: "", trim: true },
+    },
   },
   { timestamps: true }
 );
@@ -91,6 +103,8 @@ export function toGoalPublic(doc) {
     status: g.status || "active",
     priority: g.priority || "normal",
     kpis: Array.isArray(g.kpis) ? g.kpis : [],
+    autonomy: g.autonomy || { enabled: false, checkIntervalMinutes: 60, autoRun: true },
+    sla: g.sla || { responseMinutes: 0, name: "" },
     stats: g.stats || { runs: 0, successes: 0, failures: 0, lastRunAt: null },
     chatId: g.chatId,
     createdAt: g.createdAt,

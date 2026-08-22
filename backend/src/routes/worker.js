@@ -16,6 +16,11 @@ import { writeAudit } from "../utils/audit.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "../utils/policy.js";
 import { evaluateTaskRun } from "../utils/evaluateTask.js";
 import { Approval } from "../models/Approval.js";
+import { pickHighestPriorityTask } from "../utils/priorityArbitrator.js";
+import { unblockDependentTasks } from "../utils/enqueueTask.js";
+import { emitEvent } from "../utils/eventBus.js";
+import { Demonstration } from "../models/Demonstration.js";
+import { TrainingRequest } from "../models/TrainingRequest.js";
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
@@ -59,6 +64,22 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
     const budgetUsd = policy.monthlyBudgetUsd || 0;
     const budgetExceeded = budgetUsd > 0 && spentUsd >= budgetUsd;
 
+    const dayStart = new Date();
+    dayStart.setUTCHours(0, 0, 0, 0);
+    const dailyMatch = {
+      user: req.userId,
+      completedAt: { $gte: dayStart },
+      status: { $in: ["done", "error"] },
+    };
+    if (agentId) dailyMatch.agent = agentId;
+    const [dailyRow] = await Task.aggregate([
+      { $match: dailyMatch },
+      { $group: { _id: null, usd: { $sum: "$llmUsage.estimatedUsd" } } },
+    ]);
+    const dailySpent = Number(dailyRow?.usd) || 0;
+    const dailyBudget = policy.dailyBudgetUsd || 0;
+    const dailyExceeded = dailyBudget > 0 && dailySpent >= dailyBudget;
+
     res.json({
       ok: true,
       config: {
@@ -75,8 +96,12 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
         budget: {
           monthlyUsd: budgetUsd,
           spentUsd: Number(spentUsd.toFixed(4)),
-          exceeded: budgetExceeded,
+          exceeded: budgetExceeded || dailyExceeded,
+          dailyUsd: dailyBudget,
+          dailySpentUsd: Number(dailySpent.toFixed(4)),
+          dailyExceeded,
         },
+        maxTaskMinutes: policy.maxTaskMinutes || 0,
       },
     });
   } catch (err) {
@@ -124,12 +149,17 @@ async function claimNextTask(userId, opts = {}) {
   });
 
   const claimFilter = buildClaimFilter(userId, opts);
+  const candidates = await Task.find(claimFilter).sort({ createdAt: 1 }).limit(30).lean();
+  const pick = pickHighestPriorityTask(candidates);
+  if (!pick) return null;
+
   return Task.findOneAndUpdate(
-    claimFilter,
+    { _id: pick._id, status: "pending" },
     {
       $set: {
         status: "running",
         claimedAt: new Date(),
+        startedAt: new Date(),
       },
       $push: {
         events: {
@@ -386,6 +416,17 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       payload: { success, summary, error },
     });
     await task.save();
+    await unblockDependentTasks(req.userId);
+    await emitEvent({
+      userId: req.userId,
+      type: success ? "task.completed" : "task.failed",
+      source: "task",
+      agentId: task.agent,
+      goalId: task.goalRef,
+      taskId: task._id,
+      summary: (summary || error || "").slice(0, 500),
+      payload: { evaluationScore: task.evaluation?.score },
+    });
 
     await Message.create({
       chat: task.chat,
@@ -729,6 +770,117 @@ workerRouter.post("/email/check", async (req, res, next) => {
       unseenOnly: Boolean(req.body?.unseenOnly),
     });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/demos/start — begin a human demonstration capture session.
+ */
+workerRouter.post("/demos/start", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    const demo = await Demonstration.create({
+      user: req.userId,
+      agent: agentId,
+      task: req.body?.taskId || null,
+      title: String(req.body?.title || "Demonstration").trim(),
+      steps: [],
+    });
+    res.status(201).json({ ok: true, demonstration: demo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/demos/step — append one step to an active demonstration.
+ */
+workerRouter.post("/demos/step", async (req, res, next) => {
+  try {
+    const demoId = String(req.body?.demoId || "").trim();
+    const demo = await Demonstration.findOne({ _id: demoId, user: req.userId });
+    if (!demo) {
+      res.status(404).json({ ok: false, detail: "Demonstration missing" });
+      return;
+    }
+    demo.steps.push({
+      observation: String(req.body?.observation || ""),
+      action: req.body?.action || {},
+      result: String(req.body?.result || ""),
+      at: new Date(),
+    });
+    await demo.save();
+    res.json({ ok: true, demonstration: demo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/demos/finish — finalize a demonstration capture.
+ */
+workerRouter.post("/demos/finish", async (req, res, next) => {
+  try {
+    const demoId = String(req.body?.demoId || "").trim();
+    const demo = await Demonstration.findOne({ _id: demoId, user: req.userId });
+    if (!demo) {
+      res.status(404).json({ ok: false, detail: "Demonstration missing" });
+      return;
+    }
+    if (req.body?.title) demo.title = String(req.body.title).trim();
+    await demo.save();
+    await emitEvent({
+      userId: req.userId,
+      type: "demo.captured",
+      source: "worker",
+      summary: `Demonstration captured: ${demo.title}`,
+      payload: { demonstrationId: String(demo._id), agentId: String(demo.agent) },
+      agentId: demo.agent,
+      significance: "medium",
+    });
+    res.json({ ok: true, demonstration: demo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/training/request — agent files a training request.
+ */
+workerRouter.post("/training/request", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    const request = await TrainingRequest.create({
+      user: req.userId,
+      agent: agentId,
+      task: req.body?.taskId || null,
+      workflow: String(req.body?.workflow || ""),
+      observation: String(req.body?.observation || ""),
+      recommendation: String(req.body?.recommendation || "Record a human demonstration"),
+      status: "pending",
+    });
+    await emitEvent({
+      userId: req.userId,
+      type: "training.requested",
+      source: "worker",
+      summary: `Training requested for ${agent.name}`,
+      payload: { requestId: String(request._id), workflow: request.workflow },
+      agentId,
+      significance: "medium",
+    });
+    res.status(201).json({ ok: true, request });
   } catch (err) {
     next(err);
   }

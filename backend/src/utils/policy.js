@@ -21,6 +21,9 @@ export function getEffectivePolicy(userSettings = {}, agent = null) {
       ...(Array.isArray(agentPolicy.blockedUrlPatterns) ? agentPolicy.blockedUrlPatterns : []),
     ],
     monthlyBudgetUsd: Number(agentPolicy.monthlyBudgetUsd || s.monthlyBudgetUsd) || 0,
+    dailyBudgetUsd: Number(agentPolicy.dailyBudgetUsd || s.dailyBudgetUsd) || 0,
+    maxTaskMinutes: Math.max(0, Number(agentPolicy.maxTaskMinutes || s.maxTaskMinutes) || 0),
+    apiBudgetUsd: Number(agentPolicy.apiBudgetUsd || s.apiBudgetUsd) || 0,
     escalateWaitingMinutes: Math.max(
       5,
       Number(agentPolicy.escalateWaitingMinutes || s.escalateWaitingMinutes) || 30

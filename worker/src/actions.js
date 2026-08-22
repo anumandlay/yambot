@@ -24,6 +24,8 @@ export const ACTION_TYPES = [
   "send_email",
   "check_email",
   "http_request",
+  "investigate",
+  "request_training",
   "finish",
 ];
 
@@ -32,7 +34,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|http_request|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|http_request|investigate|request_training|finish>",
     ...fields depending on type
   }
 }
@@ -60,6 +62,8 @@ Action fields:
 - send_email: { "type":"send_email", "to":"user@example.com", "subject":"...", "text":"..." }
 - check_email: { "type":"check_email", "limit": 8, "unseenOnly": false }
 - http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://api.example.com/...", "headers":{ "Authorization":"Bearer ..." }, "body":"..." } — server-side HTTP (host must be in Policies httpAllowHosts when configured)
+- investigate: { "type":"investigate", "question":"...", "sources":["https://..."], "evidence":[{ "source":"site A", "claim":"...", "confidence":0.8 }] } — multi-source research; pass evidence when synthesizing before finish
+- request_training: { "type":"request_training", "workflow":"...", "observation":"what failed", "recommendation":"..." } — file a human training request when stuck on a workflow
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }
 
 Locator rules (click/type/select):

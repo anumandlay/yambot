@@ -43,6 +43,19 @@ function pickGoalFields(body) {
       .filter((k) => k.name)
       .slice(0, 20);
   }
+  if (body.autonomy != null && typeof body.autonomy === "object") {
+    out.autonomy = {
+      enabled: body.autonomy.enabled === true,
+      checkIntervalMinutes: Math.max(15, Number(body.autonomy.checkIntervalMinutes) || 60),
+      autoRun: body.autonomy.autoRun !== false,
+    };
+  }
+  if (body.sla != null && typeof body.sla === "object") {
+    out.sla = {
+      responseMinutes: Math.max(0, Number(body.sla.responseMinutes) || 0),
+      name: String(body.sla.name || "").trim(),
+    };
+  }
   return out;
 }
 

@@ -8,6 +8,14 @@ import { Agent, computeNextRunAt, toAgentSnapshot } from "../models/Agent.js";
 import { Chat, Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { User } from "../models/User.js";
+import { emitEvent } from "./eventBus.js";
+import { tickTriggers } from "./triggerEngine.js";
+import { tickWatchers } from "./watcherEngine.js";
+import { tickGoalAutonomy } from "./goalAutonomy.js";
+import { tickManagerAutonomy } from "./managerAutonomy.js";
+import { tickPerformanceReviews } from "./performanceReview.js";
+import { tickImprovementProposals } from "./improvementLoop.js";
+import { unblockDependentTasks } from "./enqueueTask.js";
 
 /**
  * Finds or creates the dedicated schedule chat for an agent.
@@ -195,6 +203,36 @@ export async function tickTaskEscalations() {
 }
 
 /**
+ * Marks SLA-breached pending/running tasks and boosts priority.
+ */
+export async function tickSlaBreaches() {
+  const now = new Date();
+  const breached = await Task.find({
+    slaDeadline: { $lte: now, $ne: null },
+    status: { $in: ["pending", "running", "waiting_user", "blocked"] },
+  }).limit(50);
+
+  let count = 0;
+  for (const task of breached) {
+    task.priorityRank = Math.min(100, (task.priorityRank || 2) + 25);
+    task.events.push({ type: "sla_breach", payload: { slaName: task.slaName } });
+    await task.save();
+    await emitEvent({
+      userId: task.user,
+      type: "sla.breached",
+      source: "system",
+      significance: "high",
+      taskId: task._id,
+      agentId: task.agent,
+      goalId: task.goalRef,
+      summary: `SLA breached: ${task.slaName || "task"}`,
+    });
+    count += 1;
+  }
+  return { breached: count };
+}
+
+/**
  * Starts the in-process schedule loop (every ~60s).
  * @param {{ intervalMs?: number }} [opts]
  */
@@ -204,9 +242,27 @@ export function startAgentScheduler(opts = {}) {
     try {
       const result = await tickAgentSchedules();
       const esc = await tickTaskEscalations();
-      if (result.ran || result.checked || esc.escalated) {
+      const sla = await tickSlaBreaches();
+      const triggers = await tickTriggers();
+      const watchers = await tickWatchers();
+      const goals = await tickGoalAutonomy();
+      const managers = await tickManagerAutonomy();
+      const reviews = await tickPerformanceReviews();
+      const improvements = await tickImprovementProposals();
+      await unblockDependentTasksForAll();
+
+      if (
+        result.ran ||
+        result.checked ||
+        esc.escalated ||
+        sla.breached ||
+        triggers.fired ||
+        watchers.changed ||
+        goals.spawned ||
+        managers.delegated
+      ) {
         console.log(
-          `[scheduler] checked=${result.checked} ran=${result.ran} skipped=${result.skipped} escalated=${esc.escalated}`
+          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created}`
         );
       }
     } catch (err) {
@@ -216,4 +272,12 @@ export function startAgentScheduler(opts = {}) {
   void tick();
   setInterval(() => void tick(), intervalMs);
   console.log(`[scheduler] started (every ${intervalMs}ms)`);
+}
+
+/** Unblocks dependency-ready tasks for all users with blocked queue items. */
+async function unblockDependentTasksForAll() {
+  const users = await Task.distinct("user", { status: "blocked" });
+  for (const userId of users) {
+    await unblockDependentTasks(userId);
+  }
 }

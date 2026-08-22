@@ -68,6 +68,24 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
         </span>
         {!collapsed ? <span>Workforce</span> : null}
       </NavLink>
+      <NavLink to="/operations" className={linkClass} onClick={onClose} title="Operations">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          O
+        </span>
+        {!collapsed ? <span>Operations</span> : null}
+      </NavLink>
+      <NavLink to="/company" className={linkClass} onClick={onClose} title="Company">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          Co
+        </span>
+        {!collapsed ? <span>Company</span> : null}
+      </NavLink>
+      <NavLink to="/skills" className={linkClass} onClick={onClose} title="Skills">
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          Sk
+        </span>
+        {!collapsed ? <span>Skills</span> : null}
+      </NavLink>
       <NavLink to="/policies" className={linkClass} onClick={onClose} title="Policies">
         <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
           P

@@ -35,6 +35,38 @@ governanceRouter.get("/audit", async (req, res, next) => {
 });
 
 /**
+ * GET /api/governance/performance — employee performance reviews.
+ */
+governanceRouter.get("/performance", async (req, res, next) => {
+  try {
+    const { PerformanceReview } = await import("../models/PerformanceReview.js");
+    const filter = { user: req.userId };
+    if (req.query.agentId) filter.agent = String(req.query.agentId);
+    const reviews = await PerformanceReview.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(30)
+      .lean();
+    res.json({ ok: true, reviews });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/governance/performance/:agentId — generate a fresh review.
+ */
+governanceRouter.post("/performance/:agentId", async (req, res, next) => {
+  try {
+    const { generatePerformanceReview } = await import("../utils/performanceReview.js");
+    const days = Math.min(90, Number(req.body?.days) || 30);
+    const review = await generatePerformanceReview(req.userId, req.params.agentId, days);
+    res.status(201).json({ ok: true, review });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/governance/usage — LLM usage rollup from completed tasks.
  * Query: days? (default 30), agentId?
  */

@@ -154,6 +154,14 @@ app.use("/api/governance", authRequired, (await import("./routes/governance.js")
 app.use("/api/policies", authRequired, (await import("./routes/policies.js")).policiesRouter);
 app.use("/api/approvals", authRequired, (await import("./routes/approvals.js")).approvalsRouter);
 app.use("/api/workforce", authRequired, (await import("./routes/workforce.js")).workforceRouter);
+app.use("/api/events", authRequired, (await import("./routes/events.js")).eventsRouter);
+app.use("/api/triggers", authRequired, (await import("./routes/triggers.js")).triggersRouter);
+app.use("/api/watchers", authRequired, (await import("./routes/watchers.js")).watchersRouter);
+app.use("/api/entities", authRequired, (await import("./routes/entities.js")).entitiesRouter);
+app.use("/api/processes", authRequired, (await import("./routes/processes.js")).processesRouter);
+app.use("/api/company-memory", authRequired, (await import("./routes/companyMemory.js")).companyMemoryRouter);
+app.use("/api/skills", authRequired, (await import("./routes/skills.js")).skillsRouter);
+app.use("/api/improvements", authRequired, (await import("./routes/improvements.js")).improvementsRouter);
 app.use("/api/worker", authRequired, workerRouter);
 app.use("/api/system", authRequired, (await import("./routes/system.js")).systemRouter);
 

@@ -42,6 +42,8 @@ const settingsSchema = new mongoose.Schema(
     requireApprovalForSubmit: { type: Boolean, default: false },
     blockedUrlPatterns: { type: [String], default: [] },
     monthlyBudgetUsd: { type: Number, default: 0 },
+    dailyBudgetUsd: { type: Number, default: 0 },
+    maxTaskMinutes: { type: Number, default: 0 },
     escalateWaitingMinutes: { type: Number, default: 30 },
     /** Layer 4 — hosts allowed for http_request tool (empty = any non-blocked) */
     httpAllowHosts: { type: [String], default: [] },

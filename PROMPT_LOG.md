@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 16:00] AI Workforce OS (vision items 1–19, 24–31; exclude 20, 21–23)
+
+- **Prompt Provided:** implement full AI workforce vision except certification/sandbox (#20) and synthetic companies/chaos testing (#21–23)
+- **Architectural Flow:** Event bus + triggers + watchers; world model (entities, company memory, processes); skills/demos/training; goal autonomy + manager autonomy; anomaly baselines, investigation, priority arbitration, economic stop; performance reviews + improvement loop; scheduler tick runs all engines; worker `investigate`/`request_training` + demo capture routes; Operations/Company/Skills UI + goal SLA/autonomy + policy budgets
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/{CompanyEvent,Trigger,Watcher,Entity,Process,Skill,Demonstration,TrainingRequest,ImprovementProposal,PerformanceReview,CompanyMemory,MetricBaseline,Task,Goal,Agent,User}.js`, `backend/src/utils/{enqueueTask,eventBus,triggerEngine,watcherEngine,goalAutonomy,managerAutonomy,anomaly,investigation,performanceReview,improvementLoop,priorityArbitrator,economicDecision,policy,scheduler}.js`, `backend/src/routes/{events,triggers,watchers,entities,processes,companyMemory,skills,improvements,worker,goals,governance,policies,agents}.js`, `backend/src/index.js`, `worker/src/{actions,agent,investigation,economicDecision}.js`, `frontend/src/pages/{OperationsPage,CompanyPage,SkillsPage,GoalEditPage,PoliciesPage,AgentEditPage,GovernancePage}.jsx`, `frontend/src/{App.jsx,components/AppSidebar.jsx}`
+
 ## [2026-08-22 15:45] Remove research (Google SERP) agent mode
 
 - **Prompt Provided:** remove research agent mode, all related functionality, containers, and orphans
