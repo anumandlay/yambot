@@ -12,6 +12,8 @@ const EMPTY = {
   requireApprovalForSubmit: false,
   confirmBeforeSubmit: false,
   monthlyBudgetUsd: 0,
+  dailyBudgetUsd: 0,
+  maxTaskMinutes: 0,
   escalateWaitingMinutes: 30,
   blockedUrlPatterns: "",
   httpAllowHosts: "",
@@ -32,6 +34,8 @@ export function PoliciesPage() {
           requireApprovalForSubmit: p.requireApprovalForSubmit === true,
           confirmBeforeSubmit: p.confirmBeforeSubmit === true,
           monthlyBudgetUsd: Number(p.monthlyBudgetUsd) || 0,
+          dailyBudgetUsd: Number(p.dailyBudgetUsd) || 0,
+          maxTaskMinutes: Number(p.maxTaskMinutes) || 0,
           escalateWaitingMinutes: Number(p.escalateWaitingMinutes) || 30,
           blockedUrlPatterns: (p.blockedUrlPatterns || []).join("\n"),
           httpAllowHosts: (p.httpAllowHosts || []).join("\n"),
@@ -54,6 +58,8 @@ export function PoliciesPage() {
           requireApprovalForSubmit: form.requireApprovalForSubmit,
           confirmBeforeSubmit: form.confirmBeforeSubmit,
           monthlyBudgetUsd: Number(form.monthlyBudgetUsd) || 0,
+          dailyBudgetUsd: Number(form.dailyBudgetUsd) || 0,
+          maxTaskMinutes: Number(form.maxTaskMinutes) || 0,
           escalateWaitingMinutes: Number(form.escalateWaitingMinutes) || 30,
           blockedUrlPatterns: form.blockedUrlPatterns
             .split(/\n|,/)
@@ -125,6 +131,29 @@ export function PoliciesPage() {
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.monthlyBudgetUsd}
             onChange={(e) => setForm((f) => ({ ...f, monthlyBudgetUsd: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          Daily LLM budget (USD, 0 = unlimited)
+          <input
+            type="number"
+            min={0}
+            step={1}
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.dailyBudgetUsd}
+            onChange={(e) => setForm((f) => ({ ...f, dailyBudgetUsd: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          Max task duration (minutes, 0 = unlimited)
+          <input
+            type="number"
+            min={0}
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.maxTaskMinutes}
+            onChange={(e) => setForm((f) => ({ ...f, maxTaskMinutes: e.target.value }))}
           />
         </label>
 

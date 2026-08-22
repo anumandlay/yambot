@@ -18,6 +18,8 @@ const EMPTY = {
   status: "active",
   priority: "normal",
   kpis: [{ name: "", target: "", current: "0", unit: "" }],
+  autonomy: { enabled: false, checkIntervalMinutes: 60, autoRun: true },
+  sla: { responseMinutes: 0, name: "" },
 };
 
 export function GoalEditPage() {
@@ -65,6 +67,15 @@ export function GoalEditPage() {
                   unit: k.unit || "",
                 }))
               : [{ name: "", target: "", current: "0", unit: "" }],
+            autonomy: {
+              enabled: g.autonomy?.enabled === true,
+              checkIntervalMinutes: Number(g.autonomy?.checkIntervalMinutes) || 60,
+              autoRun: g.autonomy?.autoRun !== false,
+            },
+            sla: {
+              responseMinutes: Number(g.sla?.responseMinutes) || 0,
+              name: g.sla?.name || "",
+            },
           });
         }
       } catch (err) {
@@ -114,6 +125,8 @@ export function GoalEditPage() {
           current: Number(k.current) || 0,
           unit: k.unit.trim(),
         })),
+      autonomy: form.autonomy,
+      sla: form.sla,
     };
     try {
       if (isNew) {
@@ -292,6 +305,67 @@ export function GoalEditPage() {
           >
             Add KPI
           </button>
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/20 p-3">
+          <div className="text-sm font-semibold text-teal-900/80">Goal autonomy</div>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.autonomy.enabled}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  autonomy: { ...prev.autonomy, enabled: e.target.checked },
+                }))
+              }
+            />
+            Periodically self-assess KPIs and spawn tasks
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Check interval (minutes)
+            <input
+              type="number"
+              min={15}
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.autonomy.checkIntervalMinutes}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  autonomy: { ...prev.autonomy, checkIntervalMinutes: e.target.value },
+                }))
+              }
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/20 p-3">
+          <div className="text-sm font-semibold text-teal-900/80">SLA</div>
+          <label className="flex flex-col gap-1 text-sm">
+            SLA name
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.sla.name}
+              onChange={(e) =>
+                setForm((prev) => ({ ...prev, sla: { ...prev.sla, name: e.target.value } }))
+              }
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Response target (minutes, 0 = none)
+            <input
+              type="number"
+              min={0}
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.sla.responseMinutes}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  sla: { ...prev.sla, responseMinutes: e.target.value },
+                }))
+              }
+            />
+          </label>
         </div>
 
         <button

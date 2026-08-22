@@ -33,6 +33,8 @@ const EMPTY = {
   policy: {
     requireApprovalForSubmit: false,
     monthlyBudgetUsd: 0,
+    dailyBudgetUsd: 0,
+    maxTaskMinutes: 0,
     escalateWaitingMinutes: 30,
     blockedUrlPatterns: [],
     httpAllowHosts: [],
@@ -118,6 +120,8 @@ export function AgentEditPage() {
             policy: {
               requireApprovalForSubmit: a.policy?.requireApprovalForSubmit === true,
               monthlyBudgetUsd: Number(a.policy?.monthlyBudgetUsd) || 0,
+              dailyBudgetUsd: Number(a.policy?.dailyBudgetUsd) || 0,
+              maxTaskMinutes: Number(a.policy?.maxTaskMinutes) || 0,
               escalateWaitingMinutes: Number(a.policy?.escalateWaitingMinutes) || 30,
               blockedUrlPatterns: a.policy?.blockedUrlPatterns || [],
               httpAllowHosts: a.policy?.httpAllowHosts || [],
@@ -676,6 +680,51 @@ export function AgentEditPage() {
               }
             />
             Agent policy: require Governance approval before submit
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Agent monthly budget (USD, 0 = use org default)
+            <input
+              type="number"
+              min={0}
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.policy.monthlyBudgetUsd}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  policy: { ...prev.policy, monthlyBudgetUsd: e.target.value },
+                }))
+              }
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Agent daily budget (USD)
+            <input
+              type="number"
+              min={0}
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.policy.dailyBudgetUsd}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  policy: { ...prev.policy, dailyBudgetUsd: e.target.value },
+                }))
+              }
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            Max task duration (minutes)
+            <input
+              type="number"
+              min={0}
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.policy.maxTaskMinutes}
+              onChange={(e) =>
+                setForm((prev) => ({
+                  ...prev,
+                  policy: { ...prev.policy, maxTaskMinutes: e.target.value },
+                }))
+              }
+            />
           </label>
         </div>
 

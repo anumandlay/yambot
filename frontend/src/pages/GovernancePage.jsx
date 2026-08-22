@@ -12,19 +12,25 @@ export function GovernancePage() {
   const [budget, setBudget] = useState(null);
   const [events, setEvents] = useState([]);
   const [approvals, setApprovals] = useState([]);
+  const [reviews, setReviews] = useState([]);
+  const [improvements, setImprovements] = useState([]);
   const [error, setError] = useState(null);
 
   const load = useCallback(async () => {
-    const [usageData, auditData, budgetData, approvalData] = await Promise.all([
+    const [usageData, auditData, budgetData, approvalData, perfData, impData] = await Promise.all([
       api("/api/governance/usage?days=30"),
       api("/api/governance/audit?limit=80"),
       api("/api/governance/budget"),
       api("/api/approvals?status=pending"),
+      api("/api/governance/performance"),
+      api("/api/improvements?status=proposed"),
     ]);
     setUsage(usageData);
     setBudget(budgetData.budget);
     setEvents(auditData.events || []);
     setApprovals(approvalData.approvals || []);
+    setReviews(perfData.reviews || []);
+    setImprovements(impData.proposals || []);
   }, []);
 
   useEffect(() => {
@@ -37,6 +43,19 @@ export function GovernancePage() {
       await api(`/api/approvals/${id}/resolve`, {
         method: "POST",
         body: JSON.stringify({ decision }),
+      });
+      await load();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function resolveImprovement(id, status) {
+    setError(null);
+    try {
+      await api(`/api/improvements/${id}/resolve`, {
+        method: "POST",
+        body: JSON.stringify({ status }),
       });
       await load();
     } catch (err) {
@@ -107,6 +126,55 @@ export function GovernancePage() {
                     Deny
                   </button>
                 </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {improvements.length > 0 ? (
+        <div className="rounded-2xl border border-violet-200 bg-violet-50/40 p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-violet-900">Improvement proposals</h2>
+          <ul className="mt-2 flex flex-col gap-2 text-sm">
+            {improvements.map((p) => (
+              <li
+                key={p._id}
+                className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <div className="font-semibold">{p.title || p.kind || "Proposal"}</div>
+                  <div className="text-teal-900/80">{p.summary || p.recommendation}</div>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    className="min-h-10 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white"
+                    onClick={() => resolveImprovement(p._id, "approved")}
+                  >
+                    Approve
+                  </button>
+                  <button
+                    type="button"
+                    className="min-h-10 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700"
+                    onClick={() => resolveImprovement(p._id, "rejected")}
+                  >
+                    Reject
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
+      {reviews.length > 0 ? (
+        <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+          <h2 className="text-sm font-semibold text-teal-900/80">Performance reviews</h2>
+          <ul className="mt-2 flex flex-col gap-2 text-sm">
+            {reviews.slice(0, 5).map((r) => (
+              <li key={r._id} className="rounded-xl border border-teal-50 p-3">
+                <div className="font-semibold">Agent {String(r.agent || "").slice(-8)}</div>
+                <div className="text-teal-900/70">{r.summary || r.overallRating}</div>
               </li>
             ))}
           </ul>
