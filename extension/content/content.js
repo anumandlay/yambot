@@ -786,6 +786,106 @@
     }
   }
 
+  async function executeFillForm(action) {
+    const fields = action.fields && typeof action.fields === "object" ? action.fields : {};
+    const formKey = String(action.form || action.form_id || action.form_name || "").trim();
+    let root = document;
+    if (formKey) {
+      const form =
+        document.getElementById(formKey) ||
+        document.querySelector(`form[name="${CSS.escape(formKey)}"]`) ||
+        [...document.querySelectorAll("form")].find((f) =>
+          (f.getAttribute("name") || f.id || "").toLowerCase().includes(formKey.toLowerCase())
+        );
+      if (form) root = form;
+    }
+    const filled = [];
+    for (const [key, value] of Object.entries(fields)) {
+      const wanted = String(key).toLowerCase();
+      const input = [...root.querySelectorAll("input, textarea, select")].find((el) => {
+        if (!isVisible(el)) return false;
+        const blob = `${labelFor(el)} ${el.name || ""} ${el.id || ""} ${el.placeholder || ""}`.toLowerCase();
+        return blob.includes(wanted) || wanted.includes(labelFor(el).toLowerCase());
+      });
+      if (!input) continue;
+      highlight(input);
+      robustClick(input);
+      input.focus();
+      const text = String(value ?? "");
+      if (isContentEditableEl(input)) setContentEditableValue(input, text);
+      else setNativeValue(input, text);
+      filled.push(key);
+    }
+    if (action.submit) {
+      const btn =
+        root.querySelector('[type="submit"]') ||
+        [...root.querySelectorAll("button")].find((b) =>
+          /submit|send|continue|apply|sign in/i.test(labelFor(b))
+        );
+      if (btn) {
+        highlight(btn);
+        robustClick(btn);
+      }
+    }
+    return { ok: filled.length > 0, filled };
+  }
+
+  function executeDismissDialog(action) {
+    const wanted = String(action.button || action.name || "").trim().toLowerCase();
+    const dismissRe = /cancel|close|dismiss|not now|no thanks|skip|×|✕/i;
+    const dialogs = [...document.querySelectorAll('[role="dialog"], [aria-modal="true"]')].filter(
+      isVisible
+    );
+    const scope = dialogs[0] || document;
+    const buttons = [...scope.querySelectorAll("button, [role='button']")].filter(isVisible);
+    let target = null;
+    if (wanted) {
+      target = buttons.find((b) => labelFor(b).toLowerCase().includes(wanted));
+    }
+    if (!target) target = buttons.find((b) => dismissRe.test(labelFor(b).trim()));
+    if (target) {
+      highlight(target);
+      robustClick(target);
+      return { ok: true, clicked: labelFor(target) };
+    }
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true, cancelable: true })
+    );
+    return { ok: true, method: "escape" };
+  }
+
+  function executeChooseMenuItem(action) {
+    const path = Array.isArray(action.path)
+      ? action.path.map(String).filter(Boolean)
+      : action.name
+        ? [String(action.name)]
+        : [];
+    if (!path.length) throw new Error("choose_menu_item requires path or name");
+    const clicked = [];
+    for (const segment of path) {
+      const wanted = segment.toLowerCase().trim();
+      let hit = null;
+      for (const menu of [...document.querySelectorAll('[role="menu"]')].filter(isVisible)) {
+        for (const el of menu.querySelectorAll(
+          '[role="menuitem"], [role="menuitemcheckbox"], [role="menuitemradio"]'
+        )) {
+          if (!isVisible(el)) continue;
+          const name = labelFor(el).toLowerCase();
+          if (name === wanted || name.includes(wanted) || wanted.includes(name)) {
+            hit = el;
+            break;
+          }
+        }
+        if (hit) break;
+      }
+      if (!hit) return { ok: false, error: "MENU_ITEM_NOT_FOUND", segment, path: clicked };
+      highlight(hit);
+      robustClick(hit);
+      clicked.push(labelFor(hit));
+    }
+    return { ok: true, path: clicked };
+  }
+
   async function execute(action) {
     switch (action.type) {
       case "click": {
@@ -874,6 +974,15 @@
       }
       case "solve_captcha": {
         return injectCaptchaSolution(action);
+      }
+      case "fill_form": {
+        return executeFillForm(action);
+      }
+      case "dismiss_dialog": {
+        return executeDismissDialog(action);
+      }
+      case "choose_menu_item": {
+        return executeChooseMenuItem(action);
       }
       default:
         throw new Error(`Content script cannot run action: ${action.type}`);

@@ -11,6 +11,7 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
+import { TrajectoryPanel } from "../components/TrajectoryPanel.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -151,7 +152,7 @@ export function ChatDetailPage() {
 
   /** Screen + snapshot + goal — always visible together (grid rows, no outer scroll). */
   const stickyAgentStack = (
-    <div className="grid min-h-0 flex-1 grid-rows-[minmax(7.5rem,1fr)_minmax(5rem,0.4fr)_auto] gap-2">
+    <div className="grid min-h-0 flex-1 grid-rows-[minmax(7.5rem,1fr)_minmax(5rem,0.35fr)_auto_auto] gap-2">
       <div className="flex min-h-0 flex-col overflow-hidden">
         <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
           <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
@@ -176,6 +177,8 @@ export function ChatDetailPage() {
       </div>
 
       <PageSnapshotPanel events={snapshotEvents} compact className="min-h-0" />
+
+      <TrajectoryPanel task={snapshotTask} className="shrink-0" />
 
       <div className="flex shrink-0 flex-col gap-2">
         {waitingTask ? (

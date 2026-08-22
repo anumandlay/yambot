@@ -113,3 +113,53 @@ export function formatSkillBlock(skill) {
   }
   return lines.join("\n");
 }
+
+/**
+ * Estimates which skill step the agent is on from history + page.
+ * @param {SkillTemplate|null} skill
+ * @param {object[]} history
+ * @param {object} [obs]
+ * @returns {{ current: number, total: number, label: string }|null}
+ */
+export function computeSkillProgress(skill, history, obs) {
+  if (!skill?.steps?.length) return null;
+  const total = skill.steps.length;
+  let score = 0;
+  const types = new Set((history || []).map((h) => h.action?.type).filter(Boolean));
+  const url = String(obs?.url || "").toLowerCase();
+
+  if (skill.id === "login") {
+    if (/login|signin|auth|account/.test(url)) score = 1;
+    if (types.has("fill_form") || types.has("type")) score = Math.max(score, 2);
+    if (types.has("click") && history.some((h) => /sign|log|continue/i.test(h.action?.name || ""))) {
+      score = Math.max(score, 3);
+    }
+    if (types.has("finish")) score = total;
+  } else if (skill.id === "shopping") {
+    if (/cart|basket|bag|checkout/.test(url)) score = 1;
+    if (types.has("click") && history.some((h) => /checkout|proceed/i.test(h.action?.name || ""))) {
+      score = Math.max(score, 2);
+    }
+    if (types.has("fill_form")) score = Math.max(score, 3);
+    if (types.has("finish")) score = total;
+  } else if (skill.id === "email") {
+    if (/mail|compose|inbox/.test(url)) score = 1;
+    if (types.has("type") || types.has("fill_form") || types.has("send_email")) score = 2;
+    if (types.has("finish")) score = total;
+  } else if (skill.id === "research") {
+    score = Math.min(total - 1, Math.floor((history?.length || 0) / 4));
+    if (types.has("finish")) score = total;
+  }
+
+  const current = Math.min(Math.max(score, 1), total);
+  return { current, total, label: skill.steps[current - 1] || skill.steps[0] };
+}
+
+/**
+ * @param {{ current: number, total: number, label: string }|null} progress
+ * @returns {string}
+ */
+export function formatSkillProgressBlock(progress) {
+  if (!progress) return "";
+  return `SKILL PROGRESS: step ${progress.current}/${progress.total} — ${progress.label}`;
+}

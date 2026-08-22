@@ -8,6 +8,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
+import { SiteProfilesPanel } from "../components/SiteProfilesPanel.jsx";
 
 const EMPTY = {
   name: "",
@@ -780,6 +781,8 @@ export function AgentEditPage() {
             </div>
           </div>
         ) : null}
+
+        {!isNew ? <SiteProfilesPanel agentId={agentId} /> : null}
 
         <div className="flex flex-wrap gap-2">
           <button

@@ -579,6 +579,11 @@ export function createAgentController({ emit }) {
         }
         return sendToContent(state.tabId, "EXECUTE", { action: enrichLocatorAction(action, obs) });
       }
+      case "fill_form":
+      case "dismiss_dialog":
+      case "choose_menu_item": {
+        return sendToContent(state.tabId, "EXECUTE", { action });
+      }
       default:
         throw new Error(`Unhandled action: ${action.type}`);
     }

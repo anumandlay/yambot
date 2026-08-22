@@ -47,6 +47,8 @@ import {
   runChooseMenuItem,
   detectSkill,
   formatSkillBlock,
+  computeSkillProgress,
+  formatSkillProgressBlock,
   extractDomain,
   buildTrajectory,
   formatSiteHintsBlock,
@@ -835,6 +837,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
 
         const skillBlock = formatSkillBlock(activeSkill);
+        const skillProgressBlock = formatSkillProgressBlock(
+          computeSkillProgress(activeSkill, history, obs)
+        );
         const siteHintsBlock = formatSiteHintsBlock(siteProfile);
 
         const messages = [
@@ -846,6 +851,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "There is no step limit — keep working until the goal is met, then call finish.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
               skillBlock,
+              skillProgressBlock,
               siteHintsBlock,
               visionAttached
                 ? "A viewport screenshot is attached — correlate refs with visible UI."

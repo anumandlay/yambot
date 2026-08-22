@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 14:40] Feature: Phase 5 UI + extension macro parity + skill progress
+
+- **Prompt Provided:** continue Phase 5 — site profile UI, trajectory replay, skill step progress, extension macro execution
+- **Architectural Flow:** `/api/agents/:id/site-profiles` CRUD for dashboard; `SiteProfilesPanel` on agent edit; `TrajectoryPanel` in chat rail (stored trajectory or live step events); `computeSkillProgress` in LLM prompt; extension `content.js` implements fill_form/dismiss_dialog/choose_menu_item
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/agents.js`, `frontend/src/components/{SiteProfilesPanel,TrajectoryPanel}.jsx`, `frontend/src/pages/{AgentEditPage,ChatDetailPage}.jsx`, `worker/src/browserState/skills.js`, `worker/src/agent.js`, `extension/content/content.js`, `extension/background/agent.js`
+
 ## [2026-08-22 14:35] Feature: Phase 4 macros + Phase 5 learn layer (site memory, trajectories, skills)
 
 - **Prompt Provided:** complete Phase 4 leftovers (fill_form, dismiss_dialog, choose_menu_item) and start Phase 5 (site memory, trajectories, skill templates)

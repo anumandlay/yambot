@@ -20,6 +20,7 @@ import {
   sendAgentEmail,
   checkAgentInbox,
 } from "../utils/agentEmail.js";
+import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 
 export const agentsRouter = Router();
 
@@ -597,6 +598,81 @@ agentsRouter.delete("/:id/memory", async (req, res, next) => {
     agent.memory = [];
     await agent.save();
     res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/agents/:id/site-profiles — list per-domain hints for dashboard editing.
+ */
+agentsRouter.get("/:id/site-profiles", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const docs = await SiteProfile.find({ agent: agent._id, user: req.userId })
+      .sort({ lastVisitedAt: -1 })
+      .limit(40);
+    res.json({
+      ok: true,
+      profiles: docs.map((d) => toSiteProfileSnapshot(d)),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/site-profiles/:domain/hints — manual hint from dashboard.
+ */
+agentsRouter.post("/:id/site-profiles/:domain/hints", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const domain = String(req.params.domain || "")
+      .trim()
+      .toLowerCase();
+    if (!domain) {
+      res.status(400).json({ ok: false, detail: "domain required" });
+      return;
+    }
+    let profile = await SiteProfile.findOne({ agent: agent._id, domain });
+    if (!profile) {
+      profile = new SiteProfile({ user: req.userId, agent: agent._id, domain });
+    }
+    appendSiteHint(profile, {
+      kind: req.body?.kind || "note",
+      content: String(req.body?.content || ""),
+    });
+    profile.lastVisitedAt = new Date();
+    await profile.save();
+    res.json({ ok: true, profile: toSiteProfileSnapshot(profile) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/site-profiles/:domain — remove site memory for a domain.
+ */
+agentsRouter.delete("/:id/site-profiles/:domain", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const domain = String(req.params.domain || "")
+      .trim()
+      .toLowerCase();
+    await SiteProfile.deleteOne({ agent: agent._id, user: req.userId, domain });
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

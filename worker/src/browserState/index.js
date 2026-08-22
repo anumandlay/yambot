@@ -35,7 +35,13 @@ export {
 export { listTabs, switchTab, openTab } from "./tabs.js";
 export { observePageFull, parseFrameRef, getPlaywrightFrame } from "./observe.js";
 export { runFillForm, runDismissDialog, runChooseMenuItem } from "./macros.js";
-export { detectSkill, formatSkillBlock, SKILL_TEMPLATES } from "./skills.js";
+export {
+  detectSkill,
+  formatSkillBlock,
+  computeSkillProgress,
+  formatSkillProgressBlock,
+  SKILL_TEMPLATES,
+} from "./skills.js";
 export {
   extractDomain,
   buildTrajectory,
