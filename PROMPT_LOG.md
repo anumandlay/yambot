@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 10:20] Perf: faster agent steps (captcha, no 600ms pause, no full-page shots)
+
+- **Prompt Provided:** yes — (1) captcha: try DeathByCaptcha then ask user to take control; (2) remove 600ms step pause; (3) no full-page screenshots during agent loop
+- **Architectural Flow:** Instant captcha detect via DOM (no 8s waitForSelector per step); DBC attempt then human handoff; drop post-step sleep; heartbeats skip JPEG on agent steps, viewport-only when idle
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `extension/background/agent.js`
+
 ## [2026-08-22 09:15] Fix: Take control noVNC mouse/keyboard not working
 
 - **Prompt Provided:** when i take control, i am not able to move my mouse and type keyboard

@@ -134,8 +134,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
-   * Captures a JPEG, posts heartbeat, and applies any dashboard takeover commands.
-   * @param {{ taskId?: string|null }} [opts]
+   * Posts heartbeat (optional viewport JPEG) and applies dashboard takeover commands.
+   * @param {{ taskId?: string|null, screenshot?: boolean }} [opts]
    */
   async function pushLiveScreen(opts = {}) {
     await ensureBrowser();
@@ -147,47 +147,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
       pageUrl = "";
     }
     let screenshotBase64 = "";
-    let shotW = config.viewportWidth || 1280;
-    let shotH = config.viewportHeight || 800;
+    const vw = config.viewportWidth || 1280;
+    const vh = config.viewportHeight || 800;
+    let shotW = vw;
+    let shotH = vh;
+    const wantScreenshot = opts.screenshot !== false && !remoteHumanControl;
     // Why: Playwright screenshots during Take control steal X focus and fight noVNC input.
-    if (!remoteHumanControl) {
+    if (wantScreenshot) {
       try {
-        // Why: full-page capture so the dashboard shows the whole scrollable page, not only the viewport.
-        const metrics = await page.evaluate(() => {
-          const de = document.documentElement;
-          const body = document.body;
-          return {
-            w: Math.max(de?.scrollWidth || 0, body?.scrollWidth || 0, window.innerWidth || 0),
-            h: Math.max(de?.scrollHeight || 0, body?.scrollHeight || 0, window.innerHeight || 0),
-            vw: window.innerWidth || 1280,
-            vh: window.innerHeight || 800,
-          };
-        });
-        // Why: cap height so Mongo + heartbeat stay under size limits on infinite-scroll sites.
-        const maxH = 10000;
-        shotW = Math.max(1, Math.ceil(Math.min(metrics.w, metrics.vw * 2)));
-        shotH = Math.max(1, Math.ceil(Math.min(metrics.h, maxH)));
-        const buf = await page.screenshot({
-          type: "jpeg",
-          quality: 36,
-          clip: { x: 0, y: 0, width: shotW, height: shotH },
-        });
+        const buf = await page.screenshot({ type: "jpeg", quality: 42, fullPage: false });
         screenshotBase64 = Buffer.from(buf).toString("base64");
-        lastShotSize = { w: shotW, h: shotH };
+        lastShotSize = { w: vw, h: vh };
+        shotW = vw;
+        shotH = vh;
       } catch (err) {
         log(`[${config.workerName}] screenshot failed:`, err?.message || err);
-        try {
-          const buf = await page.screenshot({ type: "jpeg", quality: 50, fullPage: false });
-          screenshotBase64 = Buffer.from(buf).toString("base64");
-          lastShotSize = {
-            w: config.viewportWidth || 1280,
-            h: config.viewportHeight || 800,
-          };
-          shotW = lastShotSize.w;
-          shotH = lastShotSize.h;
-        } catch {
-          /* ignore */
-        }
       }
     }
     const data = await api("/api/extension/computer/heartbeat", {
@@ -199,11 +173,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
         taskId: opts.taskId || null,
         screenshotBase64,
         mime: screenshotBase64 ? "image/jpeg" : "",
-        viewportWidth: config.viewportWidth || 1280,
-        viewportHeight: config.viewportHeight || 800,
+        viewportWidth: vw,
+        viewportHeight: vh,
         screenshotWidth: shotW,
         screenshotHeight: shotH,
-        fullPage: true,
+        fullPage: false,
       }),
     });
     const commands = Array.isArray(data?.commands) ? data.commands : [];
@@ -248,28 +222,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const vw = config.viewportWidth || 1280;
     const vh = config.viewportHeight || 800;
     if (cmd.type === "click") {
-      const shotW = lastShotSize.w || vw;
-      const shotH = lastShotSize.h || vh;
-      const docX = Number(cmd.xNorm) * shotW;
-      const docY = Number(cmd.yNorm) * shotH;
-      // Why: full-page shots include scrolled content — scroll the target into the viewport first.
-      await page.evaluate(
-        ({ docX: x, docY: y }) => {
-          const left = Math.max(0, x - window.innerWidth / 2);
-          const top = Math.max(0, y - window.innerHeight / 2);
-          window.scrollTo({ left, top, behavior: "instant" });
-        },
-        { docX, docY }
-      );
-      await sleep(60);
-      const scroll = await page.evaluate(() => ({
-        x: window.scrollX || 0,
-        y: window.scrollY || 0,
-      }));
-      const x = Math.round(docX - scroll.x);
-      const y = Math.round(docY - scroll.y);
-      await page.mouse.click(x, y);
-      log(`[${config.workerName}] remote click doc=${Math.round(docX)},${Math.round(docY)} → ${x},${y}`);
+      const x = Math.round(Number(cmd.xNorm) * vw);
+      const y = Math.round(Number(cmd.yNorm) * vh);
+      await page.mouse.click(x, y, { delay: 40 });
+      log(`[${config.workerName}] remote click viewport ${x},${y}`);
       return;
     }
     if (cmd.type === "type") {
@@ -313,18 +269,100 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
-   * Why: SPAs (e.g. Vughy) render reCAPTCHA explicitly after JS boot — observing too early misses sitekey.
+   * SPAs may paint reCAPTCHA after first paint — poll briefly for sitekey only when captcha signals exist.
+   * @param {number} [maxMs]
    */
-  async function waitForCaptchaWidget(timeoutMs = 10000) {
-    try {
-      await page.waitForSelector(
-        "iframe[src*='recaptcha'], iframe[src*='hcaptcha'], .g-recaptcha, .captcha-recaptcha, [data-sitekey], .h-captcha",
-        { timeout: timeoutMs }
-      );
-      await sleep(600);
-    } catch {
-      /* page has no captcha widget */
+  async function waitForCaptchaSitekey(maxMs = 2500) {
+    const start = Date.now();
+    while (Date.now() - start < maxMs) {
+      const meta = await page.evaluate(captchaMetaInPage);
+      if (meta.recaptchaSitekey || meta.hcaptchaSitekey) return meta;
+      const obs = await page.evaluate(observeInPage);
+      if (!obs.captcha?.present) return meta;
+      await sleep(200);
     }
+    return page.evaluate(captchaMetaInPage);
+  }
+
+  /**
+   * When a CAPTCHA is visible: try DeathByCaptcha, then ask the user to Take control.
+   * @returns {Promise<{ handled: boolean, obs: object, captchaMeta: object }>}
+   */
+  async function handleCaptchaIfPresent(taskId, settings, notes) {
+    let obs = await page.evaluate(observeInPage);
+    let captchaMeta = await page.evaluate(captchaMetaInPage);
+    let sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
+
+    if (obs.captcha?.present && !sitekey) {
+      captchaMeta = await waitForCaptchaSitekey(2500);
+      sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
+    }
+
+    const captchaVisible = Boolean(obs.captcha?.present || sitekey);
+    if (!captchaVisible) {
+      return { handled: false, obs, captchaMeta };
+    }
+
+    const canAutoSolve =
+      Boolean(sitekey) && Boolean(settings.dbcUsername) && Boolean(settings.dbcPassword);
+
+    if (canAutoSolve) {
+      await mirror(taskId, "captcha", {
+        appendMessage: "Solving CAPTCHA with DeathByCaptcha…",
+      });
+      log(`[${config.workerName}] Solving CAPTCHA via DBC (sitekey present)`);
+      const reportProgress = async (msg) => {
+        log(`[${config.workerName}] ${msg}`);
+        await mirror(taskId, "captcha", { appendMessage: msg }).catch(() => {});
+        await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+      };
+      const solved = await solveCaptchaWithDbc(
+        { username: settings.dbcUsername, password: settings.dbcPassword },
+        captchaMeta,
+        { onProgress: (msg) => void reportProgress(msg) }
+      );
+      if (solved.kind === "token") {
+        await page.evaluate(executeInPage, {
+          type: "solve_captcha",
+          token: solved.token,
+        });
+        notes.push("CAPTCHA solved via DeathByCaptcha; continuing.");
+        await mirror(taskId, "captcha", {
+          appendMessage: "CAPTCHA solved via DeathByCaptcha.",
+        });
+        await sleep(300);
+        obs = await page.evaluate(observeInPage);
+        captchaMeta = await page.evaluate(captchaMetaInPage);
+        const stillVisible = Boolean(
+          obs.captcha?.present || captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey
+        );
+        if (!stillVisible) {
+          return { handled: true, obs, captchaMeta };
+        }
+        notes.push("CAPTCHA still visible after DeathByCaptcha token — handing off to user.");
+      } else {
+        const failMsg =
+          solved.error || solved.hint || "DeathByCaptcha could not solve this CAPTCHA.";
+        await mirror(taskId, "captcha", {
+          appendMessage: `DeathByCaptcha failed: ${failMsg}`,
+        });
+        notes.push(`DeathByCaptcha failed: ${failMsg}`);
+      }
+    }
+
+    const sig = (obs.captcha?.signals || []).join(",") || "detected";
+    const handoffMsg = canAutoSolve
+      ? "DeathByCaptcha could not solve this CAPTCHA. Open the live screen → Take control, solve it, Give control back, then reply continue."
+      : sitekey
+        ? "CAPTCHA detected but DeathByCaptcha is not configured in Settings. Take control on the live screen, solve it, then reply continue."
+        : `CAPTCHA / bot check (${sig}). Open the live screen → Take control, solve it, Give control back, then reply continue.`;
+
+    log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
+    await waitForUserAnswer(taskId, handoffMsg);
+    notes.push(`User continued after CAPTCHA handoff (${sig}).`);
+    obs = await page.evaluate(observeInPage);
+    captchaMeta = await page.evaluate(captchaMetaInPage);
+    return { handled: true, obs, captchaMeta };
   }
 
   function formatObservation(obs) {
@@ -423,7 +461,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         throw Object.assign(new Error("Stopped by user"), { cancelled: true });
       }
       // Why: while waiting (e.g. CAPTCHA), keep draining mouse/keyboard takeover commands.
-      const status = await pushLiveScreen({ taskId }).catch(() => ({ humanControl: false }));
+      const status = await pushLiveScreen({ taskId, screenshot: false }).catch(() => ({
+        humanControl: false,
+      }));
       await sleep(status?.humanControl ? 800 : 2000);
       const data = await api(`/api/extension/tasks/${taskId}`);
       if (data.task?.status === "cancelled") {
@@ -454,8 +494,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const agentSnapshot = task.agentSnapshot || null;
     const notes = [];
     const history = [];
-    /** Avoid re-billing DBC every step; tokens expire ~2m so allow re-solve after 90s. */
-    let lastCaptchaSolveAt = 0;
 
     try {
       await ensureBrowser();
@@ -483,9 +521,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
               payload: payload || {},
               appendMessage: msg,
             }).catch(() => {});
-            await pushLiveScreen({ taskId }).catch(() => {});
+            await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
           },
-          onLive: () => pushLiveScreen({ taskId }),
+          onLive: () => pushLiveScreen({ taskId, screenshot: false }),
         });
 
         if (await isTaskCancelled(taskId)) {
@@ -552,79 +590,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
           return;
         }
         await waitWhileHumanControl({ taskId });
-        await pushLiveScreen({ taskId }).catch(() => {});
-        await waitForCaptchaWidget(8000);
-        const obs = await page.evaluate(observeInPage);
-        const captchaMeta = await page.evaluate(captchaMetaInPage);
-        const sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
-        const captchaVisible = Boolean(obs.captcha?.present || sitekey);
-
-        // Why: do not wait for the LLM — auto-solve Google/hCaptcha via DBC, or hand off image captchas.
-        if (captchaVisible) {
-          if (!sitekey) {
-            const sig = (obs.captcha?.signals || []).join(",") || "detected";
-            log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
-            await waitForUserAnswer(
-              taskId,
-              `CAPTCHA / bot check (${sig}). Open the live screen → Take control, solve it, Give control back, then reply continue.`
-            );
-            notes.push(`User continued after CAPTCHA handoff (${sig}).`);
-            continue;
-          }
-
-          if (!settings.dbcUsername || !settings.dbcPassword) {
-            await waitForUserAnswer(
-              taskId,
-              "Google CAPTCHA detected but DeathByCaptcha is not configured in Settings. Take control on the live screen, solve it, then reply continue."
-            );
-            notes.push("User continued after CAPTCHA (DBC not configured).");
-            continue;
-          }
-
-          if (Date.now() - lastCaptchaSolveAt > 90000) {
-            await mirror(taskId, "captcha", {
-              appendMessage: "Solving Google CAPTCHA with DeathByCaptcha…",
-            });
-            log(`[${config.workerName}] Solving CAPTCHA via DBC (sitekey present)`);
-            const reportProgress = async (msg) => {
-              log(`[${config.workerName}] ${msg}`);
-              await mirror(taskId, "captcha", { appendMessage: msg }).catch(() => {});
-              await pushLiveScreen({ taskId }).catch(() => {});
-            };
-            const solved = await solveCaptchaWithDbc(
-              { username: settings.dbcUsername, password: settings.dbcPassword },
-              captchaMeta,
-              { onProgress: (msg) => void reportProgress(msg) }
-            );
-            if (solved.kind === "token") {
-              await page.evaluate(executeInPage, {
-                type: "solve_captcha",
-                token: solved.token,
-              });
-              lastCaptchaSolveAt = Date.now();
-              notes.push("CAPTCHA solved via DeathByCaptcha; continuing login.");
-              await mirror(taskId, "captcha", {
-                appendMessage: "CAPTCHA solved via DeathByCaptcha.",
-              });
-              await sleep(800);
-              continue;
-            }
-            const failMsg =
-              solved.error ||
-              solved.hint ||
-              "DeathByCaptcha could not solve this CAPTCHA.";
-            await mirror(taskId, "captcha", {
-              appendMessage: `DeathByCaptcha failed: ${failMsg}`,
-            });
-            await waitForUserAnswer(
-              taskId,
-              solved.hint ||
-                "DeathByCaptcha could not solve this CAPTCHA. Take control on the live screen, solve it, then reply continue."
-            );
-            notes.push(`User continued after DBC failure: ${solved.error || ""}`);
-            continue;
-          }
-        }
+        await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+        const captchaGate = await handleCaptchaIfPresent(taskId, settings, notes);
+        if (captchaGate.handled) continue;
+        const obs = captchaGate.obs;
 
         const messages = [
           {
@@ -755,8 +724,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           return;
         }
-
-        await sleep(600);
       }
     } catch (err) {
       if (err?.cancelled || /stopped by user/i.test(String(err?.message || ""))) {
@@ -800,7 +767,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
           throw new Error(`Invalid navigate URL: ${action.url}`);
         }
         await page.goto(action.url, { waitUntil: "domcontentloaded", timeout: 60000 });
-        await waitForCaptchaWidget(12000);
         return { ok: true, navigated: action.url };
       }
       case "wait": {

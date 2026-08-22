@@ -271,14 +271,7 @@ export function createAgentController({ emit }) {
         state.notes.push(`User continued after CAPTCHA handoff (${sig}): ${answer}`);
         return { ok: true, captchaHandoff: true, userAnswer: answer };
       }
-      if (!settings.dbcUsername || !settings.dbcPassword) {
-        const answer = await waitForUser(
-          "Google CAPTCHA detected but DeathByCaptcha is not configured. Solve it in the tab, then reply continue."
-        );
-        state.notes.push(`User continued after CAPTCHA (no DBC): ${answer}`);
-        return { ok: true, captchaHandoff: true, userAnswer: answer };
-      }
-      if (Date.now() - (state.lastCaptchaSolveAt || 0) > 90000) {
+      if (settings.dbcUsername && settings.dbcPassword) {
         broadcast("agent:captcha", { status: "solving" });
         const solved = await solveCaptchaWithDbc(
           { username: settings.dbcUsername, password: settings.dbcPassword },
@@ -310,6 +303,11 @@ export function createAgentController({ emit }) {
         state.notes.push(`User continued after DBC failure: ${answer}`);
         return { ok: true, captchaHandoff: true, userAnswer: answer };
       }
+      const answer = await waitForUser(
+        "Google CAPTCHA detected but DeathByCaptcha is not configured. Solve it in the tab, then reply continue."
+      );
+      state.notes.push(`User continued after CAPTCHA (no DBC): ${answer}`);
+      return { ok: true, captchaHandoff: true, userAnswer: answer };
     }
 
     const agentBlock = formatAgentSnapshot(state.agentSnapshot);
@@ -690,9 +688,6 @@ export function createAgentController({ emit }) {
           });
           return;
         }
-
-        // Let SPA navigations settle
-        await sleep(600);
       }
 
       if (abort) {
