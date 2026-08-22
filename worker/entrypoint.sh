@@ -5,6 +5,10 @@ set -euo pipefail
 
 export DISPLAY="${DISPLAY:-:99}"
 export YAMBOT_HEADED="${YAMBOT_HEADED:-1}"
+# Why: silence "Google API keys are missing" infobar in headed Chromium on noVNC.
+export GOOGLE_API_KEY="${GOOGLE_API_KEY:-no}"
+export GOOGLE_DEFAULT_CLIENT_ID="${GOOGLE_DEFAULT_CLIENT_ID:-no}"
+export GOOGLE_DEFAULT_CLIENT_SECRET="${GOOGLE_DEFAULT_CLIENT_SECRET:-no}"
 
 VNC_PORT="${YAMBOT_VNC_PORT:-5900}"
 NOVNC_PORT="${YAMBOT_NOVNC_PORT:-6080}"

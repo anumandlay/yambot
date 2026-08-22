@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 09:00] UX: hide Chromium infobars on live screen (no-sandbox + Google API keys)
+
+- **Prompt Provided:** unsupported command-line flag no sandbox + google api keys are missing banners in live screen browser
+- **Architectural Flow:** Headed worker Chromium adds `--test-type` (suppresses no-sandbox warning) and sets GOOGLE_* env to `no` so Playwright Chromium does not show the API-keys infobar on noVNC
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/entrypoint.sh`, `deploy/Dockerfile.worker`
+
 ## [2026-08-22 08:55] Fix: Settings LLM changes reset after save/deploy
 
 - **Prompt Provided:** i am updating new llm but its not getting udpated why ?

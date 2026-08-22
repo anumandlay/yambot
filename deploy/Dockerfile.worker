@@ -35,6 +35,9 @@ RUN chmod +x /app/entrypoint.sh
 ENV NODE_ENV=production \
     DISPLAY=:99 \
     YAMBOT_HEADED=1 \
+    GOOGLE_API_KEY=no \
+    GOOGLE_DEFAULT_CLIENT_ID=no \
+    GOOGLE_DEFAULT_CLIENT_SECRET=no \
     YAMBOT_PROFILE_DIR=/data/browser-profile \
     YAMBOT_EXTENSION_DIR=/app/extension \
     YAMBOT_LOAD_EXTENSION=1 \

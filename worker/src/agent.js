@@ -35,7 +35,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
     if (context && page && !page.isClosed()) return;
     fs.mkdirSync(config.profileDir, { recursive: true });
 
-    const args = ["--no-sandbox", "--disable-dev-shm-usage", "--disable-gpu"];
+    const args = [
+      "--no-sandbox",
+      "--disable-dev-shm-usage",
+      "--disable-gpu",
+      // Why: headed noVNC shows Chromium's "unsupported command-line flag" banner for --no-sandbox.
+      ...(config.headed ? ["--test-type"] : []),
+    ];
     const extDir = config.extensionDir;
     const extManifest = extDir ? path.join(extDir, "manifest.json") : "";
     const canLoadExt =
@@ -63,7 +69,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
           : []),
       ],
       colorScheme: "light",
-      ...(config.headed ? { env: { ...process.env, DISPLAY: process.env.DISPLAY || ":99" } } : {}),
+      ...(config.headed
+        ? {
+            env: {
+              ...process.env,
+              DISPLAY: process.env.DISPLAY || ":99",
+              // Why: Playwright Chromium has no Google keys; suppress the yellow infobar on live screen.
+              GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || "no",
+              GOOGLE_DEFAULT_CLIENT_ID: process.env.GOOGLE_DEFAULT_CLIENT_ID || "no",
+              GOOGLE_DEFAULT_CLIENT_SECRET: process.env.GOOGLE_DEFAULT_CLIENT_SECRET || "no",
+            },
+          }
+        : {}),
     });
     page = context.pages()[0] || (await context.newPage());
     // Why: no default website — stay on about:blank unless YAMBOT_START_URL or agent startUrl is set.
