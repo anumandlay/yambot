@@ -1,7 +1,7 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
- * Purpose: Left thread sticks to the latest live text; right rail keeps screen + goal sticky.
- * On mobile, screen + goal stay sticky at the bottom. Stop cancels the active run.
+ * Purpose: Left thread scrolls; right rail keeps screen + snapshot + goal visible in one column.
+ * On mobile, the same three blocks stay fixed at the bottom in a viewport grid.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -149,80 +149,88 @@ export function ChatDetailPage() {
     }
   }
 
+  /** Screen + snapshot + goal — always visible together (grid rows, no outer scroll). */
+  const stickyAgentStack = (
+    <div className="grid min-h-0 flex-1 grid-rows-[minmax(7.5rem,1fr)_minmax(5rem,0.4fr)_auto] gap-2">
+      <div className="flex min-h-0 flex-col overflow-hidden">
+        <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
+          <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
+          {activeRun ? (
+            <button
+              type="button"
+              onClick={stopAgent}
+              disabled={stopping}
+              className="inline-flex min-h-9 items-center rounded-xl bg-red-600 px-3 text-xs font-bold text-white disabled:opacity-50 lg:min-h-11 lg:px-4 lg:text-sm"
+            >
+              {stopping ? "Stopping…" : "Stop"}
+            </button>
+          ) : null}
+        </div>
+        {agentId ? (
+          <LiveScreen agentId={String(agentId)} fill compact className="min-h-0 flex-1" />
+        ) : (
+          <p className="flex min-h-0 flex-1 items-center rounded-2xl border border-dashed border-teal-200 bg-white p-3 text-sm text-teal-900/70">
+            No agent bound — no cloud screen.
+          </p>
+        )}
+      </div>
+
+      <PageSnapshotPanel events={snapshotEvents} compact className="min-h-0" />
+
+      <div className="flex shrink-0 flex-col gap-2">
+        {waitingTask ? (
+          <form
+            onSubmit={sendAnswer}
+            className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 sm:p-3"
+          >
+            <p className="text-xs font-semibold text-amber-950 sm:text-sm">
+              Agent is waiting for your answer
+            </p>
+            <input
+              className="min-h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-sm"
+              value={answer}
+              onChange={(e) => setAnswer(e.target.value)}
+              placeholder="Type your reply…"
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className="min-h-10 w-full rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Send answer
+            </button>
+          </form>
+        ) : null}
+
+        <form onSubmit={sendGoal} className="flex flex-col gap-2">
+          <textarea
+            className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
+            placeholder="Goal / instructions…"
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            rows={3}
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Sending…" : activeRun ? "Queue goal" : "Send goal"}
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+
   const controlPanel = (
-    <div className="flex min-h-0 w-full flex-col gap-2 lg:flex-1 lg:gap-3">
+    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden lg:gap-3">
       <AgentTaskQueue
         chatId={chatId}
         agentQueue={agentQueue}
         onChanged={load}
         onError={setError}
       />
-
-      <div className="flex shrink-0 items-center justify-between gap-2">
-        <h2 className="text-sm font-semibold text-teal-900/80">Agent screen</h2>
-        {activeRun ? (
-          <button
-            type="button"
-            onClick={stopAgent}
-            disabled={stopping}
-            className="inline-flex min-h-11 items-center rounded-xl bg-red-600 px-4 text-sm font-bold text-white disabled:opacity-50"
-          >
-            {stopping ? "Stopping…" : "Stop"}
-          </button>
-        ) : null}
-      </div>
-
-      {agentId ? (
-        <LiveScreen
-          agentId={String(agentId)}
-          fill
-          className="min-h-[36vh] flex-1 lg:min-h-0"
-        />
-      ) : (
-        <p className="rounded-2xl border border-dashed border-teal-200 bg-white p-4 text-sm text-teal-900/70">
-          This chat has no agent bound, so there is no cloud screen to show.
-        </p>
-      )}
-
-      <PageSnapshotPanel events={snapshotEvents} className="shrink-0" />
-
-      {waitingTask ? (
-        <form
-          onSubmit={sendAnswer}
-          className="flex shrink-0 flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-3"
-        >
-          <p className="text-sm font-semibold text-amber-950">Agent is waiting for your answer</p>
-          <input
-            className="min-h-11 w-full rounded-xl border border-amber-200 bg-white px-3"
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            placeholder="Type your reply…"
-          />
-          <button
-            type="submit"
-            disabled={busy}
-            className="min-h-11 w-full rounded-xl bg-amber-700 px-4 font-semibold text-white disabled:opacity-50"
-          >
-            Send answer
-          </button>
-        </form>
-      ) : null}
-
-      <form onSubmit={sendGoal} className="flex shrink-0 flex-col gap-2">
-        <textarea
-          className="min-h-20 w-full rounded-2xl border border-teal-100 bg-white px-3 py-3 text-base shadow-sm lg:min-h-24"
-          placeholder="Goal / instructions…"
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-        />
-        <button
-          type="submit"
-          disabled={busy}
-          className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-        >
-          {busy ? "Sending…" : activeRun ? "Queue goal" : "Send goal"}
-        </button>
-      </form>
+      {stickyAgentStack}
     </div>
   );
 
@@ -285,12 +293,11 @@ export function ChatDetailPage() {
         </div>
       ) : null}
 
-      {/* Why: left thread scrolls to latest live text; right rail stays sticky with screen + goal. */}
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(20rem,24rem)] lg:items-stretch lg:gap-5">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
         <div
           ref={threadRef}
           onScroll={onThreadScroll}
-          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4 lg:max-h-full"
+          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
         >
           {messages.length === 0 ? (
             <p className="text-sm text-teal-900/60">No messages yet. Send a goal on the right.</p>
@@ -313,23 +320,19 @@ export function ChatDetailPage() {
           <div ref={bottomRef} className="h-px w-full shrink-0" />
         </div>
 
-        <aside className="hidden min-h-0 lg:sticky lg:top-0 lg:flex lg:max-h-full lg:flex-col lg:overflow-hidden lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
+        <aside className="hidden min-h-0 overflow-hidden lg:sticky lg:top-3 lg:flex lg:max-h-[calc(100dvh-5.5rem)] lg:flex-col lg:self-start lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
           {controlPanel}
         </aside>
       </div>
 
       {/* Why: reserve scroll room so the fixed mobile dock does not cover the last messages. */}
-      <div className="h-[min(52dvh,26rem)] shrink-0 lg:hidden" aria-hidden />
+      <div className="h-[min(68dvh,30rem)] shrink-0 lg:hidden" aria-hidden />
 
-      {/* Why: fixed to the viewport (not sticky inside padded page) so no body-gradient strip
-          peeks under the goal box; safe-area is padding on this same opaque surface. */}
       <div
-        className="fixed inset-x-0 bottom-0 z-30 flex max-h-[55dvh] flex-col overflow-hidden border-t border-teal-100 bg-[var(--yb-bg)] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid max-h-[min(68dvh,calc(100dvh-env(safe-area-inset-bottom,0px)-3rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden border-t border-teal-100 bg-[var(--yb-bg)] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] lg:hidden"
         style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
       >
-        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto px-3 pt-2 pb-2">
-          {controlPanel}
-        </div>
+        <div className="min-h-0 overflow-hidden px-3 pt-2 pb-2">{controlPanel}</div>
       </div>
     </div>
   );

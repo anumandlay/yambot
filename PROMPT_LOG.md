@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-22 13:35] UX: sticky agent screen + page snapshot + goal in chat rail
+
+- **Prompt Provided:** make agent screen, page snapshot, and goal text box all visible (sticky)
+- **Architectural Flow:** ChatDetailPage right rail uses CSS grid rows for screen/snapshot/goal; mobile dock uses same grid without outer scroll
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/PageSnapshotPanel.jsx`
+
 ## [2026-08-22 13:25] Feature: live page snapshot debug panel in chat
 
 - **Prompt Provided:** show raw page observation / interactives in UI

@@ -68,9 +68,9 @@ export function snapshotsFromTaskEvents(events) {
 }
 
 /**
- * @param {{ events?: object[], className?: string }} props
+ * @param {{ events?: object[], className?: string, compact?: boolean }} props
  */
-export function PageSnapshotPanel({ events, className = "" }) {
+export function PageSnapshotPanel({ events, className = "", compact = false }) {
   const snapshots = useMemo(() => snapshotsFromTaskEvents(events), [events]);
   const [open, setOpen] = useState(true);
   const [view, setView] = useState("summary");
@@ -89,31 +89,29 @@ export function PageSnapshotPanel({ events, className = "" }) {
     }
   }
 
+  const shellClass = `flex min-h-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${
+    compact ? "h-full [&[open]]:flex [&[open]]:min-h-0 [&[open]]:flex-1 [&[open]]:flex-col" : ""
+  } ${className}`;
+
   if (!snapshots.length) {
     return (
-      <details
-        className={`rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`}
-        open={open}
-        onToggle={(e) => setOpen(e.currentTarget.open)}
-      >
-        <summary className="cursor-pointer list-none px-3 py-3 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
+      <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+        <summary className="shrink-0 cursor-pointer list-none px-3 py-2 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
           Page snapshot
           <span className="ml-2 text-xs font-normal text-teal-800/50">waiting for agent step…</span>
         </summary>
-        <p className="border-t border-teal-50 px-3 py-3 text-xs text-teal-900/60">
-          When the agent runs, each step stores what it sees on the page (refs, roles, labels, xpath).
-        </p>
+        {!compact ? (
+          <p className="border-t border-teal-50 px-3 py-2 text-xs text-teal-900/60">
+            When the agent runs, each step stores what it sees on the page (refs, roles, labels, xpath).
+          </p>
+        ) : null}
       </details>
     );
   }
 
   return (
-    <details
-      className={`flex min-h-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`}
-      open={open}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-    >
-      <summary className="flex shrink-0 cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-3 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
+    <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+      <summary className="flex shrink-0 cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm font-semibold text-teal-900/80 [&::-webkit-details-marker]:hidden">
         <span>
           Page snapshot
           <span className="ml-2 rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
@@ -170,7 +168,11 @@ export function PageSnapshotPanel({ events, className = "" }) {
           ) : null}
         </div>
 
-        <div className="yb-scroll-x min-h-0 max-h-64 overflow-auto p-2 text-xs sm:max-h-72">
+        <div
+          className={`yb-scroll-x min-h-0 overflow-auto p-2 text-xs ${
+            compact ? "flex-1" : "max-h-64 sm:max-h-72"
+          }`}
+        >
           {view === "json" ? (
             <pre className="whitespace-pre-wrap break-all font-mono text-[0.68rem] text-teal-950">
               {JSON.stringify(current, null, 2)}

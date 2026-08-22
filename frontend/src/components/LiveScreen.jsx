@@ -508,7 +508,7 @@ export function LiveScreen({
               ref={desktopIframeRef}
               title={`${agentName || "Agent"} remote desktop`}
               src={desktopSrc}
-              className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"
+              className={`h-full w-full flex-1 border-0 bg-black ${fill ? "min-h-0" : "min-h-[16rem]"}`}
               allow="clipboard-read; clipboard-write"
               onLoad={() => {
                 try {
@@ -523,7 +523,7 @@ export function LiveScreen({
               key={`view-${viewSrc}`}
               title={`${agentName || "Agent"} live screen`}
               src={viewSrc}
-              className="h-full min-h-[16rem] w-full flex-1 border-0 bg-black"
+              className={`h-full w-full flex-1 border-0 bg-black ${fill ? "min-h-0" : "min-h-[16rem]"}`}
             />
           ) : openingView && modal ? (
             <p className="px-4 py-10 text-center text-sm text-white/60">Connecting to live screen…</p>
