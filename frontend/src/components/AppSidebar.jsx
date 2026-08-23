@@ -7,6 +7,7 @@
 import { useEffect } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useHelp } from "../context/HelpContext.jsx";
 import { HelpTooltip } from "./HelpTooltip.jsx";
 import { HelpToggle } from "./HelpToggle.jsx";
 

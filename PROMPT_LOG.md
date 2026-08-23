@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-23 17:10] Fix post-login crash — missing useHelp import in AppSidebar
+
+- **Prompt Provided:** Still stuck on "Loading session" after login at bot.vughy.com
+- **Architectural Flow:** AppSidebar called `useHelp()` without import → ReferenceError after auth; ProtectedLayout now only blocks on `loading && !user` so logged-in users are not stuck
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/App.jsx`
+
 ## [2026-08-23 14:10] Fix infinite "Loading session" after login
 
 - **Prompt Provided:** After login at bot.vughy.com, UI stuck on "Loading session…"

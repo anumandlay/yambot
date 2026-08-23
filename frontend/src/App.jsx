@@ -75,7 +75,7 @@ function ProtectedLayout() {
     return () => window.clearTimeout(timer);
   }, [loading]);
 
-  if (loading) {
+  if (loading && !user) {
     return (
       <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 p-6 text-sm text-teal-900/70">
         <p>Loading session…</p>
