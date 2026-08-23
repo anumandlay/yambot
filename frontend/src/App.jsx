@@ -38,8 +38,9 @@ const COLLAPSE_KEY = "yambot.sidebar.collapsed";
  * Requires an authenticated user before rendering child routes.
  */
 function ProtectedLayout() {
-  const { user, loading } = useAuth();
+  const { user, loading, logout, refresh } = useAuth();
   const [mobileOpen, setMobileOpen] = useState(false);
+  const [loadingSlow, setLoadingSlow] = useState(false);
   const [collapsed, setCollapsed] = useState(() => {
     try {
       return localStorage.getItem(COLLAPSE_KEY) === "1";
@@ -65,8 +66,47 @@ function ProtectedLayout() {
     return () => window.removeEventListener("resize", onResize);
   }, []);
 
+  useEffect(() => {
+    if (!loading) {
+      setLoadingSlow(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setLoadingSlow(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
+
   if (loading) {
-    return <div className="p-6 text-sm text-teal-900/70">Loading session…</div>;
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 p-6 text-sm text-teal-900/70">
+        <p>Loading session…</p>
+        {loadingSlow ? (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <p className="max-w-sm text-xs text-teal-900/60">
+              Session restore is taking longer than expected. You can retry or sign in again.
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                className="min-h-10 rounded-xl border border-teal-200 px-3 font-semibold text-teal-800"
+                onClick={() => void refresh()}
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="min-h-10 rounded-xl bg-teal-700 px-3 font-semibold text-white"
+                onClick={() => {
+                  logout();
+                  window.location.href = "/login";
+                }}
+              >
+                Sign in again
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
   }
   if (!user) return <Navigate to="/login" replace />;
 

@@ -4,7 +4,15 @@
  * Downstream: App router, LoginPage, RegisterPage, Header.
  */
 
-import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from "react";
 import { api, getToken, setToken } from "../lib/api.js";
 
 const AuthContext = createContext(null);
@@ -17,23 +25,32 @@ export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
+  /** Bumps on login/logout so in-flight /me responses cannot clobber a fresh session. */
+  const sessionEpochRef = useRef(0);
 
   const refresh = useCallback(async () => {
+    const epoch = sessionEpochRef.current;
     if (!getToken()) {
-      setUser(null);
-      setLoading(false);
+      if (epoch === sessionEpochRef.current) {
+        setUser(null);
+        setLoading(false);
+      }
       return;
     }
     try {
       const data = await api("/api/auth/me");
+      if (epoch !== sessionEpochRef.current) return;
       setUser(data.user);
       setError(null);
     } catch (err) {
+      if (epoch !== sessionEpochRef.current) return;
       setToken(null);
       setUser(null);
       setError(err);
     } finally {
-      setLoading(false);
+      if (epoch === sessionEpochRef.current) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -45,6 +62,7 @@ export function AuthProvider({ children }) {
    * @param {{ email: string, password: string }} creds
    */
   const login = useCallback(async (creds) => {
+    sessionEpochRef.current += 1;
     const data = await api("/api/auth/login", {
       method: "POST",
       auth: false,
@@ -52,6 +70,8 @@ export function AuthProvider({ children }) {
     });
     setToken(data.token);
     setUser(data.user);
+    setError(null);
+    setLoading(false);
     return data;
   }, []);
 
@@ -59,6 +79,7 @@ export function AuthProvider({ children }) {
    * @param {{ name: string, email: string, password: string }} payload
    */
   const register = useCallback(async (payload) => {
+    sessionEpochRef.current += 1;
     const data = await api("/api/auth/register", {
       method: "POST",
       auth: false,
@@ -66,12 +87,17 @@ export function AuthProvider({ children }) {
     });
     setToken(data.token);
     setUser(data.user);
+    setError(null);
+    setLoading(false);
     return data;
   }, []);
 
   const logout = useCallback(() => {
+    sessionEpochRef.current += 1;
     setToken(null);
     setUser(null);
+    setError(null);
+    setLoading(false);
   }, []);
 
   const value = useMemo(

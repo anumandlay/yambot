@@ -32,14 +32,33 @@ export function setToken(token) {
  * @returns {Promise<any>}
  */
 export async function api(path, options = {}) {
-  const { auth = true, headers, ...rest } = options;
+  const { auth = true, headers, timeoutMs = 20000, ...rest } = options;
   const h = new Headers(headers || {});
   h.set("Content-Type", "application/json");
   if (auth) {
     const token = getToken();
     if (token) h.set("Authorization", `Bearer ${token}`);
   }
-  const res = await fetch(`${API_BASE}${path}`, { ...rest, headers: h });
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      ...rest,
+      headers: h,
+      signal: controller.signal,
+    });
+  } catch (err) {
+    if (err?.name === "AbortError") {
+      const timeoutErr = new Error("Request timed out — check your connection and try again.");
+      timeoutErr.title = "Request timed out";
+      timeoutErr.detail = timeoutErr.message;
+      throw timeoutErr;
+    }
+    throw err;
+  } finally {
+    clearTimeout(timer);
+  }
   let data = null;
   try {
     data = await res.json();

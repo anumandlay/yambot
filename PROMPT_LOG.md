@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-23 14:10] Fix infinite "Loading session" after login
+
+- **Prompt Provided:** After login at bot.vughy.com, UI stuck on "Loading session…"
+- **Architectural Flow:** Race between initial `refresh()` and `login()` left `loading=true`; session epoch ignores stale `/me` responses; login/register clear loading; API fetch timeout
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/context/AuthContext.jsx`, `frontend/src/lib/api.js`, `frontend/src/App.jsx`
+
 ## [2026-08-23 12:40] Fix worker browser crashes, false CAPTCHA, stuck pending tasks
 
 - **Prompt Provided:** page.evaluate Target crashed; tasks stuck pending; browser dies after 3 tabs; launchPersistentContext profile-in-use; false CAPTCHA detection; live screen stuck starting
