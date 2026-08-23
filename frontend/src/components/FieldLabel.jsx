@@ -4,6 +4,7 @@
  */
 
 import { HelpTooltip } from "./HelpTooltip.jsx";
+import { useHelp } from "../context/HelpContext.jsx";
 
 /**
  * @param {{
@@ -49,6 +50,9 @@ export function SectionTitle({ helpId, children, className = "", as: Tag = "h2" 
  * @param {{ helpId: string, title?: string }} props
  */
 export function PageGuideBanner({ helpId, title = "Page guide" }) {
+  const { helpEnabled } = useHelp();
+  if (!helpEnabled) return null;
+
   return (
     <div className="flex flex-wrap items-start gap-2 rounded-xl border border-sky-100 bg-sky-50/80 px-3 py-2 text-sm text-sky-950">
       <span className="font-semibold">{title}</span>

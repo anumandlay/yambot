@@ -7,6 +7,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
+import { HelpToggle } from "../components/HelpToggle.jsx";
 
 export function SettingsPage() {
   const [form, setForm] = useState({
@@ -140,6 +141,7 @@ export function SettingsPage() {
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
+      <HelpToggle />
       <PageGuideBanner helpId="nav.settings" />
       <p className="text-sm text-teal-900/70">
         Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).

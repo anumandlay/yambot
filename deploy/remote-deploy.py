@@ -143,6 +143,13 @@ def main() -> int:
     llm_model = os.environ.get("DEFAULT_LLM_MODEL") or keep(
         "DEFAULT_LLM_MODEL", "MiniMax-M2.7"
     )
+    superadmin_email = keep("SUPERADMIN_BOOTSTRAP_EMAIL", "")
+    superadmin_password = keep("SUPERADMIN_BOOTSTRAP_PASSWORD", "")
+    superadmin_name = keep("SUPERADMIN_BOOTSTRAP_NAME", "Platform Admin")
+    superadmin_emails = keep("SUPERADMIN_EMAILS", "")
+    stripe_secret = keep("STRIPE_SECRET_KEY", "")
+    stripe_webhook = keep("STRIPE_WEBHOOK_SECRET", "")
+    public_web_url = keep("PUBLIC_WEB_URL", "https://bot.vughy.com")
     env_body = (
         "NODE_ENV=production\n"
         "PORT=4000\n"
@@ -157,6 +164,13 @@ def main() -> int:
         f"DEFAULT_LLM_BASE_URL={llm_base}\n"
         f"DEFAULT_LLM_MODEL={llm_model}\n"
         f"DEFAULT_LLM_API_KEY={llm_key}\n"
+        f"SUPERADMIN_BOOTSTRAP_EMAIL={superadmin_email}\n"
+        f"SUPERADMIN_BOOTSTRAP_PASSWORD={superadmin_password}\n"
+        f"SUPERADMIN_BOOTSTRAP_NAME={superadmin_name}\n"
+        f"SUPERADMIN_EMAILS={superadmin_emails}\n"
+        f"STRIPE_SECRET_KEY={stripe_secret}\n"
+        f"STRIPE_WEBHOOK_SECRET={stripe_webhook}\n"
+        f"PUBLIC_WEB_URL={public_web_url}\n"
     )
 
     run("mkdir -p ~/yambot")

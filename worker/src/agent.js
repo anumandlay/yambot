@@ -38,6 +38,8 @@ import {
   isRecoverableAction,
   observePageFull,
   openTab,
+  closeTab,
+  enforceTabLimit,
   parseFrameRef,
   runRecoveryLadder,
   shouldAttachVision,
@@ -82,16 +84,70 @@ export function createCloudAgent({ api, config, log = console.log }) {
   };
 
   /**
+   * Removes Chromium singleton lock files so relaunch does not hit "profile in use".
+   */
+  function clearChromiumLocks() {
+    const locks = ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"];
+    for (const name of locks) {
+      try {
+        fs.unlinkSync(path.join(config.profileDir, name));
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+
+  /**
+   * @param {unknown} err
+   * @returns {boolean}
+   */
+  function isBrowserDeadError(err) {
+    const msg = String(err?.message || err).toLowerCase();
+    return /target (crashed|closed)|browser has been closed|context has been closed|session closed|opening in existing browser session|protocol error|execution context was destroyed/i.test(
+      msg
+    );
+  }
+
+  /**
+   * Closes Playwright context and clears profile locks for a clean relaunch.
+   */
+  async function teardownBrowser() {
+    telemetry = null;
+    try {
+      await context?.close();
+    } catch {
+      /* ignore */
+    }
+    context = null;
+    page = null;
+    clearChromiumLocks();
+  }
+
+  /**
    * Ensures a persistent Chromium profile exists (cookies/localStorage = this agent's "computer").
    */
   async function ensureBrowser() {
-    if (context && page && !page.isClosed()) return;
+    if (context && page && !page.isClosed()) {
+      try {
+        await page.evaluate(() => true);
+        return;
+      } catch (err) {
+        if (!isBrowserDeadError(err)) throw err;
+        log(`[${config.workerName}] browser health check failed — relaunching`);
+        await teardownBrowser();
+      }
+    } else {
+      await teardownBrowser();
+    }
+
     fs.mkdirSync(config.profileDir, { recursive: true });
+    clearChromiumLocks();
 
     const args = [
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
+      "--renderer-process-limit=4",
       // Why: headed noVNC shows Chromium's "unsupported command-line flag" banner for --no-sandbox.
       ...(config.headed ? ["--test-type"] : []),
     ];
@@ -147,14 +203,49 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * Relaunches Chromium after a renderer crash or closed target.
+   */
+  async function recoverBrowser() {
+    log(`[${config.workerName}] recovering browser after crash`);
+    await teardownBrowser();
+    await ensureBrowser();
+  }
+
+  /**
+   * Runs page.evaluate with one automatic browser recovery retry.
+   * @template T
+   * @param {(...args: unknown[]) => T} fn
+   * @param {unknown} [arg]
+   * @returns {Promise<T>}
+   */
+  async function safeEvaluate(fn, arg) {
+    try {
+      await ensureBrowser();
+      return arg === undefined ? await page.evaluate(fn) : await page.evaluate(fn, arg);
+    } catch (err) {
+      if (!isBrowserDeadError(err)) throw err;
+      await recoverBrowser();
+      return arg === undefined ? await page.evaluate(fn) : await page.evaluate(fn, arg);
+    }
+  }
+
+  /**
    * Full observation: DOM + frames + a11y (Phase 4).
    * @returns {Promise<object>}
    */
   async function observeNow() {
     await ensureBrowser();
-    const obs = await observePageFull(page, observeInPage);
-    telemetry?.setActivePage(page);
-    return obs;
+    try {
+      const obs = await observePageFull(page, observeInPage);
+      telemetry?.setActivePage(page);
+      return obs;
+    } catch (err) {
+      if (!isBrowserDeadError(err)) throw err;
+      await recoverBrowser();
+      const obs = await observePageFull(page, observeInPage);
+      telemetry?.setActivePage(page);
+      return obs;
+    }
   }
 
   /**
@@ -211,6 +302,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         shotH = vh;
       } catch (err) {
         log(`[${config.workerName}] screenshot failed:`, err?.message || err);
+        if (isBrowserDeadError(err)) {
+          await recoverBrowser().catch(() => {});
+        }
       }
     }
     const data = await api("/api/worker/computer/heartbeat", {
@@ -382,13 +476,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
   async function waitForCaptchaSitekey(maxMs = 2500) {
     const start = Date.now();
     while (Date.now() - start < maxMs) {
-      const meta = await page.evaluate(captchaMetaInPage);
+      const meta = await safeEvaluate(captchaMetaInPage);
       if (meta.recaptchaSitekey || meta.hcaptchaSitekey) return meta;
-      const obs = await page.evaluate(observeInPage);
+      const obs = await safeEvaluate(observeInPage);
       if (!obs.captcha?.present) return meta;
       await sleep(200);
     }
-    return page.evaluate(captchaMetaInPage);
+    return safeEvaluate(captchaMetaInPage);
   }
 
   /**
@@ -397,7 +491,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
    */
   async function handleCaptchaIfPresent(taskId, settings, notes) {
     let obs = await observeNow();
-    let captchaMeta = await page.evaluate(captchaMetaInPage);
+    let captchaMeta = await safeEvaluate(captchaMetaInPage);
     let sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
 
     if (obs.captcha?.present && !sitekey) {
@@ -405,7 +499,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
     }
 
-    const captchaVisible = Boolean(obs.captcha?.present || sitekey);
+    // Why: invisible reCAPTCHA badges expose sitekeys on many sites — only gate on visible challenge UI.
+    const captchaVisible = Boolean(obs.captcha?.present);
     if (!captchaVisible) {
       return { handled: false, obs, captchaMeta };
     }
@@ -429,7 +524,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         { onProgress: (msg) => void reportProgress(msg) }
       );
       if (solved.kind === "token") {
-        await page.evaluate(executeInPage, {
+        await safeEvaluate(executeInPage, {
           type: "solve_captcha",
           token: solved.token,
         });
@@ -439,10 +534,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
         await sleep(300);
         obs = await observeNow();
-        captchaMeta = await page.evaluate(captchaMetaInPage);
-        const stillVisible = Boolean(
-          obs.captcha?.present || captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey
-        );
+        captchaMeta = await safeEvaluate(captchaMetaInPage);
+        const stillVisible = Boolean(obs.captcha?.present);
         if (!stillVisible) {
           return { handled: true, obs, captchaMeta };
         }
@@ -468,7 +561,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     await waitForUserAnswer(taskId, handoffMsg);
     notes.push(`User continued after CAPTCHA handoff (${sig}).`);
     obs = await observeNow();
-    captchaMeta = await page.evaluate(captchaMetaInPage);
+    captchaMeta = await safeEvaluate(captchaMetaInPage);
     return { handled: true, obs, captchaMeta };
   }
 
@@ -1177,8 +1270,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
               loop: loopCheck.detected ? loopCheck : undefined,
             });
           }
-        } catch (err) {
-          if (err?.cancelled) throw err;
+      } catch (err) {
+        if (err?.cancelled) throw err;
+        if (isBrowserDeadError(err)) {
+          try {
+            await recoverBrowser();
+            notes.push("Browser crashed — relaunched Chromium and continuing.");
+            continue;
+          } catch (recoverErr) {
+            result = attachFailureClass(
+              {
+                ok: false,
+                error: String(recoverErr?.message || recoverErr),
+                failure_class: "UNKNOWN",
+              },
+              { error: String(recoverErr?.message || recoverErr) }
+            );
+          }
+        } else {
           result = attachFailureClass(
             {
               ok: false,
@@ -1188,6 +1297,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             { error: String(err?.message || err) }
           );
         }
+      }
 
         history.push({ step, thought: parsed.thought, action: actionToRun, result });
         await mirror(taskId, "step", {
@@ -1231,6 +1341,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       const detail = String(err?.detail || err?.message || err);
       log(`[${config.workerName}] Task ${taskId} error: ${detail}`);
+      if (isBrowserDeadError(err)) {
+        await recoverBrowser().catch(() => {});
+      }
       try {
         await complete(taskId, {
           success: false,
@@ -1312,9 +1425,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, tab: switched.tab };
       }
       case "open_tab": {
-        page = await openTab(context, action.url);
+        page = await openTab(context, action.url, page);
         telemetry?.setActivePage(page);
         return { ok: true, url: page.url(), title: await page.title().catch(() => "") };
+      }
+      case "close_tab": {
+        const closed = await closeTab(context, page, action);
+        page = closed.page;
+        telemetry?.setActivePage(page);
+        return { ok: true, closed: closed.closed };
       }
       case "upload_file": {
         const { frame, localRef } = resolveActionTarget(action, obs);
@@ -1548,19 +1667,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   async function close() {
-    try {
-      await context?.close();
-    } catch {
-      /* ignore */
-    }
-    context = null;
-    page = null;
-    telemetry = null;
+    await teardownBrowser();
   }
 
   return {
     runTask,
     ensureBrowser,
+    recoverBrowser,
     pushLiveScreen,
     close,
     isRunning: () => running,

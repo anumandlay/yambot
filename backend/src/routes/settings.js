@@ -50,6 +50,7 @@ settingsRouter.get("/", async (req, res, next) => {
         dbcPasswordMasked: mask(savedDbcPass),
         hasDbcPassword: Boolean(savedDbcPass),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
+        helpEnabled: s.helpEnabled !== false,
       },
     });
   } catch (err) {
@@ -78,6 +79,9 @@ settingsRouter.put("/", async (req, res, next) => {
     if (typeof body.dbcUsername === "string") user.settings.dbcUsername = body.dbcUsername.trim();
     if (typeof body.confirmBeforeSubmit === "boolean") {
       user.settings.confirmBeforeSubmit = body.confirmBeforeSubmit;
+    }
+    if (typeof body.helpEnabled === "boolean") {
+      user.settings.helpEnabled = body.helpEnabled;
     }
     // Why: blank string means "leave unchanged" so the UI can omit re-entry of secrets.
     if (typeof body.llmApiKey === "string" && body.llmApiKey.trim()) {

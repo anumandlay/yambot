@@ -122,7 +122,15 @@ export const HELP = {
     title: "How To guide",
     body: helpBody(
       "Open the full YamBot manual: step-by-step instructions for agents, goals, skills, chats, governance, and every major feature.",
-      "Use question-mark icons (?) next to fields for context-specific deep dives."
+      "Use question-mark icons (?) next to fields for context-specific deep dives.",
+      "Turn Help & tooltips off anytime from the sidebar switch, mobile header, or Settings — your preference is saved to your account."
+    ),
+  },
+  "help.toggle": {
+    title: "Help & tooltips",
+    body: helpBody(
+      "When enabled, YamBot shows ? icons beside labels and buttons plus the How To manual in the sidebar.",
+      "When disabled, all contextual help is hidden for a cleaner UI. You can re-enable this switch from Settings or the sidebar at any time."
     ),
   },
 

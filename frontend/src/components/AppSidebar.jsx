@@ -8,6 +8,7 @@ import { useEffect } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { HelpTooltip } from "./HelpTooltip.jsx";
+import { HelpToggle } from "./HelpToggle.jsx";
 
 /**
  * @param {{
@@ -19,6 +20,7 @@ import { HelpTooltip } from "./HelpTooltip.jsx";
  */
 export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
   const { user, logout } = useAuth();
+  const { helpEnabled } = useHelp();
 
   // Why: lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -61,7 +63,9 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       {user?.isSuperAdmin || user?.role === "superadmin" ? (
         <NavItem to="/admin/users" helpId="admin.nav" letter="SA" label="Super admin" />
       ) : null}
-      <NavItem to="/how-to" helpId="nav.howto" letter="?" label="How To" />
+      {helpEnabled ? (
+        <NavItem to="/how-to" helpId="nav.howto" letter="?" label="How To" />
+      ) : null}
       <NavItem to="/agents" helpId="nav.agents" letter="A" label="Agents" />
       <NavItem to="/goals" helpId="nav.goals" letter="G" label="Goals" />
       <NavItem to="/live" helpId="nav.live" letter="L" label="Live Wall" />
@@ -135,6 +139,16 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
         </div>
 
         {nav}
+
+        <div className={`border-t border-teal-100 p-3 ${collapsed ? "lg:px-2" : ""}`}>
+          {collapsed ? (
+            <div className="mb-2 flex justify-center">
+              <HelpToggle compact />
+            </div>
+          ) : (
+            <HelpToggle className="mb-2" />
+          )}
+        </div>
 
         <div className={`mt-auto border-t border-teal-100 p-3 ${collapsed ? "lg:px-2" : ""}`}>
           {!collapsed ? (

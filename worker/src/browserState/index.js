@@ -32,7 +32,7 @@ export {
   captureViewportBase64,
   buildVisionUserContent,
 } from "./vision.js";
-export { listTabs, switchTab, openTab } from "./tabs.js";
+export { listTabs, switchTab, openTab, closeTab, enforceTabLimit, MAX_TABS } from "./tabs.js";
 export { observePageFull, parseFrameRef, getPlaywrightFrame } from "./observe.js";
 export { runFillForm, runDismissDialog, runChooseMenuItem } from "./macros.js";
 export {

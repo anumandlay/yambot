@@ -6,11 +6,14 @@
 import { useState } from "react";
 import { Link, Navigate, useNavigate } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
+import { useHelp } from "../context/HelpContext.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel } from "../components/FieldLabel.jsx";
+import { HelpToggle } from "../components/HelpToggle.jsx";
 
 export function LoginPage() {
   const { user, login } = useAuth();
+  const { helpEnabled } = useHelp();
   const navigate = useNavigate();
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
@@ -38,12 +41,20 @@ export function LoginPage() {
 
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-3 py-8 sm:px-4 sm:py-10 md:px-0">
-      <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Sign in to YamBot</h1>
+      <div className="flex items-start justify-between gap-3">
+        <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Sign in to YamBot</h1>
+        <HelpToggle compact />
+      </div>
       <p className="text-sm text-teal-900/70">
-        Enter goals on the web. Your agent&apos;s cloud computer runs them in Chromium.{" "}
-        <Link className="font-semibold text-teal-700 underline" to="/how-to">
-          How To guide
-        </Link>
+        Enter goals on the web. Your agent&apos;s cloud computer runs them in Chromium.
+        {helpEnabled ? (
+          <>
+            {" "}
+            <Link className="font-semibold text-teal-700 underline" to="/how-to">
+              How To guide
+            </Link>
+          </>
+        ) : null}
       </p>
       {error ? (
         <ErrorAlert

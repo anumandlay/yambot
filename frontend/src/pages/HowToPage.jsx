@@ -8,8 +8,11 @@ import { useEffect } from "react";
 import { Link } from "react-router-dom";
 import { HOW_TO_SECTIONS } from "../help/helpContent.js";
 import { HelpTooltip } from "../components/HelpTooltip.jsx";
+import { HelpToggle } from "../components/HelpToggle.jsx";
+import { useHelp } from "../context/HelpContext.jsx";
 
 export function HowToPage() {
+  const { helpEnabled } = useHelp();
   useEffect(() => {
     const hash = window.location.hash.replace("#", "");
     if (!hash) return;
@@ -18,6 +21,22 @@ export function HowToPage() {
       requestAnimationFrame(() => el.scrollIntoView({ behavior: "smooth", block: "start" }));
     }
   }, []);
+
+  if (!helpEnabled) {
+    return (
+      <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-8 sm:px-4 md:px-6">
+        <h1 className="text-2xl font-bold tracking-tight">How To is turned off</h1>
+        <p className="text-sm leading-relaxed text-teal-900/75">
+          Enable <strong>Help & tooltips</strong> to show the full manual and contextual{" "}
+          <strong>?</strong> icons across YamBot.
+        </p>
+        <HelpToggle className="max-w-sm" />
+        <Link className="text-sm font-semibold text-teal-700 underline" to="/">
+          Back to chats
+        </Link>
+      </div>
+    );
+  }
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 px-3 py-4 sm:px-4 sm:py-8 md:px-6">

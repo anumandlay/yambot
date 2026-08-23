@@ -807,19 +807,38 @@ export function observeInPage() {
       }));
   }
 
+  function isCaptchaVisible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 24 && rect.height > 24;
+  }
+
+  function hasVisibleSelector(selector) {
+    return Array.from(document.querySelectorAll(selector)).some(isCaptchaVisible);
+  }
+
   function detectCaptcha() {
     const signals = [];
     if (
-      document.querySelector(
-        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
-      )
+      hasVisibleSelector(".g-recaptcha") ||
+      hasVisibleSelector("iframe[src*='recaptcha']") ||
+      hasVisibleSelector("iframe[src*='google.com/recaptcha']") ||
+      document.querySelector("#g-recaptcha-response")
     ) {
       signals.push("recaptcha");
     }
-    if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
+    if (hasVisibleSelector(".h-captcha") || hasVisibleSelector("iframe[src*='hcaptcha']")) {
       signals.push("hcaptcha");
     }
-    if (document.querySelector("iframe[src*='challenge'], iframe[src*='captcha']")) {
+    if (
+      hasVisibleSelector("iframe[src*='opfcaptcha']") ||
+      hasVisibleSelector("iframe[src*='arkoselabs']") ||
+      hasVisibleSelector("iframe[src*='funcaptcha']")
+    ) {
       signals.push("iframe_captcha");
     }
     // Why: Amazon login uses image/CVF captchas — not Google reCAPTCHA sitekeys.
@@ -828,14 +847,14 @@ export function observeInPage() {
         [
           "#auth-captcha-image",
           "#captchacharacters",
-          'img[src*="captcha"]',
           'input[name="cvf_captcha_input"]',
           'form[action*="validateCaptcha"]',
           "#cvf-page-content",
           ".cvf-widget-form",
-          'iframe[src*="opfcaptcha"]',
         ].join(",")
-      )
+      ) ||
+      hasVisibleSelector('img[src*="captcha"]') ||
+      hasVisibleSelector('iframe[src*="opfcaptcha"]')
     ) {
       signals.push("amazon_captcha");
     }
@@ -847,7 +866,7 @@ export function observeInPage() {
     }
     const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
     if (
-      /verify you are human|i'?m not a robot|complete the captcha|security check|type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|opfcaptcha|please try again/.test(
+      /verify you are human|i'?m not a robot|complete the captcha|security check|type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|opfcaptcha/.test(
         bodyText
       ) &&
       (/captcha|puzzle|characters you see|robot/i.test(bodyText) || signals.length > 0)
@@ -1371,22 +1390,35 @@ export function executeInPage(action) {
   }
 
   function detectCaptcha() {
+    function isCaptchaVisible(el) {
+      if (!el || !el.getBoundingClientRect) return false;
+      const style = window.getComputedStyle(el);
+      if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+        return false;
+      }
+      const rect = el.getBoundingClientRect();
+      return rect.width > 24 && rect.height > 24;
+    }
+    function hasVisibleSelector(selector) {
+      return Array.from(document.querySelectorAll(selector)).some(isCaptchaVisible);
+    }
     const signals = [];
     if (
-      document.querySelector(
-        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
-      )
+      hasVisibleSelector(".g-recaptcha") ||
+      hasVisibleSelector("iframe[src*='recaptcha']") ||
+      hasVisibleSelector("iframe[src*='google.com/recaptcha']") ||
+      document.querySelector("#g-recaptcha-response")
     ) {
       signals.push("recaptcha");
     }
-    if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
+    if (hasVisibleSelector(".h-captcha") || hasVisibleSelector("iframe[src*='hcaptcha']")) {
       signals.push("hcaptcha");
     }
     return { present: signals.length > 0, signals };
   }
 
   function findRecaptchaSitekey() {
-    const el = document.querySelector(".g-recaptcha[data-sitekey], [data-sitekey]");
+    const el = document.querySelector(".g-recaptcha[data-sitekey]");
     if (el?.getAttribute("data-sitekey")) return el.getAttribute("data-sitekey");
     for (const iframe of document.querySelectorAll(
       "iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha']"
@@ -1622,8 +1654,66 @@ export function executeInPage(action) {
  * Captcha sitekey metadata for DBC.
  */
 export function captchaMetaInPage() {
+  function isCaptchaVisible(el) {
+    if (!el || !el.getBoundingClientRect) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || Number(style.opacity) === 0) {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 24 && rect.height > 24;
+  }
+  function hasVisibleSelector(selector) {
+    return Array.from(document.querySelectorAll(selector)).some(isCaptchaVisible);
+  }
+  function detectCaptcha() {
+    const signals = [];
+    if (
+      hasVisibleSelector(".g-recaptcha") ||
+      hasVisibleSelector("iframe[src*='recaptcha']") ||
+      hasVisibleSelector("iframe[src*='google.com/recaptcha']") ||
+      document.querySelector("#g-recaptcha-response")
+    ) {
+      signals.push("recaptcha");
+    }
+    if (hasVisibleSelector(".h-captcha") || hasVisibleSelector("iframe[src*='hcaptcha']")) {
+      signals.push("hcaptcha");
+    }
+    if (
+      hasVisibleSelector("iframe[src*='opfcaptcha']") ||
+      hasVisibleSelector("iframe[src*='arkoselabs']") ||
+      hasVisibleSelector("iframe[src*='funcaptcha']")
+    ) {
+      signals.push("iframe_captcha");
+    }
+    if (
+      document.querySelector(
+        [
+          "#auth-captcha-image",
+          "#captchacharacters",
+          'input[name="cvf_captcha_input"]',
+          'form[action*="validateCaptcha"]',
+          "#cvf-page-content",
+          ".cvf-widget-form",
+        ].join(",")
+      ) ||
+      hasVisibleSelector('img[src*="captcha"]')
+    ) {
+      signals.push("amazon_captcha");
+    }
+    const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
+    if (
+      /verify you are human|i'?m not a robot|complete the captcha|security check|type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|opfcaptcha/.test(
+        bodyText
+      ) &&
+      (/captcha|puzzle|characters you see|robot/i.test(bodyText) || signals.length > 0)
+    ) {
+      signals.push("text_hint");
+    }
+    return { present: signals.length > 0, signals: [...new Set(signals)] };
+  }
   function findRecaptchaSitekey() {
-    const el = document.querySelector(".g-recaptcha[data-sitekey], [data-sitekey]");
+    const el = document.querySelector(".g-recaptcha[data-sitekey]");
     if (el?.getAttribute("data-sitekey")) return el.getAttribute("data-sitekey");
     for (const iframe of document.querySelectorAll(
       "iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], iframe[title*='reCAPTCHA']"
@@ -1651,52 +1741,11 @@ export function captchaMetaInPage() {
     return null;
   }
   function findHcaptchaSitekey() {
-    const el = document.querySelector(".h-captcha[data-sitekey], [data-sitekey]");
+    const el = document.querySelector(".h-captcha[data-sitekey]");
     const key = el?.getAttribute("data-sitekey");
     if (key && !key.startsWith("6L")) return key;
     const h = document.querySelector(".h-captcha[data-sitekey]");
     return h?.getAttribute("data-sitekey") || null;
-  }
-  function detectCaptcha() {
-    const signals = [];
-    if (
-      document.querySelector(
-        ".g-recaptcha, .captcha-recaptcha, iframe[src*='recaptcha'], iframe[src*='google.com/recaptcha'], #g-recaptcha-response, [data-sitekey]"
-      )
-    ) {
-      signals.push("recaptcha");
-    }
-    if (document.querySelector(".h-captcha, iframe[src*='hcaptcha']")) {
-      signals.push("hcaptcha");
-    }
-    if (document.querySelector("iframe[src*='challenge'], iframe[src*='captcha']")) {
-      signals.push("iframe_captcha");
-    }
-    if (
-      document.querySelector(
-        [
-          "#auth-captcha-image",
-          "#captchacharacters",
-          'img[src*="captcha"]',
-          'input[name="cvf_captcha_input"]',
-          'form[action*="validateCaptcha"]',
-          "#cvf-page-content",
-          ".cvf-widget-form",
-          'iframe[src*="opfcaptcha"]',
-        ].join(",")
-      )
-    ) {
-      signals.push("amazon_captcha");
-    }
-    const bodyText = (document.body?.innerText || "").slice(0, 5000).toLowerCase();
-    if (
-      /type the characters|enter the characters you see|solve this puzzle|unusual activity|robot check|verify you are human|complete the captcha|i'?m not a robot/.test(
-        bodyText
-      )
-    ) {
-      signals.push("text_hint");
-    }
-    return { present: signals.length > 0, signals: [...new Set(signals)] };
   }
   return {
     captcha: detectCaptcha(),

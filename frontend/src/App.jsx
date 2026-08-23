@@ -7,7 +7,9 @@
 import { useEffect, useState } from "react";
 import { Navigate, Outlet, Route, Routes } from "react-router-dom";
 import { AuthProvider, useAuth } from "./context/AuthContext.jsx";
+import { HelpProvider } from "./context/HelpContext.jsx";
 import { AppSidebar } from "./components/AppSidebar.jsx";
+import { HelpToggle } from "./components/HelpToggle.jsx";
 import { LoginPage } from "./pages/LoginPage.jsx";
 import { RegisterPage } from "./pages/RegisterPage.jsx";
 import { ChatsPage } from "./pages/ChatsPage.jsx";
@@ -89,6 +91,7 @@ function ProtectedLayout() {
             ☰
           </button>
           <div className="min-w-0 flex-1 truncate text-sm font-bold tracking-tight">YamBot</div>
+          <HelpToggle compact />
         </div>
 
         <main className="min-w-0 flex-1 overflow-x-hidden">{<Outlet />}</main>
@@ -100,7 +103,8 @@ function ProtectedLayout() {
 export default function App() {
   return (
     <AuthProvider>
-      <Routes>
+      <HelpProvider>
+        <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
@@ -127,7 +131,8 @@ export default function App() {
           <Route path="/admin/users" element={<AdminUsersPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
-      </Routes>
+        </Routes>
+      </HelpProvider>
     </AuthProvider>
   );
 }

@@ -12,6 +12,17 @@ import { loadConfig } from "./config.js";
 import { createApiClient } from "./api.js";
 import { createCloudAgent } from "./agent.js";
 
+/**
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isBrowserDeadError(err) {
+  const msg = String(err?.message || err).toLowerCase();
+  return /target (crashed|closed)|browser has been closed|context has been closed|session closed|opening in existing browser session|protocol error|execution context was destroyed/i.test(
+    msg
+  );
+}
+
 async function main() {
   const config = loadConfig();
   const screenMs = Math.max(2000, Number(process.env.YAMBOT_SCREEN_MS) || 4000);
@@ -48,6 +59,11 @@ async function main() {
     } catch (err) {
       const msg = String(err?.message || err);
       console.error(`[${config.workerName}] poll error:`, msg);
+      if (isBrowserDeadError(err)) {
+        await agent.recoverBrowser().catch((recoverErr) => {
+          console.error(`[${config.workerName}] browser recover failed`, recoverErr?.message || recoverErr);
+        });
+      }
       if (err?.status === 401) {
         try {
           await client.login();
@@ -75,6 +91,9 @@ async function main() {
         human = Boolean(r?.humanControl);
       } catch (err) {
         console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);
+        if (isBrowserDeadError(err)) {
+          await agent.recoverBrowser().catch(() => {});
+        }
       }
       await new Promise((r) => setTimeout(r, human ? 1100 : screenMs));
     }

@@ -45,7 +45,7 @@ sleep 0.4
 
 # Why: after container recreate, leftover SingletonLock / .lock files from the
 # previous Chromium host make headed launch fail with “profile in use”.
-PROFILE_DIR="${YAMBOT_BROWSER_PROFILE:-/data/browser-profile}"
+PROFILE_DIR="${YAMBOT_PROFILE_DIR:-${YAMBOT_BROWSER_PROFILE:-/data/browser-profile}}"
 if [[ -d "${PROFILE_DIR}" ]]; then
   echo "[desktop] clearing Chromium singleton locks in ${PROFILE_DIR}"
   rm -f "${PROFILE_DIR}/SingletonLock" \

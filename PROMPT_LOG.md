@@ -1,5 +1,23 @@
 # PROMPT_LOG.md
 
+## [2026-08-23 12:40] Fix worker browser crashes, false CAPTCHA, stuck pending tasks
+
+- **Prompt Provided:** page.evaluate Target crashed; tasks stuck pending; browser dies after 3 tabs; launchPersistentContext profile-in-use; false CAPTCHA detection; live screen stuck starting
+- **Architectural Flow:** ensureBrowser teardown+lock cleanup+health check; safeEvaluate wrapper; tab limit (5) with auto-close; tightened captcha heuristics (no bare data-sitekey, visible-only iframes); poll/screen loops recover dead browser; entrypoint YAMBOT_PROFILE_DIR
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/index.js`, `worker/src/pageDom.js`, `worker/src/browserState/tabs.js`, `worker/src/browserState/telemetry.js`, `worker/src/browserState/index.js`, `worker/entrypoint.sh`
+
+## [2026-08-22 19:05] User toggle for help tooltips and How To
+
+- **Prompt Provided:** Toggle button for users — when enabled show tooltips/How To everywhere; when disabled hide them
+- **Architectural Flow:** HelpContext + localStorage + User.settings.helpEnabled sync; HelpTooltip/PageGuideBanner gate on helpEnabled; HelpToggle in sidebar/mobile header; How To nav hidden when off; backend settings GET/PUT
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/context/HelpContext.jsx`, `frontend/src/components/{HelpTooltip,FieldLabel,HelpToggle,AppSidebar}.jsx`, `frontend/src/pages/{HowToPage,LoginPage}.jsx`, `frontend/src/App.jsx`, `frontend/src/help/helpContent.js`, `backend/src/models/User.js`, `backend/src/routes/settings.js`
+
+## [2026-08-22 18:00] Super-admin bootstrap credentials on production
+
+- **Prompt Provided:** Set super-admin to ayamunesh@gmail.com / 123456 on production
+- **Architectural Flow:** SUPERADMIN_BOOTSTRAP_* in deploy/.env; API boot `ensureSuperAdminAccounts` creates/promotes account; remote-deploy preserves SUPERADMIN_* across deploys; bootstrap min password aligned with auth (6 chars)
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/superAdmin.js`, `deploy/remote-deploy.py`, VPS `deploy/.env`
+
 ## [2026-08-22 17:30] SaaS wallet — Stripe top-up, agent pricing, admin credits
 
 - **Prompt Provided:** Per-user wallet with Stripe load; super-admin sets price per agent (deduct on create); super-admin can grant free credits

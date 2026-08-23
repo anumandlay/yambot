@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Link } from "react-router-dom";
+import { useHelp } from "../context/HelpContext.jsx";
 import { getHelp } from "../help/helpContent.js";
 
 /**
@@ -16,6 +17,7 @@ import { getHelp } from "../help/helpContent.js";
  * }} props
  */
 export function HelpTooltip({ helpId, size = "md", className = "" }) {
+  const { helpEnabled } = useHelp();
   const entry = getHelp(helpId);
   const [open, setOpen] = useState(false);
   const dialogRef = useRef(null);
@@ -36,7 +38,7 @@ export function HelpTooltip({ helpId, size = "md", className = "" }) {
     };
   }, [open, close]);
 
-  if (!entry) return null;
+  if (!helpEnabled || !entry) return null;
 
   const sizeClass =
     size === "sm"

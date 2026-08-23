@@ -23,6 +23,7 @@ import {
  * @property {string} [dbcPasswordEnc]
  * @property {number} [maxSteps]
  * @property {boolean} [confirmBeforeSubmit]
+ * @property {boolean} [helpEnabled]
  */
 
 const settingsSchema = new mongoose.Schema(
@@ -38,6 +39,8 @@ const settingsSchema = new mongoose.Schema(
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 0 },
     confirmBeforeSubmit: { type: Boolean, default: false },
+    /** UI preference — show contextual ? tooltips and How To navigation. */
+    helpEnabled: { type: Boolean, default: true },
     /** Layer 2 — global policy defaults */
     requireApprovalForSubmit: { type: Boolean, default: false },
     blockedUrlPatterns: { type: [String], default: [] },

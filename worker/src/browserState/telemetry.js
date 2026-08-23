@@ -4,6 +4,8 @@
  * Downstream: agent.js attaches to Playwright context; format.js projection.
  */
 
+import { enforceTabLimit, MAX_TABS } from "./tabs.js";
+
 /**
  * Creates a telemetry collector bound to a Playwright browser context.
  * @param {import('playwright').BrowserContext} context
@@ -41,6 +43,7 @@ export function createBrowserTelemetry(context, initialPage, opts = {}) {
     pg.on("popup", (popup) => {
       push({ type: "popup", url: popup.url() });
       wirePage(popup);
+      void enforceTabLimit(context, activePage, MAX_TABS);
     });
     pg.on("download", async (download) => {
       const suggested = download.suggestedFilename();
@@ -71,6 +74,7 @@ export function createBrowserTelemetry(context, initialPage, opts = {}) {
     context.on("page", (pg) => {
       push({ type: "new_tab", url: pg.url() });
       wirePage(pg);
+      void enforceTabLimit(context, activePage, MAX_TABS);
     });
     wirePage(activePage);
   }

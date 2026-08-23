@@ -38,7 +38,7 @@ export async function ensureSuperAdminAccounts() {
   if (env.SUPERADMIN_BOOTSTRAP_EMAIL && env.SUPERADMIN_BOOTSTRAP_PASSWORD) {
     const email = String(env.SUPERADMIN_BOOTSTRAP_EMAIL).trim().toLowerCase();
     const password = String(env.SUPERADMIN_BOOTSTRAP_PASSWORD);
-    if (email && password.length >= 8) {
+    if (email && password.length >= 6) {
       let user = await User.findOne({ email });
       if (!user) {
         const passwordHash = await User.hashPassword(password);
@@ -56,7 +56,7 @@ export async function ensureSuperAdminAccounts() {
       }
       if (!listed.includes(email)) listed.push(email);
     } else {
-      console.warn("[superadmin] bootstrap skipped — email or password (min 8) missing");
+      console.warn("[superadmin] bootstrap skipped — email or password (min 6) missing");
     }
   }
 

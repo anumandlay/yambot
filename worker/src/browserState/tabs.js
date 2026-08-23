@@ -1,8 +1,49 @@
 /**
  * @fileoverview Tab/window management helpers for Playwright cloud worker.
- * Purpose: switch_tab / list tabs / active page tracking.
+ * Purpose: switch_tab / list tabs / active page tracking; cap tab count to avoid OOM crashes.
  * Downstream: agent.js executeAction.
  */
+
+/** Why: each extra tab is a Chromium renderer — unbounded tabs OOM the 1.5–2GB worker container. */
+export const MAX_TABS = 5;
+
+/**
+ * @param {import('playwright').Page} pg
+ * @returns {string}
+ */
+function safeUrl(pg) {
+  try {
+    return pg.url();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Closes oldest non-active tabs when over the limit.
+ * @param {import('playwright').BrowserContext} context
+ * @param {import('playwright').Page} activePage
+ * @param {number} [maxTabs]
+ * @returns {Promise<number>} number of tabs closed
+ */
+export async function enforceTabLimit(context, activePage, maxTabs = MAX_TABS) {
+  const pages = context.pages().filter((p) => !p.isClosed());
+  let closed = 0;
+  while (pages.length > maxTabs) {
+    const victim = pages.find((p) => p !== activePage) || pages[0];
+    if (!victim) break;
+    const idx = pages.indexOf(victim);
+    try {
+      await victim.close();
+      closed += 1;
+    } catch {
+      /* ignore */
+    }
+    pages.splice(idx, 1);
+    if (victim === activePage) break;
+  }
+  return closed;
+}
 
 /**
  * Lists open tabs in the browser context.
@@ -64,27 +105,40 @@ export async function switchTab(context, currentPage, action) {
 }
 
 /**
- * Opens a new tab optionally navigating to URL.
+ * Opens a new tab optionally navigating to URL; enforces tab cap afterward.
  * @param {import('playwright').BrowserContext} context
  * @param {string} [url]
+ * @param {import('playwright').Page} [activePage]
  * @returns {Promise<import('playwright').Page>}
  */
-export async function openTab(context, url = "") {
+export async function openTab(context, url = "", activePage = null) {
   const pg = await context.newPage();
   if (url && /^https?:\/\//i.test(url)) {
     await pg.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
   }
+  await enforceTabLimit(context, activePage || pg);
   return pg;
 }
 
 /**
- * @param {import('playwright').Page} pg
- * @returns {string}
+ * Closes a tab by index (cannot close the only remaining tab).
+ * @param {import('playwright').BrowserContext} context
+ * @param {import('playwright').Page} currentPage
+ * @param {{ index?: number }} action
+ * @returns {Promise<{ page: import('playwright').Page, closed: number }>}
  */
-function safeUrl(pg) {
-  try {
-    return pg.url();
-  } catch {
-    return "";
+export async function closeTab(context, currentPage, action) {
+  const pages = context.pages().filter((p) => !p.isClosed());
+  if (pages.length <= 1) {
+    return { page: currentPage, closed: 0 };
   }
+  const idx = Number(action.index);
+  const target = Number.isFinite(idx) && pages[idx] ? pages[idx] : null;
+  if (!target) throw new Error("close_tab: invalid index");
+  const wasActive = target === currentPage;
+  await target.close();
+  const remaining = context.pages().filter((p) => !p.isClosed());
+  const next = wasActive ? remaining[remaining.length - 1] || remaining[0] : currentPage;
+  if (next) await next.bringToFront();
+  return { page: next || currentPage, closed: 1 };
 }
