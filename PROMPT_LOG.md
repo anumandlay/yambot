@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 12:00] Fix ChatGPT OAuth — LiteLLM Postgres password drift + browser fallback
+
+- **Prompt Provided:** OpenAI authentication unknown_error during ChatGPT device-code sign-in
+- **Architectural Flow:** Postgres password synced on deploy (volume init vs .env mismatch) → remove static chatgpt models from litellm config → device-code modal uses auth.openai.com/codex/device → browser PKCE paste fallback imports tokens into LiteLLM credentials
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/remote-deploy.py`, `deploy/litellm.config.yaml`, `backend/src/utils/litellmClient.js`, `backend/src/routes/litellmGateway.js`, `frontend/src/components/LlmGatewayModal.jsx`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-24 11:45] Fix gateway mode — seed LiteLLM secrets in remote-deploy .env
 
 - **Prompt Provided:** Gateway mode doesn't appear; add env vars and deploy

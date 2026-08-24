@@ -16,18 +16,6 @@ model_list:
       api_base: https://api.minimax.io/v1
       api_key: os.environ/MINIMAX_API_KEY
 
-  - model_name: chatgpt/gpt-5.3-codex
-    model_info:
-      mode: responses
-    litellm_params:
-      model: chatgpt/gpt-5.3-codex
-
-  - model_name: chatgpt/gpt-5.4
-    model_info:
-      mode: responses
-    litellm_params:
-      model: chatgpt/gpt-5.4
-
 general_settings:
   master_key: os.environ/LITELLM_MASTER_KEY
   database_url: os.environ/DATABASE_URL

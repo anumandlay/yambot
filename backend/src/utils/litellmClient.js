@@ -16,6 +16,9 @@ export const LITELLM_CATALOG = [
   { id: "chatgpt/gpt-5.4", label: "ChatGPT GPT-5.4", requiresOAuth: true, oauthProvider: "chatgpt" },
 ];
 
+/** OpenAI Codex device-code page — always use this if LiteLLM omits verification_url. */
+export const CHATGPT_DEVICE_AUTH_URL = "https://auth.openai.com/codex/device";
+
 /**
  * @returns {boolean}
  */
@@ -260,7 +263,9 @@ export async function startChatGptOAuth(userId) {
   return {
     sessionId: String(data?.session_id || ""),
     userCode: String(data?.user_code || ""),
-    verificationUrl: String(data?.verification_url || data?.verification_uri || ""),
+    verificationUrl: String(
+      data?.verification_url || data?.verification_uri || CHATGPT_DEVICE_AUTH_URL
+    ),
     credentialName,
   };
 }
@@ -308,4 +313,43 @@ export async function disconnectUserChatGpt(user) {
   }
   user.markModified("settings");
   await user.save();
+}
+
+/**
+ * Imports YamBot Codex OAuth tokens (browser PKCE flow) into LiteLLM credentials DB.
+ * @param {import("../models/User.js").User} user
+ * @param {string} [litellmModelId]
+ * @returns {Promise<{ credentialName: string, modelName: string }>}
+ */
+export async function importCodexOAuthToLitellm(user, litellmModelId = "chatgpt/gpt-5.3-codex") {
+  const s = user.settings || {};
+  const access = decryptSecret(s.llmOAuthAccessTokenEnc || "");
+  const refresh = decryptSecret(s.llmOAuthRefreshTokenEnc || "");
+  if (!access || !refresh) {
+    throw new Error("Complete ChatGPT browser sign-in first, then try again.");
+  }
+  const credName = userCredentialName(user._id);
+  try {
+    await litellmAdminFetch("/credentials", {
+      method: "POST",
+      body: {
+        credential_name: credName,
+        credential_values: {
+          access_token: access,
+          refresh_token: refresh,
+        },
+        credential_info: { provider: "chatgpt" },
+      },
+    });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (!/already|exist|duplicate/i.test(msg)) {
+      throw err;
+    }
+  }
+  const modelName = await ensureUserChatGptModel(user, litellmModelId);
+  user.settings.litellmChatGptAccountLabel = s.llmOAuthAccountLabel || credName;
+  user.markModified("settings");
+  await user.save();
+  return { credentialName: credName, modelName };
 }

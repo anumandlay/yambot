@@ -151,7 +151,8 @@ def main() -> int:
     stripe_webhook = keep("STRIPE_WEBHOOK_SECRET", "")
     public_web_url = keep("PUBLIC_WEB_URL", "https://bot.vughy.com")
     # Why: LiteLLM gateway requires stable secrets in deploy/.env; compose reads them for api + litellm.
-    litellm_pg_password = keep("LITELLM_PG_PASSWORD", secrets.token_urlsafe(24))
+    # Why: must match compose default when Postgres volume was first created without LITELLM_PG_PASSWORD in .env.
+    litellm_pg_password = keep("LITELLM_PG_PASSWORD", "litellm-dev-password")
     litellm_master_key = keep("LITELLM_MASTER_KEY", f"sk-{secrets.token_hex(32)}")
     litellm_salt_key = keep("LITELLM_SALT_KEY", f"sk-{secrets.token_hex(32)}")
     litellm_default_model = keep("LITELLM_DEFAULT_MODEL", "minimax")
@@ -217,6 +218,16 @@ def main() -> int:
     run(
         f"echo '{password}' | sudo -S bash -lc "
         f"'cd /home/ubuntu/yambot/deploy && {compose} ps'"
+    )
+    # Why: first LiteLLM deploy may have initialized Postgres with compose default password while .env later got a new value.
+    pg_sql = litellm_pg_password.replace("'", "''")
+    run(
+        f"echo '{password}' | sudo -S docker exec deploy-postgres-litellm-1 "
+        f"psql -U litellm -d litellm -c \"ALTER USER litellm WITH PASSWORD '{pg_sql}';\" "
+        "2>/dev/null || true"
+    )
+    run(
+        f"echo '{password}' | sudo -S docker restart deploy-litellm-1 2>/dev/null || true"
     )
     run(
         f"echo '{password}' | sudo -S bash -lc "

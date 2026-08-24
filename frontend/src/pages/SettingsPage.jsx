@@ -52,6 +52,7 @@ export function SettingsPage() {
   const [testingDbc, setTestingDbc] = useState(false);
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
   const [gatewayModalOpen, setGatewayModalOpen] = useState(false);
+  const [oauthForGateway, setOauthForGateway] = useState(false);
 
   /**
    * Loads settings from API into form state (secrets left blank).
@@ -241,7 +242,29 @@ export function SettingsPage() {
   /**
    * @param {{ provider: string, account?: string }} result
    */
-  function onOAuthConnected(result) {
+  async function onOAuthConnected(result) {
+    if (oauthForGateway) {
+      setOauthForGateway(false);
+      setBusy(true);
+      setError(null);
+      try {
+        const data = await api("/api/settings/litellm/oauth/chatgpt/import-codex", {
+          method: "POST",
+          body: JSON.stringify({ model: form.llmModel }),
+        });
+        setOkMsg(
+          data.account
+            ? `ChatGPT connected via browser sign-in (${data.account}). Test LLM to verify.`
+            : "ChatGPT connected via browser sign-in. Test LLM to verify."
+        );
+        await reloadSettings();
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
     update("llmAuthMode", "oauth");
     setOkMsg(
       result.account
@@ -249,6 +272,15 @@ export function SettingsPage() {
         : `OAuth connected (${result.provider}). Test LLM to verify.`
     );
     reloadSettings().catch((err) => setError(err));
+  }
+
+  /**
+   * Device-code failed on OpenAI — fall back to Codex popup + paste URL.
+   */
+  function onGatewayBrowserFallback() {
+    setGatewayModalOpen(false);
+    setOauthForGateway(true);
+    setOauthModalOpen(true);
   }
 
   /**
@@ -320,14 +352,22 @@ export function SettingsPage() {
         open={gatewayModalOpen}
         onClose={() => setGatewayModalOpen(false)}
         onConnected={onGatewayConnected}
+        onBrowserFallback={onGatewayBrowserFallback}
         llmModel={form.llmModel}
       />
 
       <LlmOAuthModal
         open={oauthModalOpen}
-        onClose={() => setOauthModalOpen(false)}
+        onClose={() => {
+          setOauthModalOpen(false);
+          setOauthForGateway(false);
+        }}
         onConnected={onOAuthConnected}
-        providers={form.llmOAuthProviders}
+        providers={
+          oauthForGateway
+            ? (form.llmOAuthProviders || []).filter((p) => p.id === "openai")
+            : form.llmOAuthProviders
+        }
         redirectUri={form.llmOAuthRedirectUri}
         llmBaseUrl={form.llmBaseUrl}
         llmModel={form.llmModel}

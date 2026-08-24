@@ -1,25 +1,29 @@
 /**
  * @fileoverview Modal for ChatGPT device-code OAuth via LiteLLM gateway.
  * Purpose: Start OAuth on YamBot API → LiteLLM proxy → poll until tokens stored.
+ * Fallback: browser PKCE sign-in when OpenAI device page returns unknown_error.
  */
 
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api.js";
 import { FieldLabel } from "./FieldLabel.jsx";
 
+const CODEX_DEVICE_URL = "https://auth.openai.com/codex/device";
+
 /**
  * @param {object} props
  * @param {boolean} props.open
  * @param {() => void} props.onClose
  * @param {(result: { account?: string, modelName?: string }) => void} props.onConnected
+ * @param {() => void} [props.onBrowserFallback] — open YamBot Codex popup + paste flow
  * @param {string} props.llmModel — catalog model id (e.g. chatgpt/gpt-5.3-codex)
  */
-export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
+export function LlmGatewayModal({ open, onClose, onConnected, onBrowserFallback, llmModel }) {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [sessionId, setSessionId] = useState("");
   const [userCode, setUserCode] = useState("");
-  const [verificationUrl, setVerificationUrl] = useState("");
+  const [verificationUrl, setVerificationUrl] = useState(CODEX_DEVICE_URL);
   const pollRef = useRef(null);
 
   useEffect(() => {
@@ -31,7 +35,7 @@ export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
       setError("");
       setSessionId("");
       setUserCode("");
-      setVerificationUrl("");
+      setVerificationUrl(CODEX_DEVICE_URL);
       return;
     }
     startOAuth();
@@ -54,10 +58,8 @@ export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
       const data = await api("/api/settings/litellm/oauth/chatgpt/start", { method: "POST" });
       setSessionId(data.sessionId || "");
       setUserCode(data.userCode || "");
-      setVerificationUrl(data.verificationUrl || "");
-      if (data.verificationUrl) {
-        window.open(data.verificationUrl, "_blank", "noopener,noreferrer,width=520,height=720");
-      }
+      const url = data.verificationUrl || CODEX_DEVICE_URL;
+      setVerificationUrl(url);
       beginPolling(data.sessionId);
     } catch (err) {
       setError(err.detail || err.message || String(err));
@@ -114,6 +116,14 @@ export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
     onClose();
   }
 
+  /**
+   * Switches to browser PKCE flow when device-code page errors on OpenAI's side.
+   */
+  function tryBrowserFallback() {
+    handleClose().catch(() => onClose());
+    onBrowserFallback?.();
+  }
+
   if (!open) return null;
 
   return (
@@ -125,21 +135,20 @@ export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
       >
         <h2 className="text-lg font-semibold text-teal-950">Sign in with ChatGPT</h2>
         <p className="text-sm text-teal-900/70">
-          LiteLLM uses a device code. Open the verification page, sign in, and enter the code below.
+          Open the Codex device page, sign in, and enter the code below. Enable device login in ChatGPT
+          → Settings → Security if prompted.
         </p>
 
-        {verificationUrl ? (
-          <p className="text-sm">
-            <a
-              href={verificationUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="font-semibold text-teal-700 underline"
-            >
-              Open ChatGPT verification page
-            </a>
-          </p>
-        ) : null}
+        <p className="text-sm">
+          <a
+            href={verificationUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="font-semibold text-teal-700 underline"
+          >
+            Open {CODEX_DEVICE_URL.replace("https://", "")}
+          </a>
+        </p>
 
         {userCode ? (
           <div className="rounded-xl border border-teal-100 bg-teal-50/60 p-3 text-center">
@@ -154,6 +163,23 @@ export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
         ) : null}
         {error ? <p className="text-sm text-red-700">{error}</p> : null}
 
+        {onBrowserFallback ? (
+          <div className="rounded-xl border border-amber-100 bg-amber-50/80 p-3 text-sm text-amber-950">
+            <p className="font-semibold">OpenAI shows “Authentication Error”?</p>
+            <p className="mt-1 text-amber-900/90">
+              Use browser sign-in instead — popup login, then paste the redirect URL. Works when device
+              codes fail on OpenAI&apos;s page.
+            </p>
+            <button
+              type="button"
+              onClick={tryBrowserFallback}
+              className="mt-2 min-h-11 w-full rounded-xl border border-amber-200 bg-white px-4 font-semibold text-amber-950"
+            >
+              Try browser sign-in…
+            </button>
+          </div>
+        ) : null}
+
         <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
           <button
             type="button"
@@ -161,7 +187,7 @@ export function LlmGatewayModal({ open, onClose, onConnected, llmModel }) {
             disabled={busy}
             className="min-h-11 rounded-xl border border-teal-200 px-4 font-semibold text-teal-900 disabled:opacity-50"
           >
-            Retry
+            New code
           </button>
           <button
             type="button"

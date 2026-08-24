@@ -887,8 +887,8 @@ export const HELP = {
   "settings.litellmDeviceCode": {
     title: "Device code",
     body: helpBody(
-      "Enter this code on the ChatGPT verification page after signing in.",
-      "The page opens in a new tab; this dialog waits until authorization completes."
+      "Enter this code at https://auth.openai.com/codex/device after signing in.",
+      "If OpenAI shows an error, use Try browser sign-in for the popup + paste-URL method."
     ),
   },
   "settings.llmOAuthConnect": {

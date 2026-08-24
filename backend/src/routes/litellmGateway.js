@@ -13,6 +13,7 @@ import {
   ensureUserChatGptModel,
   ensureUserVirtualKey,
   getChatGptOAuthStatus,
+  importCodexOAuthToLitellm,
   isLitellmEnabled,
   resolveLitellmModelForUser,
   startChatGptOAuth,
@@ -156,6 +157,37 @@ litellmGatewayRouter.post("/oauth/chatgpt/cancel", async (req, res, next) => {
   try {
     await cancelChatGptOAuth(String(req.body?.sessionId || ""));
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/settings/litellm/oauth/chatgpt/import-codex — browser PKCE tokens → LiteLLM credential.
+ * Body: { model?: string }
+ */
+litellmGatewayRouter.post("/oauth/chatgpt/import-codex", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    const litellmModel = String(req.body?.model || user.settings?.llmModel || "chatgpt/gpt-5.3-codex");
+    const result = await importCodexOAuthToLitellm(user, litellmModel);
+    user.settings.llmGatewayMode = "litellm";
+    user.settings.llmAuthMode = "litellm";
+    user.settings.llmOAuthProvider = "chatgpt";
+    user.settings.llmModel = litellmModel;
+    user.settings.litellmChatGptConnected = true;
+    user.markModified("settings");
+    await user.save();
+    res.json({
+      ok: true,
+      message: "ChatGPT connected via browser sign-in",
+      account: user.settings.litellmChatGptAccountLabel || result.credentialName,
+      modelName: result.modelName,
+    });
   } catch (err) {
     next(err);
   }
