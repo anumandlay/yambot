@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 14:30] Settings: always show Connect ChatGPT in gateway mode
+
+- **Prompt Provided:** In Settings cannot see Connect ChatGPT
+- **Architectural Flow:** Gateway UI when `litellmEnabled` (not gated on `llmGatewayMode`) → ChatGPT connect block always visible → normalize MiniMax model id for catalog match
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`
+
 ## [2026-08-24 12:00] Fix ChatGPT OAuth — LiteLLM Postgres password drift + browser fallback
 
 - **Prompt Provided:** OpenAI authentication unknown_error during ChatGPT device-code sign-in

@@ -27,7 +27,7 @@ export async function seedDefaultLlmSettings() {
       {
         $or: [
           { "settings.llmGatewayMode": { $exists: false } },
-          { "settings.llmGatewayMode": "direct", "settings.litellmVirtualKeyEnc": { $in: [null, ""] } },
+          { "settings.llmGatewayMode": { $in: [null, "", "direct"] } },
         ],
       },
       {
@@ -35,7 +35,6 @@ export async function seedDefaultLlmSettings() {
           "settings.llmGatewayMode": "litellm",
           "settings.llmAuthMode": "litellm",
           "settings.llmBaseUrl": gatewayBase,
-          "settings.llmModel": gatewayModel,
         },
       }
     );

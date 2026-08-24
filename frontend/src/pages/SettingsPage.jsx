@@ -13,6 +13,17 @@ import { HelpToggle } from "../components/HelpToggle.jsx";
 import { LlmOAuthModal } from "../components/LlmOAuthModal.jsx";
 import { LlmGatewayModal } from "../components/LlmGatewayModal.jsx";
 
+/**
+ * Maps legacy model names to LiteLLM catalog ids.
+ * @param {string} model
+ * @returns {string}
+ */
+function normalizeGatewayModelId(model) {
+  const m = String(model || "").trim();
+  if (!m || m === "MiniMax-M2.7") return "minimax";
+  return m;
+}
+
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [form, setForm] = useState({
@@ -59,15 +70,22 @@ export function SettingsPage() {
    */
   async function reloadSettings() {
     const data = await api("/api/settings");
+    const settings = data.settings || {};
+    const gatewayOn = settings.litellmEnabled === true;
+    const normalizedModel = gatewayOn
+      ? normalizeGatewayModelId(settings.llmModel)
+      : settings.llmModel;
     setForm((prev) => ({
       ...prev,
-      ...data.settings,
+      ...settings,
+      llmModel: normalizedModel,
+      llmGatewayMode: gatewayOn ? "litellm" : settings.llmGatewayMode || "direct",
       llmApiKey: "",
       visionApiKey: "",
       dbcPassword: "",
       llmOAuthProvider:
-        data.settings.llmOAuthProvider ||
-        data.settings.llmOAuthProviders?.[0]?.id ||
+        settings.llmOAuthProvider ||
+        settings.llmOAuthProviders?.[0]?.id ||
         prev.llmOAuthProvider ||
         "",
     }));
@@ -117,10 +135,13 @@ export function SettingsPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  const useGateway = form.litellmEnabled && form.llmGatewayMode === "litellm";
+  const useGateway = form.litellmEnabled === true;
   const catalog = Array.isArray(form.litellmModels) ? form.litellmModels : [];
-  const selectedCatalog = catalog.find((m) => m.id === form.llmModel) || null;
-  const needsChatGptOAuth = useGateway && selectedCatalog?.requiresOAuth && !form.litellmChatGptConnected;
+  const gatewayModelId = normalizeGatewayModelId(form.llmModel);
+  const selectedCatalog = catalog.find((m) => m.id === gatewayModelId) || null;
+  const chatGptModels = catalog.filter((m) => m.requiresOAuth);
+  const needsChatGptOAuth =
+    useGateway && selectedCatalog?.requiresOAuth && !form.litellmChatGptConnected;
 
   /**
    * @param {React.FormEvent} e
@@ -387,66 +408,73 @@ export function SettingsPage() {
               <FieldLabel helpId="settings.litellmModel">Model</FieldLabel>
               <select
                 className="min-h-11 rounded-xl border border-teal-100 px-3"
-                value={form.llmModel}
+                value={catalog.some((m) => m.id === gatewayModelId) ? gatewayModelId : catalog[0]?.id || gatewayModelId}
                 onChange={(e) => update("llmModel", e.target.value)}
               >
-                {catalog.map((m) => (
-                  <option key={m.id} value={m.id}>
-                    {m.label}
-                    {m.requiresOAuth ? " (ChatGPT OAuth)" : ""}
-                  </option>
-                ))}
+                {catalog.length ? (
+                  catalog.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label}
+                      {m.requiresOAuth ? " (ChatGPT)" : ""}
+                    </option>
+                  ))
+                ) : (
+                  <option value="minimax">MiniMax M2.7</option>
+                )}
               </select>
             </label>
 
-            {selectedCatalog?.requiresOAuth ? (
-              <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/40 p-3 text-sm">
-                {form.litellmChatGptConnected ? (
-                  <>
-                    <p className="text-teal-900">
-                      ChatGPT connected
-                      {form.litellmChatGptAccountLabel ? `: ${form.litellmChatGptAccountLabel}` : ""}
-                    </p>
-                    <div className="flex flex-col gap-2 sm:flex-row">
-                      <ButtonWithHelp helpId="settings.litellmChatGpt">
-                        <button
-                          type="button"
-                          onClick={() => setGatewayModalOpen(true)}
-                          disabled={busy}
-                          className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
-                        >
-                          Reconnect ChatGPT
-                        </button>
-                      </ButtonWithHelp>
-                      <button
-                        type="button"
-                        onClick={disconnectGatewayChatGpt}
-                        disabled={busy}
-                        className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
-                      >
-                        Disconnect
-                      </button>
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-teal-900/80">
-                      This model uses your ChatGPT subscription. Sign in with a device code (no API key needed).
-                    </p>
+            <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/40 p-3 text-sm">
+              <p className="font-semibold text-teal-900">ChatGPT subscription</p>
+              {form.litellmChatGptConnected ? (
+                <>
+                  <p className="text-teal-900">
+                    Connected
+                    {form.litellmChatGptAccountLabel ? `: ${form.litellmChatGptAccountLabel}` : ""}
+                  </p>
+                  <p className="text-xs text-teal-900/70">
+                    Pick a ChatGPT model above to use your subscription. MiniMax uses the platform API key.
+                  </p>
+                  <div className="flex flex-col gap-2 sm:flex-row">
                     <ButtonWithHelp helpId="settings.litellmChatGpt">
                       <button
                         type="button"
                         onClick={() => setGatewayModalOpen(true)}
                         disabled={busy}
-                        className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+                        className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
                       >
-                        Connect ChatGPT…
+                        Reconnect ChatGPT
                       </button>
                     </ButtonWithHelp>
-                  </>
-                )}
-              </div>
-            ) : null}
+                    <button
+                      type="button"
+                      onClick={disconnectGatewayChatGpt}
+                      disabled={busy}
+                      className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                    >
+                      Disconnect
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <>
+                  <p className="text-teal-900/80">
+                    Connect once to use {chatGptModels.map((m) => m.label).join(" or ") || "ChatGPT models"}.
+                    You can stay on MiniMax without connecting.
+                  </p>
+                  <ButtonWithHelp helpId="settings.litellmChatGpt">
+                    <button
+                      type="button"
+                      onClick={() => setGatewayModalOpen(true)}
+                      disabled={busy}
+                      className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+                    >
+                      Connect ChatGPT…
+                    </button>
+                  </ButtonWithHelp>
+                </>
+              )}
+            </div>
 
             <button
               type="button"

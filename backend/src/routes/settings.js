@@ -70,14 +70,23 @@ settingsRouter.get("/", async (req, res, next) => {
         hasDbcPassword: Boolean(savedDbcPass),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
         helpEnabled: s.helpEnabled !== false,
-        llmAuthMode: s.llmAuthMode === "oauth" ? "oauth" : "api_key",
+        llmAuthMode:
+          s.llmAuthMode === "litellm"
+            ? "litellm"
+            : s.llmAuthMode === "oauth"
+              ? "oauth"
+              : "api_key",
         llmOAuthProvider: s.llmOAuthProvider || "",
         llmOAuthConnected: isLlmOAuthConnected(s),
         llmOAuthAccountLabel: s.llmOAuthAccountLabel || "",
         llmOAuthProviders: listLlmOAuthProvidersForUser(s),
         llmOAuthRedirectUri: `${env.PUBLIC_API_URL.replace(/\/$/, "")}/api/settings/llm/oauth/callback`,
         litellmEnabled: isLitellmEnabled(),
-        litellmGatewayMode: s.llmGatewayMode === "direct" ? "direct" : isLitellmEnabled() ? "litellm" : "direct",
+        litellmGatewayMode: isLitellmEnabled()
+          ? s.llmGatewayMode === "direct"
+            ? "direct"
+            : "litellm"
+          : "direct",
         litellmModels: isLitellmEnabled() ? LITELLM_CATALOG : [],
         litellmChatGptConnected: s.litellmChatGptConnected === true,
         litellmChatGptAccountLabel: s.litellmChatGptAccountLabel || "",
