@@ -1,7 +1,7 @@
 /**
  * @fileoverview Settings page — LLM + DeathByCaptcha credentials.
  * Purpose: Store provider secrets on the server for cloud workers to load at runtime.
- * Supports API key or OAuth (Azure OpenAI, Google Gemini, OpenAI when configured).
+ * Supports API key or OAuth (Azure OpenAI, Google Gemini, OpenAI) via popup sign-in.
  */
 
 import { useEffect, useState } from "react";
@@ -10,6 +10,7 @@ import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { HelpToggle } from "../components/HelpToggle.jsx";
+import { LlmOAuthModal } from "../components/LlmOAuthModal.jsx";
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -22,6 +23,7 @@ export function SettingsPage() {
     llmOAuthConnected: false,
     llmOAuthAccountLabel: "",
     llmOAuthProviders: [],
+    llmOAuthRedirectUri: "",
     visionApiKey: "",
     visionBaseUrl: "",
     visionModel: "",
@@ -40,7 +42,7 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [testingLlm, setTestingLlm] = useState(false);
   const [testingDbc, setTestingDbc] = useState(false);
-  const [connectingOAuth, setConnectingOAuth] = useState(false);
+  const [oauthModalOpen, setOauthModalOpen] = useState(false);
 
   /**
    * Loads settings from API into form state (secrets left blank).
@@ -71,7 +73,7 @@ export function SettingsPage() {
     })();
   }, []);
 
-  /** Handle OAuth redirect query params from provider callback. */
+  /** Handle OAuth redirect query params (full-page fallback when popup blocked). */
   useEffect(() => {
     const oauthResult = searchParams.get("llm_oauth");
     if (!oauthResult) return;
@@ -166,43 +168,6 @@ export function SettingsPage() {
   }
 
   /**
-   * Starts OAuth connect — redirects browser to provider authorize URL.
-   */
-  async function connectOAuth() {
-    const provider = String(form.llmOAuthProvider || "").trim();
-    if (!provider) {
-      setError({ title: "Choose a provider", detail: "Select an OAuth provider before connecting." });
-      return;
-    }
-    setConnectingOAuth(true);
-    setError(null);
-    setOkMsg("");
-    try {
-      await api("/api/settings", {
-        method: "PUT",
-        body: JSON.stringify({
-          llmAuthMode: "oauth",
-          llmBaseUrl: form.llmBaseUrl,
-          llmModel: form.llmModel,
-        }),
-      });
-      const data = await api("/api/settings/llm/oauth/start", {
-        method: "POST",
-        body: JSON.stringify({ provider }),
-      });
-      if (data.authorizeUrl) {
-        window.location.href = data.authorizeUrl;
-        return;
-      }
-      setError({ title: "OAuth failed", detail: "No authorize URL returned" });
-    } catch (err) {
-      setError(err);
-    } finally {
-      setConnectingOAuth(false);
-    }
-  }
-
-  /**
    * Clears OAuth tokens and reverts to API key mode.
    */
   async function disconnectOAuth() {
@@ -219,6 +184,19 @@ export function SettingsPage() {
     } finally {
       setBusy(false);
     }
+  }
+
+  /**
+   * @param {{ provider: string, account?: string }} result
+   */
+  function onOAuthConnected(result) {
+    update("llmAuthMode", "oauth");
+    setOkMsg(
+      result.account
+        ? `OAuth connected (${result.provider}): ${result.account}. Test LLM to verify.`
+        : `OAuth connected (${result.provider}). Test LLM to verify.`
+    );
+    reloadSettings().catch((err) => setError(err));
   }
 
   /**
@@ -248,7 +226,6 @@ export function SettingsPage() {
     }
   }
 
-  const oauthAvailable = Array.isArray(form.llmOAuthProviders) && form.llmOAuthProviders.length > 0;
   const useOAuth = form.llmAuthMode === "oauth";
 
   return (
@@ -258,7 +235,7 @@ export function SettingsPage() {
       <PageGuideBanner helpId="nav.settings" />
       <p className="text-sm text-teal-900/70">
         Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).
-        Use an API key or OAuth (when configured on the server). Secrets are encrypted at rest.
+        Use an API key or sign in with OAuth. Secrets are encrypted at rest.
       </p>
       {error ? (
         <ErrorAlert
@@ -274,6 +251,16 @@ export function SettingsPage() {
         </div>
       ) : null}
 
+      <LlmOAuthModal
+        open={oauthModalOpen}
+        onClose={() => setOauthModalOpen(false)}
+        onConnected={onOAuthConnected}
+        providers={form.llmOAuthProviders}
+        redirectUri={form.llmOAuthRedirectUri}
+        llmBaseUrl={form.llmBaseUrl}
+        llmModel={form.llmModel}
+      />
+
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-teal-900/80">LLM</h2>
 
@@ -288,18 +275,14 @@ export function SettingsPage() {
             />
             API key (MiniMax, any OpenAI-compatible provider)
           </label>
-          <label className={`flex min-h-11 items-center gap-2 ${!oauthAvailable ? "opacity-60" : ""}`}>
+          <label className="flex min-h-11 items-center gap-2">
             <input
               type="radio"
               name="llmAuthMode"
               checked={useOAuth}
-              disabled={!oauthAvailable}
               onChange={() => update("llmAuthMode", "oauth")}
             />
-            OAuth sign-in
-            {!oauthAvailable ? (
-              <span className="text-xs text-teal-900/50">(not configured on this server)</span>
-            ) : null}
+            OAuth sign-in (Google Gemini, Azure OpenAI, OpenAI)
           </label>
         </fieldset>
 
@@ -326,44 +309,40 @@ export function SettingsPage() {
                   {form.llmOAuthAccountLabel ? `: ${form.llmOAuthAccountLabel}` : ""}
                   {form.llmOAuthProvider ? ` (${form.llmOAuthProvider})` : ""}
                 </p>
-                <button
-                  type="button"
-                  onClick={disconnectOAuth}
-                  disabled={busy}
-                  className="min-h-11 w-full rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
-                >
-                  Disconnect OAuth
-                </button>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <ButtonWithHelp helpId="settings.llmOAuthConnect">
+                    <button
+                      type="button"
+                      onClick={() => setOauthModalOpen(true)}
+                      disabled={busy}
+                      className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                    >
+                      Reconnect
+                    </button>
+                  </ButtonWithHelp>
+                  <button
+                    type="button"
+                    onClick={disconnectOAuth}
+                    disabled={busy}
+                    className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                  >
+                    Disconnect
+                  </button>
+                </div>
               </>
             ) : (
               <>
-                <label className="flex flex-col gap-1">
-                  <span className="font-medium text-teal-900/80">Provider</span>
-                  <select
-                    className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-                    value={form.llmOAuthProvider}
-                    onChange={(e) => update("llmOAuthProvider", e.target.value)}
-                  >
-                    {form.llmOAuthProviders.map((p) => (
-                      <option key={p.id} value={p.id}>
-                        {p.label}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-                {form.llmOAuthProviders.find((p) => p.id === form.llmOAuthProvider)?.hint ? (
-                  <p className="text-xs text-teal-900/60">
-                    {form.llmOAuthProviders.find((p) => p.id === form.llmOAuthProvider)?.hint}
-                  </p>
-                ) : null}
+                <p className="text-teal-900/80">
+                  Sign in with your LLM provider. A popup opens so you can pick the provider and log in on their site.
+                </p>
                 <ButtonWithHelp helpId="settings.llmOAuthConnect">
                   <button
                     type="button"
-                    onClick={connectOAuth}
-                    disabled={connectingOAuth || busy}
+                    onClick={() => setOauthModalOpen(true)}
+                    disabled={busy}
                     className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
                   >
-                    {connectingOAuth ? "Redirecting…" : "Connect with OAuth"}
+                    Connect account…
                   </button>
                 </ButtonWithHelp>
               </>

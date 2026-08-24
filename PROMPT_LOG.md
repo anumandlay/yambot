@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 10:50] OAuth popup connect + per-user OAuth app credentials
+
+- **Prompt Provided:** OAuth shows "not configured on this server"; user wants popup to pick provider and sign in on provider site to store tokens
+- **Architectural Flow:** Always list all LLM OAuth providers; modal + popup window for connect; optional per-user OAuth Client ID/Secret when server env empty; callback HTML postMessages opener
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/llmOAuth.js`, `backend/src/models/User.js`, `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/components/LlmOAuthModal.jsx`
+
 ## [2026-08-24 10:40] Settings: LLM OAuth alongside API key
 
 - **Prompt Provided:** Add OAuth option on Settings alongside current API key auth (Azure OpenAI, Google Gemini, optional OpenAI)

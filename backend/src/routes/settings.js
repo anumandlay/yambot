@@ -14,7 +14,9 @@ import {
   clearLlmOAuth,
   completeLlmOAuthCallback,
   isLlmOAuthConnected,
-  listConfiguredLlmOAuthProviders,
+  listLlmOAuthProvidersForUser,
+  renderOAuthPopupHtml,
+  saveUserOAuthAppCredentials,
   verifyOAuthState,
 } from "../utils/llmOAuth.js";
 
@@ -64,7 +66,8 @@ settingsRouter.get("/", async (req, res, next) => {
         llmOAuthProvider: s.llmOAuthProvider || "",
         llmOAuthConnected: isLlmOAuthConnected(s),
         llmOAuthAccountLabel: s.llmOAuthAccountLabel || "",
-        llmOAuthProviders: listConfiguredLlmOAuthProviders(),
+        llmOAuthProviders: listLlmOAuthProvidersForUser(s),
+        llmOAuthRedirectUri: `${env.PUBLIC_API_URL.replace(/\/$/, "")}/api/settings/llm/oauth/callback`,
       },
     });
   } catch (err) {
@@ -120,15 +123,21 @@ settingsRouter.put("/", async (req, res, next) => {
 });
 
 /**
- * GET /api/settings/llm/oauth/providers — OAuth providers configured on this server.
+ * GET /api/settings/llm/oauth/providers — all OAuth providers (+ ready flag).
  */
-settingsRouter.get("/llm/oauth/providers", async (_req, res) => {
-  res.json({ ok: true, providers: listConfiguredLlmOAuthProviders() });
+settingsRouter.get("/llm/oauth/providers", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    const s = user?.settings || {};
+    res.json({ ok: true, providers: listLlmOAuthProvidersForUser(s) });
+  } catch (err) {
+    next(err);
+  }
 });
 
 /**
  * POST /api/settings/llm/oauth/start — begin OAuth connect (returns redirect URL).
- * Body: { provider: "azure_openai"|"google_gemini"|"openai" }
+ * Body: { provider, popup?, clientId?, clientSecret?, tenantId? }
  */
 settingsRouter.post("/llm/oauth/start", async (req, res, next) => {
   try {
@@ -137,8 +146,25 @@ settingsRouter.post("/llm/oauth/start", async (req, res, next) => {
       res.status(400).json({ ok: false, title: "Missing provider", detail: "provider is required" });
       return;
     }
-    const { authorizeUrl } = buildLlmOAuthAuthorizeUrl(provider, String(req.userId));
-    res.json({ ok: true, authorizeUrl, provider });
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    const clientId = String(req.body?.clientId ?? "").trim();
+    const clientSecret = String(req.body?.clientSecret ?? "").trim();
+    const tenantId = String(req.body?.tenantId ?? "").trim();
+    if (clientId || clientSecret || tenantId) {
+      await saveUserOAuthAppCredentials(user, provider, { clientId, clientSecret, tenantId });
+    }
+    const popup = req.body?.popup === true;
+    const { authorizeUrl } = buildLlmOAuthAuthorizeUrl(
+      provider,
+      String(req.userId),
+      user.settings || {},
+      { popup }
+    );
+    res.json({ ok: true, authorizeUrl, provider, popup });
   } catch (err) {
     next(err);
   }
@@ -167,12 +193,21 @@ settingsRouter.post("/llm/oauth/disconnect", async (req, res, next) => {
  */
 export async function llmOAuthCallbackHandler(req, res) {
   const webBase = env.PUBLIC_WEB_URL.replace(/\/$/, "");
+  const stateRaw = String(req.query?.state || "");
+  const statePayload = stateRaw ? verifyOAuthState(stateRaw) : null;
+  const popup = statePayload?.popup === true;
+
+  /** @param {string} detail */
   const fail = (detail) => {
+    if (popup) {
+      res.status(400).type("html").send(renderOAuthPopupHtml({ ok: false, detail: detail.slice(0, 180) }));
+      return;
+    }
     res.redirect(`${webBase}/settings?llm_oauth=error&detail=${encodeURIComponent(detail.slice(0, 180))}`);
   };
+
   try {
     const code = String(req.query?.code || "");
-    const stateRaw = String(req.query?.state || "");
     const oauthErr = String(req.query?.error || "");
     if (oauthErr) {
       fail(oauthErr);
@@ -182,12 +217,21 @@ export async function llmOAuthCallbackHandler(req, res) {
       fail("Missing OAuth code or state");
       return;
     }
-    const statePayload = verifyOAuthState(stateRaw);
     if (!statePayload) {
       fail("Invalid or expired OAuth state");
       return;
     }
     const result = await completeLlmOAuthCallback(code, statePayload, User);
+    if (popup) {
+      res.type("html").send(
+        renderOAuthPopupHtml({
+          ok: true,
+          provider: result.provider,
+          account: result.accountLabel || "",
+        })
+      );
+      return;
+    }
     const q = new URLSearchParams({
       llm_oauth: "connected",
       provider: result.provider,

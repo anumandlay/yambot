@@ -872,8 +872,8 @@ export const HELP = {
   "settings.llmOAuthConnect": {
     title: "Connect OAuth",
     body: helpBody(
-      "Opens your provider's sign-in page. After approval, tokens are stored encrypted on the server and refreshed automatically.",
-      "Set base URL and model first (especially for Azure deployment URL). Redirect URI must be registered: {PUBLIC_API_URL}/api/settings/llm/oauth/callback"
+      "Opens a popup to sign in with Google (Gemini), Microsoft (Azure OpenAI), or OpenAI.",
+      "If the server has no shared OAuth app, enter your own Client ID and Secret from the provider console and register redirect URI: https://bot.vughy.com/api/settings/llm/oauth/callback"
     ),
   },
   "settings.llmBaseUrl": {

@@ -36,6 +36,8 @@ const settingsSchema = new mongoose.Schema(
     llmOAuthRefreshTokenEnc: { type: String, default: "" },
     llmOAuthExpiresAt: { type: Date, default: null },
     llmOAuthAccountLabel: { type: String, default: "" },
+    /** Per-provider OAuth app credentials (encrypted) when server env is unset. */
+    llmOAuthApps: { type: mongoose.Schema.Types.Mixed, default: {} },
     llmBaseUrl: { type: String, default: DEFAULT_LLM_BASE_URL },
     llmModel: { type: String, default: DEFAULT_LLM_MODEL },
     /** Optional separate credentials for multimodal (viewport screenshot) steps. */

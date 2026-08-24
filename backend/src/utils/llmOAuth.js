@@ -52,12 +52,96 @@ export const LLM_OAUTH_PROVIDER_CATALOG = [
 ];
 
 /**
+ * Reads one user's saved OAuth app for a provider.
+ * @param {object} settings
+ * @param {string} providerId
+ * @returns {{ clientId: string, clientSecret: string, tenant?: string }|null}
+ */
+function readUserOAuthApp(settings, providerId) {
+  const apps = settings?.llmOAuthApps || {};
+  const row = apps[providerId];
+  if (!row) return null;
+  const clientId = decryptSecret(row.clientIdEnc || "");
+  const clientSecret = decryptSecret(row.clientSecretEnc || "");
+  if (!clientId || !clientSecret) return null;
+  return {
+    clientId,
+    clientSecret,
+    tenant: row.tenantId || "common",
+  };
+}
+
+/**
+ * Server env first, then per-user OAuth app credentials.
+ * @param {string} providerId
+ * @param {object} [userSettings]
+ * @returns {{ clientId: string, clientSecret: string, tenant?: string, source: string }|null}
+ */
+export function resolveOAuthClientConfig(providerId, userSettings) {
+  const server = readProviderSecrets();
+  const fromServer = server[providerId];
+  if (fromServer?.clientId && fromServer?.clientSecret) {
+    return { ...fromServer, source: "server" };
+  }
+  const fromUser = readUserOAuthApp(userSettings, providerId);
+  if (fromUser) {
+    return { ...fromUser, source: "user" };
+  }
+  return null;
+}
+
+/**
+ * All LLM OAuth providers for Settings UI (always listed).
+ * @param {object} [userSettings]
+ * @returns {(LlmOAuthProviderMeta & { ready: boolean, needsAppCredentials: boolean, redirectUri: string })[]}
+ */
+export function listLlmOAuthProvidersForUser(userSettings) {
+  const redirectUri = llmOAuthRedirectUri();
+  return LLM_OAUTH_PROVIDER_CATALOG.map((p) => {
+    const cfg = resolveOAuthClientConfig(p.id, userSettings);
+    return {
+      ...p,
+      ready: Boolean(cfg?.clientId && cfg?.clientSecret),
+      needsAppCredentials: !Boolean(readProviderSecrets()[p.id]?.clientId),
+      redirectUri,
+    };
+  });
+}
+
+/**
  * Providers with client id configured on this server.
  * @returns {LlmOAuthProviderMeta[]}
  */
 export function listConfiguredLlmOAuthProviders() {
   const secrets = readProviderSecrets();
   return LLM_OAUTH_PROVIDER_CATALOG.filter((p) => Boolean(secrets[p.id]?.clientId));
+}
+
+/**
+ * Saves encrypted OAuth app credentials for one provider on the user.
+ * @param {import('mongoose').Document} user
+ * @param {string} providerId
+ * @param {{ clientId?: string, clientSecret?: string, tenantId?: string }} creds
+ */
+export async function saveUserOAuthAppCredentials(user, providerId, creds) {
+  if (!user.settings) user.settings = {};
+  if (!user.settings.llmOAuthApps || typeof user.settings.llmOAuthApps !== "object") {
+    user.settings.llmOAuthApps = {};
+  }
+  const prev = user.settings.llmOAuthApps[providerId] || {};
+  const next = { ...prev };
+  if (creds.clientId?.trim()) {
+    next.clientIdEnc = encryptSecret(creds.clientId.trim());
+  }
+  if (creds.clientSecret?.trim()) {
+    next.clientSecretEnc = encryptSecret(creds.clientSecret.trim());
+  }
+  if (typeof creds.tenantId === "string" && creds.tenantId.trim()) {
+    next.tenantId = creds.tenantId.trim();
+  }
+  user.settings.llmOAuthApps[providerId] = next;
+  user.markModified("settings");
+  await user.save();
 }
 
 /**
@@ -132,22 +216,26 @@ export function verifyOAuthState(state) {
  * Builds the provider authorization URL (PKCE).
  * @param {string} providerId
  * @param {string} userId
+ * @param {object} [userSettings]
+ * @param {{ popup?: boolean }} [opts]
  * @returns {{ authorizeUrl: string, state: string }}
  */
-export function buildLlmOAuthAuthorizeUrl(providerId, userId) {
-  const secrets = readProviderSecrets();
-  const cfg = secrets[providerId];
+export function buildLlmOAuthAuthorizeUrl(providerId, userId, userSettings, opts = {}) {
+  const cfg = resolveOAuthClientConfig(providerId, userSettings);
   if (!cfg?.clientId) {
-    throw Object.assign(new Error("OAuth provider not configured on this server"), {
-      status: 400,
-      title: "OAuth unavailable",
-    });
+    throw Object.assign(
+      new Error(
+        "OAuth app not configured. Enter your OAuth Client ID and Secret in the connect dialog (from Google Cloud / Azure / OpenAI)."
+      ),
+      { status: 400, title: "OAuth app required" }
+    );
   }
   const { verifier, challenge } = generatePkcePair();
   const state = signOAuthState({
     userId,
     provider: providerId,
     verifier,
+    popup: opts.popup === true,
     exp: Date.now() + 15 * 60 * 1000,
   });
   const redirectUri = llmOAuthRedirectUri();
@@ -196,11 +284,14 @@ export function buildLlmOAuthAuthorizeUrl(providerId, userId) {
  * @param {string} providerId
  * @param {string} code
  * @param {string} codeVerifier
+ * @param {object} [userSettings]
  * @returns {Promise<{ accessToken: string, refreshToken?: string, expiresIn?: number, accountLabel?: string }>}
  */
-async function exchangeOAuthCode(providerId, code, codeVerifier) {
-  const secrets = readProviderSecrets();
-  const cfg = secrets[providerId];
+async function exchangeOAuthCode(providerId, code, codeVerifier, userSettings) {
+  const cfg = resolveOAuthClientConfig(providerId, userSettings);
+  if (!cfg?.clientId) {
+    throw Object.assign(new Error("OAuth app not configured"), { status: 400 });
+  }
   const redirectUri = llmOAuthRedirectUri();
   /** @type {URLSearchParams} */
   let body;
@@ -297,11 +388,14 @@ async function exchangeOAuthCode(providerId, code, codeVerifier) {
 /**
  * @param {string} providerId
  * @param {string} refreshToken
+ * @param {object} [userSettings]
  * @returns {Promise<{ accessToken: string, refreshToken?: string, expiresIn?: number }>}
  */
-async function refreshOAuthToken(providerId, refreshToken) {
-  const secrets = readProviderSecrets();
-  const cfg = secrets[providerId];
+async function refreshOAuthToken(providerId, refreshToken, userSettings) {
+  const cfg = resolveOAuthClientConfig(providerId, userSettings);
+  if (!cfg?.clientId) {
+    throw new Error("OAuth app not configured");
+  }
   /** @type {URLSearchParams} */
   let body;
   /** @type {string} */
@@ -424,7 +518,7 @@ export async function getValidLlmOAuthAccessToken(user) {
   }
 
   try {
-    const refreshed = await refreshOAuthToken(providerId, refresh);
+    const refreshed = await refreshOAuthToken(providerId, refresh, s);
     user.settings.llmOAuthAccessTokenEnc = encryptSecret(refreshed.accessToken || "");
     if (refreshed.refreshToken) {
       user.settings.llmOAuthRefreshTokenEnc = encryptSecret(refreshed.refreshToken);
@@ -451,7 +545,32 @@ export async function completeLlmOAuthCallback(code, statePayload, User) {
   if (!user) {
     throw Object.assign(new Error("User not found"), { status: 404 });
   }
-  const tokens = await exchangeOAuthCode(statePayload.provider, code, statePayload.verifier);
+  const tokens = await exchangeOAuthCode(
+    statePayload.provider,
+    code,
+    statePayload.verifier,
+    user.settings || {}
+  );
   await saveLlmOAuthTokens(user, statePayload.provider, tokens);
   return { provider: statePayload.provider, accountLabel: tokens.accountLabel || "" };
+}
+
+/**
+ * Minimal HTML for OAuth popup — notifies opener and closes.
+ * @param {{ ok: boolean, provider?: string, account?: string, detail?: string }} payload
+ * @returns {string}
+ */
+export function renderOAuthPopupHtml(payload) {
+  const webOrigin = env.PUBLIC_WEB_URL.replace(/\/$/, "");
+  const msg = JSON.stringify({ type: "yambot_llm_oauth", ...payload });
+  const title = payload.ok ? "Connected" : "OAuth failed";
+  const body = payload.ok
+    ? "LLM account connected. This window will close."
+    : String(payload.detail || "OAuth failed");
+  return `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${title}</title></head><body style="font-family:system-ui;padding:2rem;text-align:center"><p>${body}</p><script>
+try {
+  if (window.opener) window.opener.postMessage(${msg}, ${JSON.stringify(webOrigin)});
+} catch (e) {}
+setTimeout(function(){ window.close(); }, 800);
+</script></body></html>`;
 }
