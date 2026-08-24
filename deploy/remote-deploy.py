@@ -210,6 +210,11 @@ def main() -> int:
         f"'cd /home/ubuntu/yambot/deploy && {compose} ps'"
     )
     run(
+        f"echo '{password}' | sudo -S bash -lc "
+        "'chmod +x /home/ubuntu/yambot/deploy/patch-caddy-body.sh && "
+        "/home/ubuntu/yambot/deploy/patch-caddy-body.sh' || true"
+    )
+    run(
         "sleep 8; curl -s -H 'Host: bot.vughy.com' http://127.0.0.1:8080/api/health; echo; "
         "curl -s -o /dev/null -w 'web8080:%{http_code}\\n' -H 'Host: bot.vughy.com' http://127.0.0.1:8080/"
     )

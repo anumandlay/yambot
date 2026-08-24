@@ -37,20 +37,47 @@ async function main() {
   console.log(
     `[${config.workerName}] signed in (${config.workerToken ? "worker-token" : config.email})`
   );
+  // Why: mark agent online immediately while Chromium is still launching (avoids endless STARTING…).
+  await client
+    .api("/api/worker/computer/heartbeat", {
+      method: "POST",
+      body: JSON.stringify({
+        agentId: config.agentId,
+        workerName: config.workerName,
+        pageUrl: "about:blank",
+        screenshotBase64: "",
+      }),
+    })
+    .catch((err) => {
+      console.error(`[${config.workerName}] presence ping failed`, err?.message || err);
+    });
   await agent.ensureBrowser();
   await agent.pushLiveScreen().catch((err) => {
     console.error(`[${config.workerName}] initial screen push failed`, err?.message || err);
   });
 
   let pollInFlight = false;
+  let recoverInFlight = false;
+
+  async function recoverBrowserOnce() {
+    if (recoverInFlight || agent.isRunning()) return;
+    recoverInFlight = true;
+    try {
+      await agent.recoverBrowser();
+    } catch (recoverErr) {
+      console.error(`[${config.workerName}] browser recover failed`, recoverErr?.message || recoverErr);
+    } finally {
+      recoverInFlight = false;
+    }
+  }
 
   async function pollOnce() {
     if (pollInFlight || agent.isRunning()) return;
     pollInFlight = true;
     try {
-      // Why: do not start a new goal while the user is driving the live screen.
+      // Why: do not start a new goal while the user is driving during an active run.
       const screen = await agent.pushLiveScreen().catch(() => null);
-      if (screen?.humanControl) return;
+      if (screen?.humanControl && agent.isRunning()) return;
 
       const data = await client.claimNext();
       if (!data?.task) return;
@@ -60,9 +87,7 @@ async function main() {
       const msg = String(err?.message || err);
       console.error(`[${config.workerName}] poll error:`, msg);
       if (isBrowserDeadError(err)) {
-        await agent.recoverBrowser().catch((recoverErr) => {
-          console.error(`[${config.workerName}] browser recover failed`, recoverErr?.message || recoverErr);
-        });
+        await recoverBrowserOnce();
       }
       if (err?.status === 401) {
         try {
@@ -87,12 +112,14 @@ async function main() {
     while (!screenLoopStopped) {
       let human = false;
       try {
-        const r = await agent.pushLiveScreen();
+        const r = await agent.pushLiveScreen(
+          agent.isRunning() ? { screenshot: false } : undefined
+        );
         human = Boolean(r?.humanControl);
       } catch (err) {
         console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);
         if (isBrowserDeadError(err)) {
-          await agent.recoverBrowser().catch(() => {});
+          await recoverBrowserOnce();
         }
       }
       await new Promise((r) => setTimeout(r, human ? 1100 : screenMs));

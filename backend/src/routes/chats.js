@@ -7,7 +7,7 @@
 import { Router } from "express";
 import { Chat, Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
-import { Agent, toAgentSnapshot, clearAgentNeedsAttention } from "../models/Agent.js";
+import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
 
 export const chatsRouter = Router();
 
@@ -155,15 +155,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
     }
 
-    // Why: one computer per agent — a waiting ask_user freezes the box; a new goal must take over.
+    // Why: one computer per agent — active runs block the box; a new goal must take over.
     if (agentDoc) {
       const now = new Date();
-      const waiting = await Task.find({
+      const active = await Task.find({
         agent: agentDoc._id,
         user: req.userId,
-        status: "waiting_user",
+        status: { $in: ["waiting_user", "running"] },
       });
-      for (const blocked of waiting) {
+      for (const blocked of active) {
         blocked.status = "cancelled";
         blocked.completedAt = now;
         blocked.resultSummary = "Superseded by a newer goal";
@@ -175,12 +175,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         await Message.create({
           chat: blocked.chat,
           role: "system",
-          content: "Agent question cancelled — a newer goal was sent for this agent.",
+          content: "Previous run cancelled — a newer goal was sent for this agent.",
           meta: { kind: "superseded", taskId: blocked._id },
         }).catch(() => {});
       }
-      if (waiting.length) {
+      if (active.length) {
         await clearAgentNeedsAttention(agentDoc._id);
+        await clearAgentHumanControl(agentDoc._id);
       }
     }
 
@@ -428,6 +429,7 @@ chatsRouter.post("/:id/stop", async (req, res, next) => {
     }
     for (const id of agentIds) {
       await clearAgentNeedsAttention(id);
+      await clearAgentHumanControl(id);
     }
     await Message.create({
       chat: chat._id,

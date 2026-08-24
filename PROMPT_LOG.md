@@ -1,5 +1,83 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 08:50] Fix ask_user loop after login confirmation STOP
+
+- **Prompt Provided:** Step 2 ask_user for Vughy login, then repeated "Looking at: Vughy…" instead of waiting for user answer
+- **Architectural Flow:** Handoff auto-continue only for handoff-style prompts; skip LOGIN_CONFIRMATION STOP when credentials in goal; main-loop guard when task is waiting_user; restore agent memory in system prompt
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/browserState/stopConditions.js`
+
+## [2026-08-24 08:35] Reduce per-step delay (skip planning LLM, reuse observation)
+
+- **Prompt Provided:** ~30s between "Looking at" and each step on login page; why so slow?
+- **Architectural Flow:** Skip createGoalPlan LLM for login/short goals; reuse prev observation when URL unchanged; skip post-action settle on immediate failures; shorter semantic wait
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`
+
+## [2026-08-24 08:30] Fix STARTING forever — restore missing browserGate
+
+- **Prompt Provided:** Live screen stuck on STARTING…, nothing happening
+- **Architectural Flow:** Restored `browserGate` (accidentally removed — worker crashed on startup); early presence heartbeat before Chromium boot
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/index.js`
+
+## [2026-08-24 08:20] Stop crash recovery from wiping Google login profile
+
+- **Prompt Provided:** Keeps seeing "Browser was relaunched after crash"
+- **Architectural Flow:** recoverBrowser/safeGoto no longer call aggressive profile wipe (cookies preserved); stale tab ref retry before relaunch; restore last URL after reconnect; profile wipe only when YAMBOT_RESET_PROFILE=1
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `computer-manager/src/index.js`
+
+## [2026-08-24 01:05] Fix page.goto closed during Sheets navigation
+
+- **Prompt Provided:** `page.goto: Target page, context or browser has been closed` navigating to sheets.google.com/create
+- **Architectural Flow:** `safeGoto` holds browser lock + retries after relaunch; screen heartbeat skips recovery/screenshots during active task; popup handler paused while navigating; `enforceSinglePage` refreshes tab list after merge
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/index.js`, `worker/src/browserState/tabs.js`
+
+## [2026-08-24 01:00] Fix Google login handoff — merge OAuth popup into main tab
+
+- **Prompt Provided:** After login via Take control, browser goes to about:blank and asks to log in again; user asked about extension vs cloud
+- **Architectural Flow:** `mergeBestTabIntoMain` copies authenticated popup URL into main tab before single-tab enforcement; longer OAuth handoff wait; track OAuth popup during human control
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/tabs.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`
+
+## [2026-08-24 00:50] Auto-resume after Take control handoff (no answer box)
+
+- **Prompt Provided:** After Take control and Give control back, do not show answer text box — agent should continue to next step
+- **Architectural Flow:** `human_handoff` events keep task `running`; CAPTCHA waits on control release not `ask_user`; `waitForUserAnswer` auto-continues when human had control; backend clears `waiting_user` on handoff-style give-back
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `backend/src/routes/worker.js`, `backend/src/routes/agents.js`
+
+## [2026-08-24 00:45] Revert default home to about:blank (not Google Sheets)
+
+- **Prompt Provided:** Keep default blank page only — do not open Google Sheets for all agents on boot
+- **Architectural Flow:** Remove DEFAULT_HOME_URL/sheets fallback on boot and handoff; navigate only via YAMBOT_START_URL, agent startUrl, or goal inference when a task runs
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`
+
+## [2026-08-24 00:35] Single Chromium window + fix frozen about:blank idle screen
+
+- **Prompt Provided:** Frozen at about:blank; want only one Chrome window for automation, no extra windows
+- **Architectural Flow:** MAX_TABS=1; enforceSinglePage; popups redirect into main tab; open_tab navigates in place; default home sheets.google.com; infer Sheets URL from spreadsheet goals; shorter OAuth handoff wait
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/tabs.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, `worker/src/actions.js`
+
+## [2026-08-24 00:15] Fix about:blank after Google OAuth login handoff
+
+- **Prompt Provided:** After entering email/password during Take control, browser moves to about:blank
+- **Architectural Flow:** Wait up to 15s for OAuth redirect before tab cleanup; track best tab during human control; never close opener tabs during handoff; prune blanks only after productive tab confirmed
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/tabs.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`
+
+## [2026-08-24 00:00] Preserve spreadsheet tab after human login handoff
+
+- **Prompt Provided:** After Take control login to Google Sheets + reply continue, agent opens new window asking for email/password again
+- **Architectural Flow:** Removed pruneExtraPages on every ensureBrowser (was keeping about:blank, closing Sheets tab); pickBestActivePage/consolidateTabs; resync after human control + user_answer; boot profile repair only (not full wipe unless YAMBOT_RESET_PROFILE=1)
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/tabs.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, `worker/src/bootProfile.js`
+
+## [2026-08-23 23:45] Fix profile error + multiple Chromium windows on live screen
+
+- **Prompt Provided:** "Something went wrong when opening your profile" still on live screen; many Chromium windows opening
+- **Architectural Flow:** Boot-time profile reset via bootProfile.js (no self-killing pkill); targeted orphan kill on relaunch only; browser lifecycle mutex; prune extra Playwright pages
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserProfile.js`, `worker/src/bootProfile.js`, `worker/src/agent.js`, `worker/src/index.js`, `worker/entrypoint.sh`
+
+## [2026-08-23 23:30] Fix worker freezes, entity-too-large, profile crash, max_steps
+
+- **Prompt Provided:** request entity too large; Chromium shutdown/profile errors on live screen; Stopped max_steps; freeze after Stop then new goal
+- **Architectural Flow:** nginx+Caddy+Express 10MB body limits; Chromium profile repair module + crash-restore flags; remove 120-step cap; cancel running tasks + release humanControl on stop/new goal; poll only blocks humanControl during active run; smaller screenshots; LLM timeout
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/nginx.conf`, `deploy/patch-caddy-body.sh`, `deploy/remote-deploy.py`, `backend/src/index.js`, `backend/src/models/Agent.js`, `backend/src/routes/chats.js`, `worker/src/agent.js`, `worker/src/browserProfile.js`, `worker/src/index.js`, `worker/src/llm.js`, `worker/entrypoint.sh`
+
 ## [2026-08-23 17:10] Fix post-login crash — missing useHelp import in AppSidebar
 
 - **Prompt Provided:** Still stuck on "Loading session" after login at bot.vughy.com

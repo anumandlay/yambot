@@ -345,6 +345,20 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
       }
     }
 
+    if (type === "human_handoff") {
+      const msg = String(payload.message || req.body?.appendMessage || "Take control on the live screen.");
+      if (task.agent) {
+        await setAgentNeedsAttention(task.agent, msg.slice(0, 220));
+      }
+    }
+
+    if (type === "user_answer") {
+      task.status = "running";
+      if (task.agent) {
+        await clearAgentNeedsAttention(task.agent);
+      }
+    }
+
     if (type === "captcha") {
       const msg = String(req.body?.appendMessage || payload?.hint || payload?.error || "");
       const needsHuman =

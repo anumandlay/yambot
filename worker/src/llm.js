@@ -40,9 +40,9 @@ function extractApiMessage(bodyText) {
 }
 
 /**
- * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number }} opts
+ * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number }} opts
  */
-export async function chatCompletion({ apiKey, baseUrl, model, messages, temperature = 0.2 }) {
+export async function chatCompletion({ apiKey, baseUrl, model, messages, temperature = 0.2, timeoutMs = 120_000 }) {
   if (!apiKey?.trim()) {
     throw new LlmError({
       title: "Missing API key",
@@ -56,6 +56,8 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
   const usedModel = model || "MiniMax-M2.7";
 
   let res;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
     res = await fetch(url, {
       method: "POST",
@@ -64,14 +66,25 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
         Authorization: `Bearer ${apiKey}`,
       },
       body: JSON.stringify({ model: usedModel, temperature, messages }),
+      signal: controller.signal,
     });
   } catch (err) {
+    if (err?.name === "AbortError") {
+      throw new LlmError({
+        title: "LLM request timed out",
+        detail: `No response within ${Math.round(timeoutMs / 1000)}s`,
+        hint: "Try again or use a faster model.",
+        url,
+      });
+    }
     throw new LlmError({
       title: "Network error",
       detail: String(err?.message || err),
       hint: "Cannot reach the LLM server.",
       url,
     });
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!res.ok) {

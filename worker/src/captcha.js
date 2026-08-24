@@ -144,7 +144,7 @@ export async function solveCaptchaWithDbc(creds, meta, opts = {}) {
     return {
       kind: "needs_human",
       hint:
-        "CAPTCHA / bot check needs you. Open the live screen → Take control, solve it, then reply continue.",
+        "CAPTCHA / bot check needs you. Open the live screen → Take control, solve it, then Give control back.",
     };
   }
 
@@ -152,7 +152,7 @@ export async function solveCaptchaWithDbc(creds, meta, opts = {}) {
     return {
       kind: "needs_human",
       hint:
-        "DeathByCaptcha is not configured. Open the live screen → Take control, solve the CAPTCHA, then reply continue.",
+        "DeathByCaptcha is not configured. Open the live screen → Take control, solve the CAPTCHA, then Give control back.",
     };
   }
 
@@ -183,7 +183,7 @@ export async function solveCaptchaWithDbc(creds, meta, opts = {}) {
     return {
       kind: "needs_human",
       error: detail,
-      hint: `Automatic CAPTCHA solve failed (${detail}). Open the live screen → Take control, solve it, then reply continue.`,
+      hint: `Automatic CAPTCHA solve failed (${detail}). Open the live screen → Take control, solve it, then Give control back.`,
     };
   }
 }

@@ -499,3 +499,20 @@ export async function clearAgentNeedsAttention(agentId) {
     }
   );
 }
+
+/**
+ * Releases dashboard Take control so the worker can claim new goals after stop/supersede.
+ * @param {import('mongoose').Types.ObjectId|string} agentId
+ */
+export async function clearAgentHumanControl(agentId) {
+  if (!agentId) return;
+  await Agent.updateOne(
+    { _id: agentId },
+    {
+      $set: {
+        "computer.humanControl": false,
+        "computer.humanControlAt": null,
+      },
+    }
+  );
+}

@@ -100,7 +100,7 @@ app.post(
   handleStripeWebhook
 );
 
-app.use(express.json({ limit: "3mb" }));
+app.use(express.json({ limit: "10mb" }));
 app.use(morgan(env.NODE_ENV === "production" ? "combined" : "dev"));
 
 app.get("/api/health", (_req, res) => {

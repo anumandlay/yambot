@@ -31,6 +31,23 @@ function goalStopsBeforePayment(goal) {
 }
 
 /**
+ * Whether the goal already includes login credentials (skip ask_user confirmation).
+ * @param {string} text
+ * @returns {boolean}
+ */
+function goalIncludesLoginCredentials(text) {
+  const g = String(text || "");
+  return (
+    /password\s*[:=]/i.test(g) ||
+    /(?:email|username|user)\s*[:=]/i.test(g) ||
+    (/@[\w.-]+\.\w{2,}/.test(g) && /pass(word|wd)?/i.test(g)) ||
+    /credentials?\s+(provided|included|in\s+goal|are|is)/i.test(g) ||
+    /login with/i.test(g) ||
+    /provided credentials/i.test(g)
+  );
+}
+
+/**
  * Evaluates stop conditions from page state + goal.
  * @param {object} pageState
  * @param {object} obs
@@ -91,7 +108,11 @@ export function evaluateStopConditions(pageState, obs, goal, agentSnapshot = nul
     };
   }
 
-  if (agentSnapshot?.autonomy?.askBeforeLogin && pageState?.auth?.state === "login_required") {
+  if (
+    agentSnapshot?.autonomy?.askBeforeLogin &&
+    !goalIncludesLoginCredentials(goal) &&
+    pageState?.auth?.state === "login_required"
+  ) {
     stops.push({
       type: "LOGIN_CONFIRMATION",
       severity: "medium",

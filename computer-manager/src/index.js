@@ -18,7 +18,7 @@ const DOCKER_NETWORK = process.env.DOCKER_NETWORK || "deploy_default";
 const WORKER_IMAGE = process.env.WORKER_IMAGE || "yambot-worker:local";
 const API_BASE = (process.env.YAMBOT_API_BASE_URL || "http://api:4000").replace(/\/$/, "");
 const POLL_MS = Math.max(5000, Number(process.env.MANAGER_POLL_MS) || 10000);
-const MEM_LIMIT = Number(process.env.WORKER_MEM_LIMIT) || 2048 * 1024 * 1024;
+const MEM_LIMIT = Number(process.env.WORKER_MEM_LIMIT) || 3072 * 1024 * 1024;
 const MANAGER_HTTP_PORT = Number(process.env.MANAGER_HTTP_PORT) || 4050;
 
 const agentSchema = new mongoose.Schema(

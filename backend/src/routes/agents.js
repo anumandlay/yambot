@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory } from "../models/Agent.js";
+import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
 import {
@@ -24,6 +24,43 @@ import { getPlatformSettings } from "../models/PlatformSettings.js";
 import { debitWallet } from "../utils/wallet.js";
 
 export const agentsRouter = Router();
+
+/**
+ * Whether a waiting_user prompt is resolved by Take control / Give control back.
+ * @param {string} question
+ * @returns {boolean}
+ */
+function isTakeControlHandoffQuestion(question) {
+  return /take control|give control|live screen|captcha|bot check|solve it|needs you|needs_human/i.test(
+    String(question || "")
+  );
+}
+
+/**
+ * When the user gives control back, unblock handoff-style waiting_user tasks immediately.
+ * @param {import('mongoose').Types.ObjectId|string} agentId
+ */
+async function resumeHandoffWaitingTask(agentId) {
+  const task = await Task.findOne({ agent: agentId, status: "waiting_user" }).sort({ updatedAt: -1 });
+  if (!task) return;
+  const events = task.events || [];
+  let lastAskIdx = -1;
+  for (let i = 0; i < events.length; i += 1) {
+    if (events[i].type === "ask_user") lastAskIdx = i;
+  }
+  if (lastAskIdx < 0) return;
+  const question = String(events[lastAskIdx]?.payload?.question || "");
+  if (!isTakeControlHandoffQuestion(question)) return;
+  const alreadyAnswered = events.slice(lastAskIdx + 1).some((e) => e.type === "user_answer");
+  if (alreadyAnswered) return;
+  task.events.push({
+    type: "user_answer",
+    payload: { answer: "continue", via: "handoff" },
+  });
+  task.status = "running";
+  await task.save();
+  await clearAgentNeedsAttention(agentId);
+}
 
 /**
  * Strips secrets / huge payloads before sending an agent to the website.
@@ -525,6 +562,9 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       agent.computer.humanControl = active;
       agent.computer.humanControlAt = new Date();
       await agent.save();
+      if (!active) {
+        await resumeHandoffWaitingTask(agent._id);
+      }
       res.json({
         ok: true,
         humanControl: active,

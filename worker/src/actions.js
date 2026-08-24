@@ -51,7 +51,7 @@ Action fields:
 - wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000, "network_idle": false, "dom_stable": true }
   Semantic wait until condition met (role+name, text on page, url_contains, or ref visible). Avoid blind long sleeps.
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }
-- open_tab: { "type":"open_tab", "url":"https://..." } — optional url
+- open_tab: { "type":"open_tab", "url":"https://..." } — navigates the same window (no new tabs)
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
 - fill_form: { "type":"fill_form", "form":"login", "fields": { "Email": "x@y.com", "Password": "secret" }, "submit": false } — form by name/id/index; set submit true to click primary submit
 - dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" } — closes modal via cancel/close/Escape

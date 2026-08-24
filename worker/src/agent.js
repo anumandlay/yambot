@@ -4,6 +4,11 @@
  * Downstream: YamBot worker API (events/complete), website chat live feed.
  */
 
+import {
+  clearChromiumLocks,
+  killChromiumForProfile,
+  repairChromiumProfile,
+} from "./browserProfile.js";
 import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
@@ -25,6 +30,7 @@ import {
   checkPreconditions,
   createBrowserTelemetry,
   createGoalPlan,
+  defaultPlan,
   computeGoalProgress,
   detectActionLoop,
   diffObservations,
@@ -37,9 +43,15 @@ import {
   getPlaywrightFrame,
   isRecoverableAction,
   observePageFull,
-  openTab,
   closeTab,
   enforceTabLimit,
+  pickBestActivePage,
+  selectBestPageAfterHandoff,
+  mergeBestTabIntoMain,
+  enforceSinglePage,
+  navigateInPlace,
+  safePageUrl,
+  scorePageUrl,
   parseFrameRef,
   runRecoveryLadder,
   shouldAttachVision,
@@ -65,6 +77,49 @@ import {
 const execFileAsync = promisify(execFile);
 
 /**
+ * Whether an ask_user prompt is solved via Take control / Give control back (not chat reply).
+ * @param {string} question
+ * @returns {boolean}
+ */
+function isTakeControlHandoffQuestion(question) {
+  return /take control|give control|live screen|captcha|bot check|solve it|needs you|needs_human/i.test(
+    String(question || "")
+  );
+}
+
+/**
+ * Whether the goal already includes login credentials (no ask_user confirmation needed).
+ * @param {string} text
+ * @returns {boolean}
+ */
+function goalIncludesLoginCredentials(text) {
+  const g = String(text || "");
+  return (
+    /password\s*[:=]/i.test(g) ||
+    /(?:email|username|user)\s*[:=]/i.test(g) ||
+    (/@[\w.-]+\.\w{2,}/.test(g) && /pass(word|wd)?/i.test(g)) ||
+    /credentials?\s+(provided|included|in\s+goal|are|is)/i.test(g) ||
+    /login with/i.test(g) ||
+    /provided credentials/i.test(g)
+  );
+}
+
+/**
+ * @param {string} goal
+ * @param {string} [preferredStart]
+ * @returns {string}
+ */
+function inferStartUrlFromGoal(goal, preferredStart = "") {
+  const pref = String(preferredStart || "").trim();
+  if (pref && /^https?:\/\//i.test(pref)) return pref;
+  const g = String(goal || "").toLowerCase();
+  if (/spreadsheet|google sheet|sheets\.google|excel|a1|b1|c1|cell[s]?/i.test(g)) {
+    return "https://sheets.google.com/create";
+  }
+  return "";
+}
+
+/**
  * @param {{ api: Function, config: import('./config.js').WorkerConfig, log?: Function }} deps
  */
 export function createCloudAgent({ api, config, log = console.log }) {
@@ -75,26 +130,39 @@ export function createCloudAgent({ api, config, log = console.log }) {
   /** @type {ReturnType<typeof createBrowserTelemetry>|null} */
   let telemetry = null;
   let running = false;
+  /** True while safeGoto holds the browser lock — popup handler must not close tabs mid-navigation. */
+  let navigating = false;
   /** Whether the dashboard user currently has Take control (from last heartbeat). */
   let remoteHumanControl = false;
+  /** Best tab the user touched during Take control (OAuth often leaves opener on about:blank briefly). */
+  /** @type {import('playwright').Page|null} */
+  let humanSessionBestPage = null;
   /** Last full-page screenshot CSS size — used to map dashboard clicks onto the document. */
   let lastShotSize = {
     w: config.viewportWidth || 1280,
     h: config.viewportHeight || 800,
   };
+  /** Last productive URL — used to restore after browser reconnect. */
+  let lastKnownPageUrl = "";
+  /** Serializes ensure/teardown/recover so screen + poll loops cannot spawn duplicate Chromium windows. */
+  let browserGate = Promise.resolve();
+
+  /**
+   * @template T
+   * @param {() => Promise<T>} fn
+   * @returns {Promise<T>}
+   */
+  function withBrowserLock(fn) {
+    const run = browserGate.then(() => fn());
+    browserGate = run.catch(() => {});
+    return run;
+  }
 
   /**
    * Removes Chromium singleton lock files so relaunch does not hit "profile in use".
    */
-  function clearChromiumLocks() {
-    const locks = ["SingletonLock", "SingletonCookie", "SingletonSocket", "lockfile"];
-    for (const name of locks) {
-      try {
-        fs.unlinkSync(path.join(config.profileDir, name));
-      } catch {
-        /* ignore */
-      }
-    }
+  function clearProfileLocks() {
+    clearChromiumLocks(config.profileDir);
   }
 
   /**
@@ -109,6 +177,65 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * Full profile wipe only when explicitly requested — never on routine crash recovery.
+   * @returns {boolean}
+   */
+  function shouldWipeProfile() {
+    return process.env.YAMBOT_RESET_PROFILE === "1";
+  }
+
+  /**
+   * Re-attaches `page` when handoff or tab cleanup left a stale closed reference.
+   * @returns {import('playwright').Page|null}
+   */
+  function refreshActivePage() {
+    if (!context) return page;
+    if (page && !page.isClosed()) return page;
+    const pages = context.pages().filter((p) => !p.isClosed());
+    if (!pages.length) return null;
+    page = pickBestActivePage(context, page) || pages[0];
+    telemetry?.setActivePage(page);
+    return page;
+  }
+
+  /**
+   * Navigates under the browser lock so heartbeats cannot tear down Chromium mid-goto.
+   * @param {string} url
+   * @param {{ waitUntil?: "domcontentloaded"|"load"|"commit", timeout?: number }} [opts]
+   */
+  async function safeGoto(url, opts = {}) {
+    const target = String(url || "").trim();
+    if (!/^https?:\/\//i.test(target)) {
+      throw new Error(`Invalid navigate URL: ${target}`);
+    }
+    const waitUntil = opts.waitUntil || "domcontentloaded";
+    const timeout = opts.timeout || 60000;
+    navigating = true;
+    try {
+      return await withBrowserLock(async () => {
+        await ensureBrowserUnlocked();
+        refreshActivePage();
+        if (!page || page.isClosed()) {
+          throw new Error("No browser page for navigation");
+        }
+        try {
+          await page.goto(target, { waitUntil, timeout });
+        } catch (err) {
+          if (!isBrowserDeadError(err)) throw err;
+          log(`[${config.workerName}] goto failed (${target}) — relaunching browser`);
+          await launchBrowser(false);
+          refreshActivePage();
+          if (!page || page.isClosed()) throw err;
+          await page.goto(target, { waitUntil, timeout });
+        }
+        return page;
+      });
+    } finally {
+      navigating = false;
+    }
+  }
+
+  /**
    * Closes Playwright context and clears profile locks for a clean relaunch.
    */
   async function teardownBrowser() {
@@ -120,35 +247,113 @@ export function createCloudAgent({ api, config, log = console.log }) {
     }
     context = null;
     page = null;
-    clearChromiumLocks();
+    await killChromiumForProfile(config.profileDir);
+    clearProfileLocks();
+    repairChromiumProfile(config.profileDir);
   }
 
   /**
-   * Ensures a persistent Chromium profile exists (cookies/localStorage = this agent's "computer").
+   * Records which tab the user is actually using while driving via noVNC (not Playwright's stale `page`).
    */
-  async function ensureBrowser() {
-    if (context && page && !page.isClosed()) {
-      try {
-        await page.evaluate(() => true);
-        return;
-      } catch (err) {
-        if (!isBrowserDeadError(err)) throw err;
-        log(`[${config.workerName}] browser health check failed — relaunching`);
-        await teardownBrowser();
-      }
-    } else {
-      await teardownBrowser();
-    }
+  function trackHumanBrowsingSession() {
+    if (!context) return;
+    const best = pickBestActivePage(context, humanSessionBestPage || page);
+    if (!best) return;
+    const score = scorePageUrl(safePageUrl(best));
+    if (score > 0) humanSessionBestPage = best;
+  }
 
+  /**
+   * Re-attaches the agent to the tab the user left open (spreadsheet, not about:blank).
+   */
+  async function resyncActivePageAfterHandoff() {
+    if (!context) return;
+    const hint = humanSessionBestPage || page;
+    let next = await selectBestPageAfterHandoff(context, hint, 15000);
+    if (page && !page.isClosed()) {
+      next = (await mergeBestTabIntoMain(context, page)) || next;
+    }
+    if (next && scorePageUrl(safePageUrl(next)) === 0 && hint && !hint.isClosed?.()) {
+      const hintUrl = safePageUrl(hint);
+      if (scorePageUrl(hintUrl) >= 4 && /^https?:\/\//i.test(hintUrl) && page && !page.isClosed()) {
+        try {
+          await page.goto(hintUrl, { waitUntil: "domcontentloaded", timeout: 60000 });
+          next = page;
+        } catch (err) {
+          log(`[${config.workerName}] handoff hint navigate failed:`, err?.message || err);
+        }
+      }
+    }
+    next = await enforceSinglePage(context, next || page, {
+      allowExtra: false,
+    });
+    if (next) {
+      page = next;
+      telemetry?.setActivePage(page);
+      log(`[${config.workerName}] handoff → ${safePageUrl(page)}`);
+    }
+    humanSessionBestPage = null;
+    page = (await enforceSinglePage(context, page)) || page;
+    telemetry?.setActivePage(page);
+  }
+
+  /**
+   * Redirects popup windows into the single automation tab (no extra Chromium windows).
+   */
+  function attachSingleWindowHandlers() {
+    if (!context) return;
+    context.on("page", (newPage) => {
+      if (remoteHumanControl) trackHumanBrowsingSession();
+      void (async () => {
+        try {
+          if (!page || newPage === page) return;
+          if (remoteHumanControl || navigating) {
+            trackHumanBrowsingSession();
+            if (remoteHumanControl) {
+              void newPage.waitForLoadState("domcontentloaded", { timeout: 12000 }).then(() => {
+                const popupUrl = safePageUrl(newPage);
+                if (scorePageUrl(popupUrl) > scorePageUrl(safePageUrl(humanSessionBestPage))) {
+                  humanSessionBestPage = newPage;
+                }
+              }).catch(() => {});
+            }
+            return;
+          }
+          await newPage.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
+          const url = safePageUrl(newPage);
+          if (/^https?:\/\//i.test(url) && page && !page.isClosed()) {
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+          }
+          await newPage.close().catch(() => {});
+          page = (await enforceSinglePage(context, page)) || page;
+          telemetry?.setActivePage(page);
+        } catch {
+          await newPage.close().catch(() => {});
+        }
+      })();
+    });
+  }
+
+  /**
+   * @param {boolean} [forceWipe] — only wipes cookies when YAMBOT_RESET_PROFILE=1
+   */
+  async function launchBrowser(forceWipe = false) {
+    await killChromiumForProfile(config.profileDir);
     fs.mkdirSync(config.profileDir, { recursive: true });
-    clearChromiumLocks();
+    repairChromiumProfile(config.profileDir, {
+      aggressive: Boolean(forceWipe && shouldWipeProfile()),
+    });
 
     const args = [
       "--no-sandbox",
       "--disable-dev-shm-usage",
       "--disable-gpu",
       "--renderer-process-limit=4",
-      // Why: headed noVNC shows Chromium's "unsupported command-line flag" banner for --no-sandbox.
+      "--disable-session-crashed-bubble",
+      "--hide-crash-restore-bubble",
+      "--no-first-run",
+      "--no-default-browser-check",
+      "--disable-restore-session-state",
       ...(config.headed ? ["--test-type"] : []),
     ];
 
@@ -179,7 +384,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           }
         : {}),
     });
+    attachSingleWindowHandlers();
     page = context.pages()[0] || (await context.newPage());
+    page = (await enforceSinglePage(context, page)) || page;
     fs.mkdirSync(path.join(config.profileDir, "uploads"), { recursive: true });
     fs.mkdirSync(path.join(config.profileDir, "downloads"), { recursive: true });
     telemetry = createBrowserTelemetry(context, page, {
@@ -187,11 +394,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
       downloadsDir: path.join(config.profileDir, "downloads"),
     });
     telemetry.attach();
-    // Why: no default website — stay on about:blank unless YAMBOT_START_URL or agent startUrl is set.
+    // Why: stay on about:blank at idle unless YAMBOT_START_URL or a task/agent startUrl applies.
     const bootEnv = process.env.YAMBOT_START_URL && String(process.env.YAMBOT_START_URL).trim();
     if (bootEnv && /^https?:\/\//i.test(bootEnv)) {
       try {
-        const cur = page.url();
+        const cur = safePageUrl(page);
         if (!cur || cur === "about:blank" || cur.startsWith("chrome://")) {
           await page.goto(bootEnv, { waitUntil: "domcontentloaded", timeout: 60000 });
         }
@@ -203,12 +410,96 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
-   * Relaunches Chromium after a renderer crash or closed target.
+   * Core browser ensure logic — caller must hold the browser lock when invoked from safeGoto/recover.
    */
-  async function recoverBrowser() {
-    log(`[${config.workerName}] recovering browser after crash`);
-    await teardownBrowser();
-    await ensureBrowser();
+  async function ensureBrowserUnlocked() {
+    if (context && page && !page.isClosed()) {
+      try {
+        await page.evaluate(() => true);
+        return;
+      } catch (err) {
+        if (!isBrowserDeadError(err)) throw err;
+        log(`[${config.workerName}] browser health check failed — relaunching`);
+        await teardownBrowser();
+      }
+    } else if (context || page) {
+      await teardownBrowser();
+    }
+
+    let lastErr;
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        await launchBrowser(false);
+        return;
+      } catch (err) {
+        lastErr = err;
+        log(
+          `[${config.workerName}] browser launch failed (attempt ${attempt + 1}):`,
+          err?.message || err
+        );
+        await teardownBrowser();
+      }
+    }
+    throw lastErr;
+  }
+
+  /**
+   * Ensures a persistent Chromium profile exists (cookies/localStorage = this agent's "computer").
+   */
+  async function ensureBrowser() {
+    return withBrowserLock(() => ensureBrowserUnlocked());
+  }
+
+  /**
+   * Relaunches Chromium after a renderer crash or closed target (preserves login cookies).
+   * @param {string} [restoreUrl]
+   */
+  async function recoverBrowser(restoreUrl = "") {
+    return withBrowserLock(async () => {
+      log(`[${config.workerName}] recovering browser`);
+      await teardownBrowser();
+      await launchBrowser(false);
+      refreshActivePage();
+      const url = String(restoreUrl || "").trim();
+      if (url && /^https?:\/\//i.test(url) && !url.startsWith("chrome://")) {
+        try {
+          if (page && !page.isClosed()) {
+            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+          }
+        } catch (err) {
+          log(`[${config.workerName}] post-recover navigate failed:`, err?.message || err);
+        }
+      }
+    });
+  }
+
+  /**
+   * Retries once on stale tab refs before full browser relaunch.
+   * @template T
+   * @param {() => Promise<T>} fn
+   * @param {string} [restoreUrl]
+   * @returns {Promise<T>}
+   */
+  async function withPageRetry(fn, restoreUrl = "") {
+    try {
+      refreshActivePage();
+      if (!page || page.isClosed()) await ensureBrowserUnlocked();
+      refreshActivePage();
+      return await fn();
+    } catch (err) {
+      if (!isBrowserDeadError(err)) throw err;
+      refreshActivePage();
+      if (page && !page.isClosed()) {
+        try {
+          return await fn();
+        } catch (retryErr) {
+          if (!isBrowserDeadError(retryErr)) throw retryErr;
+        }
+      }
+      await recoverBrowser(restoreUrl);
+      refreshActivePage();
+      return await fn();
+    }
   }
 
   /**
@@ -219,14 +510,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @returns {Promise<T>}
    */
   async function safeEvaluate(fn, arg) {
-    try {
-      await ensureBrowser();
+    return withPageRetry(async () => {
+      await ensureBrowserUnlocked();
+      refreshActivePage();
       return arg === undefined ? await page.evaluate(fn) : await page.evaluate(fn, arg);
-    } catch (err) {
-      if (!isBrowserDeadError(err)) throw err;
-      await recoverBrowser();
-      return arg === undefined ? await page.evaluate(fn) : await page.evaluate(fn, arg);
-    }
+    });
   }
 
   /**
@@ -235,17 +523,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
    */
   async function observeNow() {
     await ensureBrowser();
-    try {
+    return withPageRetry(async () => {
       const obs = await observePageFull(page, observeInPage);
       telemetry?.setActivePage(page);
+      if (obs?.url && /^https?:\/\//i.test(obs.url)) {
+        lastKnownPageUrl = obs.url;
+      }
       return obs;
-    } catch (err) {
-      if (!isBrowserDeadError(err)) throw err;
-      await recoverBrowser();
-      const obs = await observePageFull(page, observeInPage);
-      telemetry?.setActivePage(page);
-      return obs;
-    }
+    }, lastKnownPageUrl);
   }
 
   /**
@@ -291,18 +576,22 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const vh = config.viewportHeight || 800;
     let shotW = vw;
     let shotH = vh;
-    const wantScreenshot = opts.screenshot !== false && !remoteHumanControl;
+    const wantScreenshot = opts.screenshot !== false && !remoteHumanControl && !running;
     // Why: Playwright screenshots during Take control steal X focus and fight noVNC input.
     if (wantScreenshot) {
       try {
-        const buf = await page.screenshot({ type: "jpeg", quality: 42, fullPage: false });
+        const buf = await page.screenshot({ type: "jpeg", quality: 32, fullPage: false });
         screenshotBase64 = Buffer.from(buf).toString("base64");
+        // Why: keep heartbeat JSON under reverse-proxy body limits when pages are visually dense.
+        if (screenshotBase64.length > 1_200_000) {
+          screenshotBase64 = "";
+        }
         lastShotSize = { w: vw, h: vh };
         shotW = vw;
         shotH = vh;
       } catch (err) {
         log(`[${config.workerName}] screenshot failed:`, err?.message || err);
-        if (isBrowserDeadError(err)) {
+        if (isBrowserDeadError(err) && !running) {
           await recoverBrowser().catch(() => {});
         }
       }
@@ -326,6 +615,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const commands = Array.isArray(data?.commands) ? data.commands : [];
     const wasHuman = remoteHumanControl;
     remoteHumanControl = Boolean(data?.humanControl);
+    if (remoteHumanControl) {
+      trackHumanBrowsingSession();
+    }
     if (remoteHumanControl && !wasHuman) {
       await focusBrowserForHuman();
     }
@@ -348,11 +640,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @param {{ taskId?: string|null }} [opts]
    */
   async function waitWhileHumanControl(opts = {}) {
+    const taskId = opts.taskId || null;
     for (;;) {
+      if (taskId && (await isTaskCancelled(taskId))) return;
       const status = await pushLiveScreen(opts).catch(() => ({ humanControl: false }));
-      if (!status?.humanControl) return;
-      log(`[${config.workerName}] paused — human has control`);
-      await sleep(700);
+      if (status?.humanControl) {
+        trackHumanBrowsingSession();
+        log(`[${config.workerName}] paused — human has control`);
+        await sleep(700);
+        continue;
+      }
+      await resyncActivePageAfterHandoff();
+      return;
     }
   }
 
@@ -489,8 +788,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * When a CAPTCHA is visible: try DeathByCaptcha, then ask the user to Take control.
    * @returns {Promise<{ handled: boolean, obs: object, captchaMeta: object }>}
    */
-  async function handleCaptchaIfPresent(taskId, settings, notes) {
-    let obs = await observeNow();
+  async function handleCaptchaIfPresent(taskId, settings, notes, cachedObs = null) {
+    let obs = cachedObs || (await observeNow());
     let captchaMeta = await safeEvaluate(captchaMetaInPage);
     let sitekey = captchaMeta.recaptchaSitekey || captchaMeta.hcaptchaSitekey;
 
@@ -552,13 +851,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
     const sig = (obs.captcha?.signals || []).join(",") || "detected";
     const handoffMsg = canAutoSolve
-      ? "DeathByCaptcha could not solve this CAPTCHA. Open the live screen → Take control, solve it, Give control back, then reply continue."
+      ? "DeathByCaptcha could not solve this CAPTCHA. Open the live screen → Take control, solve it, then Give control back."
       : sitekey
-        ? "CAPTCHA detected but DeathByCaptcha is not configured in Settings. Take control on the live screen, solve it, then reply continue."
-        : `CAPTCHA / bot check (${sig}). Open the live screen → Take control, solve it, Give control back, then reply continue.`;
+        ? "CAPTCHA detected but DeathByCaptcha is not configured in Settings. Take control on the live screen, solve it, then Give control back."
+        : `CAPTCHA / bot check (${sig}). Open the live screen → Take control, solve it, then Give control back.`;
 
     log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
-    await waitForUserAnswer(taskId, handoffMsg);
+    await waitForHumanHandoff(taskId, handoffMsg);
+    await resyncActivePageAfterHandoff();
     notes.push(`User continued after CAPTCHA handoff (${sig}).`);
     obs = await observeNow();
     captchaMeta = await safeEvaluate(captchaMetaInPage);
@@ -644,7 +944,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     return lines.join("\n");
   }
 
-  function formatAgentSnapshot(snapshot) {
+  function formatAgentSnapshot(snapshot, goal = "") {
     if (!snapshot) return "";
     const factLines = (snapshot.facts || [])
       .filter((f) => f?.key)
@@ -652,6 +952,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       .join("\n");
     const domains = (snapshot.allowedDomains || []).filter(Boolean).join(", ");
     const auto = snapshot.autonomy || {};
+    const credsInGoal = goalIncludesLoginCredentials(goal);
+    const effectiveAskLogin = Boolean(auto.askBeforeLogin) && !credsInGoal;
     const memory = Array.isArray(snapshot.memory)
       ? snapshot.memory
           .slice(0, 15)
@@ -673,7 +975,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
       snapshot.email?.configured
         ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email for verification codes or human-like correspondence.`
         : "",
-      `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${Boolean(auto.askBeforeLogin)}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
+      `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${effectiveAskLogin}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
+      credsInGoal
+        ? "LOGIN: credentials are in the task GOAL — enter them without ask_user confirmation."
+        : "",
       memory ? `AGENT MEMORY:\n${memory}` : "",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
       "There is no step limit — call finish when the goal or success criteria are met.",
@@ -703,25 +1008,43 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
-   * Polls the task until the website posts a user_answer event.
+   * Polls the task until the website posts a user_answer event, or the user gives control back.
    * @param {string} taskId
    * @param {string} question
    */
   async function waitForUserAnswer(taskId, question) {
-    await mirror(taskId, "ask_user", {
-      status: "waiting_user",
-      payload: { question },
-      appendMessage: `Cloud agent asks: ${question}`,
-    });
+    const handoffOnly = isTakeControlHandoffQuestion(question);
+    if (handoffOnly) {
+      await mirror(taskId, "human_handoff", {
+        appendMessage: `Cloud agent: ${question}`,
+        payload: { message: question },
+      });
+    } else {
+      await mirror(taskId, "ask_user", {
+        status: "waiting_user",
+        payload: { question },
+        appendMessage: `Cloud agent asks: ${question}`,
+      });
+    }
     const started = Date.now();
+    let hadHumanControl = false;
     while (Date.now() - started < 30 * 60 * 1000) {
       if (await isTaskCancelled(taskId)) {
         throw Object.assign(new Error("Stopped by user"), { cancelled: true });
       }
-      // Why: while waiting (e.g. CAPTCHA), keep draining mouse/keyboard takeover commands.
       const status = await pushLiveScreen({ taskId, screenshot: false }).catch(() => ({
         humanControl: false,
       }));
+      if (status?.humanControl) {
+        hadHumanControl = true;
+        trackHumanBrowsingSession();
+      } else if (hadHumanControl && handoffOnly) {
+        await resyncActivePageAfterHandoff();
+        return "continue";
+      } else if (hadHumanControl) {
+        // Why: real ask_user (credentials, MFA) must not auto-continue after unrelated handoff.
+        hadHumanControl = false;
+      }
       await sleep(status?.humanControl ? 800 : 2000);
       const data = await api(`/api/worker/tasks/${taskId}`);
       if (data.task?.status === "cancelled") {
@@ -734,8 +1057,43 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       const answerEvt = events.slice(lastAskIdx + 1).find((e) => e.type === "user_answer");
       if (answerEvt?.payload?.answer != null) {
+        await resyncActivePageAfterHandoff();
         return String(answerEvt.payload.answer);
       }
+    }
+    return "(timed out waiting for user)";
+  }
+
+  /**
+   * Waits for Take control → Give control back without setting waiting_user (no chat answer box).
+   * @param {string} taskId
+   * @param {string} message
+   */
+  async function waitForHumanHandoff(taskId, message) {
+    await mirror(taskId, "human_handoff", {
+      appendMessage: message,
+      payload: { message },
+    });
+    const started = Date.now();
+    let hadHumanControl = false;
+    while (Date.now() - started < 30 * 60 * 1000) {
+      if (await isTaskCancelled(taskId)) {
+        throw Object.assign(new Error("Stopped by user"), { cancelled: true });
+      }
+      const status = await pushLiveScreen({ taskId, screenshot: false }).catch(() => ({
+        humanControl: false,
+      }));
+      if (status?.humanControl) {
+        hadHumanControl = true;
+        trackHumanBrowsingSession();
+        await sleep(800);
+        continue;
+      }
+      if (hadHumanControl) {
+        await resyncActivePageAfterHandoff();
+        return "continue";
+      }
+      await sleep(2000);
     }
     return "(timed out waiting for user)";
   }
@@ -830,11 +1188,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
       }
 
-      // Why: only open a start URL when the agent configures one — never force google.com.
+      // Why: open start URL from agent config or infer Sheets from spreadsheet goals.
       const preferredStart =
         agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
-      if (preferredStart && /^https?:\/\//i.test(preferredStart)) {
-        await page.goto(preferredStart, { waitUntil: "domcontentloaded", timeout: 60000 });
+      const startUrl = inferStartUrlFromGoal(goal, preferredStart);
+      const curUrl = safePageUrl(page);
+      if (
+        startUrl &&
+        (!curUrl || curUrl === "about:blank" || curUrl.startsWith("chrome://"))
+      ) {
+        await safeGoto(startUrl);
       }
 
       await pushLiveScreen({ taskId });
@@ -844,27 +1207,38 @@ export function createCloudAgent({ api, config, log = console.log }) {
         appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
       });
 
-      /** @type {object|null} */
-      let goalPlan = await createGoalPlan({
-        goal,
-        chatCompletion: trackedChatCompletion,
-        apiKey: settings.llmApiKey,
-        baseUrl: settings.llmBaseUrl,
-        model: settings.llmModel,
-      });
-      await mirror(taskId, "plan", {
-        payload: { plan: goalPlan },
-        appendMessage:
-          `Plan (${goalPlan.subgoals.length} subgoals):\n` +
-          goalPlan.subgoals.map((s) => `• ${s.title}`).join("\n"),
-      }).catch(() => {});
+      const activeSkill = detectSkill(goal, page?.url?.() || agentSnapshot?.startUrl || "");
+      // Why: skip extra planning LLM call for login/short goals — saves ~20–30s before step 1.
+      const goalText = String(goal || "").trim();
+      let goalPlan =
+        activeSkill?.id === "login" || goalText.length < 500
+          ? defaultPlan(goal)
+          : await createGoalPlan({
+              goal,
+              chatCompletion: trackedChatCompletion,
+              apiKey: settings.llmApiKey,
+              baseUrl: settings.llmBaseUrl,
+              model: settings.llmModel,
+            });
+      if (goalPlan.source === "default") {
+        await mirror(taskId, "plan", {
+          payload: { plan: goalPlan },
+          appendMessage: `Plan: ${goalPlan.subgoals[0]?.title || goalText}`,
+        }).catch(() => {});
+      } else {
+        await mirror(taskId, "plan", {
+          payload: { plan: goalPlan },
+          appendMessage:
+            `Plan (${goalPlan.subgoals.length} subgoals):\n` +
+            goalPlan.subgoals.map((s) => `• ${s.title}`).join("\n"),
+        }).catch(() => {});
+      }
 
       let step = 0;
       const effectiveMaxMinutes = taskMaxMinutes || settings.maxTaskMinutes || 0;
       /** @type {object|null} */
       let prevObs = null;
       let prevUrl = "";
-      const activeSkill = detectSkill(goal, page?.url?.() || agentSnapshot?.startUrl || "");
       let siteProfile = null;
       for (;;) {
         step += 1;
@@ -886,7 +1260,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           estimatedValueUsd: taskValueUsd,
           spentUsd: llmUsage.estimatedUsd,
           step,
-          maxSteps: 120,
+          maxSteps: 0,
         });
         if (!econ.continue && step > 5) {
           await complete(taskId, {
@@ -911,11 +1285,33 @@ export function createCloudAgent({ api, config, log = console.log }) {
           log(`[${config.workerName}] Task ${taskId} cancelled by user`);
           return;
         }
+        // Why: if ask_user set waiting_user, poll until answered — do not run another LLM step.
+        try {
+          const pending = await api(`/api/worker/tasks/${taskId}`);
+          if (pending.task?.status === "waiting_user") {
+            step -= 1;
+            await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+            await sleep(2000);
+            continue;
+          }
+        } catch {
+          /* proceed */
+        }
         await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
-        const captchaGate = await handleCaptchaIfPresent(taskId, settings, notes);
+        const pageUrlNow = safePageUrl(page);
+        const reuseObs = Boolean(prevObs && prevUrl && pageUrlNow === prevUrl);
+        const captchaGate = await handleCaptchaIfPresent(
+          taskId,
+          settings,
+          notes,
+          reuseObs ? prevObs : null
+        );
         if (captchaGate.handled) continue;
         let obs = captchaGate.obs;
+        if (obs?.url && /^https?:\/\//i.test(obs.url)) {
+          lastKnownPageUrl = obs.url;
+        }
         const pageDomain = extractDomain(obs.url || "");
         if (pageDomain && pageDomain !== siteDomain) {
           siteDomain = pageDomain;
@@ -973,6 +1369,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const userTextParts = [
           `GOAL:\n${goal}`,
+          goalIncludesLoginCredentials(goal)
+            ? "LOGIN: User supplied credentials in GOAL — proceed with login; do not call ask_user for confirmation."
+            : "",
           `STEP: ${step}`,
           loopNote,
           stopEval.hints.length ? formatStopHints(stopEval) : "",
@@ -1026,7 +1425,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
               "Prefer wait_for over blind wait when waiting for UI, URL, or text.",
-              formatAgentSnapshot(agentSnapshot),
+              formatAgentSnapshot(agentSnapshot, goal),
             ]
               .filter(Boolean)
               .join("\n\n"),
@@ -1177,11 +1576,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
             });
           }
 
-          const skipSettle = ["finish", "ask_user", "wait"].includes(actionToRun.type);
+          const skipSettle =
+            ["finish", "ask_user", "wait"].includes(actionToRun.type) ||
+            (result?.ok === false && !result?.navigated && !result?.finished);
           if (!skipSettle) {
             if (actionToRun.type !== "wait_for") {
               await waitForSemantic(page, observeInPage, waitForConditionInPage, {
-                timeoutMs: 3500,
+                timeoutMs: 1800,
                 networkIdle: false,
                 loadingGone: true,
                 domStable: true,
@@ -1273,9 +1674,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
       } catch (err) {
         if (err?.cancelled) throw err;
         if (isBrowserDeadError(err)) {
+          const restoreUrl = prevUrl || obsBefore?.url || lastKnownPageUrl || "";
           try {
-            await recoverBrowser();
-            notes.push("Browser crashed — relaunched Chromium and continuing.");
+            await recoverBrowser(restoreUrl);
+            notes.push("Browser reconnected — continuing.");
             continue;
           } catch (recoverErr) {
             result = attachFailureClass(
@@ -1408,7 +1810,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (urlBlocked(action.url, settings.policy?.blockedUrlPatterns)) {
           throw new Error(`Navigation blocked by policy: ${action.url}`);
         }
-        await page.goto(action.url, { waitUntil: "domcontentloaded", timeout: 60000 });
+        await safeGoto(action.url);
         return { ok: true, navigated: action.url };
       }
       case "wait": {
@@ -1425,7 +1827,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, tab: switched.tab };
       }
       case "open_tab": {
-        page = await openTab(context, action.url, page);
+        if (action.url && /^https?:\/\//i.test(action.url)) {
+          await safeGoto(action.url);
+        }
+        page = refreshActivePage() || page;
+        await enforceSinglePage(context, page);
         telemetry?.setActivePage(page);
         return { ok: true, url: page.url(), title: await page.title().catch(() => "") };
       }
@@ -1483,10 +1889,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
           });
           return { ok: true, captcha: solved, result };
         }
-        const answer = await waitForUserAnswer(
+        const answer = await waitForHumanHandoff(
           taskId,
           solved.hint ||
-            "CAPTCHA needs you. Open the live screen → Take control, solve it, then reply continue."
+            "CAPTCHA needs you. Open the live screen → Take control, solve it, then Give control back."
         );
         return { ok: true, captcha: solved, userAnswer: answer };
       }
@@ -1667,7 +2073,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   async function close() {
-    await teardownBrowser();
+    return withBrowserLock(() => teardownBrowser());
   }
 
   return {
