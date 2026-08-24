@@ -266,9 +266,11 @@ export function SettingsPage() {
       setBusy(true);
       setError(null);
       try {
+        const chatGptUpstream = catalog.find((m) => m.requiresOAuth && String(m.id).startsWith("chatgpt/"))?.id
+          || (String(form.llmModel || "").startsWith("chatgpt/") ? form.llmModel : "chatgpt/gpt-5.3-codex");
         const data = await api("/api/settings/litellm/oauth/chatgpt/import-codex", {
           method: "POST",
-          body: JSON.stringify({ model: form.llmModel }),
+          body: JSON.stringify({ model: chatGptUpstream }),
         });
         setOkMsg(
           data.account

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 14:48] Fix LiteLLM ChatGPT model create (minimax upstream bug)
+
+- **Prompt Provided:** Model create saved to DB but not live in router — Error upserting deployment, original model: minimax
+- **Architectural Flow:** Connect ChatGPT must register `chatgpt/*` upstream (not user's MiniMax selection) → delete stale per-user deployment before recreate → import-codex resolves ChatGPT catalog model server-side
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/litellmClient.js`, `backend/src/routes/litellmGateway.js`, `frontend/src/pages/SettingsPage.jsx`
+
 ## [2026-08-24 14:40] Fix ChatGPT OAuth invalid_authorize_request
 
 - **Prompt Provided:** invalid_authorize_request JSON when signing in with ChatGPT

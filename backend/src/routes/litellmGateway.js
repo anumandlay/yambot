@@ -15,6 +15,7 @@ import {
   getChatGptOAuthStatus,
   importCodexOAuthToLitellm,
   isLitellmEnabled,
+  resolveChatGptLitellmUpstream,
   resolveLitellmModelForUser,
   startChatGptOAuth,
 } from "../utils/litellmClient.js";
@@ -117,7 +118,9 @@ litellmGatewayRouter.get("/oauth/chatgpt/status", async (req, res, next) => {
     if (status.status === "success") {
       const user = await User.findById(req.userId);
       if (user) {
-        const litellmModel = String(req.query?.model || user.settings?.llmModel || "chatgpt/gpt-5.3-codex");
+        const litellmModel = resolveChatGptLitellmUpstream(
+          String(req.query?.model || user.settings?.llmModel || "")
+        );
         const modelName = await ensureUserChatGptModel(user, litellmModel);
         user.settings.llmGatewayMode = "litellm";
         user.settings.llmAuthMode = "oauth";
@@ -173,12 +176,17 @@ litellmGatewayRouter.post("/oauth/chatgpt/import-codex", async (req, res, next) 
       res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
       return;
     }
-    const litellmModel = String(req.body?.model || user.settings?.llmModel || "chatgpt/gpt-5.3-codex");
+    const litellmModel = resolveChatGptLitellmUpstream(
+      String(req.body?.model || user.settings?.llmModel || "")
+    );
     const result = await importCodexOAuthToLitellm(user, litellmModel);
     user.settings.llmGatewayMode = "litellm";
     user.settings.llmAuthMode = "litellm";
     user.settings.llmOAuthProvider = "chatgpt";
-    user.settings.llmModel = litellmModel;
+    const priorModel = String(user.settings?.llmModel || "").trim();
+    if (!priorModel || priorModel.startsWith("chatgpt/")) {
+      user.settings.llmModel = litellmModel;
+    }
     user.settings.litellmChatGptConnected = true;
     user.markModified("settings");
     await user.save();

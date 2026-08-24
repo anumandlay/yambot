@@ -16,6 +16,22 @@ export const LITELLM_CATALOG = [
   { id: "chatgpt/gpt-5.4", label: "ChatGPT GPT-5.4", requiresOAuth: true, oauthProvider: "chatgpt" },
 ];
 
+/** Default ChatGPT upstream when user has MiniMax (or another non-ChatGPT model) selected. */
+export const DEFAULT_CHATGPT_LITELLM_MODEL = "chatgpt/gpt-5.3-codex";
+
+/**
+ * Resolves the LiteLLM upstream model id for a per-user ChatGPT deployment.
+ * Why: import-codex used `user.settings.llmModel` (often `minimax`), which LiteLLM cannot route as ChatGPT OAuth.
+ * @param {string} [modelId]
+ * @returns {string}
+ */
+export function resolveChatGptLitellmUpstream(modelId) {
+  const picked = String(modelId || "").trim();
+  if (picked.startsWith("chatgpt/")) return picked;
+  const fromCatalog = LITELLM_CATALOG.find((m) => m.requiresOAuth && String(m.id).startsWith("chatgpt/"));
+  return fromCatalog?.id || DEFAULT_CHATGPT_LITELLM_MODEL;
+}
+
 /** OpenAI Codex device-code page — always use this if LiteLLM omits verification_url. */
 export const CHATGPT_DEVICE_AUTH_URL = "https://auth.openai.com/codex/device";
 
@@ -132,6 +148,28 @@ export async function litellmAdminFetch(path, opts = {}) {
 }
 
 /**
+ * Deletes a LiteLLM proxy deployment by public model_name (best-effort cleanup).
+ * @param {string} modelName
+ */
+async function deleteLitellmModelByName(modelName) {
+  const target = String(modelName || "").trim();
+  if (!target) return;
+  try {
+    const info = await litellmAdminFetch("/model/info");
+    const rows = Array.isArray(info?.data) ? info.data : Array.isArray(info) ? info : [];
+    for (const row of rows) {
+      const name = String(row?.model_name || row?.model_info?.model_name || "").trim();
+      const id = String(row?.model_info?.id || row?.id || "").trim();
+      if (name === target && id) {
+        await litellmAdminFetch("/model/delete", { method: "POST", body: { id } });
+      }
+    }
+  } catch {
+    // Why: stale rows may already be gone; create path should still proceed.
+  }
+}
+
+/**
  * @returns {Promise<string[]>}
  */
 export async function listLitellmPublicModelIds() {
@@ -198,11 +236,13 @@ export async function ensureUserVirtualKey(user) {
  * @param {string} litellmModelId — catalog id e.g. chatgpt/gpt-5.3-codex
  * @returns {Promise<string>} resolved model_name for virtual key / worker
  */
-export async function ensureUserChatGptModel(user, litellmModelId = "chatgpt/gpt-5.3-codex") {
+export async function ensureUserChatGptModel(user, litellmModelId = DEFAULT_CHATGPT_LITELLM_MODEL) {
   const userId = String(user._id);
   const credName = userCredentialName(userId);
   const modelName = userChatGptModelName(userId);
-  const upstream = String(litellmModelId || "chatgpt/gpt-5.3-codex").trim();
+  const upstream = resolveChatGptLitellmUpstream(litellmModelId);
+
+  await deleteLitellmModelByName(modelName);
 
   try {
     await litellmAdminFetch("/model/new", {
@@ -218,7 +258,23 @@ export async function ensureUserChatGptModel(user, litellmModelId = "chatgpt/gpt
     });
   } catch (err) {
     const msg = String(err?.message || err);
-    if (!/already|exist|duplicate/i.test(msg)) {
+    if (/already|exist|duplicate/i.test(msg)) {
+      try {
+        await litellmAdminFetch("/model/update", {
+          method: "POST",
+          body: {
+            model_name: modelName,
+            litellm_params: {
+              model: upstream,
+              api_key: `oauth:${credName}`,
+            },
+            model_info: { mode: "responses" },
+          },
+        });
+      } catch (updateErr) {
+        throw updateErr;
+      }
+    } else {
       throw err;
     }
   }
@@ -243,6 +299,7 @@ export async function ensureUserChatGptModel(user, litellmModelId = "chatgpt/gpt
   if (!user.settings) user.settings = {};
   user.settings.litellmChatGptConnected = true;
   user.settings.litellmChatGptModel = modelName;
+  user.settings.litellmChatGptUpstream = upstream;
   user.settings.litellmCredentialName = credName;
   user.markModified("settings");
   await user.save();
@@ -321,7 +378,7 @@ export async function disconnectUserChatGpt(user) {
  * @param {string} [litellmModelId]
  * @returns {Promise<{ credentialName: string, modelName: string }>}
  */
-export async function importCodexOAuthToLitellm(user, litellmModelId = "chatgpt/gpt-5.3-codex") {
+export async function importCodexOAuthToLitellm(user, litellmModelId = DEFAULT_CHATGPT_LITELLM_MODEL) {
   const s = user.settings || {};
   const access = decryptSecret(s.llmOAuthAccessTokenEnc || "");
   const refresh = decryptSecret(s.llmOAuthRefreshTokenEnc || "");
