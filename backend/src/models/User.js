@@ -30,7 +30,17 @@ const settingsSchema = new mongoose.Schema(
   {
     llmApiKeyEnc: { type: String, default: "" },
     /** api_key | oauth — how the worker authenticates to the LLM API. */
-    llmAuthMode: { type: String, enum: ["api_key", "oauth"], default: "api_key" },
+    /** api_key | oauth | litellm — worker auth mode (litellm = virtual key via gateway). */
+    llmAuthMode: { type: String, enum: ["api_key", "oauth", "litellm"], default: "api_key" },
+    /** direct | litellm — when litellm, workers call the LiteLLM proxy instead of raw provider URLs. */
+    llmGatewayMode: { type: String, enum: ["direct", "litellm"], default: "direct" },
+    /** Encrypted LiteLLM virtual key (sk-…) minted per user. */
+    litellmVirtualKeyEnc: { type: String, default: "" },
+    litellmCredentialName: { type: String, default: "" },
+    litellmChatGptConnected: { type: Boolean, default: false },
+    litellmChatGptAccountLabel: { type: String, default: "" },
+    /** Resolved LiteLLM model_name for ChatGPT OAuth routing. */
+    litellmChatGptModel: { type: String, default: "" },
     llmOAuthProvider: { type: String, default: "" },
     llmOAuthAccessTokenEnc: { type: String, default: "" },
     llmOAuthRefreshTokenEnc: { type: String, default: "" },

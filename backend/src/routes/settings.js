@@ -10,6 +10,7 @@ import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 import { resolveLlmCredentials } from "../utils/llmCredentials.js";
 import { codexChatCompletion, isOpenAiCodexBaseUrl } from "../utils/openaiCodex.js";
+import { isLitellmEnabled, litellmOpenAiBaseUrl, LITELLM_CATALOG } from "../utils/litellmClient.js";
 import {
   buildLlmOAuthAuthorizeUrl,
   clearLlmOAuth,
@@ -49,13 +50,17 @@ settingsRouter.get("/", async (req, res, next) => {
     const s = user.settings || {};
     const savedKey = decryptSecret(s.llmApiKeyEnc || "");
     const savedDbcPass = decryptSecret(s.dbcPasswordEnc || "");
+    let displayModel = s.llmModel || env.DEFAULT_LLM_MODEL;
+    if (isLitellmEnabled() && (displayModel === env.DEFAULT_LLM_MODEL || displayModel === "MiniMax-M2.7")) {
+      displayModel = env.LITELLM_DEFAULT_MODEL || "minimax";
+    }
     res.json({
       ok: true,
       settings: {
         llmApiKeyMasked: mask(savedKey),
         hasLlmApiKey: Boolean(savedKey),
         llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
-        llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
+        llmModel: displayModel,
         visionApiKeyMasked: mask(decryptSecret(s.visionApiKeyEnc || "")),
         hasVisionApiKey: Boolean(decryptSecret(s.visionApiKeyEnc || "")),
         visionBaseUrl: s.visionBaseUrl || "",
@@ -71,6 +76,12 @@ settingsRouter.get("/", async (req, res, next) => {
         llmOAuthAccountLabel: s.llmOAuthAccountLabel || "",
         llmOAuthProviders: listLlmOAuthProvidersForUser(s),
         llmOAuthRedirectUri: `${env.PUBLIC_API_URL.replace(/\/$/, "")}/api/settings/llm/oauth/callback`,
+        litellmEnabled: isLitellmEnabled(),
+        litellmGatewayMode: s.llmGatewayMode === "direct" ? "direct" : isLitellmEnabled() ? "litellm" : "direct",
+        litellmModels: isLitellmEnabled() ? LITELLM_CATALOG : [],
+        litellmChatGptConnected: s.litellmChatGptConnected === true,
+        litellmChatGptAccountLabel: s.litellmChatGptAccountLabel || "",
+        litellmDefaultBaseUrl: isLitellmEnabled() ? litellmOpenAiBaseUrl() : "",
       },
     });
   } catch (err) {
@@ -103,8 +114,15 @@ settingsRouter.put("/", async (req, res, next) => {
     if (typeof body.helpEnabled === "boolean") {
       user.settings.helpEnabled = body.helpEnabled;
     }
-    if (body.llmAuthMode === "api_key" || body.llmAuthMode === "oauth") {
+    if (body.llmAuthMode === "api_key" || body.llmAuthMode === "oauth" || body.llmAuthMode === "litellm") {
       user.settings.llmAuthMode = body.llmAuthMode;
+    }
+    if (body.llmGatewayMode === "direct" || body.llmGatewayMode === "litellm") {
+      user.settings.llmGatewayMode = body.llmGatewayMode;
+      if (body.llmGatewayMode === "litellm" && isLitellmEnabled()) {
+        user.settings.llmBaseUrl = litellmOpenAiBaseUrl();
+        user.settings.llmAuthMode = "litellm";
+      }
     }
     // Why: blank string means "leave unchanged" so the UI can omit re-entry of secrets.
     if (typeof body.llmApiKey === "string" && body.llmApiKey.trim()) {

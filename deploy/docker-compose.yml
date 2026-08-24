@@ -37,11 +37,49 @@ services:
       DEFAULT_LLM_BASE_URL: ${DEFAULT_LLM_BASE_URL:-https://api.minimax.io/v1}
       DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-MiniMax-M2.7}
       DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY:-}
+      LITELLM_PROXY_URL: http://litellm:4000
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_DEFAULT_MODEL: ${LITELLM_DEFAULT_MODEL:-minimax}
+      MINIMAX_API_KEY: ${DEFAULT_LLM_API_KEY:-}
       COMPUTER_MANAGER_URL: http://computer-manager:4050
     ports:
       - "4010:4000"
     depends_on:
-      - mongo
+      mongo:
+        condition: service_started
+      litellm:
+        condition: service_started
+
+  postgres-litellm:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: litellm
+      POSTGRES_PASSWORD: ${LITELLM_PG_PASSWORD:-litellm-dev-password}
+      POSTGRES_DB: litellm
+    volumes:
+      - yambot_litellm_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U litellm -d litellm"]
+      interval: 5s
+      timeout: 5s
+      retries: 8
+
+  litellm:
+    image: ghcr.io/berriai/litellm:main-latest
+    restart: unless-stopped
+    volumes:
+      - ./litellm.config.yaml:/app/config.yaml:ro
+    command: ["--config", "/app/config.yaml", "--port", "4000", "--num_workers", "2"]
+    environment:
+      DATABASE_URL: postgresql://litellm:${LITELLM_PG_PASSWORD:-litellm-dev-password}@postgres-litellm:5432/litellm
+      LITELLM_MASTER_KEY: ${LITELLM_MASTER_KEY:-}
+      LITELLM_SALT_KEY: ${LITELLM_SALT_KEY:-}
+      STORE_MODEL_IN_DB: "True"
+      MINIMAX_API_KEY: ${DEFAULT_LLM_API_KEY:-}
+    depends_on:
+      postgres-litellm:
+        condition: service_healthy
 
   # Builds the Playwright worker image used by computer-manager for each agent box.
   worker-image:
@@ -80,3 +118,4 @@ services:
 
 volumes:
   yambot_mongo:
+  yambot_litellm_pg:

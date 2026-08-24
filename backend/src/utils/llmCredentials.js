@@ -7,14 +7,36 @@
 import { decryptSecret } from "./crypto.js";
 import { env } from "./env.js";
 import { getValidLlmOAuthAccessToken, isLlmOAuthConnected } from "./llmOAuth.js";
+import {
+  ensureUserVirtualKey,
+  isLitellmEnabled,
+  litellmOpenAiBaseUrl,
+  resolveLitellmModelForUser,
+} from "./litellmClient.js";
 
 /**
  * @param {object} user — Mongoose user document or plain object with settings
  * @param {{ bodyApiKey?: string }} [opts]
- * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string }>}
+ * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }>}
  */
 export async function resolveLlmCredentials(user, opts = {}) {
   const s = user?.settings || {};
+  const gatewayLitellm = isLitellmEnabled() && s.llmGatewayMode === "litellm";
+
+  if (gatewayLitellm && user?._id) {
+    await ensureUserVirtualKey(user);
+    const virtualKey = decryptSecret(user.settings?.litellmVirtualKeyEnc || s.litellmVirtualKeyEnc || "");
+    if (virtualKey) {
+      const model = resolveLitellmModelForUser(user.settings || s, String(user._id));
+      return {
+        apiKey: virtualKey,
+        authMode: "litellm",
+        llmBaseUrl: litellmOpenAiBaseUrl(),
+        llmModel: model,
+      };
+    }
+  }
+
   const authMode = s.llmAuthMode === "oauth" ? "oauth" : "api_key";
   const baseUrl = String(s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL).trim();
   const model = String(s.llmModel || env.DEFAULT_LLM_MODEL).trim();

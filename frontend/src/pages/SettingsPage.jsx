@@ -1,7 +1,7 @@
 /**
  * @fileoverview Settings page — LLM + DeathByCaptcha credentials.
  * Purpose: Store provider secrets on the server for cloud workers to load at runtime.
- * Supports API key or OAuth (Azure OpenAI, Google Gemini, OpenAI) via popup sign-in.
+ * Supports LiteLLM gateway (default when configured), API key, or legacy direct OAuth.
  */
 
 import { useEffect, useState } from "react";
@@ -11,11 +11,18 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { HelpToggle } from "../components/HelpToggle.jsx";
 import { LlmOAuthModal } from "../components/LlmOAuthModal.jsx";
+import { LlmGatewayModal } from "../components/LlmGatewayModal.jsx";
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams();
   const [form, setForm] = useState({
     llmAuthMode: "api_key",
+    llmGatewayMode: "direct",
+    litellmEnabled: false,
+    litellmModels: [],
+    litellmChatGptConnected: false,
+    litellmChatGptAccountLabel: "",
+    litellmDefaultBaseUrl: "",
     llmApiKey: "",
     llmBaseUrl: "https://api.minimax.io/v1",
     llmModel: "MiniMax-M2.7",
@@ -36,6 +43,7 @@ export function SettingsPage() {
     hasLlmApiKey: false,
     hasVisionApiKey: false,
     hasDbcPassword: false,
+    showAdvancedDirect: false,
   });
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
@@ -43,6 +51,7 @@ export function SettingsPage() {
   const [testingLlm, setTestingLlm] = useState(false);
   const [testingDbc, setTestingDbc] = useState(false);
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
+  const [gatewayModalOpen, setGatewayModalOpen] = useState(false);
 
   /**
    * Loads settings from API into form state (secrets left blank).
@@ -107,6 +116,11 @@ export function SettingsPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
+  const useGateway = form.litellmEnabled && form.llmGatewayMode === "litellm";
+  const catalog = Array.isArray(form.litellmModels) ? form.litellmModels : [];
+  const selectedCatalog = catalog.find((m) => m.id === form.llmModel) || null;
+  const needsChatGptOAuth = useGateway && selectedCatalog?.requiresOAuth && !form.litellmChatGptConnected;
+
   /**
    * @param {React.FormEvent} e
    */
@@ -116,12 +130,21 @@ export function SettingsPage() {
     setError(null);
     setOkMsg("");
     try {
+      if (needsChatGptOAuth) {
+        setError({
+          title: "ChatGPT not connected",
+          detail: "Connect ChatGPT before saving a ChatGPT model.",
+        });
+        setBusy(false);
+        return;
+      }
       await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify({
-          llmAuthMode: form.llmAuthMode,
+          llmAuthMode: useGateway ? "litellm" : form.llmAuthMode,
+          llmGatewayMode: useGateway ? "litellm" : "direct",
           llmApiKey: form.llmApiKey,
-          llmBaseUrl: form.llmBaseUrl,
+          llmBaseUrl: useGateway ? form.litellmDefaultBaseUrl || form.llmBaseUrl : form.llmBaseUrl,
           llmModel: form.llmModel,
           visionApiKey: form.visionApiKey,
           visionBaseUrl: form.visionBaseUrl,
@@ -131,6 +154,9 @@ export function SettingsPage() {
           confirmBeforeSubmit: Boolean(form.confirmBeforeSubmit),
         }),
       });
+      if (useGateway) {
+        await api("/api/settings/litellm/ensure-key", { method: "POST" });
+      }
       setOkMsg("Settings saved. Agents use these on the next task — click Test LLM connection to verify.");
       setForm((prev) => ({ ...prev, llmApiKey: "", visionApiKey: "", dbcPassword: "" }));
       await reloadSettings();
@@ -145,6 +171,13 @@ export function SettingsPage() {
    * Verifies LLM credentials with values in the form (or the saved key if blank).
    */
   async function testLlm() {
+    if (needsChatGptOAuth) {
+      setError({
+        title: "ChatGPT not connected",
+        detail: "Connect ChatGPT via LiteLLM before testing a ChatGPT model.",
+      });
+      return;
+    }
     setTestingLlm(true);
     setError(null);
     setOkMsg("");
@@ -153,12 +186,13 @@ export function SettingsPage() {
         method: "POST",
         body: JSON.stringify({
           llmApiKey: form.llmApiKey,
-          llmBaseUrl: form.llmBaseUrl,
+          llmBaseUrl: useGateway ? form.litellmDefaultBaseUrl || form.llmBaseUrl : form.llmBaseUrl,
           llmModel: form.llmModel,
         }),
       });
       const preview = data.preview ? ` Reply: "${data.preview}"` : "";
-      const mode = data.authMode === "oauth" ? " (OAuth)" : "";
+      const mode =
+        data.authMode === "litellm" ? " (LiteLLM gateway)" : data.authMode === "oauth" ? " (OAuth)" : "";
       setOkMsg(`${data.message || "LLM connected."}${mode} Model: ${data.model || form.llmModel}.${preview}`);
     } catch (err) {
       setError(err);
@@ -168,7 +202,7 @@ export function SettingsPage() {
   }
 
   /**
-   * Clears OAuth tokens and reverts to API key mode.
+   * Clears legacy direct OAuth tokens.
    */
   async function disconnectOAuth() {
     setBusy(true);
@@ -187,6 +221,24 @@ export function SettingsPage() {
   }
 
   /**
+   * Clears ChatGPT OAuth on the LiteLLM gateway.
+   */
+  async function disconnectGatewayChatGpt() {
+    setBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      await api("/api/settings/litellm/oauth/chatgpt/disconnect", { method: "POST" });
+      setOkMsg("ChatGPT disconnected from LiteLLM gateway.");
+      await reloadSettings();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
    * @param {{ provider: string, account?: string }} result
    */
   function onOAuthConnected(result) {
@@ -195,6 +247,18 @@ export function SettingsPage() {
       result.account
         ? `OAuth connected (${result.provider}): ${result.account}. Test LLM to verify.`
         : `OAuth connected (${result.provider}). Test LLM to verify.`
+    );
+    reloadSettings().catch((err) => setError(err));
+  }
+
+  /**
+   * @param {{ account?: string }} result
+   */
+  function onGatewayConnected(result) {
+    setOkMsg(
+      result.account
+        ? `ChatGPT connected via LiteLLM (${result.account}). Test LLM to verify.`
+        : "ChatGPT connected via LiteLLM. Test LLM to verify."
     );
     reloadSettings().catch((err) => setError(err));
   }
@@ -226,7 +290,7 @@ export function SettingsPage() {
     }
   }
 
-  const useOAuth = form.llmAuthMode === "oauth";
+  const useOAuth = !useGateway && form.llmAuthMode === "oauth";
 
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
@@ -234,8 +298,9 @@ export function SettingsPage() {
       <HelpToggle />
       <PageGuideBanner helpId="nav.settings" />
       <p className="text-sm text-teal-900/70">
-        Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).
-        Use an API key or sign in with OAuth. Secrets are encrypted at rest.
+        {useGateway
+          ? "LLM requests route through the LiteLLM gateway (OAuth + provider keys managed there)."
+          : "Default provider is Minimax. Use an API key or sign in with OAuth. Secrets are encrypted at rest."}
       </p>
       {error ? (
         <ErrorAlert
@@ -251,6 +316,13 @@ export function SettingsPage() {
         </div>
       ) : null}
 
+      <LlmGatewayModal
+        open={gatewayModalOpen}
+        onClose={() => setGatewayModalOpen(false)}
+        onConnected={onGatewayConnected}
+        llmModel={form.llmModel}
+      />
+
       <LlmOAuthModal
         open={oauthModalOpen}
         onClose={() => setOauthModalOpen(false)}
@@ -264,108 +336,207 @@ export function SettingsPage() {
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-teal-900/80">LLM</h2>
 
-        <fieldset className="flex flex-col gap-2 text-sm">
-          <FieldLabel helpId="settings.llmAuthMode">Authentication</FieldLabel>
-          <label className="flex min-h-11 items-center gap-2">
-            <input
-              type="radio"
-              name="llmAuthMode"
-              checked={!useOAuth}
-              onChange={() => update("llmAuthMode", "api_key")}
-            />
-            API key (MiniMax, any OpenAI-compatible provider)
-          </label>
-          <label className="flex min-h-11 items-center gap-2">
-            <input
-              type="radio"
-              name="llmAuthMode"
-              checked={useOAuth}
-              onChange={() => update("llmAuthMode", "oauth")}
-            />
-            OAuth sign-in (Google Gemini, Azure OpenAI, OpenAI)
-          </label>
-        </fieldset>
+        {useGateway ? (
+          <>
+            <p className="rounded-xl border border-teal-50 bg-teal-50/50 p-3 text-sm text-teal-900/80">
+              Gateway mode — workers call{" "}
+              <code className="rounded bg-white px-1">{form.litellmDefaultBaseUrl || "LiteLLM /v1"}</code>
+            </p>
 
-        {!useOAuth ? (
-          <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="settings.llmApiKey">
-              API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
-            </FieldLabel>
-            <input
-              className="min-h-11 rounded-xl border border-teal-100 px-3"
-              type="password"
-              autoComplete="off"
-              placeholder="sk-…"
-              value={form.llmApiKey}
-              onChange={(e) => update("llmApiKey", e.target.value)}
-            />
-          </label>
-        ) : (
-          <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/40 p-3 text-sm">
-            {form.llmOAuthConnected ? (
-              <>
-                <p className="text-teal-900">
-                  Connected
-                  {form.llmOAuthAccountLabel ? `: ${form.llmOAuthAccountLabel}` : ""}
-                  {form.llmOAuthProvider ? ` (${form.llmOAuthProvider})` : ""}
-                </p>
-                <div className="flex flex-col gap-2 sm:flex-row">
-                  <ButtonWithHelp helpId="settings.llmOAuthConnect">
-                    <button
-                      type="button"
-                      onClick={() => setOauthModalOpen(true)}
-                      disabled={busy}
-                      className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
-                    >
-                      Reconnect
-                    </button>
-                  </ButtonWithHelp>
-                  <button
-                    type="button"
-                    onClick={disconnectOAuth}
-                    disabled={busy}
-                    className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              </>
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="settings.litellmModel">Model</FieldLabel>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={form.llmModel}
+                onChange={(e) => update("llmModel", e.target.value)}
+              >
+                {catalog.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.label}
+                    {m.requiresOAuth ? " (ChatGPT OAuth)" : ""}
+                  </option>
+                ))}
+              </select>
+            </label>
+
+            {selectedCatalog?.requiresOAuth ? (
+              <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/40 p-3 text-sm">
+                {form.litellmChatGptConnected ? (
+                  <>
+                    <p className="text-teal-900">
+                      ChatGPT connected
+                      {form.litellmChatGptAccountLabel ? `: ${form.litellmChatGptAccountLabel}` : ""}
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <ButtonWithHelp helpId="settings.litellmChatGpt">
+                        <button
+                          type="button"
+                          onClick={() => setGatewayModalOpen(true)}
+                          disabled={busy}
+                          className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                        >
+                          Reconnect ChatGPT
+                        </button>
+                      </ButtonWithHelp>
+                      <button
+                        type="button"
+                        onClick={disconnectGatewayChatGpt}
+                        disabled={busy}
+                        className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-teal-900/80">
+                      This model uses your ChatGPT subscription. Sign in with a device code (no API key needed).
+                    </p>
+                    <ButtonWithHelp helpId="settings.litellmChatGpt">
+                      <button
+                        type="button"
+                        onClick={() => setGatewayModalOpen(true)}
+                        disabled={busy}
+                        className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+                      >
+                        Connect ChatGPT…
+                      </button>
+                    </ButtonWithHelp>
+                  </>
+                )}
+              </div>
+            ) : null}
+
+            <button
+              type="button"
+              onClick={() => update("showAdvancedDirect", !form.showAdvancedDirect)}
+              className="text-left text-sm font-semibold text-teal-800 underline"
+            >
+              {form.showAdvancedDirect ? "Hide" : "Show"} direct provider settings (advanced)
+            </button>
+          </>
+        ) : null}
+
+        {(!useGateway || form.showAdvancedDirect) && (
+          <>
+            {!useGateway ? (
+              <fieldset className="flex flex-col gap-2 text-sm">
+                <FieldLabel helpId="settings.llmAuthMode">Authentication</FieldLabel>
+                <label className="flex min-h-11 items-center gap-2">
+                  <input
+                    type="radio"
+                    name="llmAuthMode"
+                    checked={!useOAuth}
+                    onChange={() => {
+                      update("llmAuthMode", "api_key");
+                      update("llmGatewayMode", "direct");
+                    }}
+                  />
+                  API key (MiniMax, any OpenAI-compatible provider)
+                </label>
+                <label className="flex min-h-11 items-center gap-2">
+                  <input
+                    type="radio"
+                    name="llmAuthMode"
+                    checked={useOAuth}
+                    onChange={() => {
+                      update("llmAuthMode", "oauth");
+                      update("llmGatewayMode", "direct");
+                    }}
+                  />
+                  OAuth sign-in (Google Gemini, Azure OpenAI, OpenAI)
+                </label>
+              </fieldset>
+            ) : null}
+
+            {!useOAuth ? (
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="settings.llmApiKey">
+                  API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
+                </FieldLabel>
+                <input
+                  className="min-h-11 rounded-xl border border-teal-100 px-3"
+                  type="password"
+                  autoComplete="off"
+                  placeholder="sk-…"
+                  value={form.llmApiKey}
+                  onChange={(e) => update("llmApiKey", e.target.value)}
+                />
+              </label>
             ) : (
-              <>
-                <p className="text-teal-900/80">
-                  Sign in with your LLM provider. A popup opens so you can pick the provider and log in on their site.
-                </p>
-                <ButtonWithHelp helpId="settings.llmOAuthConnect">
-                  <button
-                    type="button"
-                    onClick={() => setOauthModalOpen(true)}
-                    disabled={busy}
-                    className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
-                  >
-                    Connect account…
-                  </button>
-                </ButtonWithHelp>
-              </>
+              <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/40 p-3 text-sm">
+                {form.llmOAuthConnected ? (
+                  <>
+                    <p className="text-teal-900">
+                      Connected
+                      {form.llmOAuthAccountLabel ? `: ${form.llmOAuthAccountLabel}` : ""}
+                      {form.llmOAuthProvider ? ` (${form.llmOAuthProvider})` : ""}
+                    </p>
+                    <div className="flex flex-col gap-2 sm:flex-row">
+                      <ButtonWithHelp helpId="settings.llmOAuthConnect">
+                        <button
+                          type="button"
+                          onClick={() => setOauthModalOpen(true)}
+                          disabled={busy}
+                          className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                        >
+                          Reconnect
+                        </button>
+                      </ButtonWithHelp>
+                      <button
+                        type="button"
+                        onClick={disconnectOAuth}
+                        disabled={busy}
+                        className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
+                      >
+                        Disconnect
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-teal-900/80">
+                      Sign in with your LLM provider. A popup opens so you can pick the provider and log in on their site.
+                    </p>
+                    <ButtonWithHelp helpId="settings.llmOAuthConnect">
+                      <button
+                        type="button"
+                        onClick={() => setOauthModalOpen(true)}
+                        disabled={busy}
+                        className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+                      >
+                        Connect account…
+                      </button>
+                    </ButtonWithHelp>
+                  </>
+                )}
+              </div>
             )}
-          </div>
+
+            {!useGateway ? (
+              <>
+                <label className="flex flex-col gap-1 text-sm">
+                  <FieldLabel helpId="settings.llmBaseUrl">Base URL</FieldLabel>
+                  <input
+                    className="min-h-11 rounded-xl border border-teal-100 px-3"
+                    value={form.llmBaseUrl}
+                    onChange={(e) => update("llmBaseUrl", e.target.value)}
+                  />
+                </label>
+                <label className="flex flex-col gap-1 text-sm">
+                  <FieldLabel helpId="settings.llmModel">Model</FieldLabel>
+                  <input
+                    className="min-h-11 rounded-xl border border-teal-100 px-3"
+                    value={form.llmModel}
+                    onChange={(e) => update("llmModel", e.target.value)}
+                  />
+                </label>
+              </>
+            ) : null}
+          </>
         )}
 
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.llmBaseUrl">Base URL</FieldLabel>
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.llmBaseUrl}
-            onChange={(e) => update("llmBaseUrl", e.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.llmModel">Model</FieldLabel>
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.llmModel}
-            onChange={(e) => update("llmModel", e.target.value)}
-          />
-        </label>
         <ButtonWithHelp helpId="settings.testLlm">
           <button
             type="button"

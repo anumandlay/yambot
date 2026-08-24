@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 11:20] Integrate LiteLLM as LLM gateway (OAuth + all providers)
+
+- **Prompt Provided:** Integrate LiteLLM as the LLM gateway (OAuth + all providers there)
+- **Architectural Flow:** Docker Compose adds Postgres + LiteLLM proxy → YamBot API mints per-user virtual keys → workers call `http://litellm:4000/v1` → Settings proxies ChatGPT device-code OAuth to LiteLLM admin routes → per-user ChatGPT models use `oauth:yambot_u_{userId}` credentials
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/docker-compose.yml`, `deploy/litellm.config.yaml`, `deploy/.env.example`, `backend/src/utils/env.js`, `backend/src/utils/litellmClient.js`, `backend/src/routes/litellmGateway.js`, `backend/src/utils/llmCredentials.js`, `backend/src/models/User.js`, `backend/src/routes/settings.js`, `backend/src/index.js`, `backend/src/utils/seedLlm.js`, `backend/.env.example`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/components/LlmGatewayModal.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-24 11:05] OpenAI ChatGPT sign-in — built-in OAuth, no client credentials
 
 - **Prompt Provided:** OpenAI OAuth should open login page and auto-retrieve tokens; user should not enter Client ID/Secret

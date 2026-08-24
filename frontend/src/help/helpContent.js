@@ -865,8 +865,30 @@ export const HELP = {
   "settings.llmAuthMode": {
     title: "LLM authentication",
     body: helpBody(
-      "API key — paste a provider secret (works for MiniMax and any OpenAI-compatible endpoint).",
-      "OAuth — sign in with Microsoft (Azure OpenAI), Google (Gemini), or OpenAI when the server has OAuth client credentials configured."
+      "LiteLLM gateway — routes all models through the server proxy (MiniMax + ChatGPT OAuth).",
+      "API key — paste a provider secret (direct mode, any OpenAI-compatible endpoint).",
+      "OAuth — legacy direct sign-in with Microsoft (Azure OpenAI), Google (Gemini), or OpenAI."
+    ),
+  },
+  "settings.litellmModel": {
+    title: "LiteLLM model",
+    body: helpBody(
+      "Pick a model exposed by the LiteLLM gateway.",
+      "ChatGPT models require Connect ChatGPT (device code) once; MiniMax uses the platform API key on the server."
+    ),
+  },
+  "settings.litellmChatGpt": {
+    title: "ChatGPT via LiteLLM",
+    body: helpBody(
+      "Sign in with your ChatGPT subscription using a device code — no paste-URL step.",
+      "Tokens are stored in LiteLLM and bound to your account only."
+    ),
+  },
+  "settings.litellmDeviceCode": {
+    title: "Device code",
+    body: helpBody(
+      "Enter this code on the ChatGPT verification page after signing in.",
+      "The page opens in a new tab; this dialog waits until authorization completes."
     ),
   },
   "settings.llmOAuthConnect": {
