@@ -9,13 +9,16 @@ import { User } from "../models/User.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 import { resolveLlmCredentials } from "../utils/llmCredentials.js";
+import { codexChatCompletion, isOpenAiCodexBaseUrl } from "../utils/openaiCodex.js";
 import {
   buildLlmOAuthAuthorizeUrl,
   clearLlmOAuth,
   completeLlmOAuthCallback,
+  completeOAuthFromPaste,
   isLlmOAuthConnected,
   listLlmOAuthProvidersForUser,
   renderOAuthPopupHtml,
+  resolveOAuthClientConfig,
   saveUserOAuthAppCredentials,
   verifyOAuthState,
 } from "../utils/llmOAuth.js";
@@ -164,7 +167,37 @@ settingsRouter.post("/llm/oauth/start", async (req, res, next) => {
       user.settings || {},
       { popup }
     );
-    res.json({ ok: true, authorizeUrl, provider, popup });
+    const cfg = resolveOAuthClientConfig(provider, user.settings || {});
+    res.json({
+      ok: true,
+      authorizeUrl,
+      provider,
+      popup,
+      needsPasteCallback: provider === "openai" && cfg?.publicClient === true,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/settings/llm/oauth/complete-paste — finish OpenAI loopback OAuth from pasted callback URL.
+ * Body: { pastedInput: string }
+ */
+settingsRouter.post("/llm/oauth/complete-paste", async (req, res, next) => {
+  try {
+    const pastedInput = String(req.body?.pastedInput ?? "").trim();
+    if (!pastedInput) {
+      res.status(400).json({ ok: false, title: "Missing URL", detail: "Paste the redirect URL from the popup." });
+      return;
+    }
+    const result = await completeOAuthFromPaste(pastedInput, User, String(req.userId));
+    res.json({
+      ok: true,
+      message: "OAuth connected",
+      provider: result.provider,
+      account: result.accountLabel || "",
+    });
   } catch (err) {
     next(err);
   }
@@ -374,6 +407,36 @@ settingsRouter.post("/test-llm", async (req, res, next) => {
     }
 
     const root = baseUrl.replace(/\/$/, "");
+    const messages = [{ role: "user", content: "Reply with exactly: ok" }];
+
+    if (isOpenAiCodexBaseUrl(baseUrl)) {
+      try {
+        const codex = await codexChatCompletion({
+          accessToken: apiKey,
+          accountId: creds.openAiAccountId || s.llmOAuthOpenAiAccountId || "",
+          model,
+          messages,
+          baseUrl: root,
+        });
+        res.json({
+          ok: true,
+          message: creds.authMode === "oauth" ? "LLM connected (ChatGPT OAuth)" : "LLM connected",
+          model: codex.model || model,
+          preview: codex.content.slice(0, 120) || "(empty reply)",
+          authMode: creds.authMode,
+        });
+        return;
+      } catch (err) {
+        res.status(502).json({
+          ok: false,
+          title: "ChatGPT connection failed",
+          detail: String(err?.message || err),
+          hint: "Reconnect OAuth on Settings or check your ChatGPT plan includes Codex access.",
+        });
+        return;
+      }
+    }
+
     const url = `${root}/chat/completions`;
 
     let response;
@@ -388,7 +451,7 @@ settingsRouter.post("/test-llm", async (req, res, next) => {
           model,
           temperature: 0,
           max_tokens: 16,
-          messages: [{ role: "user", content: "Reply with exactly: ok" }],
+          messages,
         }),
       });
     } catch (err) {

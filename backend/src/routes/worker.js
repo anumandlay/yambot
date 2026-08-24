@@ -90,6 +90,7 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
         llmApiKey: mainCreds.apiKey,
         llmAuthMode: mainCreds.authMode,
         llmOAuthProvider: mainCreds.oauthProvider || "",
+        llmOpenAiAccountId: mainCreds.openAiAccountId || "",
         llmBaseUrl: mainCreds.llmBaseUrl || s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
         llmModel: mainCreds.llmModel || s.llmModel || env.DEFAULT_LLM_MODEL,
         visionApiKey: visionCreds.apiKey || "",

@@ -8,6 +8,13 @@
 import crypto from "node:crypto";
 import { encryptSecret, decryptSecret } from "./crypto.js";
 import { env } from "./env.js";
+import {
+  OPENAI_CODEX_BASE_URL,
+  OPENAI_CODEX_DEFAULT_MODEL,
+  OPENAI_CODEX_LOOPBACK_REDIRECT,
+  OPENAI_CODEX_PUBLIC_CLIENT_ID,
+  decodeChatGptIdentity,
+} from "./openaiCodex.js";
 
 /** @typedef {{ id: string, label: string, hint?: string }} LlmOAuthProviderMeta */
 
@@ -32,6 +39,19 @@ function readProviderSecrets() {
   };
 }
 
+/**
+ * OAuth redirect URI for a provider (OpenAI ChatGPT sign-in uses loopback).
+ * @param {string} providerId
+ * @param {{ source?: string, publicClient?: boolean }} cfg
+ * @returns {string}
+ */
+function oauthRedirectUriForProvider(providerId, cfg) {
+  if (providerId === "openai" && (cfg?.source === "builtin" || cfg?.publicClient)) {
+    return OPENAI_CODEX_LOOPBACK_REDIRECT;
+  }
+  return llmOAuthRedirectUri();
+}
+
 /** @type {LlmOAuthProviderMeta[]} */
 export const LLM_OAUTH_PROVIDER_CATALOG = [
   {
@@ -46,8 +66,8 @@ export const LLM_OAUTH_PROVIDER_CATALOG = [
   },
   {
     id: "openai",
-    label: "OpenAI (OAuth)",
-    hint: "Requires OPENAI_OAUTH_* env on the server. API key mode works for all providers including MiniMax.",
+    label: "OpenAI (ChatGPT sign-in)",
+    hint: "Sign in with your ChatGPT account — no API key or OAuth app setup. Uses your ChatGPT plan via Codex backend.",
   },
 ];
 
@@ -81,11 +101,20 @@ export function resolveOAuthClientConfig(providerId, userSettings) {
   const server = readProviderSecrets();
   const fromServer = server[providerId];
   if (fromServer?.clientId && fromServer?.clientSecret) {
-    return { ...fromServer, source: "server" };
+    return { ...fromServer, source: "server", publicClient: false };
+  }
+  if (providerId === "openai") {
+    const clientId = fromServer?.clientId || OPENAI_CODEX_PUBLIC_CLIENT_ID;
+    return {
+      clientId,
+      clientSecret: fromServer?.clientSecret || "",
+      publicClient: true,
+      source: fromServer?.clientId ? "server_public" : "builtin",
+    };
   }
   const fromUser = readUserOAuthApp(userSettings, providerId);
   if (fromUser) {
-    return { ...fromUser, source: "user" };
+    return { ...fromUser, source: "user", publicClient: false };
   }
   return null;
 }
@@ -99,11 +128,13 @@ export function listLlmOAuthProvidersForUser(userSettings) {
   const redirectUri = llmOAuthRedirectUri();
   return LLM_OAUTH_PROVIDER_CATALOG.map((p) => {
     const cfg = resolveOAuthClientConfig(p.id, userSettings);
+    const isOpenAiBuiltin = p.id === "openai" && cfg?.source === "builtin";
     return {
       ...p,
-      ready: Boolean(cfg?.clientId && cfg?.clientSecret),
-      needsAppCredentials: !Boolean(readProviderSecrets()[p.id]?.clientId),
-      redirectUri,
+      ready: Boolean(cfg?.clientId && (cfg.publicClient || cfg.clientSecret)),
+      needsAppCredentials: p.id !== "openai" && !Boolean(readProviderSecrets()[p.id]?.clientId),
+      needsPasteCallback: isOpenAiBuiltin,
+      redirectUri: isOpenAiBuiltin ? OPENAI_CODEX_LOOPBACK_REDIRECT : redirectUri,
     };
   });
 }
@@ -225,20 +256,27 @@ export function buildLlmOAuthAuthorizeUrl(providerId, userId, userSettings, opts
   if (!cfg?.clientId) {
     throw Object.assign(
       new Error(
-        "OAuth app not configured. Enter your OAuth Client ID and Secret in the connect dialog (from Google Cloud / Azure / OpenAI)."
+        "OAuth app not configured. Enter your OAuth Client ID and Secret in the connect dialog (from Google Cloud / Azure)."
       ),
       { status: 400, title: "OAuth app required" }
     );
   }
+  if (!cfg.publicClient && !cfg.clientSecret) {
+    throw Object.assign(
+      new Error("OAuth app not configured. Enter Client ID and Client Secret."),
+      { status: 400, title: "OAuth app required" }
+    );
+  }
   const { verifier, challenge } = generatePkcePair();
+  const redirectUri = oauthRedirectUriForProvider(providerId, cfg);
   const state = signOAuthState({
     userId,
     provider: providerId,
     verifier,
     popup: opts.popup === true,
+    redirectUri,
     exp: Date.now() + 15 * 60 * 1000,
   });
-  const redirectUri = llmOAuthRedirectUri();
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     redirect_uri: redirectUri,
@@ -274,7 +312,10 @@ export function buildLlmOAuthAuthorizeUrl(providerId, userId, userSettings, opts
     const authorizeBase =
       process.env.OPENAI_OAUTH_AUTHORIZE_URL || "https://auth.openai.com/oauth/authorize";
     params.set("scope", process.env.OPENAI_OAUTH_SCOPE || "openid profile email offline_access");
-    return { authorizeUrl: `${authorizeBase}?${params}`, state };
+    params.set("id_token_add_organizations", "true");
+    params.set("codex_cli_simplified_flow", "true");
+    params.set("originator", "yambot");
+    return { authorizeUrl: `${authorizeBase}?${params}`, state, needsPasteCallback: cfg.publicClient === true };
   }
 
   throw Object.assign(new Error("Unknown OAuth provider"), { status: 400 });
@@ -287,12 +328,13 @@ export function buildLlmOAuthAuthorizeUrl(providerId, userId, userSettings, opts
  * @param {object} [userSettings]
  * @returns {Promise<{ accessToken: string, refreshToken?: string, expiresIn?: number, accountLabel?: string }>}
  */
-async function exchangeOAuthCode(providerId, code, codeVerifier, userSettings) {
+async function exchangeOAuthCode(providerId, code, codeVerifier, userSettings, redirectUriOverride) {
   const cfg = resolveOAuthClientConfig(providerId, userSettings);
   if (!cfg?.clientId) {
     throw Object.assign(new Error("OAuth app not configured"), { status: 400 });
   }
-  const redirectUri = llmOAuthRedirectUri();
+  const redirectUri =
+    redirectUriOverride || oauthRedirectUriForProvider(providerId, cfg);
   /** @type {URLSearchParams} */
   let body;
   /** @type {string} */
@@ -324,12 +366,14 @@ async function exchangeOAuthCode(providerId, code, codeVerifier, userSettings) {
     tokenUrl = process.env.OPENAI_OAUTH_TOKEN_URL || "https://auth.openai.com/oauth/token";
     body = new URLSearchParams({
       client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
       grant_type: "authorization_code",
       code,
       redirect_uri: redirectUri,
       code_verifier: codeVerifier,
     });
+    if (cfg.clientSecret) {
+      body.set("client_secret", cfg.clientSecret);
+    }
   } else {
     throw Object.assign(new Error("Unknown provider"), { status: 400 });
   }
@@ -377,11 +421,28 @@ async function exchangeOAuthCode(providerId, code, codeVerifier, userSettings) {
     }
   }
 
+  if (!accountLabel && providerId === "openai" && data.access_token) {
+    const identity = decodeChatGptIdentity(data.access_token);
+    const plan = identity.planType
+      ? identity.planType.charAt(0).toUpperCase() + identity.planType.slice(1)
+      : "";
+    accountLabel =
+      identity.email && plan
+        ? `${identity.email} (${plan})`
+        : identity.email || identity.planType || "";
+  }
+
+  const openAiAccountId =
+    providerId === "openai" && data.access_token
+      ? decodeChatGptIdentity(data.access_token).accountId || ""
+      : "";
+
   return {
     accessToken: data.access_token,
     refreshToken: data.refresh_token,
     expiresIn: Number(data.expires_in) || 3600,
     accountLabel,
+    openAiAccountId,
   };
 }
 
@@ -423,10 +484,12 @@ async function refreshOAuthToken(providerId, refreshToken, userSettings) {
     tokenUrl = process.env.OPENAI_OAUTH_TOKEN_URL || "https://auth.openai.com/oauth/token";
     body = new URLSearchParams({
       client_id: cfg.clientId,
-      client_secret: cfg.clientSecret,
       grant_type: "refresh_token",
       refresh_token: refreshToken,
     });
+    if (cfg.clientSecret) {
+      body.set("client_secret", cfg.clientSecret);
+    }
   } else {
     throw Object.assign(new Error("Unknown provider"), { status: 400 });
   }
@@ -475,6 +538,13 @@ export async function saveLlmOAuthTokens(user, providerId, tokens) {
   if (providerId === "google_gemini" && !user.settings.llmBaseUrl) {
     user.settings.llmBaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai";
   }
+  if (providerId === "openai") {
+    user.settings.llmBaseUrl = OPENAI_CODEX_BASE_URL;
+    if (!user.settings.llmModel) {
+      user.settings.llmModel = OPENAI_CODEX_DEFAULT_MODEL;
+    }
+    user.settings.llmOAuthOpenAiAccountId = String(tokens.openAiAccountId || "").slice(0, 120);
+  }
 
   user.markModified("settings");
   await user.save();
@@ -492,6 +562,7 @@ export async function clearLlmOAuth(user) {
   user.settings.llmOAuthRefreshTokenEnc = "";
   user.settings.llmOAuthExpiresAt = null;
   user.settings.llmOAuthAccountLabel = "";
+  user.settings.llmOAuthOpenAiAccountId = "";
   user.markModified("settings");
   await user.save();
 }
@@ -549,10 +620,60 @@ export async function completeLlmOAuthCallback(code, statePayload, User) {
     statePayload.provider,
     code,
     statePayload.verifier,
-    user.settings || {}
+    user.settings || {},
+    statePayload.redirectUri
   );
   await saveLlmOAuthTokens(user, statePayload.provider, tokens);
   return { provider: statePayload.provider, accountLabel: tokens.accountLabel || "" };
+}
+
+/**
+ * Parses a pasted OAuth callback URL or raw code from OpenAI loopback redirect.
+ * @param {string} input
+ * @returns {{ code: string|null, state: string|null }}
+ */
+export function parseManualOAuthCallbackInput(input) {
+  const trimmed = String(input || "").trim();
+  if (!trimmed) return { code: null, state: null };
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      return { code: url.searchParams.get("code"), state: url.searchParams.get("state") };
+    } catch {
+      return { code: null, state: null };
+    }
+  }
+  if (trimmed.includes("code=")) {
+    const params = new URLSearchParams(trimmed.startsWith("?") ? trimmed.slice(1) : trimmed);
+    return { code: params.get("code"), state: params.get("state") };
+  }
+  return { code: trimmed, state: null };
+}
+
+/**
+ * Completes OAuth from a pasted loopback callback (OpenAI ChatGPT sign-in on web).
+ * @param {string} pastedInput
+ * @param {import('mongoose').Model} User
+ * @param {string} [expectedUserId]
+ */
+export async function completeOAuthFromPaste(pastedInput, User, expectedUserId) {
+  const { code, state: stateRaw } = parseManualOAuthCallbackInput(pastedInput);
+  if (!code || !stateRaw) {
+    throw Object.assign(new Error("Paste the full redirect URL from the sign-in popup"), {
+      status: 400,
+      title: "Missing authorization code",
+    });
+  }
+  const statePayload = verifyOAuthState(stateRaw);
+  if (!statePayload) {
+    throw Object.assign(new Error("Invalid or expired OAuth state — start sign-in again"), {
+      status: 400,
+    });
+  }
+  if (expectedUserId && String(statePayload.userId) !== String(expectedUserId)) {
+    throw Object.assign(new Error("OAuth state does not match your session"), { status: 403 });
+  }
+  return completeLlmOAuthCallback(code, statePayload, User);
 }
 
 /**

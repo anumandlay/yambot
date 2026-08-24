@@ -27,6 +27,7 @@ export async function resolveLlmCredentials(user, opts = {}) {
         authMode: "oauth",
         oauthProvider: s.llmOAuthProvider || "",
         oauthAccount: s.llmOAuthAccountLabel || "",
+        openAiAccountId: s.llmOAuthOpenAiAccountId || "",
         llmBaseUrl: baseUrl,
         llmModel: model,
       };

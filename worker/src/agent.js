@@ -787,6 +787,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       llmApiKey,
       llmBaseUrl,
       llmModel,
+      llmOpenAiAccountId: c.llmOpenAiAccountId || "",
       visionApiKey,
       visionBaseUrl,
       visionModel,
@@ -1273,6 +1274,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               apiKey: settings.llmApiKey,
               baseUrl: settings.llmBaseUrl,
               model: settings.llmModel,
+              openAiAccountId: settings.llmOpenAiAccountId,
             });
       if (goalPlan.source === "default") {
         await mirror(taskId, "plan", {
@@ -1533,6 +1535,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             apiKey: llmCreds.apiKey,
             baseUrl: llmCreds.baseUrl,
             model: llmCreds.model,
+            openAiAccountId: visionAttached ? "" : settings.llmOpenAiAccountId,
             messages,
           });
           content = llm.content;

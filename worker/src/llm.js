@@ -3,6 +3,8 @@
  * Purpose: OpenAI-compatible chat client for the cloud worker.
  */
 
+import { codexChatCompletion, isOpenAiCodexBaseUrl } from "./openaiCodex.js";
+
 /**
  * @param {{ title: string, detail: string, hint?: string, status?: number, url?: string }} opts
  */
@@ -40,9 +42,17 @@ function extractApiMessage(bodyText) {
 }
 
 /**
- * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number }} opts
+ * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number, openAiAccountId?: string }} opts
  */
-export async function chatCompletion({ apiKey, baseUrl, model, messages, temperature = 0.2, timeoutMs = 120_000 }) {
+export async function chatCompletion({
+  apiKey,
+  baseUrl,
+  model,
+  messages,
+  temperature = 0.2,
+  timeoutMs = 120_000,
+  openAiAccountId,
+}) {
   if (!apiKey?.trim()) {
     throw new LlmError({
       title: "Missing API key",
@@ -52,6 +62,34 @@ export async function chatCompletion({ apiKey, baseUrl, model, messages, tempera
   }
 
   const root = (baseUrl || "https://api.minimax.io/v1").replace(/\/$/, "");
+
+  if (isOpenAiCodexBaseUrl(root)) {
+    try {
+      const codex = await codexChatCompletion({
+        accessToken: apiKey,
+        accountId: openAiAccountId || "",
+        model,
+        messages,
+        baseUrl: root,
+        timeoutMs,
+      });
+      return {
+        content: codex.content,
+        raw: codex.raw,
+        model: codex.model,
+        url: codex.url,
+        usage: codex.raw?.usage || null,
+      };
+    } catch (err) {
+      throw new LlmError({
+        title: "ChatGPT request failed",
+        detail: String(err?.message || err),
+        hint: "Reconnect OpenAI OAuth on Settings or check ChatGPT plan access.",
+        url: `${root}/responses`,
+      });
+    }
+  }
+
   const url = `${root}/chat/completions`;
   const usedModel = model || "MiniMax-M2.7";
 

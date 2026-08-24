@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 11:05] OpenAI ChatGPT sign-in — built-in OAuth, no client credentials
+
+- **Prompt Provided:** OpenAI OAuth should open login page and auto-retrieve tokens; user should not enter Client ID/Secret
+- **Architectural Flow:** Built-in Codex public PKCE client → popup sign-in at auth.openai.com → paste loopback callback URL → encrypted access/refresh tokens + ChatGPT account id → Codex backend API for worker/test-llm
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/openaiCodex.js`, `backend/src/utils/llmOAuth.js`, `backend/src/models/User.js`, `backend/src/routes/settings.js`, `backend/src/utils/llmCredentials.js`, `backend/src/routes/worker.js`, `worker/src/openaiCodex.js`, `worker/src/llm.js`, `worker/src/agent.js`, `worker/src/browserState/planner.js`, `frontend/src/components/LlmOAuthModal.jsx`
+
 ## [2026-08-24 10:50] OAuth popup connect + per-user OAuth app credentials
 
 - **Prompt Provided:** OAuth shows "not configured on this server"; user wants popup to pick provider and sign in on provider site to store tokens

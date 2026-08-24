@@ -45,10 +45,10 @@ export function parsePlanResponse(raw, goal) {
 
 /**
  * Creates an ordered subgoal plan via one LLM call.
- * @param {{ goal: string, chatCompletion: Function, apiKey: string, baseUrl: string, model: string }} params
+ * @param {{ goal: string, chatCompletion: Function, apiKey: string, baseUrl: string, model: string, openAiAccountId?: string }} params
  * @returns {Promise<object>}
  */
-export async function createGoalPlan({ goal, chatCompletion, apiKey, baseUrl, model }) {
+export async function createGoalPlan({ goal, chatCompletion, apiKey, baseUrl, model, openAiAccountId }) {
   const trimmed = String(goal || "").trim();
   if (!trimmed) return defaultPlan(goal);
 
@@ -57,6 +57,7 @@ export async function createGoalPlan({ goal, chatCompletion, apiKey, baseUrl, mo
       apiKey,
       baseUrl,
       model,
+      openAiAccountId,
       messages: [
         {
           role: "system",
