@@ -5,7 +5,8 @@
  */
 
 export const OPENAI_CODEX_PUBLIC_CLIENT_ID = "app_EMoamEEZ73f0CkXaXp7hrann";
-export const OPENAI_CODEX_LOOPBACK_REDIRECT = "http://127.0.0.1:1455/auth/callback";
+/** OpenAI registers localhost — 127.0.0.1 is rejected with invalid_authorize_request. */
+export const OPENAI_CODEX_LOOPBACK_REDIRECT = "http://localhost:1455/auth/callback";
 export const OPENAI_CODEX_BASE_URL = "https://chatgpt.com/backend-api/codex";
 export const OPENAI_CODEX_DEFAULT_MODEL = "gpt-4o";
 

@@ -21,7 +21,7 @@ import {
   renderOAuthPopupHtml,
   resolveOAuthClientConfig,
   saveUserOAuthAppCredentials,
-  verifyOAuthState,
+  resolveOAuthStatePayload,
 } from "../utils/llmOAuth.js";
 
 export const settingsRouter = Router();
@@ -254,7 +254,7 @@ settingsRouter.post("/llm/oauth/disconnect", async (req, res, next) => {
 export async function llmOAuthCallbackHandler(req, res) {
   const webBase = env.PUBLIC_WEB_URL.replace(/\/$/, "");
   const stateRaw = String(req.query?.state || "");
-  const statePayload = stateRaw ? verifyOAuthState(stateRaw) : null;
+  const statePayload = stateRaw ? resolveOAuthStatePayload(stateRaw) : null;
   const popup = statePayload?.popup === true;
 
   /** @param {string} detail */

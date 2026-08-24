@@ -292,7 +292,7 @@ export function LlmOAuthModal({
               <li>Complete sign-in in the popup (ChatGPT / OpenAI login).</li>
               <li>
                 The popup may show a connection error — that is normal. Copy the <strong>full URL</strong> from
-                the popup address bar (starts with <code>http://127.0.0.1:1455/…</code>).
+                the popup address bar (starts with <code>http://localhost:1455/…</code>).
               </li>
               <li>Paste it below and click Complete connection.</li>
             </ol>
@@ -302,7 +302,7 @@ export function LlmOAuthModal({
                 className="min-h-20 rounded-lg border border-teal-100 px-2 py-1 font-mono text-xs"
                 value={pastedCallback}
                 onChange={(e) => setPastedCallback(e.target.value)}
-                placeholder="http://127.0.0.1:1455/auth/callback?code=…&state=…"
+                placeholder="http://localhost:1455/auth/callback?code=…&state=…"
               />
             </label>
           </div>

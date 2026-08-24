@@ -881,7 +881,7 @@ export const HELP = {
     title: "ChatGPT via LiteLLM",
     body: helpBody(
       "Click Connect ChatGPT — a popup opens for ChatGPT login.",
-      "After login, copy the full URL from the popup address bar (http://127.0.0.1:1455/…) and paste it to finish.",
+      "After login, copy the full URL from the popup address bar (http://localhost:1455/…) and paste it to finish.",
       "Then pick a ChatGPT model and Test LLM connection."
     ),
   },

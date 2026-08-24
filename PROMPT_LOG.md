@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 14:40] Fix ChatGPT OAuth invalid_authorize_request
+
+- **Prompt Provided:** invalid_authorize_request JSON when signing in with ChatGPT
+- **Architectural Flow:** Codex OAuth uses localhost redirect + codex originator + short state stored server-side (OpenAI rejects long signed state / 127.0.0.1 redirect)
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/openaiCodex.js`, `backend/src/utils/llmOAuth.js`, `worker/src/openaiCodex.js`, `frontend/src/components/LlmOAuthModal.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-24 14:35] ChatGPT connect — browser sign-in primary (device code broken)
 
 - **Prompt Provided:** invalid_authorize_request / auth.openai.com/codex/device Not Found after Connect ChatGPT

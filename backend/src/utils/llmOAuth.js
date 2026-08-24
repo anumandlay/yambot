@@ -244,6 +244,65 @@ export function verifyOAuthState(state) {
 }
 
 /**
+ * In-memory pending OpenAI OAuth sessions (short state → PKCE verifier).
+ * Why: OpenAI rejects long signed state values; Codex CLI uses a short random state.
+ * @type {Map<string, { userId: string, provider: string, verifier: string, redirectUri: string, popup: boolean, exp: number }>}
+ */
+const pendingOpenAiOAuth = new Map();
+
+/**
+ * @param {object} payload
+ * @returns {string} short state id for authorize URL
+ */
+function stashOpenAiOAuthSession(payload) {
+  purgeExpiredOpenAiOAuthSessions();
+  const stateId = crypto.randomBytes(18).toString("base64url");
+  pendingOpenAiOAuth.set(stateId, {
+    userId: String(payload.userId),
+    provider: String(payload.provider),
+    verifier: String(payload.verifier),
+    redirectUri: String(payload.redirectUri),
+    popup: payload.popup === true,
+    exp: Date.now() + 15 * 60 * 1000,
+  });
+  return stateId;
+}
+
+/**
+ * Drops expired pending OAuth rows.
+ */
+function purgeExpiredOpenAiOAuthSessions() {
+  const now = Date.now();
+  for (const [key, row] of pendingOpenAiOAuth) {
+    if (!row?.exp || row.exp < now) pendingOpenAiOAuth.delete(key);
+  }
+}
+
+/**
+ * Resolves OAuth state from signed blob or short OpenAI pending session.
+ * @param {string} state
+ * @returns {object|null}
+ */
+export function resolveOAuthStatePayload(state) {
+  const signed = verifyOAuthState(state);
+  if (signed) return signed;
+  purgeExpiredOpenAiOAuthSessions();
+  const row = pendingOpenAiOAuth.get(String(state || ""));
+  if (!row || row.exp < Date.now()) {
+    if (row) pendingOpenAiOAuth.delete(String(state));
+    return null;
+  }
+  pendingOpenAiOAuth.delete(String(state));
+  return {
+    userId: row.userId,
+    provider: row.provider,
+    verifier: row.verifier,
+    redirectUri: row.redirectUri,
+    popup: row.popup,
+  };
+}
+
+/**
  * Builds the provider authorization URL (PKCE).
  * @param {string} providerId
  * @param {string} userId
@@ -269,14 +328,19 @@ export function buildLlmOAuthAuthorizeUrl(providerId, userId, userSettings, opts
   }
   const { verifier, challenge } = generatePkcePair();
   const redirectUri = oauthRedirectUriForProvider(providerId, cfg);
-  const state = signOAuthState({
+  const popup = opts.popup === true;
+  const statePayload = {
     userId,
     provider: providerId,
     verifier,
-    popup: opts.popup === true,
+    popup,
     redirectUri,
     exp: Date.now() + 15 * 60 * 1000,
-  });
+  };
+  const state =
+    providerId === "openai" && (cfg.publicClient || cfg.source === "builtin")
+      ? stashOpenAiOAuthSession(statePayload)
+      : signOAuthState(statePayload);
   const params = new URLSearchParams({
     client_id: cfg.clientId,
     redirect_uri: redirectUri,
@@ -314,7 +378,7 @@ export function buildLlmOAuthAuthorizeUrl(providerId, userId, userSettings, opts
     params.set("scope", process.env.OPENAI_OAUTH_SCOPE || "openid profile email offline_access");
     params.set("id_token_add_organizations", "true");
     params.set("codex_cli_simplified_flow", "true");
-    params.set("originator", "yambot");
+    params.set("originator", process.env.OPENAI_CODEX_ORIGINATOR || "codex");
     return { authorizeUrl: `${authorizeBase}?${params}`, state, needsPasteCallback: cfg.publicClient === true };
   }
 
@@ -664,7 +728,7 @@ export async function completeOAuthFromPaste(pastedInput, User, expectedUserId) 
       title: "Missing authorization code",
     });
   }
-  const statePayload = verifyOAuthState(stateRaw);
+  const statePayload = resolveOAuthStatePayload(stateRaw);
   if (!statePayload) {
     throw Object.assign(new Error("Invalid or expired OAuth state — start sign-in again"), {
       status: 400,
