@@ -1,0 +1,457 @@
+/**
+ * @fileoverview LLM OAuth — PKCE connect flow and token refresh for Settings.
+ * Purpose: Let users choose OAuth instead of pasting an API key (Azure OpenAI, Google Gemini).
+ * Inputs: Provider client IDs/secrets from env; User.settings encrypted tokens.
+ * Downstream: settings routes, llmCredentials.js, worker runtime-config.
+ */
+
+import crypto from "node:crypto";
+import { encryptSecret, decryptSecret } from "./crypto.js";
+import { env } from "./env.js";
+
+/** @typedef {{ id: string, label: string, hint?: string }} LlmOAuthProviderMeta */
+
+/**
+ * @returns {Record<string, { clientId: string, clientSecret: string, tenant?: string }>}
+ */
+function readProviderSecrets() {
+  return {
+    azure_openai: {
+      clientId: process.env.AZURE_OPENAI_OAUTH_CLIENT_ID || "",
+      clientSecret: process.env.AZURE_OPENAI_OAUTH_CLIENT_SECRET || "",
+      tenant: process.env.AZURE_OPENAI_OAUTH_TENANT_ID || "common",
+    },
+    google_gemini: {
+      clientId: process.env.GOOGLE_GEMINI_OAUTH_CLIENT_ID || "",
+      clientSecret: process.env.GOOGLE_GEMINI_OAUTH_CLIENT_SECRET || "",
+    },
+    openai: {
+      clientId: process.env.OPENAI_OAUTH_CLIENT_ID || "",
+      clientSecret: process.env.OPENAI_OAUTH_CLIENT_SECRET || "",
+    },
+  };
+}
+
+/** @type {LlmOAuthProviderMeta[]} */
+export const LLM_OAUTH_PROVIDER_CATALOG = [
+  {
+    id: "azure_openai",
+    label: "Microsoft Azure OpenAI",
+    hint: "Set base URL to your Azure OpenAI resource (/openai/deployments/…/chat/completions?api-version=…). Model = deployment name.",
+  },
+  {
+    id: "google_gemini",
+    label: "Google Gemini (OAuth)",
+    hint: "Uses Google Generative Language API. Base URL: https://generativelanguage.googleapis.com/v1beta/openai",
+  },
+  {
+    id: "openai",
+    label: "OpenAI (OAuth)",
+    hint: "Requires OPENAI_OAUTH_* env on the server. API key mode works for all providers including MiniMax.",
+  },
+];
+
+/**
+ * Providers with client id configured on this server.
+ * @returns {LlmOAuthProviderMeta[]}
+ */
+export function listConfiguredLlmOAuthProviders() {
+  const secrets = readProviderSecrets();
+  return LLM_OAUTH_PROVIDER_CATALOG.filter((p) => Boolean(secrets[p.id]?.clientId));
+}
+
+/**
+ * @param {string} providerId
+ * @returns {boolean}
+ */
+export function isLlmOAuthProviderConfigured(providerId) {
+  return listConfiguredLlmOAuthProviders().some((p) => p.id === providerId);
+}
+
+/**
+ * @param {object} settings
+ * @returns {boolean}
+ */
+export function isLlmOAuthConnected(settings) {
+  return (
+    settings?.llmAuthMode === "oauth" &&
+    Boolean(settings?.llmOAuthProvider) &&
+    Boolean(decryptSecret(settings?.llmOAuthRefreshTokenEnc || "") ||
+      decryptSecret(settings?.llmOAuthAccessTokenEnc || ""))
+  );
+}
+
+/**
+ * @returns {string}
+ */
+export function llmOAuthRedirectUri() {
+  return `${env.PUBLIC_API_URL.replace(/\/$/, "")}/api/settings/llm/oauth/callback`;
+}
+
+/**
+ * @returns {string}
+ */
+function generatePkcePair() {
+  const verifier = crypto.randomBytes(32).toString("base64url");
+  const challenge = crypto.createHash("sha256").update(verifier).digest("base64url");
+  return { verifier, challenge };
+}
+
+/**
+ * @param {object} payload
+ * @returns {string}
+ */
+function signOAuthState(payload) {
+  const data = Buffer.from(JSON.stringify(payload)).toString("base64url");
+  const sig = crypto.createHmac("sha256", env.JWT_SECRET).update(data).digest("base64url");
+  return `${data}.${sig}`;
+}
+
+/**
+ * @param {string} state
+ * @returns {object|null}
+ */
+export function verifyOAuthState(state) {
+  const parts = String(state || "").split(".");
+  if (parts.length !== 2) return null;
+  const [data, sig] = parts;
+  const expected = crypto.createHmac("sha256", env.JWT_SECRET).update(data).digest("base64url");
+  if (sig.length !== expected.length) return null;
+  if (!crypto.timingSafeEqual(Buffer.from(sig), Buffer.from(expected))) return null;
+  try {
+    const payload = JSON.parse(Buffer.from(data, "base64url").toString("utf8"));
+    if (!payload?.userId || !payload?.provider || !payload?.verifier) return null;
+    if (payload.exp && Date.now() > payload.exp) return null;
+    return payload;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Builds the provider authorization URL (PKCE).
+ * @param {string} providerId
+ * @param {string} userId
+ * @returns {{ authorizeUrl: string, state: string }}
+ */
+export function buildLlmOAuthAuthorizeUrl(providerId, userId) {
+  const secrets = readProviderSecrets();
+  const cfg = secrets[providerId];
+  if (!cfg?.clientId) {
+    throw Object.assign(new Error("OAuth provider not configured on this server"), {
+      status: 400,
+      title: "OAuth unavailable",
+    });
+  }
+  const { verifier, challenge } = generatePkcePair();
+  const state = signOAuthState({
+    userId,
+    provider: providerId,
+    verifier,
+    exp: Date.now() + 15 * 60 * 1000,
+  });
+  const redirectUri = llmOAuthRedirectUri();
+  const params = new URLSearchParams({
+    client_id: cfg.clientId,
+    redirect_uri: redirectUri,
+    response_type: "code",
+    state,
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+  });
+
+  if (providerId === "azure_openai") {
+    const tenant = cfg.tenant || "common";
+    params.set(
+      "scope",
+      "https://cognitiveservices.azure.com/.default offline_access openid profile email"
+    );
+    return {
+      authorizeUrl: `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/authorize?${params}`,
+      state,
+    };
+  }
+
+  if (providerId === "google_gemini") {
+    params.set("scope", "openid email profile https://www.googleapis.com/auth/generative-language");
+    params.set("access_type", "offline");
+    params.set("prompt", "consent");
+    return {
+      authorizeUrl: `https://accounts.google.com/o/oauth2/v2/auth?${params}`,
+      state,
+    };
+  }
+
+  if (providerId === "openai") {
+    const authorizeBase =
+      process.env.OPENAI_OAUTH_AUTHORIZE_URL || "https://auth.openai.com/oauth/authorize";
+    params.set("scope", process.env.OPENAI_OAUTH_SCOPE || "openid profile email offline_access");
+    return { authorizeUrl: `${authorizeBase}?${params}`, state };
+  }
+
+  throw Object.assign(new Error("Unknown OAuth provider"), { status: 400 });
+}
+
+/**
+ * @param {string} providerId
+ * @param {string} code
+ * @param {string} codeVerifier
+ * @returns {Promise<{ accessToken: string, refreshToken?: string, expiresIn?: number, accountLabel?: string }>}
+ */
+async function exchangeOAuthCode(providerId, code, codeVerifier) {
+  const secrets = readProviderSecrets();
+  const cfg = secrets[providerId];
+  const redirectUri = llmOAuthRedirectUri();
+  /** @type {URLSearchParams} */
+  let body;
+  /** @type {string} */
+  let tokenUrl;
+
+  if (providerId === "azure_openai") {
+    const tenant = cfg.tenant || "common";
+    tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`;
+    body = new URLSearchParams({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
+      scope: "https://cognitiveservices.azure.com/.default offline_access openid profile email",
+    });
+  } else if (providerId === "google_gemini") {
+    tokenUrl = "https://oauth2.googleapis.com/token";
+    body = new URLSearchParams({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
+    });
+  } else if (providerId === "openai") {
+    tokenUrl = process.env.OPENAI_OAUTH_TOKEN_URL || "https://auth.openai.com/oauth/token";
+    body = new URLSearchParams({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      grant_type: "authorization_code",
+      code,
+      redirect_uri: redirectUri,
+      code_verifier: codeVerifier,
+    });
+  } else {
+    throw Object.assign(new Error("Unknown provider"), { status: 400 });
+  }
+
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw Object.assign(new Error(text.slice(0, 300) || "Token exchange failed"), {
+      status: 502,
+      title: "OAuth token exchange failed",
+    });
+  }
+  if (!res.ok) {
+    throw Object.assign(
+      new Error(data.error_description || data.error || text.slice(0, 300) || "Token exchange failed"),
+      { status: 502, title: "OAuth token exchange failed" }
+    );
+  }
+
+  let accountLabel = "";
+  if (data.id_token) {
+    try {
+      const payload = JSON.parse(Buffer.from(data.id_token.split(".")[1], "base64url").toString("utf8"));
+      accountLabel = payload.email || payload.preferred_username || payload.name || "";
+    } catch {
+      /* ignore */
+    }
+  }
+  if (!accountLabel && providerId === "google_gemini" && data.access_token) {
+    try {
+      const me = await fetch("https://www.googleapis.com/oauth2/v2/userinfo", {
+        headers: { Authorization: `Bearer ${data.access_token}` },
+      });
+      const info = await me.json();
+      accountLabel = info.email || info.name || "";
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token,
+    expiresIn: Number(data.expires_in) || 3600,
+    accountLabel,
+  };
+}
+
+/**
+ * @param {string} providerId
+ * @param {string} refreshToken
+ * @returns {Promise<{ accessToken: string, refreshToken?: string, expiresIn?: number }>}
+ */
+async function refreshOAuthToken(providerId, refreshToken) {
+  const secrets = readProviderSecrets();
+  const cfg = secrets[providerId];
+  /** @type {URLSearchParams} */
+  let body;
+  /** @type {string} */
+  let tokenUrl;
+
+  if (providerId === "azure_openai") {
+    const tenant = cfg.tenant || "common";
+    tokenUrl = `https://login.microsoftonline.com/${encodeURIComponent(tenant)}/oauth2/v2.0/token`;
+    body = new URLSearchParams({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+      scope: "https://cognitiveservices.azure.com/.default offline_access openid profile email",
+    });
+  } else if (providerId === "google_gemini") {
+    tokenUrl = "https://oauth2.googleapis.com/token";
+    body = new URLSearchParams({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    });
+  } else if (providerId === "openai") {
+    tokenUrl = process.env.OPENAI_OAUTH_TOKEN_URL || "https://auth.openai.com/oauth/token";
+    body = new URLSearchParams({
+      client_id: cfg.clientId,
+      client_secret: cfg.clientSecret,
+      grant_type: "refresh_token",
+      refresh_token: refreshToken,
+    });
+  } else {
+    throw Object.assign(new Error("Unknown provider"), { status: 400 });
+  }
+
+  const res = await fetch(tokenUrl, {
+    method: "POST",
+    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    body: body.toString(),
+  });
+  const text = await res.text();
+  let data;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    throw new Error(text.slice(0, 300) || "Refresh failed");
+  }
+  if (!res.ok) {
+    throw new Error(data.error_description || data.error || "Refresh failed");
+  }
+  return {
+    accessToken: data.access_token,
+    refreshToken: data.refresh_token || refreshToken,
+    expiresIn: Number(data.expires_in) || 3600,
+  };
+}
+
+/**
+ * Persists OAuth tokens on the user after successful connect.
+ * @param {import('mongoose').Document} user
+ * @param {string} providerId
+ * @param {{ accessToken: string, refreshToken?: string, expiresIn?: number, accountLabel?: string }} tokens
+ */
+export async function saveLlmOAuthTokens(user, providerId, tokens) {
+  if (!user.settings) user.settings = {};
+  user.settings.llmAuthMode = "oauth";
+  user.settings.llmOAuthProvider = providerId;
+  user.settings.llmOAuthAccessTokenEnc = encryptSecret(tokens.accessToken || "");
+  if (tokens.refreshToken) {
+    user.settings.llmOAuthRefreshTokenEnc = encryptSecret(tokens.refreshToken);
+  }
+  user.settings.llmOAuthExpiresAt = new Date(
+    Date.now() + Math.max(60, Number(tokens.expiresIn) || 3600) * 1000
+  );
+  user.settings.llmOAuthAccountLabel = String(tokens.accountLabel || "").slice(0, 200);
+
+  if (providerId === "google_gemini" && !user.settings.llmBaseUrl) {
+    user.settings.llmBaseUrl = "https://generativelanguage.googleapis.com/v1beta/openai";
+  }
+
+  user.markModified("settings");
+  await user.save();
+}
+
+/**
+ * Clears OAuth tokens; keeps API key if any.
+ * @param {import('mongoose').Document} user
+ */
+export async function clearLlmOAuth(user) {
+  if (!user.settings) user.settings = {};
+  user.settings.llmAuthMode = "api_key";
+  user.settings.llmOAuthProvider = "";
+  user.settings.llmOAuthAccessTokenEnc = "";
+  user.settings.llmOAuthRefreshTokenEnc = "";
+  user.settings.llmOAuthExpiresAt = null;
+  user.settings.llmOAuthAccountLabel = "";
+  user.markModified("settings");
+  await user.save();
+}
+
+/**
+ * Returns a valid access token, refreshing when near expiry.
+ * @param {import('mongoose').Document} user
+ * @returns {Promise<{ accessToken: string|null, error?: string }>}
+ */
+export async function getValidLlmOAuthAccessToken(user) {
+  const s = user?.settings || {};
+  const providerId = s.llmOAuthProvider;
+  if (!providerId) return { accessToken: null, error: "No OAuth provider" };
+
+  const access = decryptSecret(s.llmOAuthAccessTokenEnc || "");
+  const refresh = decryptSecret(s.llmOAuthRefreshTokenEnc || "");
+  const expiresAt = s.llmOAuthExpiresAt ? new Date(s.llmOAuthExpiresAt).getTime() : 0;
+  const stillValid = access && expiresAt > Date.now() + 60_000;
+
+  if (stillValid) return { accessToken: access };
+
+  if (!refresh) {
+    return access ? { accessToken: access } : { accessToken: null, error: "OAuth session expired" };
+  }
+
+  try {
+    const refreshed = await refreshOAuthToken(providerId, refresh);
+    user.settings.llmOAuthAccessTokenEnc = encryptSecret(refreshed.accessToken || "");
+    if (refreshed.refreshToken) {
+      user.settings.llmOAuthRefreshTokenEnc = encryptSecret(refreshed.refreshToken);
+    }
+    user.settings.llmOAuthExpiresAt = new Date(
+      Date.now() + Math.max(60, Number(refreshed.expiresIn) || 3600) * 1000
+    );
+    user.markModified("settings");
+    await user.save();
+    return { accessToken: refreshed.accessToken };
+  } catch (err) {
+    return { accessToken: null, error: String(err?.message || err) };
+  }
+}
+
+/**
+ * Completes OAuth callback — exchange code and save.
+ * @param {string} code
+ * @param {object} statePayload
+ * @param {import('mongoose').Model} User
+ */
+export async function completeLlmOAuthCallback(code, statePayload, User) {
+  const user = await User.findById(statePayload.userId);
+  if (!user) {
+    throw Object.assign(new Error("User not found"), { status: 404 });
+  }
+  const tokens = await exchangeOAuthCode(statePayload.provider, code, statePayload.verifier);
+  await saveLlmOAuthTokens(user, statePayload.provider, tokens);
+  return { provider: statePayload.provider, accountLabel: tokens.accountLabel || "" };
+}

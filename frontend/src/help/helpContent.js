@@ -858,8 +858,22 @@ export const HELP = {
   "settings.llmApiKey": {
     title: "LLM API key",
     body: helpBody(
-      "Secret key for your LLM provider (MiniMax, OpenAI-compatible, etc.). Required for any agent to plan actions.",
+      "Secret key for your LLM provider (MiniMax, OpenAI-compatible, etc.). Required when auth mode is API key.",
       "Stored encrypted. Cloud workers fetch decrypted value per task via runtime-config. Use Test LLM to verify."
+    ),
+  },
+  "settings.llmAuthMode": {
+    title: "LLM authentication",
+    body: helpBody(
+      "API key — paste a provider secret (works for MiniMax and any OpenAI-compatible endpoint).",
+      "OAuth — sign in with Microsoft (Azure OpenAI), Google (Gemini), or OpenAI when the server has OAuth client credentials configured."
+    ),
+  },
+  "settings.llmOAuthConnect": {
+    title: "Connect OAuth",
+    body: helpBody(
+      "Opens your provider's sign-in page. After approval, tokens are stored encrypted on the server and refreshed automatically.",
+      "Set base URL and model first (especially for Azure deployment URL). Redirect URI must be registered: {PUBLIC_API_URL}/api/settings/llm/oauth/callback"
     ),
   },
   "settings.llmBaseUrl": {

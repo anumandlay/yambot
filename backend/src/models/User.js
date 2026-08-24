@@ -29,6 +29,13 @@ import {
 const settingsSchema = new mongoose.Schema(
   {
     llmApiKeyEnc: { type: String, default: "" },
+    /** api_key | oauth — how the worker authenticates to the LLM API. */
+    llmAuthMode: { type: String, enum: ["api_key", "oauth"], default: "api_key" },
+    llmOAuthProvider: { type: String, default: "" },
+    llmOAuthAccessTokenEnc: { type: String, default: "" },
+    llmOAuthRefreshTokenEnc: { type: String, default: "" },
+    llmOAuthExpiresAt: { type: Date, default: null },
+    llmOAuthAccountLabel: { type: String, default: "" },
     llmBaseUrl: { type: String, default: DEFAULT_LLM_BASE_URL },
     llmModel: { type: String, default: DEFAULT_LLM_MODEL },
     /** Optional separate credentials for multimodal (viewport screenshot) steps. */

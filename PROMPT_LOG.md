@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 10:40] Settings: LLM OAuth alongside API key
+
+- **Prompt Provided:** Add OAuth option on Settings alongside current API key auth (Azure OpenAI, Google Gemini, optional OpenAI)
+- **Architectural Flow:** PKCE OAuth connect on Settings → encrypted tokens on User.settings → resolveLlmCredentials() for test-llm + worker runtime-config; callback route unauthenticated with signed state
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/llmOAuth.js`, `backend/src/utils/llmCredentials.js`, `backend/src/models/User.js`, `backend/src/routes/settings.js`, `backend/src/routes/worker.js`, `backend/src/index.js`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/help/helpContent.js`, `backend/.env.example`
+
 ## [2026-08-24 09:45] Feature branch: Playwright + Google Chrome (not bundled Chromium)
 
 - **Prompt Provided:** Try Playwright+Chrome; create feature branch so main stays deployable fallback

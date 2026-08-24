@@ -1,19 +1,27 @@
 /**
  * @fileoverview Settings page — LLM + DeathByCaptcha credentials.
  * Purpose: Store provider secrets on the server for cloud workers to load at runtime.
+ * Supports API key or OAuth (Azure OpenAI, Google Gemini, OpenAI when configured).
  */
 
 import { useEffect, useState } from "react";
+import { useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { HelpToggle } from "../components/HelpToggle.jsx";
 
 export function SettingsPage() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [form, setForm] = useState({
+    llmAuthMode: "api_key",
     llmApiKey: "",
     llmBaseUrl: "https://api.minimax.io/v1",
     llmModel: "MiniMax-M2.7",
+    llmOAuthProvider: "",
+    llmOAuthConnected: false,
+    llmOAuthAccountLabel: "",
+    llmOAuthProviders: [],
     visionApiKey: "",
     visionBaseUrl: "",
     visionModel: "",
@@ -32,17 +40,62 @@ export function SettingsPage() {
   const [busy, setBusy] = useState(false);
   const [testingLlm, setTestingLlm] = useState(false);
   const [testingDbc, setTestingDbc] = useState(false);
+  const [connectingOAuth, setConnectingOAuth] = useState(false);
+
+  /**
+   * Loads settings from API into form state (secrets left blank).
+   */
+  async function reloadSettings() {
+    const data = await api("/api/settings");
+    setForm((prev) => ({
+      ...prev,
+      ...data.settings,
+      llmApiKey: "",
+      visionApiKey: "",
+      dbcPassword: "",
+      llmOAuthProvider:
+        data.settings.llmOAuthProvider ||
+        data.settings.llmOAuthProviders?.[0]?.id ||
+        prev.llmOAuthProvider ||
+        "",
+    }));
+  }
 
   useEffect(() => {
     (async () => {
       try {
-        const data = await api("/api/settings");
-        setForm((prev) => ({ ...prev, ...data.settings, llmApiKey: "", dbcPassword: "" }));
+        await reloadSettings();
       } catch (err) {
         setError(err);
       }
     })();
   }, []);
+
+  /** Handle OAuth redirect query params from provider callback. */
+  useEffect(() => {
+    const oauthResult = searchParams.get("llm_oauth");
+    if (!oauthResult) return;
+
+    if (oauthResult === "connected") {
+      const provider = searchParams.get("provider") || "";
+      const account = searchParams.get("account") || "";
+      setOkMsg(
+        account
+          ? `OAuth connected (${provider}): ${account}. Test LLM to verify.`
+          : `OAuth connected (${provider}). Test LLM to verify.`
+      );
+      reloadSettings().catch((err) => setError(err));
+    } else if (oauthResult === "error") {
+      const detail = searchParams.get("detail") || "OAuth failed";
+      setError({ title: "OAuth failed", detail, message: detail });
+    }
+
+    searchParams.delete("llm_oauth");
+    searchParams.delete("provider");
+    searchParams.delete("account");
+    searchParams.delete("detail");
+    setSearchParams(searchParams, { replace: true });
+  }, [searchParams, setSearchParams]);
 
   /**
    * @param {string} key
@@ -64,6 +117,7 @@ export function SettingsPage() {
       await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify({
+          llmAuthMode: form.llmAuthMode,
           llmApiKey: form.llmApiKey,
           llmBaseUrl: form.llmBaseUrl,
           llmModel: form.llmModel,
@@ -77,8 +131,7 @@ export function SettingsPage() {
       });
       setOkMsg("Settings saved. Agents use these on the next task — click Test LLM connection to verify.");
       setForm((prev) => ({ ...prev, llmApiKey: "", visionApiKey: "", dbcPassword: "" }));
-      const data = await api("/api/settings");
-      setForm((prev) => ({ ...prev, ...data.settings, llmApiKey: "", visionApiKey: "", dbcPassword: "" }));
+      await reloadSettings();
     } catch (err) {
       setError(err);
     } finally {
@@ -103,11 +156,68 @@ export function SettingsPage() {
         }),
       });
       const preview = data.preview ? ` Reply: "${data.preview}"` : "";
-      setOkMsg(`${data.message || "LLM connected."} Model: ${data.model || form.llmModel}.${preview}`);
+      const mode = data.authMode === "oauth" ? " (OAuth)" : "";
+      setOkMsg(`${data.message || "LLM connected."}${mode} Model: ${data.model || form.llmModel}.${preview}`);
     } catch (err) {
       setError(err);
     } finally {
       setTestingLlm(false);
+    }
+  }
+
+  /**
+   * Starts OAuth connect — redirects browser to provider authorize URL.
+   */
+  async function connectOAuth() {
+    const provider = String(form.llmOAuthProvider || "").trim();
+    if (!provider) {
+      setError({ title: "Choose a provider", detail: "Select an OAuth provider before connecting." });
+      return;
+    }
+    setConnectingOAuth(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      await api("/api/settings", {
+        method: "PUT",
+        body: JSON.stringify({
+          llmAuthMode: "oauth",
+          llmBaseUrl: form.llmBaseUrl,
+          llmModel: form.llmModel,
+        }),
+      });
+      const data = await api("/api/settings/llm/oauth/start", {
+        method: "POST",
+        body: JSON.stringify({ provider }),
+      });
+      if (data.authorizeUrl) {
+        window.location.href = data.authorizeUrl;
+        return;
+      }
+      setError({ title: "OAuth failed", detail: "No authorize URL returned" });
+    } catch (err) {
+      setError(err);
+    } finally {
+      setConnectingOAuth(false);
+    }
+  }
+
+  /**
+   * Clears OAuth tokens and reverts to API key mode.
+   */
+  async function disconnectOAuth() {
+    setBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      await api("/api/settings/llm/oauth/disconnect", { method: "POST" });
+      setOkMsg("OAuth disconnected. Using API key mode.");
+      await reloadSettings();
+      update("llmAuthMode", "api_key");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
     }
   }
 
@@ -138,6 +248,9 @@ export function SettingsPage() {
     }
   }
 
+  const oauthAvailable = Array.isArray(form.llmOAuthProviders) && form.llmOAuthProviders.length > 0;
+  const useOAuth = form.llmAuthMode === "oauth";
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
@@ -145,7 +258,7 @@ export function SettingsPage() {
       <PageGuideBanner helpId="nav.settings" />
       <p className="text-sm text-teal-900/70">
         Default provider is Minimax (<code className="rounded bg-teal-50 px-1">MiniMax-M2.7</code>).
-        Secrets are saved on the server — leave the API key blank to keep the current value.
+        Use an API key or OAuth (when configured on the server). Secrets are encrypted at rest.
       </p>
       {error ? (
         <ErrorAlert
@@ -163,19 +276,101 @@ export function SettingsPage() {
 
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <h2 className="text-sm font-semibold text-teal-900/80">LLM</h2>
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.llmApiKey">
-            API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
-          </FieldLabel>
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            type="password"
-            autoComplete="off"
-            placeholder="sk-…"
-            value={form.llmApiKey}
-            onChange={(e) => update("llmApiKey", e.target.value)}
-          />
-        </label>
+
+        <fieldset className="flex flex-col gap-2 text-sm">
+          <FieldLabel helpId="settings.llmAuthMode">Authentication</FieldLabel>
+          <label className="flex min-h-11 items-center gap-2">
+            <input
+              type="radio"
+              name="llmAuthMode"
+              checked={!useOAuth}
+              onChange={() => update("llmAuthMode", "api_key")}
+            />
+            API key (MiniMax, any OpenAI-compatible provider)
+          </label>
+          <label className={`flex min-h-11 items-center gap-2 ${!oauthAvailable ? "opacity-60" : ""}`}>
+            <input
+              type="radio"
+              name="llmAuthMode"
+              checked={useOAuth}
+              disabled={!oauthAvailable}
+              onChange={() => update("llmAuthMode", "oauth")}
+            />
+            OAuth sign-in
+            {!oauthAvailable ? (
+              <span className="text-xs text-teal-900/50">(not configured on this server)</span>
+            ) : null}
+          </label>
+        </fieldset>
+
+        {!useOAuth ? (
+          <label className="flex flex-col gap-1 text-sm">
+            <FieldLabel helpId="settings.llmApiKey">
+              API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
+            </FieldLabel>
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              type="password"
+              autoComplete="off"
+              placeholder="sk-…"
+              value={form.llmApiKey}
+              onChange={(e) => update("llmApiKey", e.target.value)}
+            />
+          </label>
+        ) : (
+          <div className="flex flex-col gap-2 rounded-xl border border-teal-50 bg-teal-50/40 p-3 text-sm">
+            {form.llmOAuthConnected ? (
+              <>
+                <p className="text-teal-900">
+                  Connected
+                  {form.llmOAuthAccountLabel ? `: ${form.llmOAuthAccountLabel}` : ""}
+                  {form.llmOAuthProvider ? ` (${form.llmOAuthProvider})` : ""}
+                </p>
+                <button
+                  type="button"
+                  onClick={disconnectOAuth}
+                  disabled={busy}
+                  className="min-h-11 w-full rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+                >
+                  Disconnect OAuth
+                </button>
+              </>
+            ) : (
+              <>
+                <label className="flex flex-col gap-1">
+                  <span className="font-medium text-teal-900/80">Provider</span>
+                  <select
+                    className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                    value={form.llmOAuthProvider}
+                    onChange={(e) => update("llmOAuthProvider", e.target.value)}
+                  >
+                    {form.llmOAuthProviders.map((p) => (
+                      <option key={p.id} value={p.id}>
+                        {p.label}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                {form.llmOAuthProviders.find((p) => p.id === form.llmOAuthProvider)?.hint ? (
+                  <p className="text-xs text-teal-900/60">
+                    {form.llmOAuthProviders.find((p) => p.id === form.llmOAuthProvider)?.hint}
+                  </p>
+                ) : null}
+                <ButtonWithHelp helpId="settings.llmOAuthConnect">
+                  <button
+                    type="button"
+                    onClick={connectOAuth}
+                    disabled={connectingOAuth || busy}
+                    className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+                  >
+                    {connectingOAuth ? "Redirecting…" : "Connect with OAuth"}
+                  </button>
+                </ButtonWithHelp>
+              </>
+            )}
+          </div>
+        )}
+
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="settings.llmBaseUrl">Base URL</FieldLabel>
           <input

@@ -8,6 +8,15 @@ import { Router } from "express";
 import { User } from "../models/User.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
+import { resolveLlmCredentials } from "../utils/llmCredentials.js";
+import {
+  buildLlmOAuthAuthorizeUrl,
+  clearLlmOAuth,
+  completeLlmOAuthCallback,
+  isLlmOAuthConnected,
+  listConfiguredLlmOAuthProviders,
+  verifyOAuthState,
+} from "../utils/llmOAuth.js";
 
 export const settingsRouter = Router();
 
@@ -51,6 +60,11 @@ settingsRouter.get("/", async (req, res, next) => {
         hasDbcPassword: Boolean(savedDbcPass),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
         helpEnabled: s.helpEnabled !== false,
+        llmAuthMode: s.llmAuthMode === "oauth" ? "oauth" : "api_key",
+        llmOAuthProvider: s.llmOAuthProvider || "",
+        llmOAuthConnected: isLlmOAuthConnected(s),
+        llmOAuthAccountLabel: s.llmOAuthAccountLabel || "",
+        llmOAuthProviders: listConfiguredLlmOAuthProviders(),
       },
     });
   } catch (err) {
@@ -83,6 +97,9 @@ settingsRouter.put("/", async (req, res, next) => {
     if (typeof body.helpEnabled === "boolean") {
       user.settings.helpEnabled = body.helpEnabled;
     }
+    if (body.llmAuthMode === "api_key" || body.llmAuthMode === "oauth") {
+      user.settings.llmAuthMode = body.llmAuthMode;
+    }
     // Why: blank string means "leave unchanged" so the UI can omit re-entry of secrets.
     if (typeof body.llmApiKey === "string" && body.llmApiKey.trim()) {
       user.settings.llmApiKeyEnc = encryptSecret(body.llmApiKey.trim());
@@ -101,6 +118,86 @@ settingsRouter.put("/", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * GET /api/settings/llm/oauth/providers — OAuth providers configured on this server.
+ */
+settingsRouter.get("/llm/oauth/providers", async (_req, res) => {
+  res.json({ ok: true, providers: listConfiguredLlmOAuthProviders() });
+});
+
+/**
+ * POST /api/settings/llm/oauth/start — begin OAuth connect (returns redirect URL).
+ * Body: { provider: "azure_openai"|"google_gemini"|"openai" }
+ */
+settingsRouter.post("/llm/oauth/start", async (req, res, next) => {
+  try {
+    const provider = String(req.body?.provider || "").trim();
+    if (!provider) {
+      res.status(400).json({ ok: false, title: "Missing provider", detail: "provider is required" });
+      return;
+    }
+    const { authorizeUrl } = buildLlmOAuthAuthorizeUrl(provider, String(req.userId));
+    res.json({ ok: true, authorizeUrl, provider });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/settings/llm/oauth/disconnect — clear OAuth tokens; revert to API key mode.
+ */
+settingsRouter.post("/llm/oauth/disconnect", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    await clearLlmOAuth(user);
+    res.json({ ok: true, message: "LLM OAuth disconnected" });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/settings/llm/oauth/callback — OAuth redirect (no JWT; state is signed).
+ * Mounted without authRequired in index.js.
+ */
+export async function llmOAuthCallbackHandler(req, res) {
+  const webBase = env.PUBLIC_WEB_URL.replace(/\/$/, "");
+  const fail = (detail) => {
+    res.redirect(`${webBase}/settings?llm_oauth=error&detail=${encodeURIComponent(detail.slice(0, 180))}`);
+  };
+  try {
+    const code = String(req.query?.code || "");
+    const stateRaw = String(req.query?.state || "");
+    const oauthErr = String(req.query?.error || "");
+    if (oauthErr) {
+      fail(oauthErr);
+      return;
+    }
+    if (!code || !stateRaw) {
+      fail("Missing OAuth code or state");
+      return;
+    }
+    const statePayload = verifyOAuthState(stateRaw);
+    if (!statePayload) {
+      fail("Invalid or expired OAuth state");
+      return;
+    }
+    const result = await completeLlmOAuthCallback(code, statePayload, User);
+    const q = new URLSearchParams({
+      llm_oauth: "connected",
+      provider: result.provider,
+      account: result.accountLabel || "",
+    });
+    res.redirect(`${webBase}/settings?${q}`);
+  } catch (err) {
+    fail(String(err?.message || err || "OAuth failed"));
+  }
+}
 
 const DBC_BASES = ["https://api.dbcapi.me/api", "http://api.dbcapi.me/api"];
 
@@ -214,15 +311,19 @@ settingsRouter.post("/test-llm", async (req, res, next) => {
     }
     const s = user.settings || {};
     const bodyKey = String(req.body?.llmApiKey ?? "").trim();
-    const apiKey = bodyKey || decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "";
-    const baseUrl = String(req.body?.llmBaseUrl ?? s.llmBaseUrl ?? env.DEFAULT_LLM_BASE_URL).trim();
-    const model = String(req.body?.llmModel ?? s.llmModel ?? env.DEFAULT_LLM_MODEL).trim();
+    const creds = await resolveLlmCredentials(user, { bodyApiKey: bodyKey });
+    const baseUrl = String(req.body?.llmBaseUrl ?? creds.llmBaseUrl ?? s.llmBaseUrl ?? env.DEFAULT_LLM_BASE_URL).trim();
+    const model = String(req.body?.llmModel ?? creds.llmModel ?? s.llmModel ?? env.DEFAULT_LLM_MODEL).trim();
+    const apiKey = creds.apiKey;
 
     if (!apiKey) {
       res.status(400).json({
         ok: false,
-        title: "Missing API key",
-        detail: "Enter an LLM API key (or save one first).",
+        title: creds.authMode === "oauth" ? "OAuth not connected" : "Missing API key",
+        detail:
+          creds.authMode === "oauth"
+            ? "Connect via OAuth on Settings or switch back to API key mode."
+            : "Enter an LLM API key (or save one first).",
         hint: "Key can be left blank in the form if a saved value already exists.",
       });
       return;
@@ -295,9 +396,10 @@ settingsRouter.post("/test-llm", async (req, res, next) => {
 
     res.json({
       ok: true,
-      message: "LLM connected",
+      message: creds.authMode === "oauth" ? "LLM connected (OAuth)" : "LLM connected",
       model: data.model || model,
       preview: preview || "(empty reply)",
+      authMode: creds.authMode,
     });
   } catch (err) {
     next(err);

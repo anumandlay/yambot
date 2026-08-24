@@ -12,6 +12,7 @@ import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttent
 import { Goal, recordGoalRun } from "../models/Goal.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
+import { resolveLlmCredentials, resolveVisionLlmCredentials } from "../utils/llmCredentials.js";
 import { writeAudit } from "../utils/audit.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "../utils/policy.js";
 import { evaluateTaskRun } from "../utils/evaluateTask.js";
@@ -80,15 +81,20 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
     const dailyBudget = policy.dailyBudgetUsd || 0;
     const dailyExceeded = dailyBudget > 0 && dailySpent >= dailyBudget;
 
+    const mainCreds = await resolveLlmCredentials(user);
+    const visionCreds = await resolveVisionLlmCredentials(user, mainCreds);
+
     res.json({
       ok: true,
       config: {
-        llmApiKey: decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "",
-        llmBaseUrl: s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
-        llmModel: s.llmModel || env.DEFAULT_LLM_MODEL,
-        visionApiKey: decryptSecret(s.visionApiKeyEnc || "") || "",
-        visionBaseUrl: s.visionBaseUrl || "",
-        visionModel: s.visionModel || "",
+        llmApiKey: mainCreds.apiKey,
+        llmAuthMode: mainCreds.authMode,
+        llmOAuthProvider: mainCreds.oauthProvider || "",
+        llmBaseUrl: mainCreds.llmBaseUrl || s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL,
+        llmModel: mainCreds.llmModel || s.llmModel || env.DEFAULT_LLM_MODEL,
+        visionApiKey: visionCreds.apiKey || "",
+        visionBaseUrl: visionCreds.baseUrl || "",
+        visionModel: visionCreds.model || "",
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
