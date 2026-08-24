@@ -1,5 +1,17 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 15:00] Remove OAuth, LiteLLM gateway, Test LLM — API key only
+
+- **Prompt Provided:** Remove OAuth/LiteLLM/Test LLM; use API key only like before; deploy
+- **Architectural Flow:** Settings API-key-only → workers call provider `/v1` directly via runtime-config → drop LiteLLM/OAuth stack from compose and codebase
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/SettingsPage.jsx`, `backend/src/routes/settings.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/seedLlm.js`, `backend/src/index.js`, `backend/src/routes/worker.js`, `backend/src/utils/env.js`, `worker/src/llm.js`, `worker/src/agent.js`, `worker/src/browserState/planner.js`, `deploy/docker-compose.yml`, `deploy/remote-deploy.py`, `deploy/.env.example`, `backend/.env.example`, `frontend/src/help/helpContent.js`; deleted OAuth/LiteLLM modules and components
+
+## [2026-08-24 14:56] Remove Test LLM connection from Settings
+
+- **Prompt Provided:** Remove everything related to test LLM; use API key only like before
+- **Architectural Flow:** Delete `POST /api/settings/test-llm` and Settings UI button; workers still load credentials via runtime-config (no pre-flight test)
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/settings.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/litellmClient.js`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-24 14:52] Fix LiteLLM credential unique constraint on ChatGPT reconnect
 
 - **Prompt Provided:** Unique constraint failed on credential_name when connecting ChatGPT again

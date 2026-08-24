@@ -1,61 +1,19 @@
 /**
- * @fileoverview Resolves effective LLM bearer credentials (API key or OAuth access token).
- * Purpose: Single path for Settings test-llm and worker runtime-config.
- * Downstream: settings routes, worker runtime-config.
+ * @fileoverview Resolves effective LLM bearer credentials (API key).
+ * Purpose: Single path for worker runtime-config.
+ * Downstream: worker runtime-config.
  */
 
 import { decryptSecret } from "./crypto.js";
 import { env } from "./env.js";
-import { getValidLlmOAuthAccessToken, isLlmOAuthConnected } from "./llmOAuth.js";
-import {
-  ensureUserVirtualKey,
-  isLitellmEnabled,
-  litellmOpenAiBaseUrl,
-  resolveLitellmModelForUser,
-} from "./litellmClient.js";
 
 /**
  * @param {object} user — Mongoose user document or plain object with settings
  * @param {{ bodyApiKey?: string }} [opts]
- * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }>}
+ * @returns {Promise<{ apiKey: string, authMode: string, llmBaseUrl?: string, llmModel?: string }>}
  */
 export async function resolveLlmCredentials(user, opts = {}) {
   const s = user?.settings || {};
-  const gatewayLitellm = isLitellmEnabled() && s.llmGatewayMode === "litellm";
-
-  if (gatewayLitellm && user?._id) {
-    await ensureUserVirtualKey(user);
-    const virtualKey = decryptSecret(user.settings?.litellmVirtualKeyEnc || s.litellmVirtualKeyEnc || "");
-    if (virtualKey) {
-      const model = resolveLitellmModelForUser(user.settings || s, String(user._id));
-      return {
-        apiKey: virtualKey,
-        authMode: "litellm",
-        llmBaseUrl: litellmOpenAiBaseUrl(),
-        llmModel: model,
-      };
-    }
-  }
-
-  const authMode = s.llmAuthMode === "oauth" ? "oauth" : "api_key";
-  const baseUrl = String(s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL).trim();
-  const model = String(s.llmModel || env.DEFAULT_LLM_MODEL).trim();
-
-  if (authMode === "oauth" && isLlmOAuthConnected(s)) {
-    const oauth = await getValidLlmOAuthAccessToken(user);
-    if (oauth.accessToken) {
-      return {
-        apiKey: oauth.accessToken,
-        authMode: "oauth",
-        oauthProvider: s.llmOAuthProvider || "",
-        oauthAccount: s.llmOAuthAccountLabel || "",
-        openAiAccountId: s.llmOAuthOpenAiAccountId || "",
-        llmBaseUrl: baseUrl,
-        llmModel: model,
-      };
-    }
-  }
-
   const bodyKey = String(opts.bodyApiKey ?? "").trim();
   const apiKey =
     bodyKey || decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "";
@@ -63,8 +21,8 @@ export async function resolveLlmCredentials(user, opts = {}) {
   return {
     apiKey,
     authMode: "api_key",
-    llmBaseUrl: baseUrl,
-    llmModel: model,
+    llmBaseUrl: String(s.llmBaseUrl || env.DEFAULT_LLM_BASE_URL).trim(),
+    llmModel: String(s.llmModel || env.DEFAULT_LLM_MODEL).trim(),
   };
 }
 

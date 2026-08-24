@@ -30,9 +30,9 @@ const settingsSchema = new mongoose.Schema(
   {
     llmApiKeyEnc: { type: String, default: "" },
     /** api_key | oauth — how the worker authenticates to the LLM API. */
-    /** api_key | oauth | litellm — worker auth mode (litellm = virtual key via gateway). */
+    /** Legacy — API-key-only mode uses `api_key` + `direct`. */
     llmAuthMode: { type: String, enum: ["api_key", "oauth", "litellm"], default: "api_key" },
-    /** direct | litellm — when litellm, workers call the LiteLLM proxy instead of raw provider URLs. */
+    /** Legacy — direct provider URL (not LiteLLM gateway). */
     llmGatewayMode: { type: String, enum: ["direct", "litellm"], default: "direct" },
     /** Encrypted LiteLLM virtual key (sk-…) minted per user. */
     litellmVirtualKeyEnc: { type: String, default: "" },

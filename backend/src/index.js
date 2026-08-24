@@ -54,8 +54,7 @@ const { connectDb } = await import("./utils/db.js");
 const { env } = await import("./utils/env.js");
 const { authRouter } = await import("./routes/auth.js");
 const { chatsRouter } = await import("./routes/chats.js");
-const { settingsRouter, llmOAuthCallbackHandler } = await import("./routes/settings.js");
-const { litellmGatewayRouter } = await import("./routes/litellmGateway.js");
+const { settingsRouter } = await import("./routes/settings.js");
 const { workerRouter } = await import("./routes/worker.js");
 const { authRequired } = await import("./middleware/auth.js");
 const { Agent } = await import("./models/Agent.js");
@@ -155,11 +154,7 @@ const server = createServer(app);
 // Why: before authRequired agents router — iframe uses ticket/cookie, not Bearer.
 attachDesktopProxy(server, app);
 
-/** OAuth redirect — no JWT; state HMAC binds user + provider. */
-app.get("/api/settings/llm/oauth/callback", llmOAuthCallbackHandler);
-
 app.use("/api/settings", authRequired, settingsRouter);
-app.use("/api/settings/litellm", authRequired, litellmGatewayRouter);
 app.use("/api/wallet", authRequired, (await import("./routes/wallet.js")).walletRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/chats", authRequired, chatsRouter);

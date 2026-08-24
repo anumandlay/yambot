@@ -858,45 +858,8 @@ export const HELP = {
   "settings.llmApiKey": {
     title: "LLM API key",
     body: helpBody(
-      "Secret key for your LLM provider (MiniMax, OpenAI-compatible, etc.). Required when auth mode is API key.",
-      "Stored encrypted. Cloud workers fetch decrypted value per task via runtime-config. Use Test LLM to verify."
-    ),
-  },
-  "settings.llmAuthMode": {
-    title: "LLM authentication",
-    body: helpBody(
-      "LiteLLM gateway — routes all models through the server proxy (MiniMax + ChatGPT OAuth).",
-      "API key — paste a provider secret (direct mode, any OpenAI-compatible endpoint).",
-      "OAuth — legacy direct sign-in with Microsoft (Azure OpenAI), Google (Gemini), or OpenAI."
-    ),
-  },
-  "settings.litellmModel": {
-    title: "LiteLLM model",
-    body: helpBody(
-      "Pick a model exposed by the LiteLLM gateway.",
-      "ChatGPT models require Connect ChatGPT (device code) once; MiniMax uses the platform API key on the server."
-    ),
-  },
-  "settings.litellmChatGpt": {
-    title: "ChatGPT via LiteLLM",
-    body: helpBody(
-      "Click Connect ChatGPT — a popup opens for ChatGPT login.",
-      "After login, copy the full URL from the popup address bar (http://localhost:1455/…) and paste it to finish.",
-      "Then pick a ChatGPT model and Test LLM connection."
-    ),
-  },
-  "settings.litellmDeviceCode": {
-    title: "Device code (legacy)",
-    body: helpBody(
-      "Device-code login is optional and may not work for all accounts.",
-      "Prefer Connect ChatGPT browser sign-in if auth.openai.com/codex/device fails."
-    ),
-  },
-  "settings.llmOAuthConnect": {
-    title: "Connect OAuth",
-    body: helpBody(
-      "Opens a popup to sign in with Google (Gemini), Microsoft (Azure OpenAI), or OpenAI.",
-      "If the server has no shared OAuth app, enter your own Client ID and Secret from the provider console and register redirect URI: https://bot.vughy.com/api/settings/llm/oauth/callback"
+      "Secret key for your LLM provider (MiniMax, OpenAI-compatible, etc.).",
+      "Stored encrypted. Cloud workers fetch decrypted value per task via runtime-config."
     ),
   },
   "settings.llmBaseUrl": {
@@ -909,12 +872,6 @@ export const HELP = {
     title: "LLM model",
     body: helpBody(
       "Model id sent in chat completions (MiniMax-M2.7, gpt-4o, etc.). Affects quality, speed, and cost."
-    ),
-  },
-  "settings.testLlm": {
-    title: "Test LLM connection",
-    body: helpBody(
-      "Sends a minimal completion using current key/URL/model. Fails fast if misconfigured before you run a long browser task."
     ),
   },
   "settings.visionApiKey": {
@@ -1315,7 +1272,7 @@ export const HOW_TO_SECTIONS = [
     title: "Getting started",
     body: helpBody(
       "1. Register / log in.",
-      "2. Open Settings → add LLM API key, base URL, model → Test LLM connection.",
+      "2. Open Settings → add LLM API key, base URL, and model → Save.",
       "3. Optional: Vision LLM for screenshot recovery; DeathByCaptcha for some CAPTCHAs.",
       "4. Agents → New agent → fill Name, Skill, Profile, Standing instructions → Save.",
       "5. Chats → pick agent → New chat → type a goal → watch live screen.",
