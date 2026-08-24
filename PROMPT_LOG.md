@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 11:45] Fix gateway mode — seed LiteLLM secrets in remote-deploy .env
+
+- **Prompt Provided:** Gateway mode doesn't appear; add env vars and deploy
+- **Architectural Flow:** `remote-deploy.py` now preserves/generates `LITELLM_*` keys in server `deploy/.env` so API `isLitellmEnabled()` is true after every deploy
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/remote-deploy.py`
+
 ## [2026-08-24 11:20] Integrate LiteLLM as LLM gateway (OAuth + all providers)
 
 - **Prompt Provided:** Integrate LiteLLM as the LLM gateway (OAuth + all providers there)

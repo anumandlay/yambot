@@ -150,6 +150,11 @@ def main() -> int:
     stripe_secret = keep("STRIPE_SECRET_KEY", "")
     stripe_webhook = keep("STRIPE_WEBHOOK_SECRET", "")
     public_web_url = keep("PUBLIC_WEB_URL", "https://bot.vughy.com")
+    # Why: LiteLLM gateway requires stable secrets in deploy/.env; compose reads them for api + litellm.
+    litellm_pg_password = keep("LITELLM_PG_PASSWORD", secrets.token_urlsafe(24))
+    litellm_master_key = keep("LITELLM_MASTER_KEY", f"sk-{secrets.token_hex(32)}")
+    litellm_salt_key = keep("LITELLM_SALT_KEY", f"sk-{secrets.token_hex(32)}")
+    litellm_default_model = keep("LITELLM_DEFAULT_MODEL", "minimax")
     env_body = (
         "NODE_ENV=production\n"
         "PORT=4000\n"
@@ -164,6 +169,10 @@ def main() -> int:
         f"DEFAULT_LLM_BASE_URL={llm_base}\n"
         f"DEFAULT_LLM_MODEL={llm_model}\n"
         f"DEFAULT_LLM_API_KEY={llm_key}\n"
+        f"LITELLM_PG_PASSWORD={litellm_pg_password}\n"
+        f"LITELLM_MASTER_KEY={litellm_master_key}\n"
+        f"LITELLM_SALT_KEY={litellm_salt_key}\n"
+        f"LITELLM_DEFAULT_MODEL={litellm_default_model}\n"
         f"SUPERADMIN_BOOTSTRAP_EMAIL={superadmin_email}\n"
         f"SUPERADMIN_BOOTSTRAP_PASSWORD={superadmin_password}\n"
         f"SUPERADMIN_BOOTSTRAP_NAME={superadmin_name}\n"
