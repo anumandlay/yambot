@@ -49,6 +49,7 @@ import {
   selectBestPageAfterHandoff,
   mergeBestTabIntoMain,
   enforceSinglePage,
+  waitForPageHttpUrl,
   navigateInPlace,
   safePageUrl,
   scorePageUrl,
@@ -169,9 +170,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @param {unknown} err
    * @returns {boolean}
    */
+  function isTransientNavigationError(err) {
+    const msg = String(err?.message || err).toLowerCase();
+    return /execution context was destroyed|frame was detached|navigating|is loading|net::err_aborted|interrupted by another navigation/i.test(
+      msg
+    );
+  }
+
+  /**
+   * @param {unknown} err
+   * @returns {boolean}
+   */
   function isBrowserDeadError(err) {
     const msg = String(err?.message || err).toLowerCase();
-    return /target (crashed|closed)|browser has been closed|context has been closed|session closed|opening in existing browser session|protocol error|execution context was destroyed/i.test(
+    if (isTransientNavigationError(err)) return false;
+    return /target (crashed|closed)|browser has been closed|context has been closed|session closed|opening in existing browser session|protocol error/i.test(
       msg
     );
   }
@@ -196,6 +209,26 @@ export function createCloudAgent({ api, config, log = console.log }) {
     page = pickBestActivePage(context, page) || pages[0];
     telemetry?.setActivePage(page);
     return page;
+  }
+
+  /**
+   * Returns to the last productive URL when Chromium relaunched onto about:blank.
+   * @param {string} [preferredUrl]
+   */
+  async function restoreUrlIfBlank(preferredUrl = "") {
+    const url = String(preferredUrl || lastKnownPageUrl || "").trim();
+    if (!url || !/^https?:\/\//i.test(url) || url.startsWith("chrome://")) return;
+    refreshActivePage();
+    if (!page || page.isClosed()) return;
+    const cur = safePageUrl(page);
+    if (cur && cur !== "about:blank" && !cur.startsWith("chrome://")) return;
+    try {
+      await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+      lastKnownPageUrl = url;
+      log(`[${config.workerName}] restored page → ${url}`);
+    } catch (err) {
+      log(`[${config.workerName}] restore page failed:`, err?.message || err);
+    }
   }
 
   /**
@@ -228,6 +261,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           if (!page || page.isClosed()) throw err;
           await page.goto(target, { waitUntil, timeout });
         }
+        lastKnownPageUrl = target;
         return page;
       });
     } finally {
@@ -320,12 +354,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
             return;
           }
           await newPage.waitForLoadState("domcontentloaded", { timeout: 8000 }).catch(() => {});
-          const url = safePageUrl(newPage);
+          const url = await waitForPageHttpUrl(newPage, 12000);
           if (/^https?:\/\//i.test(url) && page && !page.isClosed()) {
-            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+            navigating = true;
+            try {
+              await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
+              lastKnownPageUrl = url;
+            } finally {
+              navigating = false;
+            }
           }
           await newPage.close().catch(() => {});
           page = (await enforceSinglePage(context, page)) || page;
+          await restoreUrlIfBlank();
           telemetry?.setActivePage(page);
         } catch {
           await newPage.close().catch(() => {});
@@ -407,6 +448,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
     }
     log(`[${config.workerName}] Chromium ready (profile=${config.profileDir})`);
+    await restoreUrlIfBlank();
   }
 
   /**
@@ -414,14 +456,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
    */
   async function ensureBrowserUnlocked() {
     if (context && page && !page.isClosed()) {
-      try {
-        await page.evaluate(() => true);
-        return;
-      } catch (err) {
-        if (!isBrowserDeadError(err)) throw err;
-        log(`[${config.workerName}] browser health check failed — relaunching`);
-        await teardownBrowser();
+      // Why: heartbeats during agent steps must not evaluate mid-navigation (causes false relaunch → about:blank).
+      if (navigating || running) return;
+      for (let attempt = 0; attempt < 3; attempt += 1) {
+        try {
+          await page.evaluate(() => true);
+          return;
+        } catch (err) {
+          if (isTransientNavigationError(err)) {
+            await sleep(350);
+            continue;
+          }
+          if (!isBrowserDeadError(err)) throw err;
+          log(`[${config.workerName}] browser health check failed — relaunching`);
+          await teardownBrowser();
+          break;
+        }
       }
+      if (context && page && !page.isClosed()) return;
     } else if (context || page) {
       await teardownBrowser();
     }
@@ -430,6 +482,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     for (let attempt = 0; attempt < 2; attempt++) {
       try {
         await launchBrowser(false);
+        await restoreUrlIfBlank();
         return;
       } catch (err) {
         lastErr = err;
@@ -457,19 +510,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
   async function recoverBrowser(restoreUrl = "") {
     return withBrowserLock(async () => {
       log(`[${config.workerName}] recovering browser`);
+      const url = String(restoreUrl || lastKnownPageUrl || "").trim();
       await teardownBrowser();
       await launchBrowser(false);
       refreshActivePage();
-      const url = String(restoreUrl || "").trim();
-      if (url && /^https?:\/\//i.test(url) && !url.startsWith("chrome://")) {
-        try {
-          if (page && !page.isClosed()) {
-            await page.goto(url, { waitUntil: "domcontentloaded", timeout: 60000 });
-          }
-        } catch (err) {
-          log(`[${config.workerName}] post-recover navigate failed:`, err?.message || err);
-        }
-      }
+      await restoreUrlIfBlank(url);
     });
   }
 
@@ -592,7 +637,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       } catch (err) {
         log(`[${config.workerName}] screenshot failed:`, err?.message || err);
         if (isBrowserDeadError(err) && !running) {
-          await recoverBrowser().catch(() => {});
+          await recoverBrowser(lastKnownPageUrl).catch(() => {});
         }
       }
     }
@@ -1744,7 +1789,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const detail = String(err?.detail || err?.message || err);
       log(`[${config.workerName}] Task ${taskId} error: ${detail}`);
       if (isBrowserDeadError(err)) {
-        await recoverBrowser().catch(() => {});
+        await recoverBrowser(lastKnownPageUrl).catch(() => {});
       }
       try {
         await complete(taskId, {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 09:30] Fix about:blank resets during page navigation
+
+- **Prompt Provided:** Page resets to about:blank most of the time when changing pages — why?
+- **Architectural Flow:** Treat mid-navigation errors as transient (no full Chromium relaunch); skip heavy health checks while agent task is running; restore lastKnownPageUrl after relaunch; wait for popup URLs before single-tab merge
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/browserState/tabs.js`
+
 ## [2026-08-24 08:50] Fix ask_user loop after login confirmation STOP
 
 - **Prompt Provided:** Step 2 ask_user for Vughy login, then repeated "Looking at: Vughy…" instead of waiting for user answer

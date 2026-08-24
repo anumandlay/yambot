@@ -43,6 +43,7 @@ export {
   selectBestPageAfterHandoff,
   pruneBlankTabsIfProductive,
   mergeBestTabIntoMain,
+  waitForPageHttpUrl,
   enforceSinglePage,
   navigateInPlace,
   scorePageUrl,

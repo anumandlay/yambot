@@ -181,6 +181,24 @@ export async function pruneBlankTabsIfProductive(context, activePage) {
 }
 
 /**
+ * Polls until a tab has an http(s) URL (popups often start on about:blank).
+ * @param {import('playwright').Page} pg
+ * @param {number} [timeoutMs]
+ * @returns {Promise<string>}
+ */
+export async function waitForPageHttpUrl(pg, timeoutMs = 12000) {
+  if (!pg || pg.isClosed()) return "";
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    const url = safeUrl(pg);
+    if (/^https?:\/\//i.test(url)) return url;
+    await new Promise((r) => setTimeout(r, 250));
+    if (pg.isClosed()) break;
+  }
+  return safeUrl(pg);
+}
+
+/**
  * Copies the best tab's URL into mainPage before closing extras — preserves Google OAuth sessions.
  * Why: OAuth often opens a popup; the opener stays on about:blank until we merge manually.
  * @param {import('playwright').BrowserContext} context

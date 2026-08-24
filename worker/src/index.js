@@ -18,7 +18,10 @@ import { createCloudAgent } from "./agent.js";
  */
 function isBrowserDeadError(err) {
   const msg = String(err?.message || err).toLowerCase();
-  return /target (crashed|closed)|browser has been closed|context has been closed|session closed|opening in existing browser session|protocol error|execution context was destroyed/i.test(
+  if (/execution context was destroyed|frame was detached|navigating|is loading|net::err_aborted|interrupted by another navigation/i.test(msg)) {
+    return false;
+  }
+  return /target (crashed|closed)|browser has been closed|context has been closed|session closed|opening in existing browser session|protocol error/i.test(
     msg
   );
 }
