@@ -373,6 +373,62 @@ export async function disconnectUserChatGpt(user) {
 }
 
 /**
+ * Creates or updates a ChatGPT OAuth credential in LiteLLM (reconnect-safe).
+ * Why: POST /credentials fails with unique constraint when the user reconnects ChatGPT.
+ * @param {string} credName
+ * @param {string} access
+ * @param {string} refresh
+ */
+async function upsertLitellmChatGptCredential(credName, access, refresh) {
+  const values = {
+    access_token: access,
+    refresh_token: refresh,
+  };
+  const info = { provider: "chatgpt" };
+  const encodedName = encodeURIComponent(credName);
+
+  try {
+    await litellmAdminFetch(`/credentials/${encodedName}`, {
+      method: "PATCH",
+      body: {
+        credential_values: values,
+        credential_info: info,
+      },
+    });
+    return;
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (!/not found|404/i.test(msg)) {
+      throw err;
+    }
+  }
+
+  try {
+    await litellmAdminFetch("/credentials", {
+      method: "POST",
+      body: {
+        credential_name: credName,
+        credential_values: values,
+        credential_info: info,
+      },
+    });
+  } catch (err) {
+    const msg = String(err?.message || err);
+    if (/already|exist|duplicate|unique constraint|409/i.test(msg)) {
+      await litellmAdminFetch(`/credentials/${encodedName}`, {
+        method: "PATCH",
+        body: {
+          credential_values: values,
+          credential_info: info,
+        },
+      });
+      return;
+    }
+    throw err;
+  }
+}
+
+/**
  * Imports YamBot Codex OAuth tokens (browser PKCE flow) into LiteLLM credentials DB.
  * @param {import("../models/User.js").User} user
  * @param {string} [litellmModelId]
@@ -386,24 +442,7 @@ export async function importCodexOAuthToLitellm(user, litellmModelId = DEFAULT_C
     throw new Error("Complete ChatGPT browser sign-in first, then try again.");
   }
   const credName = userCredentialName(user._id);
-  try {
-    await litellmAdminFetch("/credentials", {
-      method: "POST",
-      body: {
-        credential_name: credName,
-        credential_values: {
-          access_token: access,
-          refresh_token: refresh,
-        },
-        credential_info: { provider: "chatgpt" },
-      },
-    });
-  } catch (err) {
-    const msg = String(err?.message || err);
-    if (!/already|exist|duplicate/i.test(msg)) {
-      throw err;
-    }
-  }
+  await upsertLitellmChatGptCredential(credName, access, refresh);
   const modelName = await ensureUserChatGptModel(user, litellmModelId);
   user.settings.litellmChatGptAccountLabel = s.llmOAuthAccountLabel || credName;
   user.markModified("settings");

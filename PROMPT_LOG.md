@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 14:52] Fix LiteLLM credential unique constraint on ChatGPT reconnect
+
+- **Prompt Provided:** Unique constraint failed on credential_name when connecting ChatGPT again
+- **Architectural Flow:** import-codex upserts credentials — PATCH existing `yambot_u_{userId}` tokens, POST only when missing (reconnect no longer hits Prisma unique violation)
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/litellmClient.js`
+
 ## [2026-08-24 14:48] Fix LiteLLM ChatGPT model create (minimax upstream bug)
 
 - **Prompt Provided:** Model create saved to DB but not live in router — Error upserting deployment, original model: minimax
