@@ -398,7 +398,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       ...(config.headed ? ["--test-type"] : []),
     ];
 
-    context = await chromium.launchPersistentContext(config.profileDir, {
+    /** @type {import('playwright').LaunchPersistentContextOptions} */
+    const launchOptions = {
       headless: !config.headed,
       viewport: { width: config.viewportWidth || 1280, height: config.viewportHeight || 800 },
       // Why: Playwright injects --enable-automation by default, which paints the
@@ -412,19 +413,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
           : []),
       ],
       colorScheme: "light",
-      ...(config.headed
-        ? {
-            env: {
-              ...process.env,
-              DISPLAY: process.env.DISPLAY || ":99",
-              // Why: Playwright Chromium has no Google keys; suppress the yellow infobar on live screen.
-              GOOGLE_API_KEY: process.env.GOOGLE_API_KEY || "no",
-              GOOGLE_DEFAULT_CLIENT_ID: process.env.GOOGLE_DEFAULT_CLIENT_ID || "no",
-              GOOGLE_DEFAULT_CLIENT_SECRET: process.env.GOOGLE_DEFAULT_CLIENT_SECRET || "no",
-            },
-          }
-        : {}),
-    });
+    };
+    if (config.browserChannel) {
+      launchOptions.channel = config.browserChannel;
+    }
+    if (config.headed) {
+      launchOptions.env = {
+        ...process.env,
+        DISPLAY: process.env.DISPLAY || ":99",
+      };
+      // Why: bundled Chromium lacks Google keys; real Chrome does not need these overrides.
+      if (!config.browserChannel || config.browserChannel === "chromium") {
+        launchOptions.env.GOOGLE_API_KEY = process.env.GOOGLE_API_KEY || "no";
+        launchOptions.env.GOOGLE_DEFAULT_CLIENT_ID = process.env.GOOGLE_DEFAULT_CLIENT_ID || "no";
+        launchOptions.env.GOOGLE_DEFAULT_CLIENT_SECRET =
+          process.env.GOOGLE_DEFAULT_CLIENT_SECRET || "no";
+      }
+    }
+
+    context = await chromium.launchPersistentContext(config.profileDir, launchOptions);
     attachSingleWindowHandlers();
     page = context.pages()[0] || (await context.newPage());
     page = (await enforceSinglePage(context, page)) || page;
@@ -447,7 +454,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         log(`[${config.workerName}] boot navigate failed:`, err?.message || err);
       }
     }
-    log(`[${config.workerName}] Chromium ready (profile=${config.profileDir})`);
+    log(
+      `[${config.workerName}] browser ready (channel=${config.browserChannel || "chromium"}, profile=${config.profileDir})`
+    );
     await restoreUrlIfBlank();
   }
 

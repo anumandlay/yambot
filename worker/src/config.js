@@ -19,6 +19,7 @@
  * @property {string} workerName
  * @property {number} viewportWidth
  * @property {number} viewportHeight
+ * @property {string} browserChannel — Playwright browser channel (`chrome`, `chromium`, `msedge`, …)
  */
 
 /**
@@ -40,6 +41,7 @@ export function loadConfig() {
   const workerName = String(process.env.YAMBOT_WORKER_NAME || `cloud-${agentId.slice(-6) || "box"}`);
   const viewportWidth = Number(process.env.YAMBOT_VIEWPORT_WIDTH) || 1280;
   const viewportHeight = Number(process.env.YAMBOT_VIEWPORT_HEIGHT) || 800;
+  const browserChannel = String(process.env.YAMBOT_BROWSER_CHANNEL || "chrome").trim().toLowerCase();
 
   if (!agentId) {
     throw new Error("YAMBOT_AGENT_ID is required (one cloud computer per agent)");
@@ -60,5 +62,6 @@ export function loadConfig() {
     workerName,
     viewportWidth,
     viewportHeight,
+    browserChannel: browserChannel === "chromium" ? "" : browserChannel,
   };
 }

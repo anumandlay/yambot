@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 09:45] Feature branch: Playwright + Google Chrome (not bundled Chromium)
+
+- **Prompt Provided:** Try Playwright+Chrome; create feature branch so main stays deployable fallback
+- **Architectural Flow:** `feature/playwright-chrome` branch; `YAMBOT_BROWSER_CHANNEL=chrome`; Dockerfile installs Chrome via Playwright; launchPersistentContext uses `channel: 'chrome'`
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/Dockerfile.worker`, `worker/src/config.js`, `worker/src/agent.js`, `worker/entrypoint.sh`, `computer-manager/src/index.js`
+
 ## [2026-08-24 09:30] Fix about:blank resets during page navigation
 
 - **Prompt Provided:** Page resets to about:blank most of the time when changing pages — why?

@@ -1,6 +1,6 @@
-# YamBot cloud computer — Playwright Chromium on Xvfb + noVNC remote desktop.
+# YamBot cloud computer — Google Chrome (via Playwright channel) on Xvfb + noVNC.
 # Build context: repo root (see docker-compose).
-# Why: Live Wall "Take control" embeds noVNC so the user drives the same browser as the agent.
+# Why: Real Chrome improves Google OAuth/login vs bundled Playwright Chromium.
 
 FROM mcr.microsoft.com/playwright:v1.54.2-jammy
 
@@ -24,7 +24,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 COPY worker/package.json ./
-RUN npm install --omit=dev
+RUN npm install --omit=dev \
+  && npx playwright install chrome
 
 COPY worker/src ./src
 COPY worker/entrypoint.sh /app/entrypoint.sh
@@ -34,9 +35,7 @@ RUN chmod +x /app/entrypoint.sh
 ENV NODE_ENV=production \
     DISPLAY=:99 \
     YAMBOT_HEADED=1 \
-    GOOGLE_API_KEY=no \
-    GOOGLE_DEFAULT_CLIENT_ID=no \
-    GOOGLE_DEFAULT_CLIENT_SECRET=no \
+    YAMBOT_BROWSER_CHANNEL=chrome \
     YAMBOT_PROFILE_DIR=/data/browser-profile \
     YAMBOT_POLL_MS=5000 \
     YAMBOT_NOVNC_PORT=6080 \

@@ -5,10 +5,13 @@ set -euo pipefail
 
 export DISPLAY="${DISPLAY:-:99}"
 export YAMBOT_HEADED="${YAMBOT_HEADED:-1}"
-# Why: silence "Google API keys are missing" infobar in headed Chromium on noVNC.
-export GOOGLE_API_KEY="${GOOGLE_API_KEY:-no}"
-export GOOGLE_DEFAULT_CLIENT_ID="${GOOGLE_DEFAULT_CLIENT_ID:-no}"
-export GOOGLE_DEFAULT_CLIENT_SECRET="${GOOGLE_DEFAULT_CLIENT_SECRET:-no}"
+export YAMBOT_BROWSER_CHANNEL="${YAMBOT_BROWSER_CHANNEL:-chrome}"
+# Why: suppress Google API keys infobar only for bundled Chromium (not real Chrome).
+if [[ "${YAMBOT_BROWSER_CHANNEL}" == "chromium" || -z "${YAMBOT_BROWSER_CHANNEL}" ]]; then
+  export GOOGLE_API_KEY="${GOOGLE_API_KEY:-no}"
+  export GOOGLE_DEFAULT_CLIENT_ID="${GOOGLE_DEFAULT_CLIENT_ID:-no}"
+  export GOOGLE_DEFAULT_CLIENT_SECRET="${GOOGLE_DEFAULT_CLIENT_SECRET:-no}"
+fi
 
 VNC_PORT="${YAMBOT_VNC_PORT:-5900}"
 NOVNC_PORT="${YAMBOT_NOVNC_PORT:-6080}"
@@ -46,7 +49,7 @@ sleep 0.4
 # Why: corrupted persistent profiles show "Something went wrong when opening your profile"
 # and orphan Chromium processes stack multiple windows on the live screen.
 PROFILE_DIR="${YAMBOT_PROFILE_DIR:-${YAMBOT_BROWSER_PROFILE:-/data/browser-profile}}"
-echo "[desktop] preparing Chromium profile in ${PROFILE_DIR}"
+echo "[desktop] preparing browser profile in ${PROFILE_DIR} (channel=${YAMBOT_BROWSER_CHANNEL})"
 cd /app
 node src/bootProfile.js
 

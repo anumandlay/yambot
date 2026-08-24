@@ -176,6 +176,7 @@ async function ensureRunning(agent) {
       "YAMBOT_POLL_MS=5000",
       "YAMBOT_SCREEN_MS=1200",
       "YAMBOT_HEADED=1",
+      "YAMBOT_BROWSER_CHANNEL=chrome",
       "DISPLAY=:99",
       "YAMBOT_NOVNC_PORT=6080",
       "YAMBOT_VNC_PORT=5900",
