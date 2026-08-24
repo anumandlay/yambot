@@ -880,15 +880,16 @@ export const HELP = {
   "settings.litellmChatGpt": {
     title: "ChatGPT via LiteLLM",
     body: helpBody(
-      "Sign in with your ChatGPT subscription using a device code — no paste-URL step.",
-      "Tokens are stored in LiteLLM and bound to your account only."
+      "Click Connect ChatGPT — a popup opens for ChatGPT login.",
+      "After login, copy the full URL from the popup address bar (http://127.0.0.1:1455/…) and paste it to finish.",
+      "Then pick a ChatGPT model and Test LLM connection."
     ),
   },
   "settings.litellmDeviceCode": {
-    title: "Device code",
+    title: "Device code (legacy)",
     body: helpBody(
-      "Enter this code at https://auth.openai.com/codex/device after signing in.",
-      "If OpenAI shows an error, use Try browser sign-in for the popup + paste-URL method."
+      "Device-code login is optional and may not work for all accounts.",
+      "Prefer Connect ChatGPT browser sign-in if auth.openai.com/codex/device fails."
     ),
   },
   "settings.llmOAuthConnect": {

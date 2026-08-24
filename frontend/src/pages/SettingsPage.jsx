@@ -11,7 +11,6 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { HelpToggle } from "../components/HelpToggle.jsx";
 import { LlmOAuthModal } from "../components/LlmOAuthModal.jsx";
-import { LlmGatewayModal } from "../components/LlmGatewayModal.jsx";
 
 /**
  * Maps legacy model names to LiteLLM catalog ids.
@@ -62,7 +61,6 @@ export function SettingsPage() {
   const [testingLlm, setTestingLlm] = useState(false);
   const [testingDbc, setTestingDbc] = useState(false);
   const [oauthModalOpen, setOauthModalOpen] = useState(false);
-  const [gatewayModalOpen, setGatewayModalOpen] = useState(false);
   const [oauthForGateway, setOauthForGateway] = useState(false);
 
   /**
@@ -139,7 +137,6 @@ export function SettingsPage() {
   const catalog = Array.isArray(form.litellmModels) ? form.litellmModels : [];
   const gatewayModelId = normalizeGatewayModelId(form.llmModel);
   const selectedCatalog = catalog.find((m) => m.id === gatewayModelId) || null;
-  const chatGptModels = catalog.filter((m) => m.requiresOAuth);
   const needsChatGptOAuth =
     useGateway && selectedCatalog?.requiresOAuth && !form.litellmChatGptConnected;
 
@@ -296,24 +293,11 @@ export function SettingsPage() {
   }
 
   /**
-   * Device-code failed on OpenAI — fall back to Codex popup + paste URL.
+   * Opens ChatGPT browser sign-in (popup + paste URL) for LiteLLM gateway.
    */
-  function onGatewayBrowserFallback() {
-    setGatewayModalOpen(false);
+  function startGatewayChatGptConnect() {
     setOauthForGateway(true);
     setOauthModalOpen(true);
-  }
-
-  /**
-   * @param {{ account?: string }} result
-   */
-  function onGatewayConnected(result) {
-    setOkMsg(
-      result.account
-        ? `ChatGPT connected via LiteLLM (${result.account}). Test LLM to verify.`
-        : "ChatGPT connected via LiteLLM. Test LLM to verify."
-    );
-    reloadSettings().catch((err) => setError(err));
   }
 
   /**
@@ -369,14 +353,6 @@ export function SettingsPage() {
         </div>
       ) : null}
 
-      <LlmGatewayModal
-        open={gatewayModalOpen}
-        onClose={() => setGatewayModalOpen(false)}
-        onConnected={onGatewayConnected}
-        onBrowserFallback={onGatewayBrowserFallback}
-        llmModel={form.llmModel}
-      />
-
       <LlmOAuthModal
         open={oauthModalOpen}
         onClose={() => {
@@ -384,9 +360,19 @@ export function SettingsPage() {
           setOauthForGateway(false);
         }}
         onConnected={onOAuthConnected}
+        gatewayChatGpt={oauthForGateway}
         providers={
           oauthForGateway
-            ? (form.llmOAuthProviders || []).filter((p) => p.id === "openai")
+            ? (form.llmOAuthProviders || []).filter((p) => p.id === "openai").length
+              ? (form.llmOAuthProviders || []).filter((p) => p.id === "openai")
+              : [
+                  {
+                    id: "openai",
+                    label: "ChatGPT (OpenAI)",
+                    ready: true,
+                    needsPasteCallback: true,
+                  },
+                ]
             : form.llmOAuthProviders
         }
         redirectUri={form.llmOAuthRedirectUri}
@@ -439,7 +425,7 @@ export function SettingsPage() {
                     <ButtonWithHelp helpId="settings.litellmChatGpt">
                       <button
                         type="button"
-                        onClick={() => setGatewayModalOpen(true)}
+                        onClick={startGatewayChatGptConnect}
                         disabled={busy}
                         className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 disabled:opacity-50"
                       >
@@ -459,13 +445,13 @@ export function SettingsPage() {
               ) : (
                 <>
                   <p className="text-teal-900/80">
-                    Connect once to use {chatGptModels.map((m) => m.label).join(" or ") || "ChatGPT models"}.
-                    You can stay on MiniMax without connecting.
+                    Opens a ChatGPT login popup. After sign-in, paste the redirect URL from the popup
+                    address bar — no device code needed.
                   </p>
                   <ButtonWithHelp helpId="settings.litellmChatGpt">
                     <button
                       type="button"
-                      onClick={() => setGatewayModalOpen(true)}
+                      onClick={startGatewayChatGptConnect}
                       disabled={busy}
                       className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
                     >

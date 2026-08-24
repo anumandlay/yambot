@@ -16,8 +16,18 @@ import { FieldLabel } from "./FieldLabel.jsx";
  * @param {string} props.redirectUri
  * @param {string} props.llmBaseUrl
  * @param {string} props.llmModel
+ * @param {boolean} [props.gatewayChatGpt] — LiteLLM gateway: OpenAI-only, simplified ChatGPT connect
  */
-export function LlmOAuthModal({ open, onClose, onConnected, providers, redirectUri, llmBaseUrl, llmModel }) {
+export function LlmOAuthModal({
+  open,
+  onClose,
+  onConnected,
+  providers,
+  redirectUri,
+  llmBaseUrl,
+  llmModel,
+  gatewayChatGpt = false,
+}) {
   const [providerId, setProviderId] = useState("");
   const [clientId, setClientId] = useState("");
   const [clientSecret, setClientSecret] = useState("");
@@ -91,10 +101,15 @@ export function LlmOAuthModal({ open, onClose, onConnected, providers, redirectU
     setBusy(true);
     setError("");
     try {
+      if (gatewayChatGpt) {
+        await api("/api/settings/litellm/ensure-key", { method: "POST" });
+      }
+
       await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify({
-          llmAuthMode: "oauth",
+          llmAuthMode: gatewayChatGpt ? "litellm" : "oauth",
+          llmGatewayMode: gatewayChatGpt ? "litellm" : "direct",
           llmBaseUrl,
           llmModel,
         }),
@@ -185,11 +200,11 @@ export function LlmOAuthModal({ open, onClose, onConnected, providers, redirectU
         <div className="flex items-start justify-between gap-2">
           <div>
             <h2 id="llm-oauth-title" className="text-lg font-semibold text-teal-950">
-              Connect LLM account
+              {gatewayChatGpt ? "Connect ChatGPT" : "Connect LLM account"}
             </h2>
             <p className="mt-1 text-sm text-teal-900/70">
-              {selected?.id === "openai"
-                ? "Sign in with your ChatGPT account. No API key or OAuth app setup needed."
+              {gatewayChatGpt || selected?.id === "openai"
+                ? "Sign in with your ChatGPT subscription in a popup, then paste the redirect URL. No API key needed."
                 : "Choose a provider, then sign in on their website. Tokens are stored encrypted for your account."}
             </p>
           </div>
@@ -203,7 +218,7 @@ export function LlmOAuthModal({ open, onClose, onConnected, providers, redirectU
           </button>
         </div>
 
-        {!showPasteStep ? (
+        {!showPasteStep && !gatewayChatGpt ? (
           <fieldset className="flex flex-col gap-2">
             <FieldLabel helpId="settings.llmOAuthConnect">Provider</FieldLabel>
             <div className="grid gap-2 sm:grid-cols-1">
@@ -322,7 +337,7 @@ export function LlmOAuthModal({ open, onClose, onConnected, providers, redirectU
               disabled={busy || !selected}
               className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
             >
-              {busy ? "Opening sign-in…" : "Sign in (opens popup)"}
+              {busy ? "Opening sign-in…" : gatewayChatGpt ? "Sign in with ChatGPT" : "Sign in (opens popup)"}
             </button>
           )}
         </div>

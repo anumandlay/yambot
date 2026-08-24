@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 14:35] ChatGPT connect — browser sign-in primary (device code broken)
+
+- **Prompt Provided:** invalid_authorize_request / auth.openai.com/codex/device Not Found after Connect ChatGPT
+- **Architectural Flow:** Connect ChatGPT opens Codex PKCE popup + paste URL (works on web) → import tokens to LiteLLM credentials; device-code modal removed from primary path
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/components/LlmOAuthModal.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-24 14:30] Settings: always show Connect ChatGPT in gateway mode
 
 - **Prompt Provided:** In Settings cannot see Connect ChatGPT
