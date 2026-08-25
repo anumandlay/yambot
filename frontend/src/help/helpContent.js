@@ -892,6 +892,27 @@ export const HELP = {
       "Model for image inputs (e.g. gpt-4o-mini). Blank = main LLM model. Used when agent.autonomy.visionEnabled and error recovery attaches screenshots."
     ),
   },
+  "settings.testLlm": {
+    title: "Test LLM connection",
+    body: helpBody(
+      "Sends a tiny chat completion to your provider using the API key, base URL, and model in this form (or saved secrets if fields are blank).",
+      "Use this before running goals to confirm credentials work. Does not start an agent task."
+    ),
+  },
+  "settings.openAiOAuthConnect": {
+    title: "Connect OpenAI",
+    body: helpBody(
+      "Opens ChatGPT sign-in in a popup. Your subscription tokens are stored encrypted and used by cloud workers.",
+      "You may need to paste the localhost redirect URL after sign-in. Disconnect to return to API key mode."
+    ),
+  },
+  "settings.openAiOAuthPaste": {
+    title: "Paste OAuth callback",
+    body: helpBody(
+      "Copy the full URL from the sign-in popup after login (http://localhost:1455/auth/callback?...).",
+      "Required on web because the browser cannot receive the loopback redirect automatically."
+    ),
+  },
   "settings.dbcUsername": {
     title: "DeathByCaptcha username",
     body: helpBody(

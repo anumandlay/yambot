@@ -15,6 +15,7 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
+import { stepTiming } from "./stepTiming.js";
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
@@ -787,6 +788,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       llmApiKey,
       llmBaseUrl,
       llmModel,
+      openAiAccountId: c.openAiAccountId || "",
       visionApiKey,
       visionBaseUrl,
       visionModel,
@@ -1099,7 +1101,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         // Why: real ask_user (credentials, MFA) must not auto-continue after unrelated handoff.
         hadHumanControl = false;
       }
-      await sleep(status?.humanControl ? 800 : 2000);
+      await sleep(status?.humanControl ? 800 : stepTiming.waitingUserPollMs);
       const data = await api(`/api/worker/tasks/${taskId}`);
       if (data.task?.status === "cancelled") {
         throw Object.assign(new Error("Stopped by user"), { cancelled: true });
@@ -1147,7 +1149,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         await resyncActivePageAfterHandoff();
         return "continue";
       }
-      await sleep(2000);
+      await sleep(stepTiming.waitingUserPollMs);
     }
     return "(timed out waiting for user)";
   }
@@ -1187,7 +1189,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       if (status === "approved") return true;
       if (status === "denied") return false;
       await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
-      await sleep(2000);
+      await sleep(stepTiming.waitingUserPollMs);
     }
     return false;
   }
@@ -1345,7 +1347,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           if (pending.task?.status === "waiting_user") {
             step -= 1;
             await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
-            await sleep(2000);
+            await sleep(stepTiming.waitingUserPollMs);
             continue;
           }
         } catch {
@@ -1534,6 +1536,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             baseUrl: llmCreds.baseUrl,
             model: llmCreds.model,
             messages,
+            openAiAccountId: settings.openAiAccountId,
           });
           content = llm.content;
         } catch (err) {
@@ -1543,7 +1546,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           await mirror(taskId, "step", {
             payload: {
               step,
-              action: { type: "wait", ms: 2000 },
+              action: { type: "wait", ms: stepTiming.llmRetryMs },
               thought: "LLM call failed — retrying",
               result: { ok: false, error: detail },
             },
@@ -1552,10 +1555,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
           history.push({
             step,
             thought: "llm_error",
-            action: { type: "wait", ms: 2000 },
+            action: { type: "wait", ms: stepTiming.llmRetryMs },
             result: { ok: false, error: detail },
           });
-          await sleep(2000);
+          await sleep(stepTiming.llmRetryMs);
           continue;
         }
         // Why: user may take over during a long LLM call — wait before acting.
@@ -1572,7 +1575,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           await mirror(taskId, "step", {
             payload: {
               step,
-              action: { type: "wait", ms: 1200 },
+              action: { type: "wait", ms: stepTiming.parseRetryMs },
               thought: "Invalid model JSON — waiting and retrying",
               result: { ok: false, error: detail },
             },
@@ -1581,10 +1584,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
           history.push({
             step,
             thought: "parse_error",
-            action: { type: "wait", ms: 1200 },
+            action: { type: "wait", ms: stepTiming.parseRetryMs },
             result: { ok: false, error: detail },
           });
-          await sleep(1200);
+          await sleep(stepTiming.parseRetryMs);
           continue;
         }
         const action = parsed.action;
@@ -1636,10 +1639,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
           if (!skipSettle) {
             if (actionToRun.type !== "wait_for") {
               await waitForSemantic(page, observeInPage, waitForConditionInPage, {
-                timeoutMs: 1800,
+                timeoutMs: stepTiming.postActionSettleMs,
                 networkIdle: false,
                 loadingGone: true,
                 domStable: true,
+                stableMs: stepTiming.domStableMs,
               });
             }
             const obsAfter = await observeNow();
@@ -1679,10 +1683,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   notes,
                 });
                 await waitForSemantic(page, observeInPage, waitForConditionInPage, {
-                  timeoutMs: 3000,
+                  timeoutMs: stepTiming.recoverySettleMs,
                   networkIdle: false,
                   loadingGone: true,
                   domStable: true,
+                  stableMs: stepTiming.domStableMs,
                 });
                 const after = await observeNow();
                 const pre = checkPreconditions(act, currentObs, prevObs);
@@ -1868,7 +1873,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, navigated: action.url };
       }
       case "wait": {
-        await sleep(Math.min(Number(action.ms) || 1000, 10000));
+        await sleep(Math.min(Number(action.ms) || stepTiming.defaultWaitActionMs, 10000));
         return { ok: true };
       }
       case "wait_for": {

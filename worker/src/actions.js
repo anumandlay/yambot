@@ -47,7 +47,7 @@ Action fields:
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 }
-- wait: { "type":"wait", "ms": 1500 } — prefer wait_for when you know what should appear
+- wait: { "type":"wait", "ms": 800 } — prefer wait_for when you know what should appear; avoid long blind waits
 - wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000, "network_idle": false, "dom_stable": true }
   Semantic wait until condition met (role+name, text on page, url_contains, or ref visible). Avoid blind long sleeps.
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }

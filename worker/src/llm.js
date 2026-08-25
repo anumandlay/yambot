@@ -3,6 +3,8 @@
  * Purpose: OpenAI-compatible chat client for the cloud worker.
  */
 
+import { codexChatCompletion, isOpenAiCodexBaseUrl } from "./openaiCodex.js";
+
 /**
  * @param {{ title: string, detail: string, hint?: string, status?: number, url?: string }} opts
  */
@@ -20,6 +22,9 @@ export class LlmError extends Error {
 
 function hintForStatus(status, bodyText) {
   const lower = String(bodyText || "").toLowerCase();
+  if (looksLikeHtml(bodyText)) {
+    return "Base URL is wrong (got a web page, not the LLM API). Open Settings → set Base URL to https://api.minimax.io/v1 and re-enter your MiniMax API key.";
+  }
   if (status === 401 || status === 403) return "Check your API key (and model access).";
   if (status === 404) return "Check the base URL ends with /v1 and the model name.";
   if (status === 429) return "Rate limited or out of quota.";
@@ -31,6 +36,9 @@ function hintForStatus(status, bodyText) {
 }
 
 function extractApiMessage(bodyText) {
+  if (looksLikeHtml(bodyText)) {
+    return "Received HTML instead of JSON — check Base URL in Settings (should end with /v1, e.g. https://api.minimax.io/v1).";
+  }
   try {
     const json = JSON.parse(bodyText);
     return json?.error?.message || json?.error?.code || json?.message || json?.error || null;
@@ -39,8 +47,45 @@ function extractApiMessage(bodyText) {
   }
 }
 
+/** @param {string} text */
+function looksLikeHtml(text) {
+  const t = String(text || "").trimStart().toLowerCase();
+  return t.startsWith("<!doctype") || t.startsWith("<html");
+}
+
 /**
- * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number }} opts
+ * Rejects YamBot/LiteLLM leftovers and ensures `/v1` suffix (worker-side safety net).
+ * @param {string} [baseUrl]
+ */
+function normalizeBaseUrl(baseUrl) {
+  const fallback = "https://api.minimax.io/v1";
+  const raw = String(baseUrl || "").trim();
+  if (!raw) return fallback;
+  if (isOpenAiCodexBaseUrl(raw)) return raw.replace(/\/$/, "");
+  const lower = raw.toLowerCase();
+  if (
+    lower.includes("litellm") ||
+    lower.includes("bot.vughy.com") ||
+    lower.includes("localhost") ||
+    lower.includes("127.0.0.1")
+  ) {
+    return fallback;
+  }
+  try {
+    const url = new URL(raw);
+    let path = url.pathname.replace(/\/+$/, "");
+    if (!path.endsWith("/v1")) {
+      if (!path || path === "/") path = "/v1";
+      else if (!path.includes("/v1")) path = `${path}/v1`;
+    }
+    return `${url.origin}${path}`;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number, openAiAccountId?: string }} opts
  */
 export async function chatCompletion({
   apiKey,
@@ -49,16 +94,45 @@ export async function chatCompletion({
   messages,
   temperature = 0.2,
   timeoutMs = 120_000,
+  openAiAccountId,
 }) {
   if (!apiKey?.trim()) {
     throw new LlmError({
       title: "Missing API key",
       detail: "No LLM API key was provided.",
-      hint: "Open YamBot → Settings → paste LLM API key → Save.",
+      hint: "Open YamBot → Settings → paste LLM API key or connect OpenAI OAuth.",
     });
   }
 
-  const root = (baseUrl || "https://api.minimax.io/v1").replace(/\/$/, "");
+  const root = normalizeBaseUrl(baseUrl);
+
+  if (isOpenAiCodexBaseUrl(root)) {
+    try {
+      const codex = await codexChatCompletion({
+        accessToken: apiKey,
+        accountId: openAiAccountId || "",
+        model,
+        messages,
+        baseUrl: root,
+        timeoutMs,
+      });
+      return {
+        content: codex.content,
+        raw: codex.raw,
+        model: codex.model,
+        url: codex.url,
+        usage: codex.raw?.usage || null,
+      };
+    } catch (err) {
+      throw new LlmError({
+        title: "ChatGPT request failed",
+        detail: String(err?.message || err),
+        hint: "Reconnect OpenAI on Settings → OpenAI OAuth.",
+        url: `${root}/responses`,
+      });
+    }
+  }
+
   const url = `${root}/chat/completions`;
   const usedModel = model || "MiniMax-M2.7";
 
@@ -121,10 +195,13 @@ export async function chatCompletion({
       }
     }
     if (!data) {
+      const detail = looksLikeHtml(bodyText)
+        ? "Received HTML instead of JSON — check Base URL in Settings."
+        : msg;
       throw new LlmError({
         title: "Invalid LLM response",
-        detail: msg,
-        hint: "Provider returned non-JSON. Check base URL / model.",
+        detail,
+        hint: "Provider returned non-JSON. Check base URL / model / API key in Settings.",
         url,
       });
     }

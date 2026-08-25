@@ -1,8 +1,75 @@
 /**
- * @fileoverview Default LLM provider constants for YamBot.
- * Purpose: Site-wide fallbacks (Minimax) so Settings and workers share one baseline.
+ * @fileoverview Default LLM provider constants and endpoint normalization for YamBot.
+ * Purpose: Site-wide fallbacks (Minimax) plus guards against stale LiteLLM/YamBot URLs in Mongo.
  * Secrets still come from env `DEFAULT_LLM_API_KEY` / per-user encrypted settings — never commit keys.
+ * Downstream: `llmCredentials.js`, Settings routes, worker runtime-config.
  */
 
 export const DEFAULT_LLM_BASE_URL = "https://api.minimax.io/v1";
 export const DEFAULT_LLM_MODEL = "MiniMax-M2.7";
+
+/** Host/path fragments that must never be used as an LLM OpenAI-compatible base URL. */
+const STALE_LLM_BASE_PATTERNS = [
+  /litellm/i,
+  /bot\.vughy\.com/i,
+  /localhost/i,
+  /127\.0\.0\.1/i,
+  /\/api\/worker/i,
+  /\/api\/settings/i,
+];
+
+/**
+ * Returns true when a stored base URL is from the removed LiteLLM gateway or YamBot web UI.
+ * @param {string} baseUrl
+ * @returns {boolean}
+ */
+export function isStaleLlmBaseUrl(baseUrl) {
+  const raw = String(baseUrl || "").trim();
+  if (!raw) return false;
+  return STALE_LLM_BASE_PATTERNS.some((re) => re.test(raw));
+}
+
+/**
+ * Normalizes user/env LLM base URL — fixes missing `/v1` and rejects YamBot/LiteLLM leftovers.
+ * @param {string} [baseUrl]
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function normalizeLlmBaseUrl(baseUrl, fallback = DEFAULT_LLM_BASE_URL) {
+  const raw = String(baseUrl || "").trim();
+  if (!raw || isStaleLlmBaseUrl(raw)) return fallback;
+  // Why: ChatGPT OAuth uses Codex backend — never append /v1 like OpenAI-compatible APIs.
+  if (/chatgpt\.com\/backend-api/i.test(raw)) {
+    return raw.replace(/\/$/, "");
+  }
+
+  try {
+    const url = new URL(raw);
+    let path = url.pathname.replace(/\/+$/, "");
+    if (!path.endsWith("/v1")) {
+      if (!path || path === "/") {
+        path = "/v1";
+      } else if (!path.includes("/v1")) {
+        path = `${path}/v1`;
+      }
+    }
+    return `${url.origin}${path}`;
+  } catch {
+    return fallback;
+  }
+}
+
+/**
+ * Maps LiteLLM gateway catalog ids to real provider model names.
+ * @param {string} [model]
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function normalizeLlmModel(model, fallback = DEFAULT_LLM_MODEL) {
+  const raw = String(model || "").trim();
+  if (!raw) return fallback;
+  const lower = raw.toLowerCase();
+  if (lower === "minimax") return fallback;
+  if (lower === "chatgpt" || lower.startsWith("chatgpt/")) return fallback;
+  return raw;
+}

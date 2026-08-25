@@ -14,7 +14,9 @@ import { LoginPage } from "./pages/LoginPage.jsx";
 import { RegisterPage } from "./pages/RegisterPage.jsx";
 import { ChatsPage } from "./pages/ChatsPage.jsx";
 import { ChatDetailPage } from "./pages/ChatDetailPage.jsx";
+import { SettingsLayout } from "./pages/SettingsLayout.jsx";
 import { SettingsPage } from "./pages/SettingsPage.jsx";
+import { SettingsOpenAiPage } from "./pages/SettingsOpenAiPage.jsx";
 import { AgentsPage } from "./pages/AgentsPage.jsx";
 import { AgentEditPage } from "./pages/AgentEditPage.jsx";
 import { SystemPage } from "./pages/SystemPage.jsx";
@@ -165,7 +167,11 @@ export default function App() {
           <Route path="/how-to" element={<HowToPage />} />
           <Route path="/live" element={<LiveWallPage />} />
           <Route path="/chats/:chatId" element={<ChatDetailPage />} />
-          <Route path="/settings" element={<SettingsPage />} />
+          <Route path="/settings" element={<SettingsLayout />}>
+            <Route index element={<Navigate to="llm" replace />} />
+            <Route path="llm" element={<SettingsPage />} />
+            <Route path="openai" element={<SettingsOpenAiPage />} />
+          </Route>
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/system" element={<SystemPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />

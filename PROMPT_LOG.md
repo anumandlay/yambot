@@ -1,5 +1,41 @@
 # PROMPT_LOG.md
 
+## [2026-08-24 16:50] Chat message timestamps with seconds
+
+- **Prompt Provided:** In chat, for every message, show the time along with seconds
+- **Architectural Flow:** `GET /api/chats/:id` returns messages with Mongoose `createdAt` → `ChatDetailPage` renders `<time>` per bubble via `formatChatMessageTime()`
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/lib/formatDateTime.js`, `frontend/src/pages/ChatDetailPage.jsx`
+
+## [2026-08-24 16:05] Faster step pacing (tunable settle + retry delays)
+
+- **Prompt Provided:** Can we reduce delay time between each step?
+- **Architectural Flow:** `stepTiming.js` centralizes post-action settle (1s), DOM stable (180ms), LLM/parse retry (800/500ms) — env `YAMBOT_*` overrides; prompt nudges shorter model `wait` actions
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/stepTiming.js`, `worker/src/agent.js`, `worker/src/actions.js`
+
+## [2026-08-24 15:42] Fix OpenAI OAuth showing MiniMax model after connect
+
+- **Prompt Provided:** ChatGPT connection UI shows `email · model MiniMax-M2.7` after OAuth connect
+- **Architectural Flow:** Connect always sets `gpt-4o` → `resolveOpenAiOAuthModel()` rejects MiniMax names at runtime → boot migration fixes existing OAuth users in Mongo
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/openaiCodex.js`, `backend/src/utils/llmOAuth.js`, `backend/src/utils/llmCredentials.js`, `backend/src/routes/settings.js`, `backend/src/utils/seedLlm.js`
+
+## [2026-08-24 15:30] Settings submenu + OpenAI OAuth only (no LiteLLM)
+
+- **Prompt Provided:** Submenu under Settings with OpenAI OAuth only — click connect and use ChatGPT account as LLM
+- **Architectural Flow:** `/settings/llm` API key tab + `/settings/openai` ChatGPT PKCE OAuth → encrypted tokens on User → `resolveLlmCredentials()` + worker Codex `/responses` path
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/openaiCodex.js`, `backend/src/utils/llmOAuth.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/llmDefaults.js`, `backend/src/utils/llmTest.js`, `backend/src/utils/seedLlm.js`, `backend/src/routes/settings.js`, `backend/src/routes/worker.js`, `backend/src/index.js`, `worker/src/openaiCodex.js`, `worker/src/llm.js`, `worker/src/agent.js`, `frontend/src/pages/SettingsLayout.jsx`, `frontend/src/pages/SettingsOpenAiPage.jsx`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/App.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-24 15:18] Restore Test LLM button on Settings (API-key only)
+
+- **Prompt Provided:** Add back Test LLM on /settings without OAuth or LiteLLM
+- **Architectural Flow:** Settings form → `POST /api/settings/test-llm` → `probeLlmConnection()` one-shot `/chat/completions` with form or saved key → success/error shown in UI
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/llmTest.js`, `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-24 15:10] Fix LLM HTML error after LiteLLM removal (stale base URL)
+
+- **Prompt Provided:** Goal runs fail with `LLM error — retrying… (<html>…viewport…)` — worker receives YamBot SPA HTML instead of JSON
+- **Architectural Flow:** Boot migration + runtime normalize strip LiteLLM/YamBot URLs and gateway model aliases → workers call `https://api.minimax.io/v1` → clearer HTML detection in worker `llm.js`
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/llmDefaults.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/seedLlm.js`, `backend/src/routes/settings.js`, `worker/src/llm.js`
+
 ## [2026-08-24 15:00] Remove OAuth, LiteLLM gateway, Test LLM — API key only
 
 - **Prompt Provided:** Remove OAuth/LiteLLM/Test LLM; use API key only like before; deploy

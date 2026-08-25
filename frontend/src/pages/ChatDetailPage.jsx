@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
+import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, ButtonWithHelp, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
 import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
@@ -328,7 +329,17 @@ export function ChatDetailPage() {
                     : "self-start bg-slate-50 text-slate-700"
               }`}
             >
-              <div className="mb-1 text-[0.7rem] uppercase opacity-70">{m.role}</div>
+              <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
+                <span className="uppercase">{m.role}</span>
+                {m.createdAt ? (
+                  <time
+                    dateTime={new Date(m.createdAt).toISOString()}
+                    className="shrink-0 normal-case tabular-nums"
+                  >
+                    {formatChatMessageTime(m.createdAt)}
+                  </time>
+                ) : null}
+              </div>
               <div className="whitespace-pre-wrap break-words">{m.content}</div>
             </article>
           ))}

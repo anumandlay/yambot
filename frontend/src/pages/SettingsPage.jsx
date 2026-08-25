@@ -6,8 +6,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
-import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
-import { HelpToggle } from "../components/HelpToggle.jsx";
+import { ButtonWithHelp, FieldLabel } from "../components/FieldLabel.jsx";
 
 export function SettingsPage() {
   const [form, setForm] = useState({
@@ -31,6 +30,7 @@ export function SettingsPage() {
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(false);
   const [testingDbc, setTestingDbc] = useState(false);
+  const [testingLlm, setTestingLlm] = useState(false);
 
   /**
    * Loads settings from API into form state (secrets left blank).
@@ -77,6 +77,7 @@ export function SettingsPage() {
       await api("/api/settings", {
         method: "PUT",
         body: JSON.stringify({
+          llmAuthMode: "api_key",
           llmApiKey: form.llmApiKey,
           llmBaseUrl: form.llmBaseUrl,
           llmModel: form.llmModel,
@@ -95,6 +96,31 @@ export function SettingsPage() {
       setError(err);
     } finally {
       setBusy(false);
+    }
+  }
+
+  /**
+   * Verifies LLM credentials with values in the form (or the saved API key if blank).
+   */
+  async function testLlm() {
+    setTestingLlm(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api("/api/settings/test-llm", {
+        method: "POST",
+        body: JSON.stringify({
+          llmApiKey: form.llmApiKey,
+          llmBaseUrl: form.llmBaseUrl,
+          llmModel: form.llmModel,
+        }),
+      });
+      const preview = data.preview ? ` Reply: “${data.preview}”.` : "";
+      setOkMsg(`${data.message || "LLM connected."} Model: ${data.model || form.llmModel}.${preview}`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setTestingLlm(false);
     }
   }
 
@@ -126,12 +152,10 @@ export function SettingsPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
-      <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
-      <HelpToggle />
-      <PageGuideBanner helpId="nav.settings" />
+    <div className="flex flex-col gap-4">
       <p className="text-sm text-teal-900/70">
         Default provider is MiniMax. Enter your API key, base URL, and model. Secrets are encrypted at rest.
+        To use ChatGPT instead, open the <strong>OpenAI OAuth</strong> tab.
       </p>
       {error ? (
         <ErrorAlert
@@ -181,6 +205,16 @@ export function SettingsPage() {
             onChange={(e) => update("llmModel", e.target.value)}
           />
         </label>
+        <ButtonWithHelp helpId="settings.testLlm">
+          <button
+            type="button"
+            onClick={testLlm}
+            disabled={testingLlm || busy}
+            className="min-h-11 w-full rounded-xl border border-teal-200 bg-teal-50 px-4 font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+          >
+            {testingLlm ? "Testing…" : "Test LLM connection"}
+          </button>
+        </ButtonWithHelp>
 
         <h2 className="mt-2 text-sm font-semibold text-teal-900/80">Vision LLM (optional)</h2>
         <p className="text-xs text-teal-900/60">
