@@ -886,7 +886,7 @@ workerRouter.get("/skills", async (req, res, next) => {
       filter.$or = [{ agent: agentId }, { agent: null }];
     }
     const skills = await Skill.find(filter)
-      .select("name description triggers steps verificationRules status agent")
+      .select("name description triggers steps verificationRules status agent executionMode enforceVerification")
       .sort({ updatedAt: -1 })
       .limit(30)
       .lean();

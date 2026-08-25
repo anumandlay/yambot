@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 16:00] Skills Phase 3 — replay mode + verification enforcement
+
+- **Prompt Provided:** Go Phase 3 on Skills
+- **Architectural Flow:** Skill `executionMode: replay` runs demo actions (click/type/navigate) before LLM; `enforceVerification` fails task when rules don't match; demos keep structured action objects
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Skill.js`, `backend/src/routes/skills.js`, `worker/src/browserState/skillReplay.js`, `worker/src/browserState/skills.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 15:35] Skills Phase 2 — trajectory demos, ops links, stats, human URL capture
 
 - **Prompt Provided:** Go Phase 2 on Skills

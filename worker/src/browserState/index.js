@@ -64,6 +64,7 @@ export {
   normalizeSkillSteps,
   SKILL_TEMPLATES,
 } from "./skills.js";
+export { runSkillReplay, describeReplayStep, extractReplayableSteps } from "./skillReplay.js";
 export {
   extractDomain,
   buildTrajectory,

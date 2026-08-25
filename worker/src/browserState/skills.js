@@ -225,6 +225,9 @@ export function formatDbSkillBlock(skill) {
   if (!skill) return "";
   const lines = [`ACTIVE SKILL (learned): ${skill.name}`];
   if (skill.description) lines.push(String(skill.description));
+  if (skill.executionMode === "replay") {
+    lines.push("Execution: deterministic replay of stored demo actions before the agent loop.");
+  }
   const steps = normalizeSkillSteps(skill.steps);
   if (steps.length) {
     lines.push("Suggested flow:");
@@ -257,11 +260,11 @@ export function computeDbSkillProgress(skill, history) {
  * Checks skill verification rules against summary + trajectory text (hint-only).
  * @param {object|null} skill
  * @param {{ success?: boolean, summary?: string, trajectory?: object[] }} ctx
- * @returns {{ passed: boolean, notes: string[] }}
+ * @returns {{ passed: boolean, notes: string[], shouldFail: boolean }}
  */
 export function evaluateSkillVerification(skill, ctx) {
   const rules = skill?.verificationRules || [];
-  if (!rules.length) return { passed: true, notes: [] };
+  if (!rules.length) return { passed: true, notes: [], shouldFail: false };
   const blob = [
     ctx.summary || "",
     JSON.stringify(ctx.trajectory || []),
@@ -279,5 +282,9 @@ export function evaluateSkillVerification(skill, ctx) {
       if (!blob.includes(pat.toLowerCase())) notes.push(`Rule not met: ${pat}`);
     }
   }
-  return { passed: notes.length === 0, notes };
+  return {
+    passed: notes.length === 0,
+    notes,
+    shouldFail: notes.length > 0 && Boolean(skill?.enforceVerification),
+  };
 }

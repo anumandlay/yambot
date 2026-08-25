@@ -5,12 +5,66 @@
  */
 
 import { Router } from "express";
-import { Skill, SKILL_STATUSES } from "../models/Skill.js";
+import { Skill, SKILL_STATUSES, SKILL_EXECUTION_MODES } from "../models/Skill.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest, TRAINING_STATUSES } from "../models/TrainingRequest.js";
 import { Task } from "../models/Task.js";
 
 export const skillsRouter = Router();
+
+/**
+ * Parses skill steps from API body (array, JSON lines, or plain text lines).
+ * @param {unknown} raw
+ * @returns {unknown[]}
+ */
+function parseSkillStepsInput(raw) {
+  if (Array.isArray(raw)) return raw;
+  return String(raw || "")
+    .split("\n")
+    .map((line) => {
+      const t = line.trim();
+      if (!t) return null;
+      try {
+        const parsed = JSON.parse(t);
+        if (parsed && typeof parsed === "object") return parsed;
+      } catch {
+        /* plain text step */
+      }
+      return t;
+    })
+    .filter(Boolean);
+}
+
+/**
+ * Converts demo actions into skill steps — prefers structured objects for replay.
+ * @param {object[]} demoSteps
+ * @returns {{ steps: unknown[], executionMode: string }}
+ */
+function demoStepsToSkillSteps(demoSteps) {
+  const actionSteps = (demoSteps || [])
+    .map((s) => s.action)
+    .filter((a) => a && typeof a === "object" && a.type && a.type !== "session");
+  if (actionSteps.length) {
+    return { steps: actionSteps, executionMode: "replay" };
+  }
+  const textSteps = (demoSteps || [])
+    .map((s) => {
+      const a = s.action || {};
+      if (a.type === "type" && a.text) return `Type: ${a.text}`;
+      if (a.type === "click") {
+        const x = Math.round((Number(a.xNorm) || 0) * 100);
+        const y = Math.round((Number(a.yNorm) || 0) * 100);
+        return `Click at ${x}%, ${y}%`;
+      }
+      if (a.type === "key" && a.key) return `Press key: ${a.key}`;
+      if (a.type === "scroll") return `Scroll ${Number(a.dy) > 0 ? "down" : "up"}`;
+      if (a.type === "session") return "Human took control";
+      if (typeof a === "object" && Object.keys(a).length) return JSON.stringify(a);
+      return "";
+    })
+    .filter(Boolean);
+  return { steps: textSteps, executionMode: "hints" };
+}
 
 /**
  * Converts stored task trajectory (or step events) into demonstration steps.
@@ -64,8 +118,10 @@ skillsRouter.post("/", async (req, res, next) => {
       description: body.description || "",
       status: SKILL_STATUSES.includes(body.status) ? body.status : "draft",
       triggers: Array.isArray(body.triggers) ? body.triggers : [],
-      steps: Array.isArray(body.steps) ? body.steps : [],
+      steps: body.steps != null ? parseSkillStepsInput(body.steps) : [],
       verificationRules: Array.isArray(body.verificationRules) ? body.verificationRules : [],
+      executionMode: SKILL_EXECUTION_MODES.includes(body.executionMode) ? body.executionMode : "hints",
+      enforceVerification: Boolean(body.enforceVerification),
     });
     res.status(201).json({ ok: true, skill });
   } catch (err) {
@@ -80,26 +136,15 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
       res.status(404).json({ ok: false, detail: "Demonstration missing" });
       return;
     }
+    const { steps, executionMode } = demoStepsToSkillSteps(demo.steps);
     const skill = await Skill.create({
       user: req.userId,
       agent: demo.agent,
       name: String(req.body?.name || demo.title || "Learned skill").trim(),
       description: `Generated from demonstration ${demo._id}`,
       status: "training",
-      steps: (demo.steps || []).map((s) => {
-        const a = s.action || {};
-        if (a.type === "type" && a.text) return `Type: ${a.text}`;
-        if (a.type === "click") {
-          const x = Math.round((Number(a.xNorm) || 0) * 100);
-          const y = Math.round((Number(a.yNorm) || 0) * 100);
-          return `Click at ${x}%, ${y}%`;
-        }
-        if (a.type === "key" && a.key) return `Press key: ${a.key}`;
-        if (a.type === "scroll") return `Scroll ${Number(a.dy) > 0 ? "down" : "up"}`;
-        if (a.type === "session") return "Human took control";
-        if (typeof a === "object" && Object.keys(a).length) return JSON.stringify(a);
-        return "";
-      }).filter(Boolean),
+      steps,
+      executionMode,
       verificationRules: ["Replay steps without error", "Match success criteria"],
       sourceDemonstration: demo._id,
     });
@@ -201,12 +246,7 @@ skillsRouter.patch("/:id", async (req, res, next) => {
             .filter(Boolean);
     }
     if (body.steps != null) {
-      skill.steps = Array.isArray(body.steps)
-        ? body.steps
-        : String(body.steps)
-            .split("\n")
-            .map((s) => s.trim())
-            .filter(Boolean);
+      skill.steps = parseSkillStepsInput(body.steps);
     }
     if (body.verificationRules != null) {
       skill.verificationRules = Array.isArray(body.verificationRules)
@@ -215,6 +255,12 @@ skillsRouter.patch("/:id", async (req, res, next) => {
             .split("\n")
             .map((r) => r.trim())
             .filter(Boolean);
+    }
+    if (body.executionMode != null && SKILL_EXECUTION_MODES.includes(body.executionMode)) {
+      skill.executionMode = body.executionMode;
+    }
+    if (body.enforceVerification != null) {
+      skill.enforceVerification = Boolean(body.enforceVerification);
     }
     await skill.save();
     res.json({ ok: true, skill });

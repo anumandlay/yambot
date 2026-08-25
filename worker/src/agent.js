@@ -72,6 +72,8 @@ import {
   formatDbSkillBlock,
   computeDbSkillProgress,
   evaluateSkillVerification,
+  runSkillReplay,
+  describeReplayStep,
   extractDomain,
   buildTrajectory,
   formatSiteHintsBlock,
@@ -756,12 +758,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const trajectory = buildTrajectory(history);
     const skillForRun = activeSkill ?? currentActiveDbSkill;
     let finalSummary = summary;
+    let finalSuccess = success;
+    let finalError = error;
     const skillVerificationNotes = [];
     if (skillForRun) {
       const check = evaluateSkillVerification(skillForRun, { success, summary, trajectory });
       if (!check.passed && check.notes.length) {
         skillVerificationNotes.push(...check.notes);
-        if (success) {
+        if (check.shouldFail) {
+          finalSuccess = false;
+          finalError = finalError || "skill_verification_failed";
+          finalSummary = `${summary}\n\nSkill verification failed: ${check.notes.join("; ")}`.slice(
+            0,
+            2000
+          );
+        } else if (success) {
           finalSummary = `${summary}\n\nSkill verification warnings: ${check.notes.join("; ")}`.slice(
             0,
             2000
@@ -772,9 +783,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
     await api(`/api/worker/tasks/${taskId}/complete`, {
       method: "POST",
       body: JSON.stringify({
-        success,
+        success: finalSuccess,
         summary: finalSummary,
-        error,
+        error: finalError,
         trajectory,
         llmUsage: llmUsage ? snapshotLlmUsage(llmUsage) : undefined,
         activeSkillId: skillForRun?._id || skillForRun?.id || null,
@@ -783,14 +794,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
     });
     if (siteDomain && config.agentId) {
       const hint = deriveSiteHint({
-        success,
-        summary,
+        success: finalSuccess,
+        summary: finalSummary,
         domain: siteDomain,
         trajectory,
       });
       await recordSiteLearning(api, config.agentId, {
         domain: siteDomain,
-        success,
+        success: finalSuccess,
         hint: hint || undefined,
       });
     }
@@ -1327,6 +1338,41 @@ export function createCloudAgent({ api, config, log = console.log }) {
             `Plan (${goalPlan.subgoals.length} subgoals):\n` +
             goalPlan.subgoals.map((s) => `• ${s.title}`).join("\n"),
         }).catch(() => {});
+      }
+
+      if (activeDbSkill?.executionMode === "replay") {
+        const replay = await runSkillReplay({
+          page,
+          skill: activeDbSkill,
+          viewport: {
+            width: config.viewportWidth,
+            height: config.viewportHeight,
+          },
+          sleep,
+          onStep: async ({ index, step, ok, error: stepErr }) => {
+            const label = describeReplayStep(step);
+            await mirror(taskId, "skill_replay", {
+              payload: { step: index + 1, action: step, ok, error: stepErr || null },
+              appendMessage: ok
+                ? `Skill replay ${index + 1}: ${label}`
+                : `Skill replay failed at ${index + 1}: ${label} — ${stepErr}`,
+            }).catch(() => {});
+          },
+        });
+        if (replay.skipped) {
+          await mirror(taskId, "skill_replay", {
+            appendMessage: "Skill replay skipped — no replayable steps stored.",
+          }).catch(() => {});
+        } else if (replay.failed) {
+          await mirror(taskId, "skill_replay", {
+            appendMessage: `Skill replay stopped at step ${replay.failedStep}: ${replay.error}`,
+          }).catch(() => {});
+        } else {
+          await mirror(taskId, "skill_replay", {
+            appendMessage: `Skill replay finished ${replay.completed}/${replay.total} steps.`,
+          }).catch(() => {});
+        }
+        await pushLiveScreen({ taskId }).catch(() => {});
       }
 
       let step = 0;

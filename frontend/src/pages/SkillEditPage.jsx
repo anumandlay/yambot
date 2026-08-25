@@ -20,12 +20,18 @@ const EMPTY = {
   description: "",
   agent: "",
   status: "draft",
+  executionMode: "hints",
+  enforceVerification: false,
   triggers: "",
   steps: "",
   verificationRules: "",
 };
 
 const STATUSES = ["draft", "training", "production", "deprecated"];
+const EXECUTION_MODES = [
+  { value: "hints", label: "Hints only (inject steps into agent prompt)" },
+  { value: "replay", label: "Replay (run stored click/type/navigate actions first)" },
+];
 
 export function SkillEditPage() {
   const { skillId } = useParams();
@@ -51,6 +57,8 @@ export function SkillEditPage() {
             description: s.description || "",
             agent: s.agent ? String(s.agent) : "",
             status: s.status || "draft",
+            executionMode: s.executionMode || "hints",
+            enforceVerification: Boolean(s.enforceVerification),
             triggers: (s.triggers || []).join("\n"),
             steps: Array.isArray(s.steps)
               ? s.steps
@@ -82,6 +90,8 @@ export function SkillEditPage() {
       description: form.description.trim(),
       agentId: form.agent || null,
       status: form.status,
+      executionMode: form.executionMode,
+      enforceVerification: form.enforceVerification,
       triggers: form.triggers,
       steps: form.steps,
       verificationRules: form.verificationRules,
@@ -197,6 +207,36 @@ export function SkillEditPage() {
           </label>
         </div>
 
+        <div className="grid gap-3 sm:grid-cols-2">
+          <label className="flex flex-col gap-1 text-sm">
+            <FieldLabel helpId="skills.executionMode">Execution mode</FieldLabel>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.executionMode}
+              onChange={(e) => setForm((f) => ({ ...f, executionMode: e.target.value }))}
+            >
+              {EXECUTION_MODES.map((m) => (
+                <option key={m.value} value={m.value}>
+                  {m.label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex items-center gap-2 self-end text-sm">
+            <input
+              type="checkbox"
+              className="size-4 rounded border-teal-200"
+              checked={form.enforceVerification}
+              onChange={(e) =>
+                setForm((f) => ({ ...f, enforceVerification: e.target.checked }))
+              }
+            />
+            <FieldLabel helpId="skills.enforceVerification">
+              Enforce verification (fail task on rule mismatch)
+            </FieldLabel>
+          </label>
+        </div>
+
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="skills.triggers">Triggers (one per line)</FieldLabel>
           <textarea
@@ -213,7 +253,11 @@ export function SkillEditPage() {
             className="min-h-32 rounded-xl border border-teal-100 px-3 py-2 text-sm"
             value={form.steps}
             onChange={(e) => setForm((f) => ({ ...f, steps: e.target.value }))}
-            placeholder={"Log into CRM\nOpen Today's follow-up tab\nFind the lead by name"}
+            placeholder={
+              form.executionMode === "replay"
+                ? '{"type":"navigate","url":"https://example.com"}\n{"type":"click","xNorm":0.5,"yNorm":0.3}'
+                : "Log into CRM\nOpen Today's follow-up tab\nFind the lead by name"
+            }
           />
         </label>
 

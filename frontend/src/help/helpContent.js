@@ -1308,7 +1308,21 @@ export const HELP = {
   "skills.steps": {
     title: "Skill steps",
     body: helpBody(
-      "Plain-English steps injected into the agent prompt when this skill is active (one per line)."
+      "Hints mode: plain-English steps injected into the agent prompt (one per line).",
+      "Replay mode: JSON action objects per line (navigate, click with xNorm/yNorm, type, key, scroll) — played back before the agent loop."
+    ),
+  },
+  "skills.executionMode": {
+    title: "Execution mode",
+    body: helpBody(
+      "Hints = inject steps into the LLM prompt only.",
+      "Replay = run stored demo actions (click/type/navigate) on the live browser before the agent takes over."
+    ),
+  },
+  "skills.enforceVerification": {
+    title: "Enforce verification",
+    body: helpBody(
+      "When enabled, failed verification rules mark the task as failed (not just a warning in the summary)."
     ),
   },
   "skills.status": {
@@ -1329,7 +1343,10 @@ export const HELP = {
   },
   "skills.verification": {
     title: "Verification rules",
-    body: helpBody("Checks the agent should satisfy (shown as hints; enforcement is future work).")
+    body: helpBody(
+      "Regex or plain-text checks against summary + trajectory.",
+      "Warnings by default; enable Enforce verification to fail the task when a rule does not match."
+    ),
   },
   "skills.production": {
     title: "Production skills",
