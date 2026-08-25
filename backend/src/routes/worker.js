@@ -24,6 +24,7 @@ import { emitEvent } from "../utils/eventBus.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import { Skill } from "../models/Skill.js";
+import { appendDemoStepIfActive, recordDemoUrlChange } from "../utils/demoCapture.js";
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
@@ -281,6 +282,9 @@ workerRouter.post("/computer/heartbeat", async (req, res, next) => {
     const commands = Array.isArray(agent.controlQueue) ? [...agent.controlQueue] : [];
     agent.controlQueue = [];
     const humanControl = Boolean(agent.computer?.humanControl);
+    if (humanControl && req.body?.pageUrl) {
+      await recordDemoUrlChange(agent, String(req.body.pageUrl));
+    }
     await agent.save();
 
     res.json({
@@ -290,8 +294,10 @@ workerRouter.post("/computer/heartbeat", async (req, res, next) => {
         lastSeenAt: agent.computer.lastSeenAt,
         hasScreen: Boolean(agent.liveScreen?.dataBase64),
         humanControl,
+        activeDemoId: agent.computer?.activeDemoId ? String(agent.computer.activeDemoId) : null,
       },
       humanControl,
+      activeDemoId: agent.computer?.activeDemoId ? String(agent.computer.activeDemoId) : null,
       commands,
     });
   } catch (err) {
@@ -527,6 +533,30 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
             },
           });
         }
+      }
+    }
+
+    const activeSkillId = String(req.body?.activeSkillId || "").trim();
+    if (activeSkillId) {
+      await Skill.updateOne(
+        { _id: activeSkillId, user: req.userId },
+        {
+          $inc: {
+            "stats.runs": 1,
+            ...(success ? { "stats.successes": 1 } : { "stats.failures": 1 }),
+          },
+        }
+      );
+      if (Array.isArray(req.body?.skillVerificationNotes) && req.body.skillVerificationNotes.length) {
+        task.evaluation = task.evaluation || {};
+        task.evaluation.summary = [
+          task.evaluation.summary || "",
+          req.body.skillVerificationNotes.join("; "),
+        ]
+          .filter(Boolean)
+          .join(" · ")
+          .slice(0, 500);
+        await task.save();
       }
     }
 
@@ -884,6 +914,9 @@ workerRouter.post("/demos/start", async (req, res, next) => {
       title: String(req.body?.title || "Demonstration").trim(),
       steps: [],
     });
+    agent.computer = agent.computer || {};
+    agent.computer.activeDemoId = demo._id;
+    await agent.save();
     res.status(201).json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);
@@ -926,6 +959,11 @@ workerRouter.post("/demos/finish", async (req, res, next) => {
       return;
     }
     if (req.body?.title) demo.title = String(req.body.title).trim();
+    const agent = await Agent.findOne({ _id: demo.agent, user: req.userId });
+    if (agent?.computer?.activeDemoId && String(agent.computer.activeDemoId) === String(demo._id)) {
+      agent.computer.activeDemoId = null;
+      await agent.save();
+    }
     await demo.save();
     await emitEvent({
       userId: req.userId,

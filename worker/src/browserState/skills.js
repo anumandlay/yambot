@@ -252,3 +252,32 @@ export function computeDbSkillProgress(skill, history) {
   const current = Math.min(Math.max(actions + 1, 1), total);
   return { current, total, label: steps[current - 1] || steps[0] };
 }
+
+/**
+ * Checks skill verification rules against summary + trajectory text (hint-only).
+ * @param {object|null} skill
+ * @param {{ success?: boolean, summary?: string, trajectory?: object[] }} ctx
+ * @returns {{ passed: boolean, notes: string[] }}
+ */
+export function evaluateSkillVerification(skill, ctx) {
+  const rules = skill?.verificationRules || [];
+  if (!rules.length) return { passed: true, notes: [] };
+  const blob = [
+    ctx.summary || "",
+    JSON.stringify(ctx.trajectory || []),
+    ctx.success ? "success" : "failure",
+  ]
+    .join(" ")
+    .toLowerCase();
+  const notes = [];
+  for (const rule of rules) {
+    const pat = String(rule || "").trim();
+    if (!pat) continue;
+    try {
+      if (!new RegExp(pat, "i").test(blob)) notes.push(`Rule not met: ${pat}`);
+    } catch {
+      if (!blob.includes(pat.toLowerCase())) notes.push(`Rule not met: ${pat}`);
+    }
+  }
+  return { passed: notes.length === 0, notes };
+}

@@ -32,6 +32,7 @@ export function SkillEditPage() {
   const isNew = !skillId || skillId === "new";
   const navigate = useNavigate();
   const [form, setForm] = useState(EMPTY);
+  const [stats, setStats] = useState({ runs: 0, successes: 0, failures: 0 });
   const [agents, setAgents] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -60,6 +61,7 @@ export function SkillEditPage() {
               : "",
             verificationRules: (s.verificationRules || []).join("\n"),
           });
+          setStats(s.stats || { runs: 0, successes: 0, failures: 0 });
         }
       } catch (err) {
         setError(err);
@@ -136,6 +138,11 @@ export function SkillEditPage() {
         />
       ) : null}
       {okMsg ? <p className="text-sm font-semibold text-teal-800">{okMsg}</p> : null}
+      {!isNew && stats.runs > 0 ? (
+        <p className="rounded-xl border border-teal-100 bg-teal-50/50 px-3 py-2 text-sm text-teal-900">
+          Used <strong>{stats.runs}</strong>× · {stats.successes} success · {stats.failures} failed
+        </p>
+      ) : null}
 
       <form onSubmit={save} className="flex flex-col gap-4 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
         <label className="flex flex-col gap-1 text-sm">
@@ -223,6 +230,12 @@ export function SkillEditPage() {
         <SectionTitle helpId="skills.production" className="text-teal-900/70">
           Set status to <strong>production</strong> when ready — the worker injects this skill when triggers match.
         </SectionTitle>
+
+        {!isNew && form.status === "production" ? (
+          <p className="text-xs text-teal-900/60">
+            Stats are recorded when this skill is active on a completed task (runs / successes / failures).
+          </p>
+        ) : null}
 
         <ButtonWithHelp helpId="skills.save">
           <button

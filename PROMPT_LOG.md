@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 15:35] Skills Phase 2 — trajectory demos, ops links, stats, human URL capture
+
+- **Prompt Provided:** Go Phase 2 on Skills
+- **Architectural Flow:** Task trajectory → demo API; Operations skill events link to /skills; worker records URL/control during human demo + skill stats on complete; verification hints on finish
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Agent.js`, `backend/src/routes/skills.js`, `backend/src/routes/worker.js`, `worker/src/browserState/skills.js`, `worker/src/agent.js`, `frontend/src/components/TrajectoryPanel.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 15:05] Skills Phase 1 — demos, edit, training queue, worker injection
 
 - **Prompt Provided:** Go Phase 1 on Skills — demo recording on Take control, skill edit API/UI, training queue polish, production skill prompt injection

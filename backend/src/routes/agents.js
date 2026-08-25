@@ -22,6 +22,7 @@ import {
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { getPlatformSettings } from "../models/PlatformSettings.js";
 import { debitWallet } from "../utils/wallet.js";
+import { appendDemoStepIfActive } from "../utils/demoCapture.js";
 
 export const agentsRouter = Router();
 
@@ -603,6 +604,11 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       agent.controlQueue = agent.controlQueue.slice(-80);
     }
     await agent.save();
+    await appendDemoStepIfActive(agent, {
+      observation: agent.computer?.pageUrl || "",
+      action: { type: cmd.type, ...cmd },
+      result: "queued",
+    });
     res.json({
       ok: true,
       command: cmd,

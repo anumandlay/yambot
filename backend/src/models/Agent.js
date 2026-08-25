@@ -233,6 +233,12 @@ const agentSchema = new mongoose.Schema(
         ref: "Task",
         default: null,
       },
+      /** Active demonstration capture while user has Take control (Skills Phase 2). */
+      activeDemoId: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "Demonstration",
+        default: null,
+      },
     },
     /**
      * Latest JPEG screenshot from the cloud computer (base64, no data: prefix).

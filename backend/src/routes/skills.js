@@ -8,8 +8,42 @@ import { Router } from "express";
 import { Skill, SKILL_STATUSES } from "../models/Skill.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest, TRAINING_STATUSES } from "../models/TrainingRequest.js";
+import { Task } from "../models/Task.js";
 
 export const skillsRouter = Router();
+
+/**
+ * Converts stored task trajectory (or step events) into demonstration steps.
+ * @param {object} task
+ * @returns {object[]}
+ */
+function trajectoryToDemoSteps(task) {
+  let rows = [];
+  if (Array.isArray(task.trajectory) && task.trajectory.length) {
+    rows = task.trajectory;
+  } else {
+    rows = (task.events || [])
+      .filter((e) => e.type === "step" && e.payload?.action)
+      .map((e) => ({
+        step: e.payload?.step,
+        action: e.payload.action,
+        ok: e.payload?.result?.ok !== false,
+        failure_class: e.payload?.result?.failure_class,
+      }));
+  }
+  return rows.map((row) => {
+    const a = row.action || {};
+    const parts = [a.type || "action"];
+    if (a.ref) parts.push(`ref:${a.ref}`);
+    if (a.name) parts.push(`"${a.name}"`);
+    if (a.url) parts.push(a.url);
+    return {
+      observation: row.url_changed ? "Page navigated" : "",
+      action: a,
+      result: row.ok === false ? row.failure_class || "failed" : "ok",
+    };
+  });
+}
 
 skillsRouter.get("/", async (req, res, next) => {
   try {
@@ -72,6 +106,31 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
     demo.convertedSkill = skill._id;
     await demo.save();
     res.status(201).json({ ok: true, skill });
+  } catch (err) {
+    next(err);
+  }
+});
+
+skillsRouter.post("/demos/from-task/:taskId", async (req, res, next) => {
+  try {
+    const task = await Task.findOne({ _id: req.params.taskId, user: req.userId });
+    if (!task) {
+      res.status(404).json({ ok: false, detail: "Task missing" });
+      return;
+    }
+    const steps = trajectoryToDemoSteps(task);
+    if (!steps.length) {
+      res.status(400).json({ ok: false, detail: "Task has no trajectory to save" });
+      return;
+    }
+    const demo = await Demonstration.create({
+      user: req.userId,
+      agent: task.agent,
+      task: task._id,
+      title: String(req.body?.title || task.goal || "Task trajectory").trim().slice(0, 120),
+      steps,
+    });
+    res.status(201).json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);
   }

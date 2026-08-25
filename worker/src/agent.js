@@ -71,6 +71,7 @@ import {
   detectDbSkill,
   formatDbSkillBlock,
   computeDbSkillProgress,
+  evaluateSkillVerification,
   extractDomain,
   buildTrajectory,
   formatSiteHintsBlock,
@@ -135,6 +136,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   /** @type {ReturnType<typeof createBrowserTelemetry>|null} */
   let telemetry = null;
   let running = false;
+  /** Production DB skill active for the current task run (stats + verification). */
+  let currentActiveDbSkill = null;
   /** True while safeGoto holds the browser lock — popup handler must not close tabs mid-navigation. */
   let navigating = false;
   /** Whether the dashboard user currently has Take control (from last heartbeat). */
@@ -749,16 +752,33 @@ export function createCloudAgent({ api, config, log = console.log }) {
     });
   }
 
-  async function complete(taskId, { success, summary, error = "", history = [], siteDomain = "", llmUsage = null }) {
+  async function complete(taskId, { success, summary, error = "", history = [], siteDomain = "", llmUsage = null, activeSkill = null }) {
     const trajectory = buildTrajectory(history);
+    const skillForRun = activeSkill ?? currentActiveDbSkill;
+    let finalSummary = summary;
+    const skillVerificationNotes = [];
+    if (skillForRun) {
+      const check = evaluateSkillVerification(skillForRun, { success, summary, trajectory });
+      if (!check.passed && check.notes.length) {
+        skillVerificationNotes.push(...check.notes);
+        if (success) {
+          finalSummary = `${summary}\n\nSkill verification warnings: ${check.notes.join("; ")}`.slice(
+            0,
+            2000
+          );
+        }
+      }
+    }
     await api(`/api/worker/tasks/${taskId}/complete`, {
       method: "POST",
       body: JSON.stringify({
         success,
-        summary,
+        summary: finalSummary,
         error,
         trajectory,
         llmUsage: llmUsage ? snapshotLlmUsage(llmUsage) : undefined,
+        activeSkillId: skillForRun?._id || skillForRun?.id || null,
+        skillVerificationNotes,
       }),
     });
     if (siteDomain && config.agentId) {
@@ -1282,6 +1302,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const dbSkill = detectDbSkill(productionSkills, goal, pageUrl);
       const activeSkill = dbSkill ? null : templateSkill;
       const activeDbSkill = dbSkill || null;
+      currentActiveDbSkill = activeDbSkill;
       // Why: skip extra planning LLM call for login/short goals — saves ~20–30s before step 1.
       const goalText = String(goal || "").trim();
       let goalPlan =
@@ -1840,6 +1861,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         log(`[${config.workerName}] complete failed`, completeErr);
       }
     } finally {
+      currentActiveDbSkill = null;
       running = false;
     }
   }

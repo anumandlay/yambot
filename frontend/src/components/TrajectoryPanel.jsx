@@ -1,11 +1,13 @@
 /**
  * @fileoverview Task trajectory replay — compact step chain from Phase 5 learn layer.
- * Purpose: Debug agent runs in chat rail; shows action/ref/ok per step.
- * Downstream: ChatDetailPage; Task.trajectory + live step events fallback.
+ * Purpose: Debug agent runs in chat rail; save successful trajectories as skill demos.
+ * Downstream: ChatDetailPage; Task.trajectory + `/api/skills/demos/from-task/:id`.
  */
 
 import { useMemo, useState } from "react";
-import { SectionTitle } from "./FieldLabel.jsx";
+import { useNavigate } from "react-router-dom";
+import { api } from "../lib/api.js";
+import { ButtonWithHelp, SectionTitle } from "./FieldLabel.jsx";
 
 /**
  * Builds trajectory rows from stored trajectory or live step events.
@@ -42,12 +44,36 @@ export function trajectoryRowsFromTask(task) {
  * @param {{ task?: object|null, className?: string }} props
  */
 export function TrajectoryPanel({ task, className = "" }) {
+  const navigate = useNavigate();
   const rows = useMemo(() => trajectoryRowsFromTask(task), [task]);
   const [open, setOpen] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [msg, setMsg] = useState("");
 
   if (!rows.length) return null;
 
   const failed = rows.filter((r) => !r.ok).length;
+  const canSaveDemo =
+    task?._id && ["done", "error"].includes(String(task.status || ""));
+
+  async function saveAsDemo() {
+    if (!task?._id || busy) return;
+    setBusy(true);
+    setMsg("");
+    try {
+      const data = await api(`/api/skills/demos/from-task/${task._id}`, {
+        method: "POST",
+        body: JSON.stringify({ title: (task.goal || "Task trajectory").slice(0, 120) }),
+      });
+      setMsg("Demo saved — open Skills to convert.");
+      navigate("/skills");
+      return data;
+    } catch (err) {
+      setMsg(err.detail || err.message || "Could not save demo");
+    } finally {
+      setBusy(false);
+    }
+  }
 
   return (
     <details
@@ -56,13 +82,33 @@ export function TrajectoryPanel({ task, className = "" }) {
       onToggle={(e) => setOpen(e.currentTarget.open)}
     >
       <summary className="cursor-pointer list-none px-3 py-2 [&::-webkit-details-marker]:hidden">
-        <SectionTitle as="span" helpId="chat.trajectory" className="inline-flex">
-          Trajectory
-        </SectionTitle>
-        <span className="ml-2 rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
-          {rows.length} steps
-          {failed ? ` · ${failed} failed` : ""}
-        </span>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div>
+            <SectionTitle as="span" helpId="chat.trajectory" className="inline-flex">
+              Trajectory
+            </SectionTitle>
+            <span className="ml-2 rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
+              {rows.length} steps
+              {failed ? ` · ${failed} failed` : ""}
+            </span>
+          </div>
+          {canSaveDemo ? (
+            <ButtonWithHelp helpId="chat.trajectorySave">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={(e) => {
+                  e.preventDefault();
+                  saveAsDemo();
+                }}
+                className="min-h-8 rounded-lg border border-teal-200 bg-teal-50 px-2 text-xs font-semibold text-teal-800 disabled:opacity-50"
+              >
+                {busy ? "Saving…" : "→ Demo"}
+              </button>
+            </ButtonWithHelp>
+          ) : null}
+        </div>
+        {msg ? <p className="mt-1 text-xs text-teal-800">{msg}</p> : null}
       </summary>
       <div className="max-h-40 overflow-auto border-t border-teal-50 p-2">
         <table className="min-w-full font-mono text-[0.68rem]">

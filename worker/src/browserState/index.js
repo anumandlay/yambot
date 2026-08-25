@@ -60,6 +60,7 @@ export {
   detectDbSkill,
   formatDbSkillBlock,
   computeDbSkillProgress,
+  evaluateSkillVerification,
   normalizeSkillSteps,
   SKILL_TEMPLATES,
 } from "./skills.js";

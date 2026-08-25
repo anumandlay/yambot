@@ -867,6 +867,12 @@ export const HELP = {
       "Step-by-step record of actions on the current/recent task — replay what the agent did for audits and skill authoring."
     ),
   },
+  "chat.trajectorySave": {
+    title: "Save trajectory as demo",
+    body: helpBody(
+      "After a task finishes, saves the step chain as a Demonstration on Skills — convert to skill, edit triggers, set production."
+    ),
+  },
 
   // ─── Settings ────────────────────────────────────────────────────────
   "settings.llmApiKey": {

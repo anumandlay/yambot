@@ -5,6 +5,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
@@ -259,15 +260,33 @@ export function OperationsPage() {
             </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
-            {events.map((ev) => (
+            {events.map((ev) => {
+              const skillsLink =
+                ev.type === "training.requested" ||
+                ev.type === "demo.captured" ||
+                ev.type?.startsWith("skill.")
+                  ? "/skills"
+                  : null;
+              return (
               <li key={ev._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
                 <div className="font-semibold font-mono text-teal-900">{ev.type}</div>
                 <div className="text-teal-900/70">{ev.summary || "(no summary)"}</div>
-                <div className="text-xs text-teal-900/50">
-                  {ev.source} · {ev.createdAt ? new Date(ev.createdAt).toLocaleString() : ""}
+                <div className="mt-1 flex flex-wrap items-center gap-2 text-xs text-teal-900/50">
+                  <span>
+                    {ev.source} · {ev.createdAt ? new Date(ev.createdAt).toLocaleString() : ""}
+                  </span>
+                  {skillsLink ? (
+                    <Link
+                      to={skillsLink}
+                      className="rounded-md bg-teal-50 px-2 py-0.5 font-semibold text-teal-800"
+                    >
+                      Open Skills
+                    </Link>
+                  ) : null}
                 </div>
               </li>
-            ))}
+            );
+            })}
             {!events.length ? <p className="text-sm text-teal-900/60">No events yet.</p> : null}
           </ul>
         </div>

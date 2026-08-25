@@ -295,6 +295,7 @@ export function SkillsPage() {
                   {" · "}
                   {s.steps?.length || 0} steps
                   {s.triggers?.length ? ` · ${s.triggers.length} trigger(s)` : ""}
+                  {s.stats?.runs ? ` · used ${s.stats.runs}×` : ""}
                 </div>
               </div>
               <Link
