@@ -23,6 +23,7 @@ import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/Si
 import { getPlatformSettings } from "../models/PlatformSettings.js";
 import { debitWallet } from "../utils/wallet.js";
 import { appendDemoStepIfActive } from "../utils/demoCapture.js";
+import { finishActiveDemoForAgent } from "../utils/demoSession.js";
 
 export const agentsRouter = Router();
 
@@ -564,6 +565,7 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       agent.computer.humanControlAt = new Date();
       await agent.save();
       if (!active) {
+        await finishActiveDemoForAgent(agent);
         await resumeHandoffWaitingTask(agent._id);
       }
       res.json({

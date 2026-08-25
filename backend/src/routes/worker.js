@@ -25,6 +25,11 @@ import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import { Skill } from "../models/Skill.js";
 import { appendDemoStepIfActive, recordDemoUrlChange } from "../utils/demoCapture.js";
+import {
+  appendDemoSessionStep,
+  finishDemoSession,
+  startDemoSession,
+} from "../utils/demoSession.js";
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
@@ -902,21 +907,11 @@ workerRouter.get("/skills", async (req, res, next) => {
 workerRouter.post("/demos/start", async (req, res, next) => {
   try {
     const agentId = String(req.body?.agentId || "").trim();
-    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
-    if (!agent) {
-      res.status(404).json({ ok: false, detail: "Agent missing" });
-      return;
-    }
-    const demo = await Demonstration.create({
-      user: req.userId,
-      agent: agentId,
-      task: req.body?.taskId || null,
-      title: String(req.body?.title || "Demonstration").trim(),
-      steps: [],
+    const demo = await startDemoSession(req.userId, {
+      agentId,
+      taskId: req.body?.taskId || null,
+      title: req.body?.title,
     });
-    agent.computer = agent.computer || {};
-    agent.computer.activeDemoId = demo._id;
-    await agent.save();
     res.status(201).json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);
@@ -929,18 +924,15 @@ workerRouter.post("/demos/start", async (req, res, next) => {
 workerRouter.post("/demos/step", async (req, res, next) => {
   try {
     const demoId = String(req.body?.demoId || "").trim();
-    const demo = await Demonstration.findOne({ _id: demoId, user: req.userId });
+    const demo = await appendDemoSessionStep(req.userId, demoId, {
+      observation: req.body?.observation,
+      action: req.body?.action,
+      result: req.body?.result,
+    });
     if (!demo) {
       res.status(404).json({ ok: false, detail: "Demonstration missing" });
       return;
     }
-    demo.steps.push({
-      observation: String(req.body?.observation || ""),
-      action: req.body?.action || {},
-      result: String(req.body?.result || ""),
-      at: new Date(),
-    });
-    await demo.save();
     res.json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);
@@ -953,27 +945,11 @@ workerRouter.post("/demos/step", async (req, res, next) => {
 workerRouter.post("/demos/finish", async (req, res, next) => {
   try {
     const demoId = String(req.body?.demoId || "").trim();
-    const demo = await Demonstration.findOne({ _id: demoId, user: req.userId });
+    const demo = await finishDemoSession(req.userId, { demoId, title: req.body?.title });
     if (!demo) {
       res.status(404).json({ ok: false, detail: "Demonstration missing" });
       return;
     }
-    if (req.body?.title) demo.title = String(req.body.title).trim();
-    const agent = await Agent.findOne({ _id: demo.agent, user: req.userId });
-    if (agent?.computer?.activeDemoId && String(agent.computer.activeDemoId) === String(demo._id)) {
-      agent.computer.activeDemoId = null;
-      await agent.save();
-    }
-    await demo.save();
-    await emitEvent({
-      userId: req.userId,
-      type: "demo.captured",
-      source: "worker",
-      summary: `Demonstration captured: ${demo.title}`,
-      payload: { demonstrationId: String(demo._id), agentId: String(demo.agent) },
-      agentId: demo.agent,
-      significance: "medium",
-    });
     res.json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);

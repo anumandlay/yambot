@@ -9,6 +9,11 @@ import { Skill, SKILL_STATUSES, SKILL_EXECUTION_MODES } from "../models/Skill.js
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest, TRAINING_STATUSES } from "../models/TrainingRequest.js";
 import { Task } from "../models/Task.js";
+import {
+  appendDemoSessionStep,
+  finishDemoSession,
+  startDemoSession,
+} from "../utils/demoSession.js";
 
 export const skillsRouter = Router();
 
@@ -151,6 +156,58 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
     demo.convertedSkill = skill._id;
     await demo.save();
     res.status(201).json({ ok: true, skill });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/skills/demos/start — begin Take control demonstration (UI-facing). */
+skillsRouter.post("/demos/start", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    const demo = await startDemoSession(req.userId, {
+      agentId,
+      taskId: req.body?.taskId || null,
+      title: req.body?.title,
+    });
+    res.status(201).json({ ok: true, demonstration: demo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/skills/demos/step — append a demonstration step. */
+skillsRouter.post("/demos/step", async (req, res, next) => {
+  try {
+    const demoId = String(req.body?.demoId || "").trim();
+    const demo = await appendDemoSessionStep(req.userId, demoId, {
+      observation: req.body?.observation,
+      action: req.body?.action,
+      result: req.body?.result,
+    });
+    if (!demo) {
+      res.status(404).json({ ok: false, detail: "Demonstration missing" });
+      return;
+    }
+    res.json({ ok: true, demonstration: demo });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/** POST /api/skills/demos/finish — finalize demonstration + emit demo.captured. */
+skillsRouter.post("/demos/finish", async (req, res, next) => {
+  try {
+    const demoId = String(req.body?.demoId || "").trim();
+    const demo = await finishDemoSession(req.userId, {
+      demoId,
+      title: req.body?.title,
+    });
+    if (!demo) {
+      res.status(404).json({ ok: false, detail: "Demonstration missing" });
+      return;
+    }
+    res.json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);
   }

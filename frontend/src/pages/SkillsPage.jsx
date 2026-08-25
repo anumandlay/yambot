@@ -186,9 +186,18 @@ export function SkillsPage() {
       </section>
 
       <section className="flex flex-col gap-2">
-        <SectionTitle helpId="skills.demos" className="text-teal-900/80">
-          Demonstrations
-        </SectionTitle>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <SectionTitle helpId="skills.demos" className="text-teal-900/80">
+            Demonstrations
+          </SectionTitle>
+          <button
+            type="button"
+            onClick={() => load().catch((err) => setError(err))}
+            className="min-h-9 rounded-lg border border-teal-100 bg-white px-3 text-xs font-semibold text-teal-800"
+          >
+            Refresh
+          </button>
+        </div>
         <p className="text-xs text-teal-900/50">
           Recorded when you use <strong>Take control</strong> in a chat (clicks, typing, keys).
         </p>

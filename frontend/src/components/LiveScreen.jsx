@@ -6,6 +6,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ButtonWithHelp } from "./FieldLabel.jsx";
 
@@ -83,6 +84,8 @@ export function LiveScreen({
   const [busySession, setBusySession] = useState(false);
   const [typeBuf, setTypeBuf] = useState("");
   const [status, setStatus] = useState("");
+  const [demoRecording, setDemoRecording] = useState(false);
+  const [demoNotice, setDemoNotice] = useState(null);
   const [zoomed, setZoomed] = useState(false);
   const [viewSrc, setViewSrc] = useState("");
   const [viewError, setViewError] = useState("");
@@ -103,7 +106,7 @@ export function LiveScreen({
   async function recordDemoStep(step) {
     if (!demoIdRef.current) return;
     try {
-      await api("/api/worker/demos/step", {
+      await api("/api/skills/demos/step", {
         method: "POST",
         body: JSON.stringify({
           demoId: demoIdRef.current,
@@ -119,8 +122,9 @@ export function LiveScreen({
 
   async function startDemoCapture() {
     if (!recordDemo) return;
+    setDemoNotice(null);
     try {
-      const data = await api("/api/worker/demos/start", {
+      const data = await api("/api/skills/demos/start", {
         method: "POST",
         body: JSON.stringify({
           agentId,
@@ -128,16 +132,28 @@ export function LiveScreen({
           title: demoTitle,
         }),
       });
-      demoIdRef.current = data.demonstration?._id || null;
+      demoIdRef.current = data.demonstration?._id || data.demonstration?.id || null;
       if (demoIdRef.current) {
+        setDemoRecording(true);
+        setStatus("Recording demonstration — perform the workflow, then Give control back.");
         await recordDemoStep({
           observation: "Human took control",
           action: { type: "session", active: true },
           result: "recording",
         });
+      } else {
+        setDemoNotice({
+          tone: "error",
+          text: "Could not start demo recording — missing demo id from server.",
+        });
       }
-    } catch {
+    } catch (err) {
       demoIdRef.current = null;
+      setDemoRecording(false);
+      setDemoNotice({
+        tone: "error",
+        text: err.detail || err.message || "Could not start demo recording.",
+      });
     }
   }
 
@@ -145,15 +161,60 @@ export function LiveScreen({
     if (!demoIdRef.current) return false;
     const demoId = demoIdRef.current;
     demoIdRef.current = null;
+    setDemoRecording(false);
     try {
-      await api("/api/worker/demos/finish", {
+      await api("/api/skills/demos/finish", {
         method: "POST",
         body: JSON.stringify({ demoId, title: demoTitle }),
       });
-      setStatus("Control returned — demonstration saved to Skills.");
+      setStatus("");
+      setDemoNotice({
+        tone: "success",
+        text: "Demonstration saved — open Skills to convert it to a skill.",
+        href: "/skills",
+      });
       return true;
-    } catch {
+    } catch (err) {
+      setDemoNotice({
+        tone: "warn",
+        text:
+          (err.detail || err.message || "Could not confirm demo save.") +
+          " If you used Give control back, check Skills → Demonstrations anyway.",
+        href: "/skills",
+      });
       return false;
+    }
+  }
+
+  /**
+   * Releases human control and finalizes demo recording.
+   * @param {{ fromModalClose?: boolean }} [opts]
+   */
+  async function releaseHumanControl(opts = {}) {
+    if (!controlOnRef.current && !controlOn) return;
+    setBusySession(true);
+    setStatus(opts.fromModalClose ? "Closing control…" : "Giving control back…");
+    setDesktopError("");
+    try {
+      await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({ type: "session", active: false }),
+      });
+      setControlOn(false);
+      const savedDemo = await finishDemoCapture();
+      setDesktopSrc("");
+      setDesktopSessionKey((k) => k + 1);
+      if (!savedDemo) {
+        setStatus("Control returned to agent.");
+      }
+      if (zoomed) await openLiveView();
+    } catch (err) {
+      setDemoNotice({
+        tone: "error",
+        text: err.detail || err.message || "Could not release control",
+      });
+    } finally {
+      setBusySession(false);
     }
   }
 
@@ -220,8 +281,11 @@ export function LiveScreen({
      */
     async function onKeyDown(e) {
       if (!controlOnRef.current) return;
-      if (e.key === "Escape" && zoomed) {
+      if (e.key === "Escape") {
         e.preventDefault();
+        if (controlOnRef.current) {
+          void releaseHumanControl({ fromModalClose: true });
+        }
         setZoomed(false);
         setViewSrc("");
         setViewError("");
@@ -307,48 +371,48 @@ export function LiveScreen({
    * @param {boolean} active
    */
   async function setHumanSession(active) {
+    if (!active) {
+      await releaseHumanControl();
+      return;
+    }
     setBusySession(true);
-    setStatus(active ? "Taking control…" : "Giving control back…");
+    setStatus("Taking control…");
     setDesktopError("");
+    setDemoNotice(null);
     try {
       await api(`/api/agents/${agentId}/control`, {
         method: "POST",
-        body: JSON.stringify({ type: "session", active }),
+        body: JSON.stringify({ type: "session", active: true }),
       });
-      setControlOn(active);
-      if (active) {
-        await startDemoCapture();
-        setViewSrc("");
-        setViewError("");
-        if (!zoomed) setZoomed(true);
-        try {
-          const desk = await api(`/api/agents/${agentId}/desktop/session`, {
-            method: "POST",
-            body: JSON.stringify({ viewOnly: false }),
-          });
-          const path = desk.embedPath || "";
-          setDesktopSessionKey((k) => k + 1);
-          setDesktopSrc(path);
-          setStatus(
-            "Remote desktop connected — click inside the screen once, then use your mouse and keyboard."
-          );
-        } catch (deskErr) {
-          setDesktopSrc("");
-          setDesktopError(
-            deskErr.detail || deskErr.message || "Desktop stream unavailable; using click map."
-          );
-          setStatus("Take control (fallback click map) — desktop stream failed to open.");
-          requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
-        }
-      } else {
-        const savedDemo = await finishDemoCapture();
-        setDesktopSrc("");
+      setControlOn(true);
+      await startDemoCapture();
+      setViewSrc("");
+      setViewError("");
+      if (!zoomed) setZoomed(true);
+      try {
+        const desk = await api(`/api/agents/${agentId}/desktop/session`, {
+          method: "POST",
+          body: JSON.stringify({ viewOnly: false }),
+        });
+        const path = desk.embedPath || "";
         setDesktopSessionKey((k) => k + 1);
-        if (!savedDemo) setStatus("Control returned to agent.");
-        if (zoomed) await openLiveView();
+        setDesktopSrc(path);
+        setStatus(
+          "Remote desktop connected — click inside the screen once, then use your mouse and keyboard."
+        );
+      } catch (deskErr) {
+        setDesktopSrc("");
+        setDesktopError(
+          deskErr.detail || deskErr.message || "Desktop stream unavailable; using click map."
+        );
+        setStatus("Take control (fallback click map) — desktop stream failed to open.");
+        requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
       }
     } catch (err) {
-      setStatus(err.detail || err.message || "Could not change control");
+      setDemoNotice({
+        tone: "error",
+        text: err.detail || err.message || "Could not take control",
+      });
     } finally {
       setBusySession(false);
     }
@@ -576,10 +640,34 @@ export function LiveScreen({
 
         {controlOn ? (
           <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
+            {demoRecording ? (
+              <span className="mr-2 rounded bg-amber-200 px-1.5 py-0.5 font-bold uppercase tracking-wide text-amber-950">
+                Recording demo
+              </span>
+            ) : null}
             {desktopSrc
               ? "Agent paused — real remote desktop (noVNC). Click inside the screen once, then move your mouse and type. Press Give control back when finished."
               : "Agent paused — fallback click map (desktop stream unavailable). Click the screenshot; Shift+wheel scrolls. Prefer Give control back when done."}
             {desktopError ? ` (${desktopError})` : ""}
+          </p>
+        ) : null}
+
+        {demoNotice ? (
+          <p
+            className={`shrink-0 border-b px-3 py-2 text-xs ${
+              demoNotice.tone === "success"
+                ? "border-emerald-500/40 bg-emerald-950/70 text-emerald-50"
+                : demoNotice.tone === "warn"
+                  ? "border-amber-500/40 bg-amber-950/70 text-amber-50"
+                  : "border-red-500/40 bg-red-950/70 text-red-50"
+            }`}
+          >
+            {demoNotice.text}{" "}
+            {demoNotice.href ? (
+              <Link to={demoNotice.href} className="font-bold underline">
+                Open Skills
+              </Link>
+            ) : null}
           </p>
         ) : null}
 
@@ -735,6 +823,9 @@ export function LiveScreen({
             aria-modal="true"
             aria-label="Agent live screen full screen"
             onClick={() => {
+              if (controlOnRef.current) {
+                void releaseHumanControl({ fromModalClose: true });
+              }
               setZoomed(false);
               setViewSrc("");
               setViewError("");

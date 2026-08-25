@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 16:28] Fix demo save on Give control back
+
+- **Prompt Provided:** User does not see "demonstration saved" or demo.captured events after Take control
+- **Architectural Flow:** Server auto-finishes demo when control session ends; skills-facing demo API; LiveScreen shows recording/success/errors prominently
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/demoSession.js`, `backend/src/routes/skills.js`, `backend/src/routes/worker.js`, `backend/src/routes/agents.js`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/pages/SkillsPage.jsx`
+
 ## [2026-08-25 16:00] Skills Phase 3 — replay mode + verification enforcement
 
 - **Prompt Provided:** Go Phase 3 on Skills
