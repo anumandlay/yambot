@@ -24,6 +24,7 @@ import { Task, priorityRank } from "../models/Task.js";
  * @param {number} [opts.estimatedValueUsd]
  * @param {object} [opts.meta]
  * @param {string} [opts.source]
+ * @param {string} [opts.triggerRef]
  * @returns {Promise<{ task: import('mongoose').Document, chat: import('mongoose').Document, message: import('mongoose').Document }>}
  */
 export async function enqueueTask(opts) {
@@ -75,6 +76,7 @@ export async function enqueueTask(opts) {
     message: message._id,
     goal: goalText,
     goalRef: opts.goalRef || null,
+    triggerRef: opts.triggerRef || opts.meta?.triggerId || null,
     priority,
     priorityRank: priorityRank(priority),
     agent: agentId,

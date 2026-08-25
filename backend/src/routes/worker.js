@@ -10,6 +10,7 @@ import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
 import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
 import { Goal, recordGoalRun } from "../models/Goal.js";
+import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
 import { resolveLlmCredentials, resolveVisionLlmCredentials } from "../utils/llmCredentials.js";
@@ -494,6 +495,32 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
             summary: (summary || error || goalDoc.title || "").slice(0, 500),
             payload: {
               goalTitle: goalDoc.title,
+              success,
+              chatId: task.chat ? String(task.chat) : null,
+            },
+          });
+        }
+      }
+    }
+
+    if (task.triggerRef) {
+      const triggerDoc = await Trigger.findOne({ _id: task.triggerRef, user: req.userId });
+      if (triggerDoc) {
+        const customType = success
+          ? String(triggerDoc.completionEventType || "").trim()
+          : String(triggerDoc.completionEventOnFailure || "").trim();
+        if (customType) {
+          await emitEvent({
+            userId: req.userId,
+            type: customType,
+            source: "trigger",
+            significance: success ? "medium" : "low",
+            agentId: task.agent,
+            taskId: task._id,
+            summary: (summary || error || triggerDoc.name || "").slice(0, 500),
+            payload: {
+              triggerId: String(triggerDoc._id),
+              triggerName: triggerDoc.name,
               success,
               chatId: task.chat ? String(task.chat) : null,
             },

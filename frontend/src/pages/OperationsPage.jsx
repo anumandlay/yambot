@@ -25,6 +25,7 @@ export function OperationsPage() {
   const [triggerTaskText, setTriggerTaskText] = useState(
     "Log out of CRM (click Logout / Sign out and confirm you are logged out)."
   );
+  const [triggerCompletionEvent, setTriggerCompletionEvent] = useState("crm.logout.done");
   const [watcherUrl, setWatcherUrl] = useState("");
   const [watcherAgentId, setWatcherAgentId] = useState("");
 
@@ -77,10 +78,15 @@ export function OperationsPage() {
             instructions: triggerTaskText.trim() || "Respond to event",
           },
           config: { eventType: triggerEventType.trim() || "user.note" },
+          completionEventType: triggerCompletionEvent.trim(),
         }),
       });
       setTriggerName("");
-      setOkMsg("Trigger created — it will enqueue a task when the event type matches.");
+      setOkMsg(
+        triggerCompletionEvent.trim()
+          ? "Trigger created — when its task completes, it will emit your completion event."
+          : "Trigger created — it will enqueue a task when the event type matches."
+      );
       await load();
     } catch (err) {
       setError(err);
@@ -279,6 +285,17 @@ export function OperationsPage() {
                 onChange={(e) => setTriggerTaskText(e.target.value)}
               />
             </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.triggerCompletionEvent">
+                On task success — emit event type (optional)
+              </FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+                value={triggerCompletionEvent}
+                onChange={(e) => setTriggerCompletionEvent(e.target.value)}
+                placeholder="crm.logout.done"
+              />
+            </label>
             <ButtonWithHelp helpId="ops.triggerAdd">
               <button type="submit" className="min-h-11 self-start rounded-xl bg-teal-700 px-4 font-semibold text-white">
                 Add trigger
@@ -300,6 +317,11 @@ export function OperationsPage() {
                   {t.actionConfig?.instructions ? (
                     <div className="mt-1 line-clamp-2 text-xs text-teal-900/50">
                       Task: {t.actionConfig.instructions}
+                    </div>
+                  ) : null}
+                  {t.completionEventType ? (
+                    <div className="mt-1 text-xs text-teal-900/50">
+                      On success → emit <span className="font-mono">{t.completionEventType}</span>
                     </div>
                   ) : null}
                   <div className="mt-1 text-xs text-teal-900/40">

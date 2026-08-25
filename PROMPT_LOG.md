@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 14:36] Trigger completion events (chain triggers)
+
+- **Prompt Provided:** On trigger form, when this trigger's task completes, emit custom event (e.g. crm.logout.done) to fire another trigger
+- **Architectural Flow:** Trigger `completionEventType` → task stores `triggerRef` → worker `/complete` emits custom CompanyEvent → downstream triggers listen on bus
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Trigger.js`, `backend/src/models/Task.js`, `backend/src/utils/enqueueTask.js`, `backend/src/routes/triggers.js`, `backend/src/routes/worker.js`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 13:58] Goal completion events + true event triggers
 
 - **Prompt Provided:** True triggers — optional event type when goal finishes; IF crm.aanya.found THEN enqueue_task on worker agent

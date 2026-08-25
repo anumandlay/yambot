@@ -75,6 +75,13 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Link to Trigger when enqueued from triggerEngine (for completion events). */
+    triggerRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Trigger",
+      default: null,
+      index: true,
+    },
     priority: {
       type: String,
       enum: TASK_PRIORITIES,

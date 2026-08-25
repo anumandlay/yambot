@@ -5,6 +5,7 @@
  */
 
 import mongoose from "mongoose";
+import { normalizeGoalEventType } from "./Goal.js";
 
 export const TRIGGER_TYPES = ["time", "event", "condition", "threshold", "change", "anomaly"];
 export const TRIGGER_ACTIONS = ["enqueue_task", "emit_event", "delegate_goal", "escalate"];
@@ -35,6 +36,10 @@ const triggerSchema = new mongoose.Schema(
       default: "enqueue_task",
     },
     actionConfig: { type: mongoose.Schema.Types.Mixed, default: {} },
+    /** Event bus type emitted when this trigger's enqueued task completes successfully. */
+    completionEventType: { type: String, default: "", trim: true },
+    /** Event bus type emitted when this trigger's enqueued task fails. */
+    completionEventOnFailure: { type: String, default: "", trim: true },
     lastFiredAt: { type: Date, default: null },
     fireCount: { type: Number, default: 0 },
   },
@@ -42,3 +47,8 @@ const triggerSchema = new mongoose.Schema(
 );
 
 export const Trigger = mongoose.model("Trigger", triggerSchema);
+
+/** @param {string} value @returns {string} */
+export function normalizeTriggerEventType(value) {
+  return normalizeGoalEventType(value);
+}

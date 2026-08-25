@@ -75,6 +75,7 @@ export async function fireTrigger(trigger, ctx = {}) {
       agentId: String(trigger.agent),
       goalText: instructions,
       goalRef: trigger.goal ? String(trigger.goal) : null,
+      triggerRef: String(trigger._id),
       chatId: eventPayload.chatId || cfg.chatId || undefined,
       priority: cfg.priority || "normal",
       source: `trigger:${trigger._id}`,

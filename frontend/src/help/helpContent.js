@@ -1139,7 +1139,7 @@ export const HELP = {
     title: "Add trigger",
     body: helpBody(
       "Creates an event trigger: when the bus receives the event type (IF), enqueue a browser task on the chosen agent (THEN).",
-      "Pair with a goal completion event type (e.g. crm.aanya.found) for true automation chains."
+      "Optionally set a completion event type so when that task finishes, YamBot emits it on the bus and can fire another trigger (e.g. crm.logout.done)."
     ),
   },
   "ops.triggerEventType": {
@@ -1158,6 +1158,12 @@ export const HELP = {
     title: "Follow-up task text",
     body: helpBody(
       "Plain-English goal sent to the agent when the trigger fires (e.g. 'Log out of CRM'). Reuses the same chat when the event payload includes chatId."
+    ),
+  },
+  "ops.triggerCompletionEvent": {
+    title: "Completion event type",
+    body: helpBody(
+      "Optional. When this trigger's enqueued task finishes successfully, YamBot emits this event on the bus (e.g. crm.logout.done). Use it to chain another trigger: IF crm.logout.done → next step."
     ),
   },
   "ops.watcherAgent": {

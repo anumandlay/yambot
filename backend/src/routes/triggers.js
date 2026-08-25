@@ -5,7 +5,7 @@
  */
 
 import { Router } from "express";
-import { Trigger, TRIGGER_TYPES, TRIGGER_ACTIONS } from "../models/Trigger.js";
+import { Trigger, TRIGGER_TYPES, TRIGGER_ACTIONS, normalizeTriggerEventType } from "../models/Trigger.js";
 
 export const triggersRouter = Router();
 
@@ -35,6 +35,8 @@ triggersRouter.post("/", async (req, res, next) => {
       config: body.config || {},
       action: TRIGGER_ACTIONS.includes(body.action) ? body.action : "enqueue_task",
       actionConfig: body.actionConfig || {},
+      completionEventType: normalizeTriggerEventType(body.completionEventType),
+      completionEventOnFailure: normalizeTriggerEventType(body.completionEventOnFailure),
     });
     res.status(201).json({ ok: true, trigger });
   } catch (err) {
@@ -54,6 +56,12 @@ triggersRouter.put("/:id", async (req, res, next) => {
     if (body.enabled != null) trigger.enabled = Boolean(body.enabled);
     if (body.config != null) trigger.config = body.config;
     if (body.actionConfig != null) trigger.actionConfig = body.actionConfig;
+    if (body.completionEventType != null) {
+      trigger.completionEventType = normalizeTriggerEventType(body.completionEventType);
+    }
+    if (body.completionEventOnFailure != null) {
+      trigger.completionEventOnFailure = normalizeTriggerEventType(body.completionEventOnFailure);
+    }
     if (body.agentId != null || body.agent != null) {
       trigger.agent = body.agentId || body.agent || null;
     }
