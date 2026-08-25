@@ -120,70 +120,50 @@ export function LiveScreen({
     }
   }
 
-  async function startDemoCapture() {
+  /**
+   * Payload for session toggle — server starts/finishes demo recording.
+   * @returns {object}
+   */
+  function sessionControlBody(active) {
+    return {
+      type: "session",
+      active,
+      taskId: taskId || null,
+      demoTitle,
+    };
+  }
+
+  /**
+   * @param {{ _id?: string, id?: string, title?: string, stepCount?: number }|null|undefined} demonstration
+   */
+  function applyDemonstrationResult(demonstration) {
     if (!recordDemo) return;
-    setDemoNotice(null);
-    try {
-      const data = await api("/api/skills/demos/start", {
-        method: "POST",
-        body: JSON.stringify({
-          agentId,
-          taskId: taskId || null,
-          title: demoTitle,
-        }),
-      });
-      demoIdRef.current = data.demonstration?._id || data.demonstration?.id || null;
-      if (demoIdRef.current) {
-        setDemoRecording(true);
-        setStatus("Recording demonstration — perform the workflow, then Give control back.");
-        await recordDemoStep({
-          observation: "Human took control",
-          action: { type: "session", active: true },
-          result: "recording",
-        });
-      } else {
-        setDemoNotice({
-          tone: "error",
-          text: "Could not start demo recording — missing demo id from server.",
-        });
-      }
-    } catch (err) {
-      demoIdRef.current = null;
+    if (demonstration?._id || demonstration?.id) {
+      demoIdRef.current = demonstration._id || demonstration.id;
       setDemoRecording(false);
       setDemoNotice({
-        tone: "error",
-        text: err.detail || err.message || "Could not start demo recording.",
+        tone: "success",
+        text: `Demonstration saved (${demonstration.stepCount ?? "?"} steps) — convert it to a skill on Skills.`,
+        href: "/skills",
+      });
+      return;
+    }
+    demoIdRef.current = null;
+    setDemoRecording(false);
+    if (recordDemo) {
+      setDemoNotice({
+        tone: "warn",
+        text: "Control released, but no demonstration was saved. Use Take control from a task chat while the agent is LIVE.",
+        href: "/skills",
       });
     }
   }
 
-  async function finishDemoCapture() {
-    if (!demoIdRef.current) return false;
-    const demoId = demoIdRef.current;
-    demoIdRef.current = null;
-    setDemoRecording(false);
-    try {
-      await api("/api/skills/demos/finish", {
-        method: "POST",
-        body: JSON.stringify({ demoId, title: demoTitle }),
-      });
-      setStatus("");
-      setDemoNotice({
-        tone: "success",
-        text: "Demonstration saved — open Skills to convert it to a skill.",
-        href: "/skills",
-      });
-      return true;
-    } catch (err) {
-      setDemoNotice({
-        tone: "warn",
-        text:
-          (err.detail || err.message || "Could not confirm demo save.") +
-          " If you used Give control back, check Skills → Demonstrations anyway.",
-        href: "/skills",
-      });
-      return false;
-    }
+  async function startDemoCapture() {
+    if (!recordDemo) return;
+    setDemoNotice(null);
+    setDemoRecording(true);
+    setStatus("Recording demonstration — perform the workflow, then Give control back.");
   }
 
   /**
@@ -196,16 +176,18 @@ export function LiveScreen({
     setStatus(opts.fromModalClose ? "Closing control…" : "Giving control back…");
     setDesktopError("");
     try {
-      await api(`/api/agents/${agentId}/control`, {
+      const data = await api(`/api/agents/${agentId}/control`, {
         method: "POST",
-        body: JSON.stringify({ type: "session", active: false }),
+        body: JSON.stringify(sessionControlBody(false)),
       });
       setControlOn(false);
-      const savedDemo = await finishDemoCapture();
+      applyDemonstrationResult(data.demonstration);
       setDesktopSrc("");
       setDesktopSessionKey((k) => k + 1);
-      if (!savedDemo) {
+      if (!data.demonstration) {
         setStatus("Control returned to agent.");
+      } else {
+        setStatus("");
       }
       if (zoomed) await openLiveView();
     } catch (err) {
@@ -255,6 +237,9 @@ export function LiveScreen({
     function onKey(e) {
       if (e.key === "Escape") {
         e.preventDefault();
+        if (controlOnRef.current) {
+          void releaseHumanControl({ fromModalClose: true });
+        }
         setZoomed(false);
         setViewSrc("");
         setViewError("");
@@ -380,11 +365,12 @@ export function LiveScreen({
     setDesktopError("");
     setDemoNotice(null);
     try {
-      await api(`/api/agents/${agentId}/control`, {
+      const data = await api(`/api/agents/${agentId}/control`, {
         method: "POST",
-        body: JSON.stringify({ type: "session", active: true }),
+        body: JSON.stringify(sessionControlBody(true)),
       });
       setControlOn(true);
+      demoIdRef.current = data.demonstration?._id || data.demonstration?.id || null;
       await startDemoCapture();
       setViewSrc("");
       setViewError("");
@@ -844,8 +830,31 @@ export function LiveScreen({
         )
       : null;
 
+  function renderDemoNoticeBanner() {
+    if (!demoNotice) return null;
+    return (
+      <p
+        className={`rounded-xl border px-3 py-2 text-sm ${
+          demoNotice.tone === "success"
+            ? "border-emerald-200 bg-emerald-50 text-emerald-950"
+            : demoNotice.tone === "warn"
+              ? "border-amber-200 bg-amber-50 text-amber-950"
+              : "border-red-200 bg-red-50 text-red-950"
+        }`}
+      >
+        {demoNotice.text}{" "}
+        {demoNotice.href ? (
+          <Link to={demoNotice.href} className="font-bold underline">
+            Open Skills →
+          </Link>
+        ) : null}
+      </p>
+    );
+  }
+
   return (
     <>
+      {renderDemoNoticeBanner()}
       <section className={inlineShell}>
         {zoomed ? (
           <button

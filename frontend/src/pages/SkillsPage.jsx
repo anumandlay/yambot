@@ -199,7 +199,8 @@ export function SkillsPage() {
           </button>
         </div>
         <p className="text-xs text-teal-900/50">
-          Recorded when you use <strong>Take control</strong> in a chat (clicks, typing, keys).
+          Recorded when you use <strong>Take control</strong> in a task <strong>chat</strong> (agent must show
+          LIVE), then <strong>Give control back</strong>. Click Refresh after recording.
         </p>
         <ul className="flex flex-col gap-2">
           {demos.map((d) => (

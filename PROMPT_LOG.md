@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 16:48] Demo recording tied to Take control session (server-side)
+
+- **Prompt Provided:** Take control / give back — nothing saved, user wants to record a skill
+- **Architectural Flow:** `POST /api/agents/:id/control` session toggle starts/finishes demo on server; response includes demonstration; LiveScreen shows persistent success banner + Skills link
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/agents.js`, `frontend/src/components/LiveScreen.jsx`
+
 ## [2026-08-25 16:28] Fix demo save on Give control back
 
 - **Prompt Provided:** User does not see "demonstration saved" or demo.captured events after Take control

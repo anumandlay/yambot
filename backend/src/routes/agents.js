@@ -23,7 +23,12 @@ import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/Si
 import { getPlatformSettings } from "../models/PlatformSettings.js";
 import { debitWallet } from "../utils/wallet.js";
 import { appendDemoStepIfActive } from "../utils/demoCapture.js";
-import { finishActiveDemoForAgent } from "../utils/demoSession.js";
+import {
+  appendDemoSessionStep,
+  finishActiveDemoForAgent,
+  startDemoSession,
+} from "../utils/demoSession.js";
+import { Demonstration } from "../models/Demonstration.js";
 
 export const agentsRouter = Router();
 
@@ -563,15 +568,61 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       const active = Boolean(req.body?.active);
       agent.computer.humanControl = active;
       agent.computer.humanControlAt = new Date();
-      await agent.save();
-      if (!active) {
-        await finishActiveDemoForAgent(agent);
+      /** @type {import('mongoose').Document|null} */
+      let demonstration = null;
+      if (active) {
+        if (!agent.computer.activeDemoId) {
+          try {
+            demonstration = await startDemoSession(req.userId, {
+              agentId: agent._id,
+              taskId: req.body?.taskId || null,
+              title: req.body?.demoTitle || "Demonstration",
+            });
+            agent.computer.activeDemoId = demonstration._id;
+            await appendDemoSessionStep(req.userId, String(demonstration._id), {
+              observation: "Human took control",
+              action: { type: "session", active: true },
+              result: "recording",
+            });
+          } catch (err) {
+            console.error("[agents] demo session start failed", err?.message || err);
+          }
+        } else {
+          demonstration = await Demonstration.findOne({
+            _id: agent.computer.activeDemoId,
+            user: req.userId,
+          });
+        }
+      } else {
+        await agent.save();
+        demonstration = await finishActiveDemoForAgent(agent);
         await resumeHandoffWaitingTask(agent._id);
+        res.json({
+          ok: true,
+          humanControl: active,
+          queued: (agent.controlQueue || []).length,
+          demonstration: demonstration
+            ? {
+                _id: demonstration._id,
+                title: demonstration.title,
+                stepCount: demonstration.steps?.length || 0,
+              }
+            : null,
+        });
+        return;
       }
+      await agent.save();
       res.json({
         ok: true,
         humanControl: active,
         queued: (agent.controlQueue || []).length,
+        demonstration: demonstration
+          ? {
+              _id: demonstration._id,
+              title: demonstration.title,
+              stepCount: demonstration.steps?.length || 0,
+            }
+          : null,
       });
       return;
     }
