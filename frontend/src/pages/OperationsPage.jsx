@@ -26,6 +26,7 @@ export function OperationsPage() {
     "Log out of CRM (click Logout / Sign out and confirm you are logged out)."
   );
   const [triggerCompletionEvent, setTriggerCompletionEvent] = useState("crm.logout.done");
+  const [editingTriggerId, setEditingTriggerId] = useState(null);
   const [watcherUrl, setWatcherUrl] = useState("");
   const [watcherAgentId, setWatcherAgentId] = useState("");
 
@@ -58,7 +59,31 @@ export function OperationsPage() {
     return map;
   }, [agents]);
 
-  async function createTrigger(e) {
+  function resetTriggerForm() {
+    setEditingTriggerId(null);
+    setTriggerName("");
+    setTriggerEventType("crm.aanya.found");
+    setTriggerTaskText(
+      "Log out of CRM (click Logout / Sign out and confirm you are logged out)."
+    );
+    setTriggerCompletionEvent("crm.logout.done");
+    if (agents.length) setTriggerAgentId(String(agents[0]._id));
+  }
+
+  function startEditTrigger(trigger) {
+    setError(null);
+    setOkMsg("");
+    setEditingTriggerId(String(trigger._id));
+    setTriggerName(trigger.name || "");
+    setTriggerEventType(trigger.config?.eventType || "");
+    setTriggerAgentId(trigger.agent ? String(trigger.agent) : "");
+    setTriggerTaskText(trigger.actionConfig?.instructions || "");
+    setTriggerCompletionEvent(trigger.completionEventType || "");
+    setTab("triggers");
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function saveTrigger(e) {
     e.preventDefault();
     setError(null);
     setOkMsg("");
@@ -66,27 +91,37 @@ export function OperationsPage() {
       setError({ title: "Agent required", detail: "Pick which agent runs the follow-up task." });
       return;
     }
+    const payload = {
+      name: triggerName.trim() || "Event trigger",
+      type: "event",
+      action: "enqueue_task",
+      agentId: triggerAgentId,
+      actionConfig: {
+        instructions: triggerTaskText.trim() || "Respond to event",
+      },
+      config: { eventType: triggerEventType.trim() || "user.note" },
+      completionEventType: triggerCompletionEvent.trim(),
+    };
     try {
-      await api("/api/triggers", {
-        method: "POST",
-        body: JSON.stringify({
-          name: triggerName.trim() || "Event trigger",
-          type: "event",
-          action: "enqueue_task",
-          agentId: triggerAgentId,
-          actionConfig: {
-            instructions: triggerTaskText.trim() || "Respond to event",
-          },
-          config: { eventType: triggerEventType.trim() || "user.note" },
-          completionEventType: triggerCompletionEvent.trim(),
-        }),
-      });
-      setTriggerName("");
-      setOkMsg(
-        triggerCompletionEvent.trim()
-          ? "Trigger created — when its task completes, it will emit your completion event."
-          : "Trigger created — it will enqueue a task when the event type matches."
-      );
+      if (editingTriggerId) {
+        await api(`/api/triggers/${editingTriggerId}`, {
+          method: "PUT",
+          body: JSON.stringify(payload),
+        });
+        resetTriggerForm();
+        setOkMsg("Trigger updated.");
+      } else {
+        await api("/api/triggers", {
+          method: "POST",
+          body: JSON.stringify(payload),
+        });
+        setTriggerName("");
+        setOkMsg(
+          triggerCompletionEvent.trim()
+            ? "Trigger created — when its task completes, it will emit your completion event."
+            : "Trigger created — it will enqueue a task when the event type matches."
+        );
+      }
       await load();
     } catch (err) {
       setError(err);
@@ -96,6 +131,7 @@ export function OperationsPage() {
   async function deleteTrigger(id) {
     if (!window.confirm("Delete this trigger?")) return;
     setError(null);
+    if (editingTriggerId === String(id)) resetTriggerForm();
     try {
       await api(`/api/triggers/${id}`, { method: "DELETE" });
       setOkMsg("Trigger deleted.");
@@ -240,10 +276,14 @@ export function OperationsPage() {
       {tab === "triggers" ? (
         <div className="flex flex-col gap-3">
           <form
-            onSubmit={createTrigger}
-            className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
+            onSubmit={saveTrigger}
+            className={`flex flex-col gap-3 rounded-2xl border bg-white p-4 shadow-sm ${
+              editingTriggerId ? "border-teal-400 ring-2 ring-teal-200" : "border-teal-100"
+            }`}
           >
-            <h2 className="text-sm font-semibold text-teal-900/80">When event → run agent task</h2>
+            <h2 className="text-sm font-semibold text-teal-900/80">
+              {editingTriggerId ? "Edit trigger" : "When event → run agent task"}
+            </h2>
             <label className="flex flex-col gap-1 text-sm">
               <FieldLabel helpId="ops.triggerName">Trigger name</FieldLabel>
               <input
@@ -296,17 +336,35 @@ export function OperationsPage() {
                 placeholder="crm.logout.done"
               />
             </label>
-            <ButtonWithHelp helpId="ops.triggerAdd">
-              <button type="submit" className="min-h-11 self-start rounded-xl bg-teal-700 px-4 font-semibold text-white">
-                Add trigger
-              </button>
-            </ButtonWithHelp>
+            <div className="flex flex-wrap gap-2">
+              <ButtonWithHelp helpId="ops.triggerAdd">
+                <button
+                  type="submit"
+                  className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white"
+                >
+                  {editingTriggerId ? "Save changes" : "Add trigger"}
+                </button>
+              </ButtonWithHelp>
+              {editingTriggerId ? (
+                <button
+                  type="button"
+                  onClick={resetTriggerForm}
+                  className="min-h-11 rounded-xl border border-teal-200 bg-white px-4 text-sm font-semibold text-teal-900"
+                >
+                  Cancel
+                </button>
+              ) : null}
+            </div>
           </form>
           <ul className="flex flex-col gap-2">
             {triggers.map((t) => (
               <li
                 key={t._id}
-                className="flex flex-col gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm sm:flex-row sm:items-start sm:justify-between"
+                className={`flex flex-col gap-2 rounded-xl border bg-white p-3 text-sm sm:flex-row sm:items-start sm:justify-between ${
+                  editingTriggerId === String(t._id)
+                    ? "border-teal-400 ring-2 ring-teal-100"
+                    : "border-teal-100"
+                }`}
               >
                 <div className="min-w-0">
                   <div className="font-semibold">{t.name}</div>
@@ -329,13 +387,24 @@ export function OperationsPage() {
                     {t.lastFiredAt ? ` · last ${new Date(t.lastFiredAt).toLocaleString()}` : ""}
                   </div>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => deleteTrigger(t._id)}
-                  className="min-h-10 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700"
-                >
-                  Delete
-                </button>
+                <div className="flex shrink-0 gap-2">
+                  <ButtonWithHelp helpId="ops.triggerEdit">
+                    <button
+                      type="button"
+                      onClick={() => startEditTrigger(t)}
+                      className="min-h-10 rounded-xl border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-800"
+                    >
+                      Edit
+                    </button>
+                  </ButtonWithHelp>
+                  <button
+                    type="button"
+                    onClick={() => deleteTrigger(t._id)}
+                    className="min-h-10 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700"
+                  >
+                    Delete
+                  </button>
+                </div>
               </li>
             ))}
             {!triggers.length ? (

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 14:40] Operations trigger edit button
+
+- **Prompt Provided:** On `/operations`, add Edit button alongside Delete on triggers
+- **Architectural Flow:** Edit loads trigger into existing form → PUT `/api/triggers/:id` → list refresh
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 14:36] Trigger completion events (chain triggers)
 
 - **Prompt Provided:** On trigger form, when this trigger's task completes, emit custom event (e.g. crm.logout.done) to fire another trigger

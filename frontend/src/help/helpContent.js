@@ -1166,6 +1166,12 @@ export const HELP = {
       "Optional. When this trigger's enqueued task finishes successfully, YamBot emits this event on the bus (e.g. crm.logout.done). Use it to chain another trigger: IF crm.logout.done → next step."
     ),
   },
+  "ops.triggerEdit": {
+    title: "Edit trigger",
+    body: helpBody(
+      "Loads this trigger into the form above so you can change the event type, agent, task text, or completion event. Save changes or Cancel to discard."
+    ),
+  },
   "ops.watcherAgent": {
     title: "Watcher agent",
     body: helpBody(
