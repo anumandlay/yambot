@@ -12,10 +12,14 @@ export const EVENT_SOURCES = [
   "watcher",
   "trigger",
   "goal",
+  "goal_autonomy",
   "task",
   "agent",
+  "worker",
+  "skills",
   "anomaly",
   "user",
+  "manager_autonomy",
 ];
 
 const companyEventSchema = new mongoose.Schema(

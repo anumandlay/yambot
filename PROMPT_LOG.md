@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 16:55] Fix CompanyEvent source enum for demo.captured
+
+- **Prompt Provided:** CompanyEvent validation failed: source `skills` is not a valid enum value
+- **Architectural Flow:** Add `skills`, `worker`, and other in-use sources to `EVENT_SOURCES` so demo finish can emit `demo.captured`
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/CompanyEvent.js`
+
 ## [2026-08-25 16:48] Demo recording tied to Take control session (server-side)
 
 - **Prompt Provided:** Take control / give back — nothing saved, user wants to record a skill
