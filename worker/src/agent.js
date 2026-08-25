@@ -68,6 +68,9 @@ import {
   formatSkillBlock,
   computeSkillProgress,
   formatSkillProgressBlock,
+  detectDbSkill,
+  formatDbSkillBlock,
+  computeDbSkillProgress,
   extractDomain,
   buildTrajectory,
   formatSiteHintsBlock,
@@ -1263,11 +1266,26 @@ export function createCloudAgent({ api, config, log = console.log }) {
         appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
       });
 
-      const activeSkill = detectSkill(goal, page?.url?.() || agentSnapshot?.startUrl || "");
+      const pageUrl = page?.url?.() || agentSnapshot?.startUrl || "";
+      /** @type {object[]} */
+      let productionSkills = [];
+      try {
+        const skillData = await api(
+          `/api/worker/skills?agentId=${encodeURIComponent(config.agentId)}`
+        );
+        productionSkills = skillData?.skills || [];
+      } catch {
+        productionSkills = [];
+      }
+
+      const templateSkill = detectSkill(goal, pageUrl);
+      const dbSkill = detectDbSkill(productionSkills, goal, pageUrl);
+      const activeSkill = dbSkill ? null : templateSkill;
+      const activeDbSkill = dbSkill || null;
       // Why: skip extra planning LLM call for login/short goals — saves ~20–30s before step 1.
       const goalText = String(goal || "").trim();
       let goalPlan =
-        activeSkill?.id === "login" || goalText.length < 500
+        (activeDbSkill || activeSkill?.id === "login") || goalText.length < 500
           ? defaultPlan(goal)
           : await createGoalPlan({
               goal,
@@ -1457,9 +1475,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
           }
         }
 
-        const skillBlock = formatSkillBlock(activeSkill);
+        const skillBlock = activeDbSkill
+          ? formatDbSkillBlock(activeDbSkill)
+          : formatSkillBlock(activeSkill);
         const skillProgressBlock = formatSkillProgressBlock(
-          computeSkillProgress(activeSkill, history, obs)
+          activeDbSkill
+            ? computeDbSkillProgress(activeDbSkill, history)
+            : computeSkillProgress(activeSkill, history, obs)
         );
         const siteHintsBlock = formatSiteHintsBlock(siteProfile);
 

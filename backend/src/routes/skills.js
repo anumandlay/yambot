@@ -52,7 +52,20 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
       name: String(req.body?.name || demo.title || "Learned skill").trim(),
       description: `Generated from demonstration ${demo._id}`,
       status: "training",
-      steps: (demo.steps || []).map((s) => s.action).filter(Boolean),
+      steps: (demo.steps || []).map((s) => {
+        const a = s.action || {};
+        if (a.type === "type" && a.text) return `Type: ${a.text}`;
+        if (a.type === "click") {
+          const x = Math.round((Number(a.xNorm) || 0) * 100);
+          const y = Math.round((Number(a.yNorm) || 0) * 100);
+          return `Click at ${x}%, ${y}%`;
+        }
+        if (a.type === "key" && a.key) return `Press key: ${a.key}`;
+        if (a.type === "scroll") return `Scroll ${Number(a.dy) > 0 ? "down" : "up"}`;
+        if (a.type === "session") return "Human took control";
+        if (typeof a === "object" && Object.keys(a).length) return JSON.stringify(a);
+        return "";
+      }).filter(Boolean),
       verificationRules: ["Replay steps without error", "Match success criteria"],
       sourceDemonstration: demo._id,
     });
@@ -77,8 +90,75 @@ skillsRouter.get("/training", async (req, res, next) => {
   try {
     const filter = { user: req.userId };
     if (req.query.status) filter.status = String(req.query.status);
-    const requests = await TrainingRequest.find(filter).sort({ createdAt: -1 }).limit(50).lean();
+    const requests = await TrainingRequest.find(filter)
+      .populate("agent", "name")
+      .populate({
+        path: "task",
+        select: "chat goal status",
+        populate: { path: "chat", select: "_id title" },
+      })
+      .sort({ createdAt: -1 })
+      .limit(50)
+      .lean();
     res.json({ ok: true, requests });
+  } catch (err) {
+    next(err);
+  }
+});
+
+skillsRouter.get("/:id", async (req, res, next) => {
+  try {
+    const skill = await Skill.findOne({ _id: req.params.id, user: req.userId }).lean();
+    if (!skill) {
+      res.status(404).json({ ok: false, detail: "Skill missing" });
+      return;
+    }
+    res.json({ ok: true, skill });
+  } catch (err) {
+    next(err);
+  }
+});
+
+skillsRouter.patch("/:id", async (req, res, next) => {
+  try {
+    const skill = await Skill.findOne({ _id: req.params.id, user: req.userId });
+    if (!skill) {
+      res.status(404).json({ ok: false, detail: "Skill missing" });
+      return;
+    }
+    const body = req.body || {};
+    if (body.name != null) skill.name = String(body.name).trim();
+    if (body.description != null) skill.description = String(body.description).trim();
+    if (body.status != null && SKILL_STATUSES.includes(body.status)) skill.status = body.status;
+    if (body.agentId != null || body.agent != null) {
+      skill.agent = body.agentId || body.agent || null;
+    }
+    if (body.triggers != null) {
+      skill.triggers = Array.isArray(body.triggers)
+        ? body.triggers.map((t) => String(t).trim()).filter(Boolean)
+        : String(body.triggers)
+            .split(/[\n,]+/)
+            .map((t) => t.trim())
+            .filter(Boolean);
+    }
+    if (body.steps != null) {
+      skill.steps = Array.isArray(body.steps)
+        ? body.steps
+        : String(body.steps)
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean);
+    }
+    if (body.verificationRules != null) {
+      skill.verificationRules = Array.isArray(body.verificationRules)
+        ? body.verificationRules.map((r) => String(r).trim()).filter(Boolean)
+        : String(body.verificationRules)
+            .split("\n")
+            .map((r) => r.trim())
+            .filter(Boolean);
+    }
+    await skill.save();
+    res.json({ ok: true, skill });
   } catch (err) {
     next(err);
   }

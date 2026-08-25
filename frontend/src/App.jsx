@@ -29,6 +29,7 @@ import { WorkforcePage } from "./pages/WorkforcePage.jsx";
 import { OperationsPage } from "./pages/OperationsPage.jsx";
 import { CompanyPage } from "./pages/CompanyPage.jsx";
 import { SkillsPage } from "./pages/SkillsPage.jsx";
+import { SkillEditPage } from "./pages/SkillEditPage.jsx";
 import { HowToPage } from "./pages/HowToPage.jsx";
 import { AdminLoginPage } from "./pages/AdminLoginPage.jsx";
 import { AdminUsersPage } from "./pages/AdminUsersPage.jsx";
@@ -164,6 +165,8 @@ export default function App() {
           <Route path="/operations" element={<OperationsPage />} />
           <Route path="/company" element={<CompanyPage />} />
           <Route path="/skills" element={<SkillsPage />} />
+          <Route path="/skills/new" element={<SkillEditPage />} />
+          <Route path="/skills/:skillId" element={<SkillEditPage />} />
           <Route path="/how-to" element={<HowToPage />} />
           <Route path="/live" element={<LiveWallPage />} />
           <Route path="/chats/:chatId" element={<ChatDetailPage />} />

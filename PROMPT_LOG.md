@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 15:05] Skills Phase 1 — demos, edit, training queue, worker injection
+
+- **Prompt Provided:** Go Phase 1 on Skills — demo recording on Take control, skill edit API/UI, training queue polish, production skill prompt injection
+- **Architectural Flow:** Take control → `/api/worker/demos/*` → convert/edit skill → worker `GET /api/worker/skills` → `detectDbSkill` in agent prompt
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/skills.js`, `backend/src/routes/worker.js`, `worker/src/browserState/skills.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/App.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 14:40] Operations trigger edit button
 
 - **Prompt Provided:** On `/operations`, add Edit button alongside Delete on triggers

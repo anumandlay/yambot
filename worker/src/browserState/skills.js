@@ -163,3 +163,92 @@ export function formatSkillProgressBlock(progress) {
   if (!progress) return "";
   return `SKILL PROGRESS: step ${progress.current}/${progress.total} — ${progress.label}`;
 }
+
+/**
+ * Normalizes stored skill steps (strings or action objects) for prompt display.
+ * @param {unknown[]} steps
+ * @returns {string[]}
+ */
+export function normalizeSkillSteps(steps) {
+  return (steps || []).map((s) => {
+    if (typeof s === "string") return s.trim();
+    if (!s || typeof s !== "object") return String(s || "").trim();
+    const action = /** @type {{ type?: string, name?: string, text?: string, url?: string }} */ (s);
+    if (action.type) {
+      const parts = [action.type];
+      if (action.name) parts.push(`"${action.name}"`);
+      if (action.text) parts.push(`text: ${action.text}`);
+      if (action.url) parts.push(`url: ${action.url}`);
+      return parts.join(" ");
+    }
+    return JSON.stringify(s);
+  }).filter(Boolean);
+}
+
+/**
+ * Matches a production skill from MongoDB against goal text + URL using trigger patterns.
+ * @param {object[]} skills
+ * @param {string} goal
+ * @param {string} [url]
+ * @returns {object|null}
+ */
+export function detectDbSkill(skills, goal, url = "") {
+  const blob = `${goal} ${url}`;
+  let best = null;
+  let bestScore = 0;
+  for (const skill of skills || []) {
+    const triggers = skill.triggers || [];
+    if (!triggers.length) continue;
+    let score = 0;
+    for (const trigger of triggers) {
+      const pat = String(trigger || "").trim();
+      if (!pat) continue;
+      try {
+        if (new RegExp(pat, "i").test(blob)) score += 1;
+      } catch {
+        if (blob.toLowerCase().includes(pat.toLowerCase())) score += 1;
+      }
+    }
+    if (score > bestScore) {
+      bestScore = score;
+      best = skill;
+    }
+  }
+  return bestScore > 0 ? best : null;
+}
+
+/**
+ * @param {object|null} skill
+ * @returns {string}
+ */
+export function formatDbSkillBlock(skill) {
+  if (!skill) return "";
+  const lines = [`ACTIVE SKILL (learned): ${skill.name}`];
+  if (skill.description) lines.push(String(skill.description));
+  const steps = normalizeSkillSteps(skill.steps);
+  if (steps.length) {
+    lines.push("Suggested flow:");
+    for (let i = 0; i < steps.length; i += 1) {
+      lines.push(`  ${i + 1}. ${steps[i]}`);
+    }
+  }
+  if (skill.verificationRules?.length) {
+    lines.push("Verify:");
+    for (const rule of skill.verificationRules) lines.push(`  - ${rule}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * @param {object|null} skill
+ * @param {object[]} history
+ * @returns {{ current: number, total: number, label: string }|null}
+ */
+export function computeDbSkillProgress(skill, history) {
+  const steps = normalizeSkillSteps(skill?.steps);
+  if (!steps.length) return null;
+  const total = steps.length;
+  const actions = (history || []).filter((h) => h?.action?.type && h.action.type !== "finish").length;
+  const current = Math.min(Math.max(actions + 1, 1), total);
+  return { current, total, label: steps[current - 1] || steps[0] };
+}

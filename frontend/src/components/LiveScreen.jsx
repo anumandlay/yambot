@@ -59,6 +59,9 @@ function playwrightKeyFromEvent(e) {
  *   attention?: boolean,
  *   attentionReason?: string,
  *   wallMode?: boolean,
+ *   taskId?: string,
+ *   demoTitle?: string,
+ *   recordDemo?: boolean,
  * }} props
  */
 export function LiveScreen({
@@ -70,6 +73,9 @@ export function LiveScreen({
   attention: attentionProp,
   attentionReason: attentionReasonProp = "",
   wallMode = false,
+  taskId,
+  demoTitle = "Demonstration",
+  recordDemo = true,
 }) {
   const [live, setLive] = useState(null);
   const [error, setError] = useState(null);
@@ -88,6 +94,68 @@ export function LiveScreen({
   const imgRef = useRef(null);
   const stageRef = useRef(null);
   const controlOnRef = useRef(false);
+  const demoIdRef = useRef(null);
+
+  /**
+   * Appends one step to the active demonstration (best-effort).
+   * @param {{ observation?: string, action?: object, result?: string }} step
+   */
+  async function recordDemoStep(step) {
+    if (!demoIdRef.current) return;
+    try {
+      await api("/api/worker/demos/step", {
+        method: "POST",
+        body: JSON.stringify({
+          demoId: demoIdRef.current,
+          observation: step.observation || "",
+          action: step.action || {},
+          result: step.result || "",
+        }),
+      });
+    } catch {
+      /* demo recording must not block control */
+    }
+  }
+
+  async function startDemoCapture() {
+    if (!recordDemo) return;
+    try {
+      const data = await api("/api/worker/demos/start", {
+        method: "POST",
+        body: JSON.stringify({
+          agentId,
+          taskId: taskId || null,
+          title: demoTitle,
+        }),
+      });
+      demoIdRef.current = data.demonstration?._id || null;
+      if (demoIdRef.current) {
+        await recordDemoStep({
+          observation: "Human took control",
+          action: { type: "session", active: true },
+          result: "recording",
+        });
+      }
+    } catch {
+      demoIdRef.current = null;
+    }
+  }
+
+  async function finishDemoCapture() {
+    if (!demoIdRef.current) return false;
+    const demoId = demoIdRef.current;
+    demoIdRef.current = null;
+    try {
+      await api("/api/worker/demos/finish", {
+        method: "POST",
+        body: JSON.stringify({ demoId, title: demoTitle }),
+      });
+      setStatus("Control returned — demonstration saved to Skills.");
+      return true;
+    } catch {
+      return false;
+    }
+  }
 
   useEffect(() => {
     controlOnRef.current = controlOn;
@@ -168,6 +236,11 @@ export function LiveScreen({
           method: "POST",
           body: JSON.stringify({ type: "key", key }),
         });
+        await recordDemoStep({
+          observation: live?.pageUrl || "",
+          action: { type: "key", key },
+          result: "sent",
+        });
         setStatus(`Key ${key}`);
       } catch (err) {
         setStatus(err.detail || err.message || "Key failed");
@@ -244,6 +317,7 @@ export function LiveScreen({
       });
       setControlOn(active);
       if (active) {
+        await startDemoCapture();
         setViewSrc("");
         setViewError("");
         if (!zoomed) setZoomed(true);
@@ -267,9 +341,10 @@ export function LiveScreen({
           requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
         }
       } else {
+        const savedDemo = await finishDemoCapture();
         setDesktopSrc("");
         setDesktopSessionKey((k) => k + 1);
-        setStatus("Control returned to agent.");
+        if (!savedDemo) setStatus("Control returned to agent.");
         if (zoomed) await openLiveView();
       }
     } catch (err) {
@@ -298,6 +373,11 @@ export function LiveScreen({
         method: "POST",
         body: JSON.stringify({ type: "click", xNorm, yNorm }),
       });
+      await recordDemoStep({
+        observation: live?.pageUrl || "",
+        action: { type: "click", xNorm, yNorm },
+        result: "sent",
+      });
       setStatus("Click sent");
       stageRef.current?.focus({ preventScroll: true });
     } catch (err) {
@@ -319,6 +399,11 @@ export function LiveScreen({
         method: "POST",
         body: JSON.stringify({ type: "scroll", dy }),
       });
+      await recordDemoStep({
+        observation: live?.pageUrl || "",
+        action: { type: "scroll", dy },
+        result: "sent",
+      });
     } catch {
       /* ignore */
     }
@@ -335,6 +420,11 @@ export function LiveScreen({
       await api(`/api/agents/${agentId}/control`, {
         method: "POST",
         body: JSON.stringify({ type: "type", text: typeBuf }),
+      });
+      await recordDemoStep({
+        observation: live?.pageUrl || "",
+        action: { type: "type", text: typeBuf },
+        result: "sent",
       });
       setTypeBuf("");
       setStatus("Text sent");
@@ -353,6 +443,11 @@ export function LiveScreen({
       await api(`/api/agents/${agentId}/control`, {
         method: "POST",
         body: JSON.stringify({ type: "key", key }),
+      });
+      await recordDemoStep({
+        observation: live?.pageUrl || "",
+        action: { type: "key", key },
+        result: "sent",
       });
       setStatus(`Key ${key}`);
     } catch (err) {

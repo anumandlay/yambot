@@ -23,6 +23,7 @@ import { unblockDependentTasks } from "../utils/enqueueTask.js";
 import { emitEvent } from "../utils/eventBus.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
+import { Skill } from "../models/Skill.js";
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
@@ -839,6 +840,27 @@ workerRouter.post("/email/check", async (req, res, next) => {
       unseenOnly: Boolean(req.body?.unseenOnly),
     });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/worker/skills — production skills for prompt injection (agent-scoped + global).
+ */
+workerRouter.get("/skills", async (req, res, next) => {
+  try {
+    const agentId = String(req.query.agentId || "").trim();
+    const filter = { user: req.userId, status: "production" };
+    if (agentId) {
+      filter.$or = [{ agent: agentId }, { agent: null }];
+    }
+    const skills = await Skill.find(filter)
+      .select("name description triggers steps verificationRules status agent")
+      .sort({ updatedAt: -1 })
+      .limit(30)
+      .lean();
+    res.json({ ok: true, skills });
   } catch (err) {
     next(err);
   }

@@ -172,7 +172,14 @@ export function ChatDetailPage() {
           ) : null}
         </div>
         {agentId ? (
-          <LiveScreen agentId={String(agentId)} fill compact className="min-h-0 flex-1" />
+          <LiveScreen
+            agentId={String(agentId)}
+            taskId={activeRun?._id ? String(activeRun._id) : undefined}
+            demoTitle={(snapshotTask?.goal || chat?.title || "Chat demonstration").slice(0, 120)}
+            fill
+            compact
+            className="min-h-0 flex-1"
+          />
         ) : (
           <p className="flex min-h-0 flex-1 items-center rounded-2xl border border-dashed border-teal-200 bg-white p-3 text-sm text-teal-900/70">
             No agent bound — no cloud screen.

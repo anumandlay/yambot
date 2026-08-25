@@ -1257,7 +1257,7 @@ export const HELP = {
     title: "Skills page",
     body: helpBody(
       "Structured skill library + human demonstrations + training queue from agents.",
-      "Pipeline: agent stuck → training request → you demo with Take control → convert demo to skill → assign/replay."
+      "Pipeline: Take control in chat → demo saved → convert to skill → set production → agent gets step hints on matching tasks."
     ),
     learnMore: "howto-skills",
   },
@@ -1283,9 +1283,57 @@ export const HELP = {
   "skills.list": {
     title: "Skills library",
     body: helpBody(
-      "Named playbooks with steps, triggers, verification rules, status (draft/training/active).",
-      "Future: agent loop matches skill triggers to inject step hints."
+      "Named playbooks with steps, triggers, verification rules, status (draft/training/production).",
+      "Production skills inject step hints when triggers match the goal or page URL."
     ),
+  },
+  "skills.edit": {
+    title: "Edit skill",
+    body: helpBody(
+      "Review steps from a demo, add trigger patterns (regex or plain text), and set status to production when ready."
+    ),
+  },
+  "skills.triggers": {
+    title: "Skill triggers",
+    body: helpBody(
+      "One pattern per line — matched against goal text + current URL. Examples: crm\\.vughy\\.com, follow-up, logout"
+    ),
+  },
+  "skills.steps": {
+    title: "Skill steps",
+    body: helpBody(
+      "Plain-English steps injected into the agent prompt when this skill is active (one per line)."
+    ),
+  },
+  "skills.status": {
+    title: "Skill status",
+    body: helpBody(
+      "draft/training = not injected; production = worker loads on matching tasks; deprecated = kept for history."
+    ),
+  },
+  "skills.agent": {
+    title: "Skill agent",
+    body: helpBody(
+      "Optional — limit this skill to one agent. Leave blank for all agents on your account."
+    ),
+  },
+  "skills.description": {
+    title: "Skill description",
+    body: helpBody("Short summary shown in the agent prompt with the step list.")
+  },
+  "skills.verification": {
+    title: "Verification rules",
+    body: helpBody("Checks the agent should satisfy (shown as hints; enforcement is future work).")
+  },
+  "skills.production": {
+    title: "Production skills",
+    body: helpBody(
+      "Only production skills are loaded by the cloud worker. Triggers must match before steps are injected."
+    ),
+  },
+  "skills.save": {
+    title: "Save skill",
+    body: helpBody("Persists steps, triggers, and status for the worker to use on future tasks.")
   },
   "skills.name": {
     title: "Skill name",
@@ -1423,8 +1471,8 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "Two related concepts:",
       "A) Agent edit → Skill field: free-text capability description for the LLM every run.",
-      "B) Skills page: structured workflow library — steps, verification rules, demonstrations, training requests.",
-      "Workflow: agent hits unknown UI → request_training → you Take control and perform task → demo captured via worker API → Convert to skill → refine steps → mark training request done.",
+      "B) Skills page: structured workflow library — steps, triggers, demonstrations, training requests.",
+      "Workflow: agent hits unknown UI → training request → Open chat → Take control (demo auto-saves) → Convert to skill → edit triggers → set production → worker injects steps when triggers match goal/URL.",
       "Skills are how institutional knowledge transfers from humans to the workforce without rewriting prompts each time."
     ),
   },
