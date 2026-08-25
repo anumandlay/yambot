@@ -5,7 +5,15 @@
  */
 
 import { Router } from "express";
-import { Goal, GOAL_PRIORITIES, GOAL_STATUSES, buildGoalRunText, recordGoalRun, toGoalPublic } from "../models/Goal.js";
+import {
+  Goal,
+  GOAL_PRIORITIES,
+  GOAL_STATUSES,
+  buildGoalRunText,
+  normalizeGoalEventType,
+  recordGoalRun,
+  toGoalPublic,
+} from "../models/Goal.js";
 import { Agent, toAgentSnapshot } from "../models/Agent.js";
 import { Chat, Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
@@ -55,6 +63,12 @@ function pickGoalFields(body) {
       responseMinutes: Math.max(0, Number(body.sla.responseMinutes) || 0),
       name: String(body.sla.name || "").trim(),
     };
+  }
+  if (body.completionEventType != null) {
+    out.completionEventType = normalizeGoalEventType(body.completionEventType);
+  }
+  if (body.completionEventOnFailure != null) {
+    out.completionEventOnFailure = normalizeGoalEventType(body.completionEventOnFailure);
   }
   return out;
 }

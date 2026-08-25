@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 13:58] Goal completion events + true event triggers
+
+- **Prompt Provided:** True triggers — optional event type when goal finishes; IF crm.aanya.found THEN enqueue_task on worker agent
+- **Architectural Flow:** Goal `completionEventType` → worker `/complete` emits custom CompanyEvent (plus `task.completed`) → Operations trigger form picks event type + agent + task text → `processEventTriggers` enqueues follow-up task (reuses `chatId` from event payload when present)
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Goal.js`, `backend/src/routes/goals.js`, `backend/src/routes/worker.js`, `backend/src/routes/triggers.js`, `backend/src/utils/triggerEngine.js`, `frontend/src/pages/GoalEditPage.jsx`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-24 16:50] Chat message timestamps with seconds
 
 - **Prompt Provided:** In chat, for every message, show the time along with seconds

@@ -4,7 +4,7 @@
  * Downstream: `/api/events`, `/api/triggers`, `/api/watchers`.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
@@ -14,32 +14,57 @@ export function OperationsPage() {
   const [events, setEvents] = useState([]);
   const [triggers, setTriggers] = useState([]);
   const [watchers, setWatchers] = useState([]);
+  const [agents, setAgents] = useState([]);
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
-  const [triggerName, setTriggerName] = useState("");
-  const [watcherUrl, setWatcherUrl] = useState("");
   const [emitType, setEmitType] = useState("user.note");
   const [emitSummary, setEmitSummary] = useState("");
+  const [triggerName, setTriggerName] = useState("");
+  const [triggerEventType, setTriggerEventType] = useState("crm.aanya.found");
+  const [triggerAgentId, setTriggerAgentId] = useState("");
+  const [triggerTaskText, setTriggerTaskText] = useState(
+    "Log out of CRM (click Logout / Sign out and confirm you are logged out)."
+  );
+  const [watcherUrl, setWatcherUrl] = useState("");
+  const [watcherAgentId, setWatcherAgentId] = useState("");
 
   const load = useCallback(async () => {
-    const [ev, tr, wa] = await Promise.all([
+    const [ev, tr, wa, agentData] = await Promise.all([
       api("/api/events?limit=40"),
       api("/api/triggers"),
       api("/api/watchers"),
+      api("/api/agents"),
     ]);
     setEvents(ev.events || []);
     setTriggers(tr.triggers || []);
     setWatchers(wa.watchers || []);
+    setAgents(agentData.agents || []);
   }, []);
 
   useEffect(() => {
     load().catch((err) => setError(err));
   }, [load]);
 
+  useEffect(() => {
+    if (!agents.length) return;
+    setTriggerAgentId((prev) => prev || String(agents[0]._id));
+    setWatcherAgentId((prev) => prev || String(agents[0]._id));
+  }, [agents]);
+
+  const agentNameById = useMemo(() => {
+    const map = new Map();
+    for (const a of agents) map.set(String(a._id), a.name || a._id);
+    return map;
+  }, [agents]);
+
   async function createTrigger(e) {
     e.preventDefault();
     setError(null);
     setOkMsg("");
+    if (!triggerAgentId) {
+      setError({ title: "Agent required", detail: "Pick which agent runs the follow-up task." });
+      return;
+    }
     try {
       await api("/api/triggers", {
         method: "POST",
@@ -47,12 +72,27 @@ export function OperationsPage() {
           name: triggerName.trim() || "Event trigger",
           type: "event",
           action: "enqueue_task",
-          actionConfig: { goal: "Respond to event" },
-          config: { eventType: "user.note" },
+          agentId: triggerAgentId,
+          actionConfig: {
+            instructions: triggerTaskText.trim() || "Respond to event",
+          },
+          config: { eventType: triggerEventType.trim() || "user.note" },
         }),
       });
       setTriggerName("");
-      setOkMsg("Trigger created.");
+      setOkMsg("Trigger created — it will enqueue a task when the event type matches.");
+      await load();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function deleteTrigger(id) {
+    if (!window.confirm("Delete this trigger?")) return;
+    setError(null);
+    try {
+      await api(`/api/triggers/${id}`, { method: "DELETE" });
+      setOkMsg("Trigger deleted.");
       await load();
     } catch (err) {
       setError(err);
@@ -63,12 +103,19 @@ export function OperationsPage() {
     e.preventDefault();
     setError(null);
     setOkMsg("");
+    const target = watcherUrl.trim();
+    if (!target || !watcherAgentId) {
+      setError({ title: "Missing fields", detail: "Pick an agent and enter a URL to watch." });
+      return;
+    }
     try {
       await api("/api/watchers", {
         method: "POST",
         body: JSON.stringify({
-          name: watcherUrl.trim() || "URL watcher",
-          url: watcherUrl.trim(),
+          name: target,
+          agentId: watcherAgentId,
+          target,
+          targetType: "url",
           intervalMinutes: 30,
         }),
       });
@@ -149,7 +196,7 @@ export function OperationsPage() {
             <label className="flex flex-1 flex-col gap-1 text-sm">
               <FieldLabel helpId="ops.emitType">Type</FieldLabel>
               <input
-                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
                 value={emitType}
                 onChange={(e) => setEmitType(e.target.value)}
               />
@@ -172,7 +219,7 @@ export function OperationsPage() {
           <ul className="flex flex-col gap-2">
             {events.map((ev) => (
               <li key={ev._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
-                <div className="font-semibold text-teal-900">{ev.type}</div>
+                <div className="font-semibold font-mono text-teal-900">{ev.type}</div>
                 <div className="text-teal-900/70">{ev.summary || "(no summary)"}</div>
                 <div className="text-xs text-teal-900/50">
                   {ev.source} · {ev.createdAt ? new Date(ev.createdAt).toLocaleString() : ""}
@@ -188,32 +235,90 @@ export function OperationsPage() {
         <div className="flex flex-col gap-3">
           <form
             onSubmit={createTrigger}
-            className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
+            className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
           >
-            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            <h2 className="text-sm font-semibold text-teal-900/80">When event → run agent task</h2>
+            <label className="flex flex-col gap-1 text-sm">
               <FieldLabel helpId="ops.triggerName">Trigger name</FieldLabel>
               <input
-                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
                 value={triggerName}
                 onChange={(e) => setTriggerName(e.target.value)}
-                placeholder="Trigger name"
+                placeholder="e.g. Log out after Aanya found"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.triggerEventType">Listen for event type (IF)</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+                value={triggerEventType}
+                onChange={(e) => setTriggerEventType(e.target.value)}
+                placeholder="crm.aanya.found"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.triggerAgent">Run on agent (THEN)</FieldLabel>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={triggerAgentId}
+                onChange={(e) => setTriggerAgentId(e.target.value)}
+              >
+                <option value="">— pick agent —</option>
+                {agents.map((a) => (
+                  <option key={a._id} value={a._id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.triggerTask">Task instructions for agent</FieldLabel>
+              <textarea
+                className="min-h-20 rounded-xl border border-teal-100 px-3 py-2 text-sm"
+                value={triggerTaskText}
+                onChange={(e) => setTriggerTaskText(e.target.value)}
               />
             </label>
             <ButtonWithHelp helpId="ops.triggerAdd">
-              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-                Add
+              <button type="submit" className="min-h-11 self-start rounded-xl bg-teal-700 px-4 font-semibold text-white">
+                Add trigger
               </button>
             </ButtonWithHelp>
           </form>
           <ul className="flex flex-col gap-2">
             {triggers.map((t) => (
-              <li key={t._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
-                <div className="font-semibold">{t.name}</div>
-                <div className="text-teal-900/70">
-                  {t.type} → {t.action} {t.enabled ? "" : "(disabled)"}
+              <li
+                key={t._id}
+                className="flex flex-col gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm sm:flex-row sm:items-start sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold">{t.name}</div>
+                  <div className="mt-1 text-teal-900/70">
+                    IF <span className="font-mono">{t.config?.eventType || "?"}</span> → {t.action}
+                    {t.agent ? ` on ${agentNameById.get(String(t.agent)) || "agent"}` : " (no agent)"}
+                  </div>
+                  {t.actionConfig?.instructions ? (
+                    <div className="mt-1 line-clamp-2 text-xs text-teal-900/50">
+                      Task: {t.actionConfig.instructions}
+                    </div>
+                  ) : null}
+                  <div className="mt-1 text-xs text-teal-900/40">
+                    Fired {t.fireCount || 0}×
+                    {t.lastFiredAt ? ` · last ${new Date(t.lastFiredAt).toLocaleString()}` : ""}
+                  </div>
                 </div>
+                <button
+                  type="button"
+                  onClick={() => deleteTrigger(t._id)}
+                  className="min-h-10 shrink-0 rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700"
+                >
+                  Delete
+                </button>
               </li>
             ))}
+            {!triggers.length ? (
+              <p className="text-sm text-teal-900/60">No triggers yet. Add one above.</p>
+            ) : null}
           </ul>
         </div>
       ) : null}
@@ -222,9 +327,24 @@ export function OperationsPage() {
         <div className="flex flex-col gap-3">
           <form
             onSubmit={createWatcher}
-            className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
+            className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end"
           >
-            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            <label className="flex min-w-[12rem] flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="ops.watcherAgent">Agent</FieldLabel>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={watcherAgentId}
+                onChange={(e) => setWatcherAgentId(e.target.value)}
+              >
+                <option value="">— pick agent —</option>
+                {agents.map((a) => (
+                  <option key={a._id} value={a._id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex min-w-0 flex-[2] flex-col gap-1 text-sm">
               <FieldLabel helpId="ops.watcherUrl">URL to watch</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
@@ -242,10 +362,10 @@ export function OperationsPage() {
           <ul className="flex flex-col gap-2">
             {watchers.map((w) => (
               <li key={w._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
-                <div className="font-semibold">{w.name || w.url}</div>
-                <div className="truncate text-teal-900/70">{w.url}</div>
+                <div className="font-semibold">{w.name || w.target}</div>
+                <div className="truncate text-teal-900/70">{w.target}</div>
                 <div className="text-xs text-teal-900/50">
-                  every {w.intervalMinutes || 30}m · last hash {w.lastHash ? "set" : "—"}
+                  every {w.intervalMinutes || 30}m · changes {w.changeCount || 0}
                 </div>
               </li>
             ))}

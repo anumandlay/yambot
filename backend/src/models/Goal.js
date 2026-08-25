@@ -82,9 +82,28 @@ const goalSchema = new mongoose.Schema(
       responseMinutes: { type: Number, default: 0, min: 0 },
       name: { type: String, default: "", trim: true },
     },
+    /**
+     * Optional event bus type emitted when a linked task completes successfully
+     * (e.g. crm.aanya.found). Triggers can listen for this instead of task.completed.
+     */
+    completionEventType: { type: String, default: "", trim: true },
+    /** Optional event type when a linked task fails (e.g. crm.aanya.not_found). */
+    completionEventOnFailure: { type: String, default: "", trim: true },
   },
   { timestamps: true }
 );
+
+/**
+ * Normalizes dot-separated event type strings for the company event bus.
+ * @param {string} value
+ * @returns {string}
+ */
+export function normalizeGoalEventType(value) {
+  const t = String(value || "").trim();
+  if (!t) return "";
+  if (!/^[a-zA-Z][a-zA-Z0-9_.-]*$/.test(t)) return "";
+  return t.slice(0, 120);
+}
 
 /**
  * @param {import('mongoose').Document|object} doc
@@ -105,6 +124,8 @@ export function toGoalPublic(doc) {
     kpis: Array.isArray(g.kpis) ? g.kpis : [],
     autonomy: g.autonomy || { enabled: false, checkIntervalMinutes: 60, autoRun: true },
     sla: g.sla || { responseMinutes: 0, name: "" },
+    completionEventType: g.completionEventType || "",
+    completionEventOnFailure: g.completionEventOnFailure || "",
     stats: g.stats || { runs: 0, successes: 0, failures: 0, lastRunAt: null },
     chatId: g.chatId,
     createdAt: g.createdAt,

@@ -26,6 +26,8 @@ const EMPTY = {
   kpis: [{ name: "", target: "", current: "0", unit: "" }],
   autonomy: { enabled: false, checkIntervalMinutes: 60, autoRun: true },
   sla: { responseMinutes: 0, name: "" },
+  completionEventType: "",
+  completionEventOnFailure: "",
 };
 
 export function GoalEditPage() {
@@ -82,6 +84,8 @@ export function GoalEditPage() {
               responseMinutes: Number(g.sla?.responseMinutes) || 0,
               name: g.sla?.name || "",
             },
+            completionEventType: g.completionEventType || "",
+            completionEventOnFailure: g.completionEventOnFailure || "",
           });
         }
       } catch (err) {
@@ -391,6 +395,34 @@ export function GoalEditPage() {
                   sla: { ...prev.sla, responseMinutes: e.target.value },
                 }))
               }
+            />
+          </label>
+        </div>
+
+        <div className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-violet-50/30 p-3">
+          <SectionTitle helpId="goal.completionEventType" className="text-teal-900/80">
+            Completion events (triggers)
+          </SectionTitle>
+          <p className="text-xs text-teal-900/60">
+            When this goal&apos;s run finishes, YamBot can emit a custom event on the Operations bus.
+            Triggers listen for that type (e.g. <code className="font-mono">crm.aanya.found</code>).
+          </p>
+          <label className="flex flex-col gap-1 text-sm">
+            <FieldLabel helpId="goal.completionEventType">On success — event type</FieldLabel>
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+              value={form.completionEventType}
+              onChange={(e) => update("completionEventType", e.target.value)}
+              placeholder="crm.aanya.found"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <FieldLabel helpId="goal.completionEventOnFailure">On failure — event type (optional)</FieldLabel>
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+              value={form.completionEventOnFailure}
+              onChange={(e) => update("completionEventOnFailure", e.target.value)}
+              placeholder="crm.aanya.not_found"
             />
           </label>
         </div>

@@ -54,6 +54,12 @@ triggersRouter.put("/:id", async (req, res, next) => {
     if (body.enabled != null) trigger.enabled = Boolean(body.enabled);
     if (body.config != null) trigger.config = body.config;
     if (body.actionConfig != null) trigger.actionConfig = body.actionConfig;
+    if (body.agentId != null || body.agent != null) {
+      trigger.agent = body.agentId || body.agent || null;
+    }
+    if (body.action != null && TRIGGER_ACTIONS.includes(body.action)) {
+      trigger.action = body.action;
+    }
     await trigger.save();
     res.json({ ok: true, trigger });
   } catch (err) {

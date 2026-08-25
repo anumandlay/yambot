@@ -706,6 +706,20 @@ export const HELP = {
       "Measurable done-state for evaluation and autonomy ('KPI current updated', 'PDF downloaded', '3 sources cited')."
     ),
   },
+  "goal.completionEventType": {
+    title: "Completion event type (success)",
+    body: helpBody(
+      "Optional dot-separated event type emitted on the Operations bus when a Run finishes successfully (e.g. crm.aanya.found).",
+      "Triggers can listen for this type and automatically enqueue a follow-up browser task. task.completed still fires too."
+    ),
+    learnMore: "howto-operations",
+  },
+  "goal.completionEventOnFailure": {
+    title: "Completion event type (failure)",
+    body: helpBody(
+      "Optional event type when the run fails (agent finish success:false). Leave blank to emit nothing on failure."
+    ),
+  },
   "goal.kpi.name": {
     title: "KPI name",
     body: helpBody(
@@ -1124,7 +1138,32 @@ export const HELP = {
   "ops.triggerAdd": {
     title: "Add trigger",
     body: helpBody(
-      "Creates enabled event trigger listening for user.note by default — customize via API PUT."
+      "Creates an event trigger: when the bus receives the event type (IF), enqueue a browser task on the chosen agent (THEN).",
+      "Pair with a goal completion event type (e.g. crm.aanya.found) for true automation chains."
+    ),
+  },
+  "ops.triggerEventType": {
+    title: "Listen for event type",
+    body: helpBody(
+      "Exact event type that fires this trigger — must match an emitted event (goal completion type, task.completed, manual emit, webhook)."
+    ),
+  },
+  "ops.triggerAgent": {
+    title: "Agent for follow-up task",
+    body: helpBody(
+      "Which agent's cloud browser runs the task when the trigger fires. Required for enqueue_task."
+    ),
+  },
+  "ops.triggerTask": {
+    title: "Follow-up task text",
+    body: helpBody(
+      "Plain-English goal sent to the agent when the trigger fires (e.g. 'Log out of CRM'). Reuses the same chat when the event payload includes chatId."
+    ),
+  },
+  "ops.watcherAgent": {
+    title: "Watcher agent",
+    body: helpBody(
+      "Agent associated with this URL monitor (required by API)."
     ),
   },
   "ops.watchers": {

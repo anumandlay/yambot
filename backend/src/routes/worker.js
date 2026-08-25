@@ -479,6 +479,26 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       const goalDoc = await Goal.findOne({ _id: task.goalRef, user: req.userId });
       if (goalDoc) {
         await recordGoalRun(goalDoc, success);
+        const customType = success
+          ? String(goalDoc.completionEventType || "").trim()
+          : String(goalDoc.completionEventOnFailure || "").trim();
+        if (customType) {
+          await emitEvent({
+            userId: req.userId,
+            type: customType,
+            source: "goal",
+            significance: success ? "medium" : "low",
+            agentId: task.agent,
+            goalId: task.goalRef,
+            taskId: task._id,
+            summary: (summary || error || goalDoc.title || "").slice(0, 500),
+            payload: {
+              goalTitle: goalDoc.title,
+              success,
+              chatId: task.chat ? String(task.chat) : null,
+            },
+          });
+        }
       }
     }
 

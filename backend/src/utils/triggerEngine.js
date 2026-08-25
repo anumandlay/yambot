@@ -67,15 +67,19 @@ export async function fireTrigger(trigger, ctx = {}) {
     const instructions =
       cfg.instructions ||
       cfg.goalText ||
+      cfg.goal ||
       `Autonomous work from trigger "${trigger.name}"`;
+    const eventPayload = ctx.event?.payload && typeof ctx.event.payload === "object" ? ctx.event.payload : {};
     await enqueueTask({
       userId,
       agentId: String(trigger.agent),
       goalText: instructions,
       goalRef: trigger.goal ? String(trigger.goal) : null,
+      chatId: eventPayload.chatId || cfg.chatId || undefined,
       priority: cfg.priority || "normal",
       source: `trigger:${trigger._id}`,
       chatTitle: `Trigger · ${trigger.name}`.slice(0, 80),
+      meta: { triggerId: String(trigger._id), triggerEventType: ctx.event?.type || null },
     });
   } else if (trigger.action === "delegate_goal" && trigger.goal) {
     const goal = await Goal.findOne({ _id: trigger.goal, user: userId });
