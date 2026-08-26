@@ -8,10 +8,12 @@ import { Router } from "express";
 import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { Skill } from "../models/Skill.js";
+import { User } from "../models/User.js";
 import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
 import { resolveAgentMention } from "../utils/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../utils/skillSlash.js";
 import { createLearnedSkillDraft } from "../utils/skillLearn.js";
+import { routeCommonChat } from "../utils/chatRouter.js";
 
 export const chatsRouter = Router();
 
@@ -223,8 +225,8 @@ chatsRouter.get("/:id", async (req, res, next) => {
 });
 
 /**
- * PATCH /api/chats/:id — update common-chat settings (default agent pin).
- * Body: { defaultAgentId?: string|null }
+ * PATCH /api/chats/:id — update common-chat settings (default agent pin, auto-route).
+ * Body: { defaultAgentId?: string|null, autoRoute?: boolean }
  */
 chatsRouter.patch("/:id", async (req, res, next) => {
   try {
@@ -237,7 +239,7 @@ chatsRouter.patch("/:id", async (req, res, next) => {
       res.status(400).json({
         ok: false,
         title: "Agent chat",
-        detail: "Only common chats support a pinned default agent.",
+        detail: "Only common chats support router and default-agent settings.",
       });
       return;
     }
@@ -258,6 +260,10 @@ chatsRouter.patch("/:id", async (req, res, next) => {
         }
         chat.defaultAgent = agent._id;
       }
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "autoRoute")) {
+      chat.autoRoute = Boolean(req.body.autoRoute);
     }
 
     chat.updatedAt = new Date();
@@ -328,50 +334,126 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     }
 
     const common = isCommonChat(chat);
+    const autoRoute = common && chat.autoRoute !== false;
+    const confirmRoute = Boolean(req.body?.confirmRoute);
+    const bodyAgentId = req.body?.agentId ? String(req.body.agentId) : null;
+
     let agentDoc = null;
     let snapshot = null;
     let goalText = content;
     let mentionMeta = null;
     let invokedSkillDoc = null;
     let skillSlashMeta = null;
+    let routerMeta = null;
 
     if (common) {
-      const userAgents = await Agent.find({ user: req.userId, active: true })
-        .select("name")
-        .lean();
-      const mention = resolveAgentMention(content, userAgents);
-      const bodyAgentId = req.body?.agentId || null;
-      const pinnedId = chat.defaultAgent ? String(chat.defaultAgent) : null;
-      const lastId = chat.lastDispatchAgent ? String(chat.lastDispatchAgent) : null;
+      const [userAgents, productionSkills, userDoc] = await Promise.all([
+        Agent.find({ user: req.userId, active: true })
+          .select("name skill instructions")
+          .lean(),
+        Skill.find({ user: req.userId, status: "production" })
+          .select("name slug triggers description agent")
+          .lean(),
+        User.findById(req.userId),
+      ]);
 
-      let dispatchId = null;
-      let dispatchSource = null;
-      if (mention.matched && mention.agentId) {
-        dispatchId = mention.agentId;
-        dispatchSource = "mention";
-        goalText = mention.strippedContent || content;
+      const mention = resolveAgentMention(content, userAgents);
+      let afterMention = mention.matched ? mention.strippedContent || content : content;
+      if (mention.matched) {
         mentionMeta = {
           matched: true,
           agentName: mention.agentName,
           stripped: mention.strippedContent !== content,
         };
-      } else if (bodyAgentId) {
-        dispatchId = String(bodyAgentId);
+      }
+
+      const slash = parseSkillSlash(afterMention);
+      if (slash) {
+        invokedSkillDoc = findSkillBySlash(productionSkills, slash.slug);
+        if (!invokedSkillDoc) {
+          res.status(404).json({
+            ok: false,
+            title: "Skill not found",
+            detail: `No production skill matches /${slash.slug}.`,
+            hint: "Set skill status to production and ensure slug matches (Skills → edit).",
+          });
+          return;
+        }
+        goalText = slash.goal;
+        skillSlashMeta = {
+          slug: slash.slug,
+          skillId: invokedSkillDoc._id,
+          skillName: invokedSkillDoc.name,
+        };
+      } else {
+        goalText = afterMention;
+      }
+
+      let dispatchId = null;
+      let dispatchSource = null;
+
+      if (mention.matched && mention.agentId) {
+        dispatchId = mention.agentId;
+        dispatchSource = "mention";
+      } else if (confirmRoute && bodyAgentId) {
+        dispatchId = bodyAgentId;
+        dispatchSource = "confirm";
+      } else if (!autoRoute && bodyAgentId) {
+        dispatchId = bodyAgentId;
         dispatchSource = "picker";
-      } else if (pinnedId) {
-        dispatchId = pinnedId;
+      } else if (invokedSkillDoc?.agent) {
+        dispatchId = String(invokedSkillDoc.agent);
+        dispatchSource = "skill_agent";
+      } else if (autoRoute) {
+        const routeGoal = String(goalText || afterMention || "").trim();
+        const route = await routeCommonChat({
+          user: userDoc,
+          agents: userAgents,
+          skills: productionSkills,
+          goalText: routeGoal,
+          invokedSkill: invokedSkillDoc,
+        });
+        if (route?.needsConfirm && !confirmRoute) {
+          res.status(409).json({
+            ok: false,
+            needsConfirm: true,
+            title: "Confirm agent",
+            detail: `Route to ${route.agentName}? (${Math.round(route.confidence * 100)}% confidence)`,
+            hint: route.reason,
+            suggestion: route,
+          });
+          return;
+        }
+        if (route) {
+          dispatchId = route.agentId;
+          dispatchSource = "router";
+          routerMeta = route;
+        }
+      }
+
+      if (!dispatchId && !autoRoute && chat.defaultAgent) {
+        dispatchId = String(chat.defaultAgent);
         dispatchSource = "default";
-      } else if (lastId) {
-        dispatchId = lastId;
-        dispatchSource = "last";
+      }
+      if (!dispatchId && bodyAgentId) {
+        dispatchId = bodyAgentId;
+        dispatchSource = dispatchSource || "picker";
+      }
+      if (!dispatchId && chat.lastDispatchAgent) {
+        dispatchId = String(chat.lastDispatchAgent);
+        dispatchSource = dispatchSource || "last";
+      }
+      if (!dispatchId && chat.defaultAgent) {
+        dispatchId = String(chat.defaultAgent);
+        dispatchSource = dispatchSource || "default";
       }
 
       if (!dispatchId) {
         res.status(400).json({
           ok: false,
           title: "Agent required",
-          detail: "Pick an agent, pin a default, or start your message with @AgentName.",
-          hint: "Example: @CRM Bot /crm-followup check Aanya",
+          detail: "No agent could be routed for this goal.",
+          hint: "Use @AgentName, enable auto-route, or pick an agent manually.",
         });
         return;
       }
@@ -387,37 +469,37 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       }
       snapshot = toAgentSnapshot(agentDoc);
       chat.lastDispatchAgent = agentDoc._id;
-      mentionMeta = { ...(mentionMeta || { matched: false }), dispatchSource };
+      mentionMeta = {
+        ...(mentionMeta || { matched: false }),
+        dispatchSource,
+        router: routerMeta,
+      };
     } else if (chat.agent) {
+      goalText = content;
+      const slash = parseSkillSlash(goalText);
+      if (slash) {
+        const productionSkills = await Skill.find({ user: req.userId, status: "production" })
+          .select("name slug triggers description agent")
+          .lean();
+        invokedSkillDoc = findSkillBySlash(productionSkills, slash.slug);
+        if (!invokedSkillDoc) {
+          res.status(404).json({
+            ok: false,
+            title: "Skill not found",
+            detail: `No production skill matches /${slash.slug}.`,
+            hint: "Set skill status to production and ensure slug matches (Skills → edit).",
+          });
+          return;
+        }
+        goalText = slash.goal;
+        skillSlashMeta = {
+          slug: slash.slug,
+          skillId: invokedSkillDoc._id,
+          skillName: invokedSkillDoc.name,
+        };
+      }
       agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
-    }
-
-    const slash = parseSkillSlash(goalText);
-    if (slash) {
-      const skillFilter = { user: req.userId, status: "production" };
-      if (agentDoc?._id) {
-        skillFilter.$or = [{ agent: agentDoc._id }, { agent: null }];
-      }
-      const productionSkills = await Skill.find(skillFilter)
-        .select("name slug triggers description agent")
-        .lean();
-      invokedSkillDoc = findSkillBySlash(productionSkills, slash.slug);
-      if (!invokedSkillDoc) {
-        res.status(404).json({
-          ok: false,
-          title: "Skill not found",
-          detail: `No production skill matches /${slash.slug}.`,
-          hint: "Set skill status to production and ensure slug matches (Skills → edit).",
-        });
-        return;
-      }
-      goalText = slash.goal;
-      skillSlashMeta = {
-        slug: slash.slug,
-        skillId: invokedSkillDoc._id,
-        skillName: invokedSkillDoc.name,
-      };
     }
 
     if (!goalText.trim()) {
@@ -485,6 +567,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         dispatchAgentName: snapshot?.name || agentDoc.name,
         goalText,
         mention: mentionMeta,
+        router: routerMeta,
       });
     }
     if (skillSlashMeta) {
@@ -522,6 +605,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             runner: "cloud",
             fromCommonChat: common,
             dispatchSource: mentionMeta?.dispatchSource || null,
+            routerConfidence: routerMeta?.confidence ?? null,
+            routerReason: routerMeta?.reason || null,
             invokedSkillId: invokedSkillDoc?._id || null,
             invokedSkillName: invokedSkillDoc?.name || null,
             skillSlug: skillSlashMeta?.slug || null,
@@ -532,12 +617,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
     const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
     const skillLabel = invokedSkillDoc?.name ? ` with skill /${skillSlashMeta?.slug || invokedSkillDoc.slug}` : "";
+    const routeLabel =
+      routerMeta?.agentName && mentionMeta?.dispatchSource === "router"
+        ? ` (auto-routed, ${Math.round((routerMeta.confidence || 0) * 100)}%)`
+        : "";
     const queueHint =
       "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
-      content: `Goal queued${agentLabel}${skillLabel}. ${queueHint}`,
+      content: `Goal queued${agentLabel}${skillLabel}${routeLabel}. ${queueHint}`,
       meta: {
         taskId: task._id,
         status: "pending",

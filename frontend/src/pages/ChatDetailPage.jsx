@@ -25,7 +25,10 @@ export function ChatDetailPage() {
   const [productionSkills, setProductionSkills] = useState([]);
   const [dispatchAgentId, setDispatchAgentId] = useState("");
   const [pinDefault, setPinDefault] = useState(false);
+  const [autoRoute, setAutoRoute] = useState(true);
   const [pinBusy, setPinBusy] = useState(false);
+  const [routeBusy, setRouteBusy] = useState(false);
+  const [pendingRoute, setPendingRoute] = useState(null);
   const [watchAgentId, setWatchAgentId] = useState("");
   const [messages, setMessages] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -53,6 +56,7 @@ export function ChatDetailPage() {
         const pinned = loadedChat.defaultAgent?._id || loadedChat.defaultAgent || "";
         const last = loadedChat.lastDispatchAgent?._id || loadedChat.lastDispatchAgent || "";
         setPinDefault(Boolean(pinned));
+        setAutoRoute(loadedChat.autoRoute !== false);
         setDispatchAgentId((prev) => {
           if (prev) return prev;
           if (pinned) return String(pinned);
@@ -245,28 +249,14 @@ export function ChatDetailPage() {
     setError(null);
     stickToBottomRef.current = true;
     try {
-      const body = { content };
-      if (isCommon && !mention?.matched) {
-        if (!dispatchAgentId) {
-          setError({
-            title: "Pick an agent",
-            detail: "Choose an agent, pin a default, or start with @AgentName.",
-            hint: "Example: @CRM Bot check Aanya follow-up",
-          });
-          setBusy(false);
-          return;
-        }
-        body.agentId = dispatchAgentId;
-      }
-      await api(`/api/chats/${chatId}/messages`, {
-        method: "POST",
-        body: JSON.stringify(body),
-      });
-      setInput("");
-      await load();
-      scrollThreadToBottom(true);
+      await postGoalMessage(content);
     } catch (err) {
-      setError(err);
+      if (err?.status === 409 && err?.needsConfirm && err?.suggestion) {
+        setPendingRoute({ content, suggestion: err.suggestion });
+        setError(null);
+      } else {
+        setError(err);
+      }
     } finally {
       setBusy(false);
     }
@@ -288,6 +278,71 @@ export function ChatDetailPage() {
       setAnswer("");
       await load();
       scrollThreadToBottom(true);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function toggleAutoRoute() {
+    if (!isCommon) return;
+    setRouteBusy(true);
+    setError(null);
+    try {
+      const next = !autoRoute;
+      await api(`/api/chats/${chatId}`, {
+        method: "PATCH",
+        body: JSON.stringify({ autoRoute: next }),
+      });
+      setAutoRoute(next);
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setRouteBusy(false);
+    }
+  }
+
+  /**
+   * @param {string} content
+   * @param {{ confirmRoute?: boolean, agentId?: string }} [opts]
+   */
+  async function postGoalMessage(content, opts = {}) {
+    const mention = isCommon ? resolveAgentMention(content, agents) : null;
+    const body = { content };
+    if (opts.confirmRoute) {
+      body.confirmRoute = true;
+      body.agentId = opts.agentId;
+    } else if (isCommon && !autoRoute && !mention?.matched) {
+      if (!dispatchAgentId) {
+        const err = new Error("Auto-route is off — choose an agent or use @mention.");
+        err.title = "Pick an agent";
+        err.detail = err.message;
+        throw err;
+      }
+      body.agentId = dispatchAgentId;
+    }
+    await api(`/api/chats/${chatId}/messages`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    });
+    setInput("");
+    setPendingRoute(null);
+    await load();
+    scrollThreadToBottom(true);
+  }
+
+  async function confirmPendingRoute() {
+    if (!pendingRoute) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await postGoalMessage(pendingRoute.content, {
+        confirmRoute: true,
+        agentId: pendingRoute.suggestion.agentId,
+      });
+      setDispatchAgentId(String(pendingRoute.suggestion.agentId));
     } catch (err) {
       setError(err);
     } finally {
@@ -436,8 +491,22 @@ export function ChatDetailPage() {
         <form onSubmit={sendGoal} className="flex flex-col gap-2">
           {isCommon ? (
             <>
+              <label className="flex items-center gap-2 text-sm text-violet-950">
+                <input
+                  type="checkbox"
+                  checked={autoRoute}
+                  disabled={routeBusy}
+                  onChange={toggleAutoRoute}
+                  className="h-4 w-4 rounded border-violet-200"
+                />
+                <FieldLabel helpId="chat.autoRoute" className="text-sm">
+                  Auto-route to best agent
+                </FieldLabel>
+              </label>
               <label className="flex w-full flex-col gap-1 text-sm">
-                <FieldLabel helpId="chat.agentPicker">Dispatch to agent</FieldLabel>
+                <FieldLabel helpId="chat.agentPicker">
+                  {autoRoute ? "Override agent (optional)" : "Dispatch to agent"}
+                </FieldLabel>
                 <select
                   className="min-h-11 w-full rounded-xl border border-violet-100 bg-white px-3"
                   value={dispatchAgentId}
@@ -495,6 +564,35 @@ export function ChatDetailPage() {
               ) : null}
             </>
           ) : null}
+          {pendingRoute ? (
+            <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+              <p>
+                Route to <strong>{pendingRoute.suggestion.agentName}</strong>? (
+                {Math.round((pendingRoute.suggestion.confidence || 0) * 100)}% confidence)
+              </p>
+              <p className="text-xs text-amber-900/80">{pendingRoute.suggestion.reason}</p>
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  onClick={confirmPendingRoute}
+                  disabled={busy}
+                  className="min-h-10 rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Confirm
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setPendingRoute(null);
+                    setDispatchAgentId(String(pendingRoute.suggestion.agentId));
+                  }}
+                  className="min-h-10 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950"
+                >
+                  Pick different agent
+                </button>
+              </div>
+            </div>
+          ) : null}
           <FieldLabel helpId="chat.goalInput" className="text-sm">
             Goal / instructions
           </FieldLabel>
@@ -502,7 +600,9 @@ export function ChatDetailPage() {
             className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
             placeholder={
               isCommon
-                ? "@Agent /skill-slug goal… or /learn"
+                ? autoRoute
+                  ? "Type your goal — auto-routes to the best agent"
+                  : "@Agent /skill-slug goal… or /learn"
                 : "/skill-slug goal… or /learn"
             }
             value={input}

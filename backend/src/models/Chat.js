@@ -66,6 +66,8 @@ const chatSchema = new mongoose.Schema(
       ref: "Agent",
       default: null,
     },
+    /** Phase D: LLM/heuristic auto-router when no @mention in common chat. */
+    autoRoute: { type: Boolean, default: true },
   },
   { timestamps: true }
 );

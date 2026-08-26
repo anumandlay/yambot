@@ -827,8 +827,15 @@ export const HELP = {
   "chat.pinDefault": {
     title: "Pin default agent",
     body: helpBody(
-      "Saves the selected agent as this common chat's default. New goals use it when you don't @mention or change the picker.",
-      "Uncheck to clear the pin — last-used agent still applies as a softer fallback."
+      "Saves the selected agent as this common chat's default when auto-route is off.",
+      "With auto-route on, the router picks the agent unless you @mention or override."
+    ),
+  },
+  "chat.autoRoute": {
+    title: "Auto-route",
+    body: helpBody(
+      "When enabled, YamBot picks the best agent from your goal using skill matches and your LLM (Settings).",
+      "Low-confidence picks ask you to confirm before dispatching."
     ),
   },
   "chat.mention": {

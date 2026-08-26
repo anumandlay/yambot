@@ -71,6 +71,8 @@ export async function api(path, options = {}) {
     err.detail = data?.detail || err.message;
     err.hint = data?.hint || "";
     err.status = res.status;
+    err.needsConfirm = Boolean(data?.needsConfirm);
+    err.suggestion = data?.suggestion || null;
     throw err;
   }
   return data;

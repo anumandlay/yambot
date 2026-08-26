@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 21:15] Common chat Phase D — LLM auto-router with confirm
+
+- **Prompt Provided:** Implement Phase D auto-router for common chat
+- **Architectural Flow:** `Chat.autoRoute`; heuristic + LLM `routeCommonChat`; 409 confirm when confidence < 72%; skill-aware scoring; dispatch source `router`
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Chat.js`, `backend/src/utils/llmChat.js`, `backend/src/utils/chatRouter.js`, `backend/src/routes/chats.js`, `frontend/src/lib/api.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 21:00] Common chat Phase C — Hermes-style skills (SKILL.md, /slash, /learn)
 
 - **Prompt Provided:** Implement Phase C — Hermes borrow for skills
