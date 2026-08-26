@@ -17,7 +17,9 @@ import {
 
 const EMPTY = {
   name: "",
+  slug: "",
   description: "",
+  playbookMd: "",
   agent: "",
   status: "draft",
   executionMode: "hints",
@@ -26,6 +28,20 @@ const EMPTY = {
   steps: "",
   verificationRules: "",
 };
+
+const PLAYBOOK_TEMPLATE = `# When to use
+Describe when this skill should run.
+
+## Procedure
+1. First step
+2. Second step
+
+## Pitfalls
+- Common failure mode
+
+## Verification
+- Success looks like…
+`;
 
 const STATUSES = ["draft", "training", "production", "deprecated"];
 const EXECUTION_MODES = [
@@ -43,6 +59,8 @@ export function SkillEditPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
+  const [importMd, setImportMd] = useState("");
+  const [showImport, setShowImport] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -54,7 +72,9 @@ export function SkillEditPage() {
           const s = one.skill;
           setForm({
             name: s.name || "",
+            slug: s.slug || "",
             description: s.description || "",
+            playbookMd: s.playbookMd || "",
             agent: s.agent ? String(s.agent) : "",
             status: s.status || "draft",
             executionMode: s.executionMode || "hints",
@@ -87,7 +107,9 @@ export function SkillEditPage() {
     setOkMsg("");
     const payload = {
       name: form.name.trim() || "Skill",
+      slug: form.slug.trim() || undefined,
       description: form.description.trim(),
+      playbookMd: form.playbookMd,
       agentId: form.agent || null,
       status: form.status,
       executionMode: form.executionMode,
@@ -111,6 +133,39 @@ export function SkillEditPage() {
         });
         setOkMsg("Skill saved.");
       }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function exportMd() {
+    if (isNew) return;
+    setError(null);
+    try {
+      const data = await api(`/api/skills/${skillId}/export`);
+      await navigator.clipboard.writeText(data.markdown || "");
+      setOkMsg("SKILL.md copied to clipboard.");
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  async function importMdFile() {
+    const markdown = importMd.trim();
+    if (!markdown) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const created = await api("/api/skills/import", {
+        method: "POST",
+        body: JSON.stringify({ markdown, name: form.name || undefined }),
+      });
+      setShowImport(false);
+      setImportMd("");
+      navigate(`/skills/${created.skill._id}`, { replace: !isNew });
+      setOkMsg("Imported SKILL.md.");
     } catch (err) {
       setError(err);
     } finally {
@@ -166,7 +221,68 @@ export function SkillEditPage() {
         </label>
 
         <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="skills.description">Description</FieldLabel>
+          <FieldLabel helpId="skills.slug">Slash command</FieldLabel>
+          <div className="flex items-center gap-2">
+            <span className="text-sm text-teal-900/60">/</span>
+            <input
+              className="min-h-11 flex-1 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+              value={form.slug}
+              onChange={(e) => setForm((f) => ({ ...f, slug: e.target.value }))}
+              placeholder="crm-followup"
+            />
+          </div>
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <FieldLabel helpId="skills.playbook">SKILL.md playbook</FieldLabel>
+          <textarea
+            className="min-h-40 rounded-xl border border-violet-100 bg-violet-50/30 px-3 py-2 font-mono text-xs"
+            value={form.playbookMd}
+            onChange={(e) => setForm((f) => ({ ...f, playbookMd: e.target.value }))}
+            placeholder={PLAYBOOK_TEMPLATE}
+          />
+        </label>
+
+        <div className="flex flex-wrap gap-2">
+          {!isNew ? (
+            <button
+              type="button"
+              onClick={exportMd}
+              className="min-h-10 rounded-xl border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-900"
+            >
+              Export SKILL.md
+            </button>
+          ) : null}
+          <button
+            type="button"
+            onClick={() => setShowImport((v) => !v)}
+            className="min-h-10 rounded-xl border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-900"
+          >
+            Import SKILL.md
+          </button>
+        </div>
+
+        {showImport ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-dashed border-teal-200 p-3">
+            <textarea
+              className="min-h-32 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
+              value={importMd}
+              onChange={(e) => setImportMd(e.target.value)}
+              placeholder="Paste Hermes-style SKILL.md…"
+            />
+            <button
+              type="button"
+              disabled={busy || !importMd.trim()}
+              onClick={importMdFile}
+              className="min-h-10 self-start rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              Import
+            </button>
+          </div>
+        ) : null}
+
+        <label className="flex flex-col gap-1 text-sm">
+          <FieldLabel helpId="skills.description">Short description</FieldLabel>
           <textarea
             className="min-h-16 rounded-xl border border-teal-100 px-3 py-2"
             value={form.description}

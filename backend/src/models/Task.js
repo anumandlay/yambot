@@ -98,6 +98,13 @@ const taskSchema = new mongoose.Schema(
     },
     /** Frozen copy of agent config at enqueue time (stable for the worker run). */
     agentSnapshot: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Explicit slash-invoked production skill for this run (`/skill-slug` in chat). */
+    invokedSkill: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Skill",
+      default: null,
+      index: true,
+    },
     /**
      * Copied from agent at enqueue (always cloud).
      * @type {"cloud"}

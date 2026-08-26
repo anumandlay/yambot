@@ -8,6 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { resolveAgentMention } from "../lib/mentionAgent.js";
+import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, ButtonWithHelp, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
@@ -21,6 +22,7 @@ export function ChatDetailPage() {
   const [chat, setChat] = useState(null);
   const [isCommon, setIsCommon] = useState(false);
   const [agents, setAgents] = useState([]);
+  const [productionSkills, setProductionSkills] = useState([]);
   const [dispatchAgentId, setDispatchAgentId] = useState("");
   const [pinDefault, setPinDefault] = useState(false);
   const [pinBusy, setPinBusy] = useState(false);
@@ -77,6 +79,11 @@ export function ChatDetailPage() {
         }
       })
       .catch(() => {});
+    api("/api/skills")
+      .then((data) => {
+        setProductionSkills((data.skills || []).filter((s) => s.status === "production"));
+      })
+      .catch(() => {});
   }, [chatId]);
 
   useEffect(() => {
@@ -126,6 +133,21 @@ export function ChatDetailPage() {
     if (!isCommon || !input.trim().startsWith("@")) return null;
     return resolveAgentMention(input, agents);
   }, [agents, input, isCommon]);
+
+  const textAfterMention = useMemo(() => {
+    if (mentionPreview?.matched) return mentionPreview.strippedContent;
+    return input.trim();
+  }, [input, mentionPreview]);
+
+  const learnPreview = useMemo(() => parseLearnCommand(input.trim()), [input]);
+
+  const skillSlashPreview = useMemo(() => {
+    if (learnPreview) return null;
+    const slash = parseSkillSlash(textAfterMention);
+    if (!slash) return null;
+    const skill = findSkillBySlash(productionSkills, slash.slug);
+    return { ...slash, skill };
+  }, [learnPreview, productionSkills, textAfterMention]);
 
   useEffect(() => {
     if (!isCommon || !mentionPreview?.matched || !mentionPreview.agentId) return;
@@ -186,9 +208,31 @@ export function ChatDetailPage() {
     const content = input.trim();
     if (!content) return;
 
+    if (parseLearnCommand(content)) {
+      setBusy(true);
+      setError(null);
+      stickToBottomRef.current = true;
+      try {
+        await api(`/api/chats/${chatId}/messages`, {
+          method: "POST",
+          body: JSON.stringify({ content }),
+        });
+        setInput("");
+        await load();
+        scrollThreadToBottom(true);
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     const mention = isCommon ? resolveAgentMention(content, agents) : null;
-    const goalAfterMention = mention?.matched ? mention.strippedContent.trim() : content;
-    if (isCommon && !goalAfterMention) {
+    const afterMention = mention?.matched ? mention.strippedContent.trim() : content;
+    const slash = parseSkillSlash(afterMention);
+    const goalAfterMention = slash ? slash.goal : afterMention;
+    if (isCommon && !goalAfterMention && !slash) {
       setError({
         title: "Add a goal",
         detail: "Type instructions after the @mention.",
@@ -277,14 +321,18 @@ export function ChatDetailPage() {
    * @returns {string|null}
    */
   function messageAgentLabel(message) {
-    if (!isCommon) return null;
-    if (message.role === "user" && message.meta?.dispatchAgentName) {
-      return message.meta.dispatchAgentName;
+    if (!isCommon && !message.meta?.invokedSkillName) return null;
+    const parts = [];
+    if (isCommon && message.role === "user" && message.meta?.dispatchAgentName) {
+      parts.push(message.meta.dispatchAgentName);
     }
-    if (message.role === "system" && message.meta?.agentName) {
-      return message.meta.agentName;
+    if (message.meta?.invokedSkillName) {
+      parts.push(`/${message.meta.skillSlug || message.meta.invokedSkillName}`);
     }
-    return null;
+    if (message.role === "system" && message.meta?.agentName && !parts.length) {
+      parts.push(message.meta.agentName);
+    }
+    return parts.length ? parts.join(" · ") : null;
   }
 
   async function stopAgent() {
@@ -427,6 +475,24 @@ export function ChatDetailPage() {
                     : ""}
                 </p>
               ) : null}
+              {learnPreview ? (
+                <p className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                  /learn → draft skill from latest completed task
+                  {learnPreview.name ? ` named “${learnPreview.name}”` : ""}
+                </p>
+              ) : null}
+              {skillSlashPreview?.skill ? (
+                <p className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-950">
+                  /{skillSlashPreview.slug} → <strong>{skillSlashPreview.skill.name}</strong>
+                  {skillSlashPreview.goal ? ` · ${skillSlashPreview.goal.slice(0, 80)}` : ""}
+                </p>
+              ) : null}
+              {productionSkills.length ? (
+                <p className="text-xs text-teal-900/60">
+                  Skills: {productionSkills.slice(0, 4).map((s) => `/${s.slug || s.name}`).join(", ")}
+                  {productionSkills.length > 4 ? "…" : ""}
+                </p>
+              ) : null}
             </>
           ) : null}
           <FieldLabel helpId="chat.goalInput" className="text-sm">
@@ -436,8 +502,8 @@ export function ChatDetailPage() {
             className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
             placeholder={
               isCommon
-                ? "@AgentName goal… or pick agent above"
-                : "Goal / instructions…"
+                ? "@Agent /skill-slug goal… or /learn"
+                : "/skill-slug goal… or /learn"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}

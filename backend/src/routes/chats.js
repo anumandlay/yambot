@@ -7,8 +7,11 @@
 import { Router } from "express";
 import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
+import { Skill } from "../models/Skill.js";
 import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
 import { resolveAgentMention } from "../utils/mentionAgent.js";
+import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../utils/skillSlash.js";
+import { createLearnedSkillDraft } from "../utils/skillLearn.js";
 
 export const chatsRouter = Router();
 
@@ -290,11 +293,47 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       return;
     }
 
+    const learnCmd = parseLearnCommand(content);
+    if (learnCmd) {
+      const learned = await createLearnedSkillDraft(req.userId, {
+        chatId: chat._id,
+        name: learnCmd.name || undefined,
+      });
+      if (!learned) {
+        res.status(404).json({
+          ok: false,
+          title: "No task to learn from",
+          detail: "Run a goal in this chat first, then send /learn.",
+          hint: "Completed tasks with trajectories become SKILL.md drafts.",
+        });
+        return;
+      }
+      const { skill } = learned;
+      await Message.create({
+        chat: chat._id,
+        role: "user",
+        content,
+        meta: { kind: "learn", skillId: skill._id, skillName: skill.name },
+      });
+      const systemMessage = await Message.create({
+        chat: chat._id,
+        role: "system",
+        content: `Learned draft skill “${skill.name}” (/${skill.slug}). Open Skills to edit triggers and promote to production.`,
+        meta: { kind: "skill_learned", skillId: skill._id, slug: skill.slug },
+      });
+      chat.updatedAt = new Date();
+      await chat.save();
+      res.status(201).json({ ok: true, learned: true, skill, systemMessage });
+      return;
+    }
+
     const common = isCommonChat(chat);
     let agentDoc = null;
     let snapshot = null;
     let goalText = content;
     let mentionMeta = null;
+    let invokedSkillDoc = null;
+    let skillSlashMeta = null;
 
     if (common) {
       const userAgents = await Agent.find({ user: req.userId, active: true })
@@ -332,17 +371,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           ok: false,
           title: "Agent required",
           detail: "Pick an agent, pin a default, or start your message with @AgentName.",
-          hint: "Example: @CRM Bot check Aanya follow-up",
-        });
-        return;
-      }
-
-      if (!goalText.trim()) {
-        res.status(400).json({
-          ok: false,
-          title: "Empty goal",
-          detail: "Add instructions after the @mention or in the goal box.",
-          hint: "Example: @CRM Bot open CRM and find Aanya Sharma",
+          hint: "Example: @CRM Bot /crm-followup check Aanya",
         });
         return;
       }
@@ -362,6 +391,47 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     } else if (chat.agent) {
       agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
+    }
+
+    const slash = parseSkillSlash(goalText);
+    if (slash) {
+      const skillFilter = { user: req.userId, status: "production" };
+      if (agentDoc?._id) {
+        skillFilter.$or = [{ agent: agentDoc._id }, { agent: null }];
+      }
+      const productionSkills = await Skill.find(skillFilter)
+        .select("name slug triggers description agent")
+        .lean();
+      invokedSkillDoc = findSkillBySlash(productionSkills, slash.slug);
+      if (!invokedSkillDoc) {
+        res.status(404).json({
+          ok: false,
+          title: "Skill not found",
+          detail: `No production skill matches /${slash.slug}.`,
+          hint: "Set skill status to production and ensure slug matches (Skills → edit).",
+        });
+        return;
+      }
+      goalText = slash.goal;
+      skillSlashMeta = {
+        slug: slash.slug,
+        skillId: invokedSkillDoc._id,
+        skillName: invokedSkillDoc.name,
+      };
+    }
+
+    if (!goalText.trim()) {
+      goalText = invokedSkillDoc?.description || invokedSkillDoc?.name || content;
+    }
+
+    if (!goalText.trim()) {
+      res.status(400).json({
+        ok: false,
+        title: "Empty goal",
+        detail: "Add instructions after @mention or /skill-slug.",
+        hint: "Example: /crm-followup check Aanya Sharma",
+      });
+      return;
     }
 
     if (!agentDoc) {
@@ -408,18 +478,28 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     chat.updatedAt = new Date();
     await chat.save();
 
+    const messageMeta = {};
+    if (common) {
+      Object.assign(messageMeta, {
+        dispatchAgentId: snapshot?.id || String(agentDoc._id),
+        dispatchAgentName: snapshot?.name || agentDoc.name,
+        goalText,
+        mention: mentionMeta,
+      });
+    }
+    if (skillSlashMeta) {
+      Object.assign(messageMeta, {
+        invokedSkillId: skillSlashMeta.skillId,
+        invokedSkillName: skillSlashMeta.skillName,
+        skillSlug: skillSlashMeta.slug,
+      });
+    }
+
     const message = await Message.create({
       chat: chat._id,
       role: "user",
       content,
-      meta: common
-        ? {
-            dispatchAgentId: snapshot?.id || String(agentDoc._id),
-            dispatchAgentName: snapshot?.name || agentDoc.name,
-            goalText,
-            mention: mentionMeta,
-          }
-        : null,
+      meta: Object.keys(messageMeta).length ? messageMeta : null,
     });
 
     const task = await Task.create({
@@ -429,6 +509,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       goal: goalText || content,
       agent: agentDoc._id,
       agentSnapshot: snapshot,
+      invokedSkill: invokedSkillDoc?._id || null,
       runner: "cloud",
       status: "pending",
       events: [
@@ -441,23 +522,29 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             runner: "cloud",
             fromCommonChat: common,
             dispatchSource: mentionMeta?.dispatchSource || null,
+            invokedSkillId: invokedSkillDoc?._id || null,
+            invokedSkillName: invokedSkillDoc?.name || null,
+            skillSlug: skillSlashMeta?.slug || null,
           },
         },
       ],
     });
 
     const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
+    const skillLabel = invokedSkillDoc?.name ? ` with skill /${skillSlashMeta?.slug || invokedSkillDoc.slug}` : "";
     const queueHint =
       "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
-      content: `Goal queued${agentLabel}. ${queueHint}`,
+      content: `Goal queued${agentLabel}${skillLabel}. ${queueHint}`,
       meta: {
         taskId: task._id,
         status: "pending",
         agentId: snapshot?.id || null,
         agentName: snapshot?.name || null,
+        invokedSkillId: invokedSkillDoc?._id || null,
+        invokedSkillName: invokedSkillDoc?.name || null,
         runner: "cloud",
       },
     });

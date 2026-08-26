@@ -291,7 +291,14 @@ export function SkillsPage() {
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm"
             >
               <div className="min-w-0">
-                <div className="font-semibold">{s.name}</div>
+                <div className="font-semibold">
+                  {s.name}
+                  {s.slug ? (
+                    <span className="ml-2 font-mono text-xs font-normal text-violet-800">
+                      /{s.slug}
+                    </span>
+                  ) : null}
+                </div>
                 <div className="text-teal-900/70">
                   <span
                     className={

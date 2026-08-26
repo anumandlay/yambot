@@ -24,7 +24,14 @@ const skillSchema = new mongoose.Schema(
       index: true,
     },
     name: { type: String, required: true, trim: true },
+    /** URL-safe invoke token — `/slug` in chat (defaults from name). */
+    slug: { type: String, trim: true, default: "", index: true },
     description: { type: String, default: "", trim: true },
+    /**
+     * Hermes-style SKILL.md playbook (When to use, Procedure, Pitfalls, Verification).
+     * Injected into worker prompt when skill is matched or slash-invoked.
+     */
+    playbookMd: { type: String, default: "" },
     status: {
       type: String,
       enum: SKILL_STATUSES,
@@ -50,6 +57,13 @@ const skillSchema = new mongoose.Schema(
       ref: "Demonstration",
       default: null,
     },
+    /** Task that produced an auto-suggested draft skill after a successful run. */
+    sourceTask: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Task",
+      default: null,
+      index: true,
+    },
     stats: {
       runs: { type: Number, default: 0 },
       successes: { type: Number, default: 0 },
@@ -58,5 +72,7 @@ const skillSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+skillSchema.index({ user: 1, slug: 1 }, { unique: true, partialFilterExpression: { slug: { $type: "string", $ne: "" } } });
 
 export const Skill = mongoose.model("Skill", skillSchema);

@@ -14,6 +14,15 @@ import {
   finishDemoSession,
   startDemoSession,
 } from "../utils/demoSession.js";
+import {
+  normalizeSkillSlug,
+  parseSkillMd,
+  serializeSkillMd,
+  slugFromName,
+  trajectoryToPlaybookMd,
+  trajectoryToStepLines,
+} from "../utils/skillMd.js";
+import { allocateSkillSlug, createLearnedSkillDraft } from "../utils/skillLearn.js";
 
 export const skillsRouter = Router();
 
@@ -38,6 +47,42 @@ function parseSkillStepsInput(raw) {
       return t;
     })
     .filter(Boolean);
+}
+
+/**
+ * Ensures a unique slug per user when creating or renaming skills.
+ * @param {string} userId
+ * @param {string} name
+ * @param {string} [preferred]
+ * @param {string} [excludeId]
+ */
+async function ensureSkillSlug(userId, name, preferred = "", excludeId = null) {
+  return allocateSkillSlug(userId, name, preferred, excludeId);
+}
+
+/**
+ * Applies playbook markdown onto description/steps/verification when structured fields empty.
+ * @param {import("mongoose").Document} skill
+ */
+function syncSkillFromPlaybook(skill) {
+  const md = String(skill.playbookMd || "").trim();
+  if (!md) return;
+  const parsed = parseSkillMd(md);
+  if (!skill.description && parsed.whenToUse) {
+    skill.description = parsed.whenToUse.split("\n")[0].slice(0, 280);
+  }
+  if ((!skill.steps || !skill.steps.length) && parsed.procedure) {
+    skill.steps = parsed.procedure
+      .split("\n")
+      .map((line) => line.replace(/^\d+\.\s*/, "").replace(/^-\s*/, "").trim())
+      .filter(Boolean);
+  }
+  if ((!skill.verificationRules || !skill.verificationRules.length) && parsed.verification) {
+    skill.verificationRules = parsed.verification
+      .split("\n")
+      .map((line) => line.replace(/^-\s*/, "").trim())
+      .filter(Boolean);
+  }
 }
 
 /**
@@ -116,17 +161,91 @@ skillsRouter.get("/", async (req, res, next) => {
 skillsRouter.post("/", async (req, res, next) => {
   try {
     const body = req.body || {};
+    const name = String(body.name || "Skill").trim();
+    const slug = await ensureSkillSlug(req.userId, name, body.slug || "");
     const skill = await Skill.create({
       user: req.userId,
       agent: body.agentId || null,
-      name: String(body.name || "Skill").trim(),
+      name,
+      slug,
       description: body.description || "",
+      playbookMd: body.playbookMd || "",
       status: SKILL_STATUSES.includes(body.status) ? body.status : "draft",
       triggers: Array.isArray(body.triggers) ? body.triggers : [],
       steps: body.steps != null ? parseSkillStepsInput(body.steps) : [],
       verificationRules: Array.isArray(body.verificationRules) ? body.verificationRules : [],
       executionMode: SKILL_EXECUTION_MODES.includes(body.executionMode) ? body.executionMode : "hints",
       enforceVerification: Boolean(body.enforceVerification),
+    });
+    if (!skill.playbookMd) skill.playbookMd = serializeSkillMd(skill);
+    syncSkillFromPlaybook(skill);
+    await skill.save();
+    res.status(201).json({ ok: true, skill });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/skills/learn — draft skill from a task trajectory (`/learn` in chat).
+ * Body: { taskId?, chatId?, name? }
+ */
+skillsRouter.post("/learn", async (req, res, next) => {
+  try {
+    const body = req.body || {};
+    const result = await createLearnedSkillDraft(req.userId, {
+      taskId: body.taskId,
+      chatId: body.chatId,
+      name: body.name,
+      slug: body.slug,
+    });
+    if (!result) {
+      res.status(404).json({
+        ok: false,
+        title: "No task to learn from",
+        detail: "Run a goal first, then use /learn in this chat.",
+        hint: "The latest completed task with a trajectory becomes the draft playbook.",
+      });
+      return;
+    }
+    res.status(201).json({ ok: true, skill: result.skill, sourceTaskId: result.sourceTaskId });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/skills/import — create skill from pasted SKILL.md.
+ * Body: { markdown, name?, agentId?, status? }
+ */
+skillsRouter.post("/import", async (req, res, next) => {
+  try {
+    const markdown = String(req.body?.markdown || "").trim();
+    if (!markdown) {
+      res.status(400).json({ ok: false, detail: "Paste SKILL.md markdown to import." });
+      return;
+    }
+    const parsed = parseSkillMd(markdown);
+    const firstLine = markdown.split("\n").find((l) => l.startsWith("#")) || "";
+    const name =
+      String(req.body?.name || firstLine.replace(/^#+\s*/, "") || "Imported skill").trim();
+    const slug = await ensureSkillSlug(req.userId, name, req.body?.slug || "");
+    const skill = await Skill.create({
+      user: req.userId,
+      agent: req.body?.agentId || null,
+      name,
+      slug,
+      description: parsed.whenToUse.split("\n")[0]?.slice(0, 280) || "",
+      playbookMd: markdown,
+      status: SKILL_STATUSES.includes(req.body?.status) ? req.body.status : "draft",
+      steps: parsed.procedure
+        .split("\n")
+        .map((line) => line.replace(/^\d+\.\s*/, "").replace(/^-\s*/, "").trim())
+        .filter(Boolean),
+      verificationRules: parsed.verification
+        .split("\n")
+        .map((line) => line.replace(/^-\s*/, "").trim())
+        .filter(Boolean),
     });
     res.status(201).json({ ok: true, skill });
   } catch (err) {
@@ -267,6 +386,20 @@ skillsRouter.get("/training", async (req, res, next) => {
   }
 });
 
+skillsRouter.get("/:id/export", async (req, res, next) => {
+  try {
+    const skill = await Skill.findOne({ _id: req.params.id, user: req.userId }).lean();
+    if (!skill) {
+      res.status(404).json({ ok: false, detail: "Skill missing" });
+      return;
+    }
+    const markdown = serializeSkillMd(skill);
+    res.json({ ok: true, markdown, slug: skill.slug, name: skill.name });
+  } catch (err) {
+    next(err);
+  }
+});
+
 skillsRouter.get("/:id", async (req, res, next) => {
   try {
     const skill = await Skill.findOne({ _id: req.params.id, user: req.userId }).lean();
@@ -289,7 +422,18 @@ skillsRouter.patch("/:id", async (req, res, next) => {
     }
     const body = req.body || {};
     if (body.name != null) skill.name = String(body.name).trim();
+    if (body.slug != null) {
+      skill.slug = await ensureSkillSlug(
+        req.userId,
+        skill.name,
+        body.slug || skill.name,
+        String(skill._id)
+      );
+    } else if (!skill.slug) {
+      skill.slug = await ensureSkillSlug(req.userId, skill.name, "", String(skill._id));
+    }
     if (body.description != null) skill.description = String(body.description).trim();
+    if (body.playbookMd != null) skill.playbookMd = String(body.playbookMd);
     if (body.status != null && SKILL_STATUSES.includes(body.status)) skill.status = body.status;
     if (body.agentId != null || body.agent != null) {
       skill.agent = body.agentId || body.agent || null;
@@ -318,6 +462,10 @@ skillsRouter.patch("/:id", async (req, res, next) => {
     }
     if (body.enforceVerification != null) {
       skill.enforceVerification = Boolean(body.enforceVerification);
+    }
+    syncSkillFromPlaybook(skill);
+    if (!String(skill.playbookMd || "").trim()) {
+      skill.playbookMd = serializeSkillMd(skill);
     }
     await skill.save();
     res.json({ ok: true, skill });

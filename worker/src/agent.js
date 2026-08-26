@@ -70,6 +70,7 @@ import {
   formatSkillProgressBlock,
   detectDbSkill,
   formatDbSkillBlock,
+  formatSkillsCatalogBlock,
   computeDbSkillProgress,
   evaluateSkillVerification,
   runSkillReplay,
@@ -1309,10 +1310,31 @@ export function createCloudAgent({ api, config, log = console.log }) {
         productionSkills = [];
       }
 
+      /** @type {object|null} */
+      let activeDbSkill = null;
+      const invokedSkillId = task.invokedSkill?._id || task.invokedSkill || null;
+      if (invokedSkillId) {
+        try {
+          const one = await api(`/api/worker/skills/${invokedSkillId}`);
+          activeDbSkill = one?.skill || null;
+        } catch {
+          activeDbSkill = null;
+        }
+      }
+      if (!activeDbSkill) {
+        const dbSkillMatch = detectDbSkill(productionSkills, goal, pageUrl);
+        if (dbSkillMatch?._id) {
+          try {
+            const one = await api(`/api/worker/skills/${dbSkillMatch._id}`);
+            activeDbSkill = one?.skill || dbSkillMatch;
+          } catch {
+            activeDbSkill = dbSkillMatch;
+          }
+        }
+      }
+
       const templateSkill = detectSkill(goal, pageUrl);
-      const dbSkill = detectDbSkill(productionSkills, goal, pageUrl);
-      const activeSkill = dbSkill ? null : templateSkill;
-      const activeDbSkill = dbSkill || null;
+      const activeSkill = activeDbSkill ? null : templateSkill;
       currentActiveDbSkill = activeDbSkill;
       // Why: skip extra planning LLM call for login/short goals — saves ~20–30s before step 1.
       const goalText = String(goal || "").trim();
@@ -1545,6 +1567,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const skillBlock = activeDbSkill
           ? formatDbSkillBlock(activeDbSkill)
           : formatSkillBlock(activeSkill);
+        const skillsCatalogBlock =
+          !activeDbSkill && productionSkills.length
+            ? formatSkillsCatalogBlock(productionSkills)
+            : "";
         const skillProgressBlock = formatSkillProgressBlock(
           activeDbSkill
             ? computeDbSkillProgress(activeDbSkill, history)
@@ -1561,6 +1587,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "There is no step limit — keep working until the goal is met, then call finish.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
               skillBlock,
+              skillsCatalogBlock,
               skillProgressBlock,
               siteHintsBlock,
               visionAttached

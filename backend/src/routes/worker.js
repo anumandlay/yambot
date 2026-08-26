@@ -24,6 +24,7 @@ import { emitEvent } from "../utils/eventBus.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import { Skill } from "../models/Skill.js";
+import { createLearnedSkillDraft } from "../utils/skillLearn.js";
 import { appendDemoStepIfActive, recordDemoUrlChange } from "../utils/demoCapture.js";
 import {
   appendDemoSessionStep,
@@ -563,6 +564,26 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
           .slice(0, 500);
         await task.save();
       }
+    } else if (success && trajectory.length >= 2) {
+      const existingDraft = await Skill.findOne({ user: req.userId, sourceTask: task._id });
+      if (!existingDraft) {
+        const draft = await createLearnedSkillDraft(req.userId, {
+          taskId: String(task._id),
+          name: `Suggested: ${String(task.goal || "workflow").slice(0, 48)}`,
+        });
+        if (draft?.skill) {
+          await Message.create({
+            chat: task.chat,
+            role: "system",
+            content: `Skill draft suggested from this run — review “${draft.skill.name}” (/${draft.skill.slug}) on Skills.`,
+            meta: {
+              kind: "skill_suggestion",
+              skillId: draft.skill._id,
+              slug: draft.skill.slug,
+            },
+          }).catch(() => {});
+        }
+      }
     }
 
     await writeAudit({
@@ -881,7 +902,7 @@ workerRouter.post("/email/check", async (req, res, next) => {
 });
 
 /**
- * GET /api/worker/skills — production skills for prompt injection (agent-scoped + global).
+ * GET /api/worker/skills — production skill catalog (summary, progressive disclosure).
  */
 workerRouter.get("/skills", async (req, res, next) => {
   try {
@@ -891,11 +912,35 @@ workerRouter.get("/skills", async (req, res, next) => {
       filter.$or = [{ agent: agentId }, { agent: null }];
     }
     const skills = await Skill.find(filter)
-      .select("name description triggers steps verificationRules status agent executionMode enforceVerification")
+      .select("name description triggers slug status agent executionMode")
       .sort({ updatedAt: -1 })
       .limit(30)
       .lean();
     res.json({ ok: true, skills });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/worker/skills/:skillId — full production skill for invoke/match hydration.
+ */
+workerRouter.get("/skills/:skillId", async (req, res, next) => {
+  try {
+    const skill = await Skill.findOne({
+      _id: req.params.skillId,
+      user: req.userId,
+      status: "production",
+    })
+      .select(
+        "name description triggers steps verificationRules status agent executionMode enforceVerification slug playbookMd"
+      )
+      .lean();
+    if (!skill) {
+      res.status(404).json({ ok: false, detail: "Skill missing" });
+      return;
+    }
+    res.json({ ok: true, skill });
   } catch (err) {
     next(err);
   }

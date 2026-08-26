@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 21:00] Common chat Phase C — Hermes-style skills (SKILL.md, /slash, /learn)
+
+- **Prompt Provided:** Implement Phase C — Hermes borrow for skills
+- **Architectural Flow:** Skill `playbookMd` + `slug`; chat `/skill-slug` sets `Task.invokedSkill`; `/learn` drafts from trajectory; worker progressive catalog + full skill fetch; auto skill suggestion on successful runs
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Skill.js`, `backend/src/models/Task.js`, `backend/src/utils/skillMd.js`, `backend/src/utils/skillSlash.js`, `backend/src/utils/skillLearn.js`, `backend/src/routes/skills.js`, `backend/src/routes/chats.js`, `backend/src/routes/worker.js`, `worker/src/browserState/skills.js`, `worker/src/agent.js`, `frontend/src/lib/skillSlash.js`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 20:40] Common chat Phase B — @mention, default agent, labels, multi-agent queue
 
 - **Prompt Provided:** Implement Phase B for common chat

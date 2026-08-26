@@ -838,6 +838,20 @@ export const HELP = {
       "Multi-word names work: @CRM Bot goal here. Single-token shortcuts match the first unique agent (e.g. @crm → CRM Bot)."
     ),
   },
+  "chat.skillSlash": {
+    title: "Slash skill invoke",
+    body: helpBody(
+      "Start a goal with /skill-slug to load a production skill explicitly — e.g. /crm-followup check Aanya.",
+      "Works with @mentions: @CRM Bot /crm-followup open follow-up tab."
+    ),
+  },
+  "chat.learn": {
+    title: "/learn command",
+    body: helpBody(
+      "Send /learn in chat to draft a SKILL.md playbook from the latest completed task trajectory in this thread.",
+      "Optional name: /learn CRM follow-up. Edit triggers on Skills → promote to production."
+    ),
+  },
   "chat.goalInput": {
     title: "Goal message",
     body: helpBody(
@@ -1317,14 +1331,29 @@ export const HELP = {
   "skills.list": {
     title: "Skills library",
     body: helpBody(
-      "Named playbooks with steps, triggers, verification rules, status (draft/training/production).",
-      "Production skills inject step hints when triggers match the goal or page URL."
+      "Named playbooks with SKILL.md content, slash commands (/slug), triggers, and replay steps.",
+      "Production skills load on trigger match or explicit /slug in chat."
     ),
   },
   "skills.edit": {
     title: "Edit skill",
     body: helpBody(
-      "Review steps from a demo, add trigger patterns (regex or plain text), and set status to production when ready."
+      "Hermes-style SKILL.md playbook + triggers + replay steps. Set status to production when ready.",
+      "Export/import SKILL.md for sharing. Slash command must match what you type in chat."
+    ),
+  },
+  "skills.slug": {
+    title: "Slash command",
+    body: helpBody(
+      "Invoke this skill from chat with /slug — e.g. slug crm-followup → /crm-followup check leads.",
+      "Must be unique per account. Auto-generated from name if left blank."
+    ),
+  },
+  "skills.playbook": {
+    title: "SKILL.md playbook",
+    body: helpBody(
+      "Hermes-style markdown: When to use, Procedure, Pitfalls, Verification.",
+      "Injected into the worker prompt when the skill is matched or slash-invoked."
     ),
   },
   "skills.triggers": {

@@ -224,7 +224,11 @@ export function detectDbSkill(skills, goal, url = "") {
 export function formatDbSkillBlock(skill) {
   if (!skill) return "";
   const lines = [`ACTIVE SKILL (learned): ${skill.name}`];
+  if (skill.slug) lines.push(`Invoke: /${skill.slug}`);
   if (skill.description) lines.push(String(skill.description));
+  if (skill.playbookMd) {
+    lines.push(parsePlaybookSections(skill.playbookMd));
+  }
   if (skill.executionMode === "replay") {
     lines.push("Execution: deterministic replay of stored demo actions before the agent loop.");
   }
@@ -238,6 +242,45 @@ export function formatDbSkillBlock(skill) {
   if (skill.verificationRules?.length) {
     lines.push("Verify:");
     for (const rule of skill.verificationRules) lines.push(`  - ${rule}`);
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Lightweight SKILL.md section extraction for worker prompts.
+ * @param {string} md
+ * @returns {string}
+ */
+function parsePlaybookSections(md) {
+  const raw = String(md || "").trim();
+  if (!raw) return "";
+  const chunks = [];
+  const when = raw.match(/#\s*when to use[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  const proc = raw.match(/#\s*procedure[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  const pitfalls = raw.match(/#\s*pitfall[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  const verify = raw.match(/#\s*verif[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  if (when) chunks.push(when[0].trim());
+  if (proc) chunks.push(proc[0].trim());
+  if (pitfalls) chunks.push(pitfalls[0].trim());
+  if (verify) chunks.push(verify[0].trim());
+  if (!chunks.length) return raw.slice(0, 2000);
+  return chunks.join("\n\n");
+}
+
+/**
+ * Progressive disclosure — skill names/slugs only until one is matched or invoked.
+ * @param {object[]} skills
+ * @returns {string}
+ */
+export function formatSkillsCatalogBlock(skills) {
+  if (!skills?.length) return "";
+  const lines = [
+    "AVAILABLE PRODUCTION SKILLS (user may invoke with /slug in chat):",
+  ];
+  for (const skill of skills) {
+    const slug = skill.slug || skill.name;
+    const desc = skill.description ? ` — ${String(skill.description).slice(0, 80)}` : "";
+    lines.push(`- /${slug}: ${skill.name}${desc}`);
   }
   return lines.join("\n");
 }
