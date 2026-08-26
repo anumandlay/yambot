@@ -820,7 +820,22 @@ export const HELP = {
   "chat.agentPicker": {
     title: "Dispatch agent",
     body: helpBody(
-      "Which agent runs this goal. In common chat you pick per message — the live screen follows whichever agent is running a task from this thread."
+      "Which agent runs this goal. Type @AgentName at the start of your message to route automatically, or use this dropdown.",
+      "Resolution order: @mention → picker → pinned default → last used agent."
+    ),
+  },
+  "chat.pinDefault": {
+    title: "Pin default agent",
+    body: helpBody(
+      "Saves the selected agent as this common chat's default. New goals use it when you don't @mention or change the picker.",
+      "Uncheck to clear the pin — last-used agent still applies as a softer fallback."
+    ),
+  },
+  "chat.mention": {
+    title: "@mention routing",
+    body: helpBody(
+      "Start a goal with @AgentName — for example @CRM Bot check Aanya. The @prefix is stripped from the task goal but kept in the chat history.",
+      "Multi-word names work: @CRM Bot goal here. Single-token shortcuts match the first unique agent (e.g. @crm → CRM Bot)."
     ),
   },
   "chat.goalInput": {
@@ -858,8 +873,8 @@ export const HELP = {
   "chat.taskQueue": {
     title: "Task queue",
     body: helpBody(
-      "Agent chat: pending/active tasks for the bound agent (may include goals from other chats). Common chat: only tasks dispatched from this thread.",
-      "One running task per agent globally; others wait in that agent's FIFO queue."
+      "Agent chat: pending/active tasks for the bound agent (may include goals from other chats). Common chat: tasks grouped by dispatched agent.",
+      "When multiple agents run from this common chat, use Watch agent to switch the live screen."
     ),
   },
   "chat.liveScreen": {

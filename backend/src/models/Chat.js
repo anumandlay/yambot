@@ -53,6 +53,19 @@ const chatSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Pinned default worker for common chat when no @mention or body agentId. */
+    defaultAgent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      default: null,
+      index: true,
+    },
+    /** Last worker dispatched from this common chat (cross-device fallback). */
+    lastDispatchAgent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      default: null,
+    },
   },
   { timestamps: true }
 );

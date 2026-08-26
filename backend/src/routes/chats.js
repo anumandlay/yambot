@@ -8,6 +8,7 @@ import { Router } from "express";
 import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
+import { resolveAgentMention } from "../utils/mentionAgent.js";
 
 export const chatsRouter = Router();
 
@@ -50,18 +51,19 @@ async function loadAgentQueue(userId, agentRef) {
 
 /**
  * Queue scoped to one chat thread (common inbox — tasks dispatched from this chat only).
+ * Returns flat pending/actives plus per-agent groups for multi-worker UI.
  * @param {import("mongoose").Types.ObjectId | string} userId
  * @param {import("mongoose").Types.ObjectId | string} chatId
  */
 async function loadChatScopedQueue(userId, chatId) {
-  const [pending, active] = await Promise.all([
+  const [pending, actives] = await Promise.all([
     Task.find({ user: userId, chat: chatId, status: "pending" })
       .sort({ createdAt: 1 })
       .select("goal status createdAt chat message agent")
       .populate("chat", "title kind")
       .populate("agent", "name")
       .lean(),
-    Task.findOne({
+    Task.find({
       user: userId,
       chat: chatId,
       status: { $in: ["running", "waiting_user"] },
@@ -72,7 +74,39 @@ async function loadChatScopedQueue(userId, chatId) {
       .populate("agent", "name")
       .lean(),
   ]);
-  return { pending, active };
+
+  const active = actives[0] || null;
+  const groupsMap = new Map();
+
+  /**
+   * @param {object} task
+   * @param {"pending"|"active"} bucket
+   */
+  function addToGroup(task, bucket) {
+    const agentRef = task.agent;
+    const agentId = String(agentRef?._id || agentRef || "unknown");
+    if (!groupsMap.has(agentId)) {
+      groupsMap.set(agentId, {
+        agent: agentRef || null,
+        pending: [],
+        active: null,
+      });
+    }
+    const group = groupsMap.get(agentId);
+    if (bucket === "pending") group.pending.push(task);
+    else if (!group.active) group.active = task;
+  }
+
+  for (const task of pending) addToGroup(task, "pending");
+  for (const task of actives) addToGroup(task, "active");
+
+  const groups = [...groupsMap.values()].sort((a, b) => {
+    const aName = a.agent?.name || "";
+    const bName = b.agent?.name || "";
+    return aName.localeCompare(bName);
+  });
+
+  return { pending, active, actives, groups };
 }
 
 /**
@@ -164,6 +198,8 @@ chatsRouter.get("/:id", async (req, res, next) => {
   try {
     const chat = await Chat.findOne({ _id: req.params.id, user: req.userId })
       .populate("agent", "name skill runner")
+      .populate("defaultAgent", "name skill")
+      .populate("lastDispatchAgent", "name skill")
       .lean();
     if (!chat) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
@@ -184,8 +220,58 @@ chatsRouter.get("/:id", async (req, res, next) => {
 });
 
 /**
+ * PATCH /api/chats/:id — update common-chat settings (default agent pin).
+ * Body: { defaultAgentId?: string|null }
+ */
+chatsRouter.patch("/:id", async (req, res, next) => {
+  try {
+    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId });
+    if (!chat) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
+      return;
+    }
+    if (!isCommonChat(chat)) {
+      res.status(400).json({
+        ok: false,
+        title: "Agent chat",
+        detail: "Only common chats support a pinned default agent.",
+      });
+      return;
+    }
+
+    if (Object.prototype.hasOwnProperty.call(req.body || {}, "defaultAgentId")) {
+      const raw = req.body.defaultAgentId;
+      if (raw === null || raw === "") {
+        chat.defaultAgent = null;
+      } else {
+        const agent = await Agent.findOne({ _id: raw, user: req.userId, active: true });
+        if (!agent) {
+          res.status(404).json({
+            ok: false,
+            title: "Agent not found",
+            detail: "That agent does not exist or is inactive.",
+          });
+          return;
+        }
+        chat.defaultAgent = agent._id;
+      }
+    }
+
+    chat.updatedAt = new Date();
+    await chat.save();
+    const updated = await Chat.findById(chat._id)
+      .populate("defaultAgent", "name skill")
+      .populate("lastDispatchAgent", "name skill")
+      .lean();
+    res.json({ ok: true, chat: updated });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/chats/:id/messages — user sends a goal; enqueues a Task with agent snapshot.
- * Body: { content, agentId? } — agentId required for common chats.
+ * Body: { content, agentId? } — common chat resolves agent via @mention, body, pin, or last used.
  */
 chatsRouter.post("/:id/messages", async (req, res, next) => {
   try {
@@ -207,18 +293,60 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     const common = isCommonChat(chat);
     let agentDoc = null;
     let snapshot = null;
+    let goalText = content;
+    let mentionMeta = null;
 
     if (common) {
-      const dispatchId = req.body?.agentId;
+      const userAgents = await Agent.find({ user: req.userId, active: true })
+        .select("name")
+        .lean();
+      const mention = resolveAgentMention(content, userAgents);
+      const bodyAgentId = req.body?.agentId || null;
+      const pinnedId = chat.defaultAgent ? String(chat.defaultAgent) : null;
+      const lastId = chat.lastDispatchAgent ? String(chat.lastDispatchAgent) : null;
+
+      let dispatchId = null;
+      let dispatchSource = null;
+      if (mention.matched && mention.agentId) {
+        dispatchId = mention.agentId;
+        dispatchSource = "mention";
+        goalText = mention.strippedContent || content;
+        mentionMeta = {
+          matched: true,
+          agentName: mention.agentName,
+          stripped: mention.strippedContent !== content,
+        };
+      } else if (bodyAgentId) {
+        dispatchId = String(bodyAgentId);
+        dispatchSource = "picker";
+      } else if (pinnedId) {
+        dispatchId = pinnedId;
+        dispatchSource = "default";
+      } else if (lastId) {
+        dispatchId = lastId;
+        dispatchSource = "last";
+      }
+
       if (!dispatchId) {
         res.status(400).json({
           ok: false,
           title: "Agent required",
-          detail: "Pick which agent should run this goal.",
-          hint: "Select an agent in the send box before sending.",
+          detail: "Pick an agent, pin a default, or start your message with @AgentName.",
+          hint: "Example: @CRM Bot check Aanya follow-up",
         });
         return;
       }
+
+      if (!goalText.trim()) {
+        res.status(400).json({
+          ok: false,
+          title: "Empty goal",
+          detail: "Add instructions after the @mention or in the goal box.",
+          hint: "Example: @CRM Bot open CRM and find Aanya Sharma",
+        });
+        return;
+      }
+
       agentDoc = await Agent.findOne({ _id: dispatchId, user: req.userId, active: true });
       if (!agentDoc) {
         res.status(404).json({
@@ -229,6 +357,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         return;
       }
       snapshot = toAgentSnapshot(agentDoc);
+      chat.lastDispatchAgent = agentDoc._id;
+      mentionMeta = { ...(mentionMeta || { matched: false }), dispatchSource };
     } else if (chat.agent) {
       agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
@@ -273,7 +403,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
     const defaultTitles = ["Chat ·", "New chat", "Common chat"];
     if (defaultTitles.some((prefix) => chat.title === prefix || chat.title.startsWith("Chat ·"))) {
-      chat.title = content.slice(0, 60);
+      chat.title = (goalText || content).slice(0, 60);
     }
     chat.updatedAt = new Date();
     await chat.save();
@@ -282,13 +412,21 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       chat: chat._id,
       role: "user",
       content,
+      meta: common
+        ? {
+            dispatchAgentId: snapshot?.id || String(agentDoc._id),
+            dispatchAgentName: snapshot?.name || agentDoc.name,
+            goalText,
+            mention: mentionMeta,
+          }
+        : null,
     });
 
     const task = await Task.create({
       user: req.userId,
       chat: chat._id,
       message: message._id,
-      goal: content,
+      goal: goalText || content,
       agent: agentDoc._id,
       agentSnapshot: snapshot,
       runner: "cloud",
@@ -297,11 +435,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         {
           type: "queued",
           payload: {
-            goal: content,
+            goal: goalText || content,
             agentId: snapshot?.id || null,
             agentName: snapshot?.name || null,
             runner: "cloud",
             fromCommonChat: common,
+            dispatchSource: mentionMeta?.dispatchSource || null,
           },
         },
       ],

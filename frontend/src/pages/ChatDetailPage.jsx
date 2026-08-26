@@ -7,6 +7,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
+import { resolveAgentMention } from "../lib/mentionAgent.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, ButtonWithHelp, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
@@ -21,6 +22,9 @@ export function ChatDetailPage() {
   const [isCommon, setIsCommon] = useState(false);
   const [agents, setAgents] = useState([]);
   const [dispatchAgentId, setDispatchAgentId] = useState("");
+  const [pinDefault, setPinDefault] = useState(false);
+  const [pinBusy, setPinBusy] = useState(false);
+  const [watchAgentId, setWatchAgentId] = useState("");
   const [messages, setMessages] = useState([]);
   const [tasks, setTasks] = useState([]);
   const [agentQueue, setAgentQueue] = useState({ pending: [], active: null });
@@ -42,6 +46,18 @@ export function ChatDetailPage() {
       setMessages(data.messages || []);
       setTasks(data.tasks || []);
       setAgentQueue(data.agentQueue || { pending: [], active: null });
+      const loadedChat = data.chat;
+      if (data.isCommon && loadedChat) {
+        const pinned = loadedChat.defaultAgent?._id || loadedChat.defaultAgent || "";
+        const last = loadedChat.lastDispatchAgent?._id || loadedChat.lastDispatchAgent || "";
+        setPinDefault(Boolean(pinned));
+        setDispatchAgentId((prev) => {
+          if (prev) return prev;
+          if (pinned) return String(pinned);
+          if (last) return String(last);
+          return prev;
+        });
+      }
     } catch (err) {
       setError(err);
     }
@@ -55,9 +71,9 @@ export function ChatDetailPage() {
         const storageKey = `yambot-common-agent-${chatId}`;
         const saved = localStorage.getItem(storageKey);
         if (saved && list.some((a) => String(a._id) === saved)) {
-          setDispatchAgentId(saved);
+          setDispatchAgentId((prev) => prev || saved);
         } else if (list[0]?._id) {
-          setDispatchAgentId(String(list[0]._id));
+          setDispatchAgentId((prev) => prev || String(list[0]._id));
         }
       })
       .catch(() => {});
@@ -104,21 +120,61 @@ export function ChatDetailPage() {
   const waitingTask =
     agentQueue?.active?.status === "waiting_user" ? agentQueue.active : null;
   const activeRun = agentQueue?.active || null;
+  const activeRuns = agentQueue?.actives || (activeRun ? [activeRun] : []);
 
-  /** Bound agent for agent chats; active task's agent for common chat live screen. */
+  const mentionPreview = useMemo(() => {
+    if (!isCommon || !input.trim().startsWith("@")) return null;
+    return resolveAgentMention(input, agents);
+  }, [agents, input, isCommon]);
+
+  useEffect(() => {
+    if (!isCommon || !mentionPreview?.matched || !mentionPreview.agentId) return;
+    setDispatchAgentId(mentionPreview.agentId);
+  }, [isCommon, mentionPreview?.agentId, mentionPreview?.matched]);
+
+  /** Bound agent for agent chats; watch picker for common chat when multiple workers run. */
   const liveAgentId = isCommon
-    ? activeRun?.agent?._id || activeRun?.agent || null
+    ? watchAgentId ||
+      activeRun?.agent?._id ||
+      activeRun?.agent ||
+      dispatchAgentId ||
+      null
     : chat?.agent?._id || chat?.agent || null;
 
+  const watchedRun = useMemo(() => {
+    if (!isCommon) return activeRun;
+    if (!watchAgentId) return activeRun;
+    return (
+      activeRuns.find(
+        (t) => String(t.agent?._id || t.agent) === String(watchAgentId)
+      ) || activeRun
+    );
+  }, [activeRun, activeRuns, isCommon, watchAgentId]);
+
+  useEffect(() => {
+    if (!isCommon || !activeRuns.length) return;
+    const currentWatch = watchAgentId;
+    const stillValid = activeRuns.some(
+      (t) => String(t.agent?._id || t.agent) === String(currentWatch)
+    );
+    if (!currentWatch || !stillValid) {
+      const next = activeRuns[0]?.agent?._id || activeRuns[0]?.agent;
+      if (next) setWatchAgentId(String(next));
+    }
+  }, [activeRuns, isCommon, watchAgentId]);
+
   const liveAgentName = isCommon
-    ? activeRun?.agent?.name || null
+    ? agents.find((a) => String(a._id) === String(liveAgentId))?.name ||
+      watchedRun?.agent?.name ||
+      null
     : chat?.agent?.name || null;
 
   /** Task doc with full events (active run from queue may omit events until merged). */
   const snapshotTask = useMemo(() => {
-    if (!activeRun?._id) return tasks[0] || null;
-    return tasks.find((t) => String(t._id) === String(activeRun._id)) || activeRun;
-  }, [activeRun, tasks]);
+    const focus = watchedRun || activeRun;
+    if (!focus?._id) return tasks[0] || null;
+    return tasks.find((t) => String(t._id) === String(focus._id)) || focus;
+  }, [activeRun, tasks, watchedRun]);
 
   const snapshotEvents = snapshotTask?.events || [];
 
@@ -129,17 +185,29 @@ export function ChatDetailPage() {
     e.preventDefault();
     const content = input.trim();
     if (!content) return;
+
+    const mention = isCommon ? resolveAgentMention(content, agents) : null;
+    const goalAfterMention = mention?.matched ? mention.strippedContent.trim() : content;
+    if (isCommon && !goalAfterMention) {
+      setError({
+        title: "Add a goal",
+        detail: "Type instructions after the @mention.",
+        hint: "Example: @CRM Bot open CRM and check Aanya",
+      });
+      return;
+    }
+
     setBusy(true);
     setError(null);
     stickToBottomRef.current = true;
     try {
       const body = { content };
-      if (isCommon) {
+      if (isCommon && !mention?.matched) {
         if (!dispatchAgentId) {
           setError({
             title: "Pick an agent",
-            detail: "Choose which agent should run this goal.",
-            hint: "Use the agent dropdown above the goal box.",
+            detail: "Choose an agent, pin a default, or start with @AgentName.",
+            hint: "Example: @CRM Bot check Aanya follow-up",
           });
           setBusy(false);
           return;
@@ -183,6 +251,42 @@ export function ChatDetailPage() {
     }
   }
 
+  async function togglePinDefault() {
+    if (!isCommon || !dispatchAgentId) return;
+    setPinBusy(true);
+    setError(null);
+    try {
+      const nextPinned = !pinDefault;
+      await api(`/api/chats/${chatId}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          defaultAgentId: nextPinned ? dispatchAgentId : null,
+        }),
+      });
+      setPinDefault(nextPinned);
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setPinBusy(false);
+    }
+  }
+
+  /**
+   * @param {object} message
+   * @returns {string|null}
+   */
+  function messageAgentLabel(message) {
+    if (!isCommon) return null;
+    if (message.role === "user" && message.meta?.dispatchAgentName) {
+      return message.meta.dispatchAgentName;
+    }
+    if (message.role === "system" && message.meta?.agentName) {
+      return message.meta.agentName;
+    }
+    return null;
+  }
+
   async function stopAgent() {
     if (!activeRun) return;
     if (!window.confirm("Stop the agent's current run? Queued goals will stay in the queue.")) return;
@@ -220,7 +324,7 @@ export function ChatDetailPage() {
         {liveAgentId ? (
           <LiveScreen
             agentId={String(liveAgentId)}
-            taskId={activeRun?._id ? String(activeRun._id) : undefined}
+            taskId={watchedRun?._id ? String(watchedRun._id) : activeRun?._id ? String(activeRun._id) : undefined}
             demoTitle={(snapshotTask?.goal || chat?.title || "Chat demonstration").slice(0, 120)}
             fill
             compact
@@ -264,34 +368,77 @@ export function ChatDetailPage() {
           </form>
         ) : null}
 
+        {isCommon && activeRuns.length > 1 ? (
+          <label className="mb-1 flex shrink-0 flex-col gap-1 text-xs">
+            <span className="font-semibold text-violet-900">Watch agent</span>
+            <select
+              className="min-h-9 rounded-xl border border-violet-100 bg-white px-2"
+              value={watchAgentId || String(activeRuns[0]?.agent?._id || activeRuns[0]?.agent || "")}
+              onChange={(e) => setWatchAgentId(e.target.value)}
+            >
+              {activeRuns.map((t) => (
+                <option key={t._id} value={String(t.agent?._id || t.agent)}>
+                  {t.agent?.name || "Agent"} · {t.status}
+                </option>
+              ))}
+            </select>
+          </label>
+        ) : null}
+
         <form onSubmit={sendGoal} className="flex flex-col gap-2">
           {isCommon ? (
-            <label className="flex w-full flex-col gap-1 text-sm">
-              <FieldLabel helpId="chat.agentPicker">Dispatch to agent</FieldLabel>
-              <select
-                className="min-h-11 w-full rounded-xl border border-violet-100 bg-white px-3"
-                value={dispatchAgentId}
-                onChange={(e) => setDispatchAgentId(e.target.value)}
-                disabled={busy}
-              >
-                {agents.length === 0 ? (
-                  <option value="">No agents — create one first</option>
-                ) : (
-                  agents.map((a) => (
-                    <option key={a._id} value={a._id}>
-                      {a.name} ({a.skill})
-                    </option>
-                  ))
-                )}
-              </select>
-            </label>
+            <>
+              <label className="flex w-full flex-col gap-1 text-sm">
+                <FieldLabel helpId="chat.agentPicker">Dispatch to agent</FieldLabel>
+                <select
+                  className="min-h-11 w-full rounded-xl border border-violet-100 bg-white px-3"
+                  value={dispatchAgentId}
+                  onChange={(e) => setDispatchAgentId(e.target.value)}
+                  disabled={busy}
+                >
+                  {agents.length === 0 ? (
+                    <option value="">No agents — create one first</option>
+                  ) : (
+                    agents.map((a) => (
+                      <option key={a._id} value={a._id}>
+                        {a.name} ({a.skill})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <label className="flex items-center gap-2 text-sm text-violet-950">
+                <input
+                  type="checkbox"
+                  checked={pinDefault}
+                  disabled={pinBusy || !dispatchAgentId}
+                  onChange={togglePinDefault}
+                  className="h-4 w-4 rounded border-violet-200"
+                />
+                <FieldLabel helpId="chat.pinDefault" className="text-sm">
+                  Pin as default agent for this chat
+                </FieldLabel>
+              </label>
+              {mentionPreview?.matched ? (
+                <p className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-950">
+                  @mention → <strong>{mentionPreview.agentName}</strong>
+                  {mentionPreview.strippedContent
+                    ? ` · goal: “${mentionPreview.strippedContent.slice(0, 80)}”`
+                    : ""}
+                </p>
+              ) : null}
+            </>
           ) : null}
           <FieldLabel helpId="chat.goalInput" className="text-sm">
             Goal / instructions
           </FieldLabel>
           <textarea
             className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
-            placeholder="Goal / instructions…"
+            placeholder={
+              isCommon
+                ? "@AgentName goal… or pick agent above"
+                : "Goal / instructions…"
+            }
             value={input}
             onChange={(e) => setInput(e.target.value)}
             rows={3}
@@ -405,7 +552,9 @@ export function ChatDetailPage() {
           {messages.length === 0 ? (
             <p className="text-sm text-teal-900/60">No messages yet. Send a goal on the right.</p>
           ) : null}
-          {messages.map((m) => (
+          {messages.map((m) => {
+            const agentLabel = messageAgentLabel(m);
+            return (
             <article
               key={m._id}
               className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
@@ -417,7 +566,12 @@ export function ChatDetailPage() {
               }`}
             >
               <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
-                <span className="uppercase">{m.role}</span>
+                <span className="uppercase">
+                  {m.role}
+                  {agentLabel ? (
+                    <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
+                  ) : null}
+                </span>
                 {m.createdAt ? (
                   <time
                     dateTime={new Date(m.createdAt).toISOString()}
@@ -429,7 +583,8 @@ export function ChatDetailPage() {
               </div>
               <div className="whitespace-pre-wrap break-words">{m.content}</div>
             </article>
-          ))}
+            );
+          })}
           <div ref={bottomRef} className="h-px w-full shrink-0" />
         </div>
 

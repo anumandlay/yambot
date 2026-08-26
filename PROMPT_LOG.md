@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 20:40] Common chat Phase B — @mention, default agent, labels, multi-agent queue
+
+- **Prompt Provided:** Implement Phase B for common chat
+- **Architectural Flow:** `@Agent` mention resolves dispatch; `defaultAgent` pin + `lastDispatchAgent` fallback; user message meta shows agent; chat-scoped queue grouped by agent with multiple actives
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Chat.js`, `backend/src/utils/mentionAgent.js`, `backend/src/routes/chats.js`, `frontend/src/lib/mentionAgent.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/AgentTaskQueue.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 20:20] Common chat — agent-agnostic thread + per-message dispatch
 
 - **Prompt Provided:** Implement common chat alongside existing agent-bound chats
