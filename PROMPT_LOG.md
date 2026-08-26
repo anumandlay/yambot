@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-25 20:20] Common chat — agent-agnostic thread + per-message dispatch
+
+- **Prompt Provided:** Implement common chat alongside existing agent-bound chats
+- **Architectural Flow:** `Chat.kind: common` with no bound agent; `POST messages` requires `agentId` per goal; live screen follows active task's agent; agent chats unchanged
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Chat.js`, `backend/src/routes/chats.js`, `frontend/src/pages/ChatsPage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-25 16:55] Fix CompanyEvent source enum for demo.captured
 
 - **Prompt Provided:** CompanyEvent validation failed: source `skills` is not a valid enum value

@@ -787,10 +787,17 @@ export const HELP = {
   "chats.page": {
     title: "Chats page",
     body: helpBody(
-      "All conversation threads. Pick agent → New chat → send goals in the thread. Each agent maintains its own task queue.",
-      "Scheduled runs also appear as chats titled 'Schedule · {agent}'."
+      "Two kinds of threads: **Common chat** — one inbox, pick an agent per goal. **Agent chats** — dedicated thread bound to one worker.",
+      "Each agent still has its own cloud Chromium box and global FIFO queue per agent."
     ),
     learnMore: "howto-chats",
+  },
+  "chats.commonChat": {
+    title: "Common chat",
+    body: helpBody(
+      "Neutral inbox — not tied to one agent. Each message you send picks which agent runs that goal.",
+      "Use this as an orchestrator desk when you dispatch different workers from the same conversation."
+    ),
   },
   "chats.agentSelect": {
     title: "Select agent",
@@ -799,15 +806,21 @@ export const HELP = {
     ),
   },
   "chats.newChat": {
-    title: "New chat",
+    title: "New agent chat",
     body: helpBody(
-      "Creates empty thread. First message you send becomes the first goal/task."
+      "Creates empty thread bound to one agent. All goals in this thread run on that agent's cloud computer."
     ),
   },
   "chats.newAgentLink": {
     title: "New agent (from chats)",
     body: helpBody(
       "Shortcut to agent editor if you have no agents yet."
+    ),
+  },
+  "chat.agentPicker": {
+    title: "Dispatch agent",
+    body: helpBody(
+      "Which agent runs this goal. In common chat you pick per message — the live screen follows whichever agent is running a task from this thread."
     ),
   },
   "chat.goalInput": {
@@ -845,8 +858,8 @@ export const HELP = {
   "chat.taskQueue": {
     title: "Task queue",
     body: helpBody(
-      "Shows pending and active tasks for this agent across chats. One running task per agent; others wait.",
-      "Priority and SLA from goals affect claim order globally for that agent."
+      "Agent chat: pending/active tasks for the bound agent (may include goals from other chats). Common chat: only tasks dispatched from this thread.",
+      "One running task per agent globally; others wait in that agent's FIFO queue."
     ),
   },
   "chat.liveScreen": {

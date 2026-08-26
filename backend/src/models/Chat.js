@@ -26,6 +26,8 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
+export const CHAT_KINDS = ["agent", "common"];
+
 const chatSchema = new mongoose.Schema(
   {
     user: {
@@ -35,6 +37,16 @@ const chatSchema = new mongoose.Schema(
       index: true,
     },
     title: { type: String, default: "New chat", trim: true },
+    /**
+     * agent = thread bound to one worker (existing behavior).
+     * common = neutral inbox; each message picks which agent runs the task.
+     */
+    kind: {
+      type: String,
+      enum: CHAT_KINDS,
+      default: "agent",
+      index: true,
+    },
     agent: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Agent",

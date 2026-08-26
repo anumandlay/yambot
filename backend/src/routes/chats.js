@@ -1,15 +1,23 @@
 /**
  * @fileoverview Chat routes — create threads, post goals, poll messages/tasks.
- * Purpose: Website UX for “pick agent → new chat → enter goal → watch results”.
+ * Purpose: Website UX for agent-bound chats and common (agent-agnostic) inbox.
  * Downstream: Chat/Message/Task/Agent models; cloud workers claim resulting tasks.
  */
 
 import { Router } from "express";
-import { Chat, Message } from "../models/Chat.js";
+import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
 
 export const chatsRouter = Router();
+
+/**
+ * @param {object} chat
+ * @returns {boolean}
+ */
+function isCommonChat(chat) {
+  return chat?.kind === "common" || (!chat?.agent && chat?.kind !== "agent");
+}
 
 /**
  * Pending FIFO queue + active run for one agent (shown in every chat bound to that agent).
@@ -24,8 +32,8 @@ async function loadAgentQueue(userId, agentRef) {
   const [pending, active] = await Promise.all([
     Task.find({ user: userId, agent: agentId, status: "pending" })
       .sort({ createdAt: 1 })
-      .select("goal status createdAt chat message")
-      .populate("chat", "title")
+      .select("goal status createdAt chat message agent")
+      .populate("chat", "title kind")
       .lean(),
     Task.findOne({
       user: userId,
@@ -33,20 +41,51 @@ async function loadAgentQueue(userId, agentRef) {
       status: { $in: ["running", "waiting_user"] },
     })
       .sort({ claimedAt: -1, updatedAt: -1 })
-      .select("goal status createdAt chat message resultSummary events")
-      .populate("chat", "title")
+      .select("goal status createdAt chat message resultSummary events agent")
+      .populate("chat", "title kind")
       .lean(),
   ]);
   return { pending, active };
 }
 
 /**
- * Ensures a task belongs to the chat's agent (queue is agent-scoped, not chat-scoped).
- * @param {import("mongoose").Document} chat
- * @param {import("mongoose").Document|null} task
+ * Queue scoped to one chat thread (common inbox — tasks dispatched from this chat only).
+ * @param {import("mongoose").Types.ObjectId | string} userId
+ * @param {import("mongoose").Types.ObjectId | string} chatId
  */
-function taskMatchesChatAgent(chat, task) {
-  if (!task || !chat?.agent) return false;
+async function loadChatScopedQueue(userId, chatId) {
+  const [pending, active] = await Promise.all([
+    Task.find({ user: userId, chat: chatId, status: "pending" })
+      .sort({ createdAt: 1 })
+      .select("goal status createdAt chat message agent")
+      .populate("chat", "title kind")
+      .populate("agent", "name")
+      .lean(),
+    Task.findOne({
+      user: userId,
+      chat: chatId,
+      status: { $in: ["running", "waiting_user"] },
+    })
+      .sort({ updatedAt: -1 })
+      .select("goal status createdAt chat message resultSummary events agent")
+      .populate("chat", "title kind")
+      .populate("agent", "name")
+      .lean(),
+  ]);
+  return { pending, active };
+}
+
+/**
+ * Ensures a task belongs to this chat context (agent-bound or common).
+ * @param {object} chat
+ * @param {object|null} task
+ */
+function taskMatchesChat(chat, task) {
+  if (!task || !chat) return false;
+  if (isCommonChat(chat)) {
+    return String(task.chat) === String(chat._id);
+  }
+  if (!chat.agent) return false;
   return String(task.agent) === String(chat.agent);
 }
 
@@ -57,7 +96,7 @@ chatsRouter.get("/", async (req, res, next) => {
   try {
     const chats = await Chat.find({ user: req.userId })
       .sort({ updatedAt: -1 })
-      .select("title agent createdAt updatedAt")
+      .select("title agent kind createdAt updatedAt")
       .populate("agent", "name skill")
       .lean();
     res.json({ ok: true, chats });
@@ -67,18 +106,31 @@ chatsRouter.get("/", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats — create chat bound to an agent.
- * Body: { title?, agentId }
+ * POST /api/chats — create agent-bound or common chat.
+ * Body: { title?, agentId?, kind?: "agent"|"common" }
  */
 chatsRouter.post("/", async (req, res, next) => {
   try {
+    const kind = CHAT_KINDS.includes(req.body?.kind) ? req.body.kind : "agent";
+    if (kind === "common") {
+      const title = String(req.body?.title || "").trim() || "Common chat";
+      const chat = await Chat.create({
+        user: req.userId,
+        title,
+        kind: "common",
+        agent: null,
+      });
+      res.status(201).json({ ok: true, chat });
+      return;
+    }
+
     const agentId = req.body?.agentId;
     if (!agentId) {
       res.status(400).json({
         ok: false,
         title: "Agent required",
-        detail: "Create or select an agent before starting a chat.",
-        hint: "Go to Agents → New agent, then start a chat from there.",
+        detail: "Create or select an agent before starting an agent chat.",
+        hint: "Use kind: common for a shared inbox, or pick an agent for a dedicated chat.",
       });
       return;
     }
@@ -96,6 +148,7 @@ chatsRouter.post("/", async (req, res, next) => {
     const chat = await Chat.create({
       user: req.userId,
       title,
+      kind: "agent",
       agent: agent._id,
     });
     res.status(201).json({ ok: true, chat });
@@ -105,7 +158,7 @@ chatsRouter.post("/", async (req, res, next) => {
 });
 
 /**
- * GET /api/chats/:id — chat + messages + related tasks (+ agent).
+ * GET /api/chats/:id — chat + messages + related tasks (+ agent queue).
  */
 chatsRouter.get("/:id", async (req, res, next) => {
   try {
@@ -116,12 +169,15 @@ chatsRouter.get("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
       return;
     }
+    const common = isCommonChat(chat);
     const [messages, tasks, agentQueue] = await Promise.all([
       Message.find({ chat: chat._id }).sort({ createdAt: 1 }).lean(),
       Task.find({ chat: chat._id }).sort({ createdAt: -1 }).lean(),
-      loadAgentQueue(req.userId, chat.agent),
+      common
+        ? loadChatScopedQueue(req.userId, chat._id)
+        : loadAgentQueue(req.userId, chat.agent),
     ]);
-    res.json({ ok: true, chat, messages, tasks, agentQueue });
+    res.json({ ok: true, chat, messages, tasks, agentQueue, isCommon: common });
   } catch (err) {
     next(err);
   }
@@ -129,7 +185,7 @@ chatsRouter.get("/:id", async (req, res, next) => {
 
 /**
  * POST /api/chats/:id/messages — user sends a goal; enqueues a Task with agent snapshot.
- * Body: { content }
+ * Body: { content, agentId? } — agentId required for common chats.
  */
 chatsRouter.post("/:id/messages", async (req, res, next) => {
   try {
@@ -148,45 +204,75 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       return;
     }
 
+    const common = isCommonChat(chat);
     let agentDoc = null;
     let snapshot = null;
-    if (chat.agent) {
+
+    if (common) {
+      const dispatchId = req.body?.agentId;
+      if (!dispatchId) {
+        res.status(400).json({
+          ok: false,
+          title: "Agent required",
+          detail: "Pick which agent should run this goal.",
+          hint: "Select an agent in the send box before sending.",
+        });
+        return;
+      }
+      agentDoc = await Agent.findOne({ _id: dispatchId, user: req.userId, active: true });
+      if (!agentDoc) {
+        res.status(404).json({
+          ok: false,
+          title: "Agent not found",
+          detail: "That agent does not exist or is inactive.",
+        });
+        return;
+      }
+      snapshot = toAgentSnapshot(agentDoc);
+    } else if (chat.agent) {
       agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
     }
 
-    // Why: one computer per agent — active runs block the box; a new goal must take over.
-    if (agentDoc) {
-      const now = new Date();
-      const active = await Task.find({
-        agent: agentDoc._id,
-        user: req.userId,
-        status: { $in: ["waiting_user", "running"] },
+    if (!agentDoc) {
+      res.status(400).json({
+        ok: false,
+        title: "No agent",
+        detail: "This chat has no agent to run the goal.",
       });
-      for (const blocked of active) {
-        blocked.status = "cancelled";
-        blocked.completedAt = now;
-        blocked.resultSummary = "Superseded by a newer goal";
-        blocked.events.push({
-          type: "cancelled",
-          payload: { reason: "superseded_by_new_goal", byChat: String(chat._id) },
-        });
-        await blocked.save();
-        await Message.create({
-          chat: blocked.chat,
-          role: "system",
-          content: "Previous run cancelled — a newer goal was sent for this agent.",
-          meta: { kind: "superseded", taskId: blocked._id },
-        }).catch(() => {});
-      }
-      if (active.length) {
-        await clearAgentNeedsAttention(agentDoc._id);
-        await clearAgentHumanControl(agentDoc._id);
-      }
+      return;
     }
 
-    // Why: first user message becomes the chat title for sidebar scanning.
-    if (chat.title.startsWith("Chat ·") || chat.title === "New chat") {
+    // Why: one computer per agent — active runs block the box; a new goal must take over.
+    const now = new Date();
+    const active = await Task.find({
+      agent: agentDoc._id,
+      user: req.userId,
+      status: { $in: ["waiting_user", "running"] },
+    });
+    for (const blocked of active) {
+      blocked.status = "cancelled";
+      blocked.completedAt = now;
+      blocked.resultSummary = "Superseded by a newer goal";
+      blocked.events.push({
+        type: "cancelled",
+        payload: { reason: "superseded_by_new_goal", byChat: String(chat._id) },
+      });
+      await blocked.save();
+      await Message.create({
+        chat: blocked.chat,
+        role: "system",
+        content: "Previous run cancelled — a newer goal was sent for this agent.",
+        meta: { kind: "superseded", taskId: blocked._id },
+      }).catch(() => {});
+    }
+    if (active.length) {
+      await clearAgentNeedsAttention(agentDoc._id);
+      await clearAgentHumanControl(agentDoc._id);
+    }
+
+    const defaultTitles = ["Chat ·", "New chat", "Common chat"];
+    if (defaultTitles.some((prefix) => chat.title === prefix || chat.title.startsWith("Chat ·"))) {
       chat.title = content.slice(0, 60);
     }
     chat.updatedAt = new Date();
@@ -203,9 +289,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       chat: chat._id,
       message: message._id,
       goal: content,
-      agent: agentDoc?._id || null,
+      agent: agentDoc._id,
       agentSnapshot: snapshot,
-      // Why: freeze runner so claim routing stays correct if the agent is edited while queued.
       runner: "cloud",
       status: "pending",
       events: [
@@ -216,6 +301,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             agentId: snapshot?.id || null,
             agentName: snapshot?.name || null,
             runner: "cloud",
+            fromCommonChat: common,
           },
         },
       ],
@@ -232,6 +318,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         taskId: task._id,
         status: "pending",
         agentId: snapshot?.id || null,
+        agentName: snapshot?.name || null,
         runner: "cloud",
       },
     });
@@ -258,7 +345,7 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
       _id: req.params.taskId,
       user: req.userId,
     });
-    if (!task || !taskMatchesChatAgent(chat, task)) {
+    if (!task || !taskMatchesChat(chat, task)) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
       return;
     }
@@ -303,25 +390,17 @@ chatsRouter.patch("/:id/tasks/:taskId", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
       return;
     }
-    if (!chat.agent) {
-      res.status(400).json({
-        ok: false,
-        title: "No agent",
-        detail: "This chat has no agent bound.",
-      });
-      return;
-    }
     const task = await Task.findOne({
       _id: req.params.taskId,
       user: req.userId,
       status: "pending",
     });
-    if (!task || !taskMatchesChatAgent(chat, task)) {
+    if (!task || !taskMatchesChat(chat, task)) {
       res.status(404).json({
         ok: false,
         title: "Not found",
         detail: "Queued task missing or not editable.",
-        hint: "Only pending goals in this agent's queue can be edited.",
+        hint: "Only pending goals in this chat's queue can be edited.",
       });
       return;
     }
@@ -339,7 +418,7 @@ chatsRouter.patch("/:id/tasks/:taskId", async (req, res, next) => {
 });
 
 /**
- * DELETE /api/chats/:id/tasks/:taskId — remove a pending goal from the agent queue.
+ * DELETE /api/chats/:id/tasks/:taskId — remove a pending goal from the queue.
  */
 chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
   try {
@@ -348,20 +427,12 @@ chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
       return;
     }
-    if (!chat.agent) {
-      res.status(400).json({
-        ok: false,
-        title: "No agent",
-        detail: "This chat has no agent bound.",
-      });
-      return;
-    }
     const task = await Task.findOne({
       _id: req.params.taskId,
       user: req.userId,
       status: "pending",
     });
-    if (!task || !taskMatchesChatAgent(chat, task)) {
+    if (!task || !taskMatchesChat(chat, task)) {
       res.status(404).json({
         ok: false,
         title: "Not found",
@@ -381,7 +452,7 @@ chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
     await Message.create({
       chat: task.chat,
       role: "system",
-      content: `Queued goal removed from the agent queue: “${task.goal.slice(0, 120)}”`,
+      content: `Queued goal removed: “${task.goal.slice(0, 120)}”`,
       meta: { taskId: task._id, kind: "queue_removed" },
     }).catch(() => {});
     res.json({ ok: true, task: { id: task._id, status: task.status } });
@@ -391,7 +462,7 @@ chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats/:id/stop — cancel the agent's active run (running / waiting_user), not pending queue.
+ * POST /api/chats/:id/stop — cancel active run (running / waiting_user).
  */
 chatsRouter.post("/:id/stop", async (req, res, next) => {
   try {
@@ -404,7 +475,9 @@ chatsRouter.post("/:id/stop", async (req, res, next) => {
       user: req.userId,
       status: { $in: ["running", "waiting_user"] },
     };
-    if (chat.agent) {
+    if (isCommonChat(chat)) {
+      filter.chat = chat._id;
+    } else if (chat.agent) {
       filter.agent = chat.agent;
     } else {
       filter.chat = chat._id;

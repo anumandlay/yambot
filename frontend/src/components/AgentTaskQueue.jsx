@@ -9,14 +9,14 @@ import { api } from "../lib/api.js";
 import { SectionTitle } from "./FieldLabel.jsx";
 
 /**
- * @typedef {{ _id: string, goal: string, status: string, createdAt?: string, chat?: { _id?: string, title?: string } }} QueueTask
+ * @typedef {{ _id: string, goal: string, status: string, createdAt?: string, chat?: { _id?: string, title?: string }, agent?: { _id?: string, name?: string } }} QueueTask
  * @typedef {{ pending?: QueueTask[], active?: QueueTask|null }} AgentQueue
  */
 
 /**
- * @param {{ chatId: string, agentQueue: AgentQueue|null|undefined, onChanged: () => void|Promise<void>, onError: (err: unknown) => void }} props
+ * @param {{ chatId: string, agentQueue: AgentQueue|null|undefined, isCommon?: boolean, onChanged: () => void|Promise<void>, onError: (err: unknown) => void }} props
  */
-export function AgentTaskQueue({ chatId, agentQueue, onChanged, onError }) {
+export function AgentTaskQueue({ chatId, agentQueue, isCommon = false, onChanged, onError }) {
   const pending = agentQueue?.pending || [];
   const active = agentQueue?.active || null;
   const [editingId, setEditingId] = useState(null);
@@ -81,18 +81,23 @@ export function AgentTaskQueue({ chatId, agentQueue, onChanged, onError }) {
   /**
    * @param {QueueTask} task
    */
-  function chatLabel(task) {
+  function taskMetaLabel(task) {
+    if (isCommon) {
+      return task.agent?.name ? `Agent: ${task.agent.name}` : "Agent pending";
+    }
     const title = task.chat?.title;
-    return title ? title : "Another chat";
+    return title ? `From: ${title}` : "From: another chat";
   }
 
   return (
     <section
       className="flex shrink-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
-      aria-label="Agent work queue"
+      aria-label={isCommon ? "Chat work queue" : "Agent work queue"}
     >
       <div className="flex items-center justify-between gap-2">
-        <SectionTitle helpId="chat.taskQueue">Agent queue</SectionTitle>
+        <SectionTitle helpId="chat.taskQueue">
+          {isCommon ? "This chat queue" : "Agent queue"}
+        </SectionTitle>
         {pending.length ? (
           <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
             {pending.length} pending
@@ -106,7 +111,7 @@ export function AgentTaskQueue({ chatId, agentQueue, onChanged, onError }) {
             Now: {active.status === "waiting_user" ? "waiting for you" : "running"}
           </div>
           <p className="line-clamp-3 whitespace-pre-wrap break-words">{active.goal}</p>
-          <p className="mt-1 text-xs text-sky-800/80">From: {chatLabel(active)}</p>
+          <p className="mt-1 text-xs text-sky-800/80">{taskMetaLabel(active)}</p>
         </div>
       ) : null}
 
@@ -124,7 +129,7 @@ export function AgentTaskQueue({ chatId, agentQueue, onChanged, onError }) {
                   <span className="text-xs font-bold uppercase text-teal-800/70">
                     #{index + 1} · pending
                   </span>
-                  <span className="truncate text-xs text-teal-900/60">{chatLabel(task)}</span>
+                  <span className="truncate text-xs text-teal-900/60">{taskMetaLabel(task)}</span>
                 </div>
 
                 {isEditing ? (
