@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 15:14] Agent edit — upload leads into agent group territory
+
+- **Prompt Provided:** Upload leads on the agent page so they go to that agent's database
+- **Architectural Flow:** AgentEditPage CSV paste/file → POST /api/entities/import with groupId from selected Group; requires group (e.g. USA); shared with all agents in that territory
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 14:57] Agent create — Generate fields from plain-English brief
 
 - **Prompt Provided:** Text box on create agent for plain English job; AI generates standing instructions (with entities), persona, skill, success criteria; group assigned separately
