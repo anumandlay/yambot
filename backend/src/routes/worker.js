@@ -10,6 +10,9 @@ import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
 import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
 import { Goal, recordGoalRun } from "../models/Goal.js";
+import { applyKpiFromTaskSummary } from "../utils/kpiUpdater.js";
+import { applyAutoKpiFromTask } from "../utils/kpiAutoMap.js";
+import { finalizeCampaignSendOnTaskComplete } from "../utils/stateHelpers.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
@@ -24,7 +27,10 @@ import { emitEvent } from "../utils/eventBus.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import { Skill } from "../models/Skill.js";
-import { createLearnedSkillDraft } from "../utils/skillLearn.js";
+import { ensureSkillSuggestionFromTask } from "../utils/skillSuggestion.js";
+import { processOutcomeRouting } from "../utils/resultRouter.js";
+import { processCompletionActions } from "../utils/completionActionsRunner.js";
+import { workerEntitiesRouter } from "./workerEntities.js";
 import { appendDemoStepIfActive, recordDemoUrlChange } from "../utils/demoCapture.js";
 import {
   appendDemoSessionStep,
@@ -34,6 +40,8 @@ import {
 import { env } from "../utils/env.js";
 
 export const workerRouter = Router();
+
+workerRouter.use(workerEntitiesRouter);
 
 /** Stuck `running` tasks older than this are requeued (LLM steps can take a while). */
 const STUCK_RUNNING_MS = 5 * 60 * 1000;
@@ -345,7 +353,26 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
     // Why: heartbeat so long LLM/browser steps do not look "stuck" to the reclaim timer.
     task.claimedAt = new Date();
 
-    if (req.body?.appendMessage) {
+    if (type === "skill_selected") {
+      const pick = payload && typeof payload === "object" ? payload : {};
+      const lines =
+        pick.source === "none"
+          ? ["No skill matched for this run.", pick.reason || ""]
+          : [
+              `Skill: ${pick.skillName || pick.templateId || "unknown"}${pick.slug ? ` (/${pick.slug})` : ""}`,
+              `Why: ${pick.reason || ""}`,
+            ];
+      await Message.create({
+        chat: task.chat,
+        role: "system",
+        content: lines.filter(Boolean).join("\n"),
+        meta: {
+          taskId: task._id,
+          kind: "skill_selected",
+          skillPick: pick,
+        },
+      });
+    } else if (req.body?.appendMessage) {
       await Message.create({
         chat: task.chat,
         role: "agent",
@@ -453,6 +480,11 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     });
     await task.save();
     await unblockDependentTasks(req.userId);
+
+    if (success && task.enrollmentRef) {
+      await finalizeCampaignSendOnTaskComplete(task).catch(() => null);
+    }
+
     await emitEvent({
       userId: req.userId,
       type: success ? "task.completed" : "task.failed",
@@ -461,7 +493,11 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       goalId: task.goalRef,
       taskId: task._id,
       summary: (summary || error || "").slice(0, 500),
-      payload: { evaluationScore: task.evaluation?.score },
+      payload: {
+        evaluationScore: task.evaluation?.score,
+        chatId: task.chat ? String(task.chat) : null,
+        triggerRef: task.triggerRef ? String(task.triggerRef) : null,
+      },
     });
 
     await Message.create({
@@ -489,10 +525,23 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       }
     }
 
+    /** @type {import('mongoose').Document|null} */
+    let userDocForRouting = null;
+    async function getUserForRouting() {
+      if (!userDocForRouting) {
+        userDocForRouting = await User.findById(req.userId);
+      }
+      return userDocForRouting;
+    }
+
     if (task.goalRef) {
       const goalDoc = await Goal.findOne({ _id: task.goalRef, user: req.userId });
       if (goalDoc) {
         await recordGoalRun(goalDoc, success);
+        if (success && summary) {
+          await applyKpiFromTaskSummary(goalDoc, summary).catch(() => null);
+          await applyAutoKpiFromTask(task, success).catch(() => null);
+        }
         const customType = success
           ? String(goalDoc.completionEventType || "").trim()
           : String(goalDoc.completionEventOnFailure || "").trim();
@@ -511,6 +560,38 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
               success,
               chatId: task.chat ? String(task.chat) : null,
             },
+          });
+        }
+
+        const userDoc = await getUserForRouting();
+        if (userDoc) {
+          await processOutcomeRouting({
+            user: userDoc,
+            userId: req.userId,
+            task,
+            success,
+            summary,
+            error,
+            source: "goal",
+            sourceId: String(goalDoc._id),
+            sourceName: goalDoc.title || "Goal",
+            outcomeRoutingEnabled: Boolean(goalDoc.outcomeRoutingEnabled),
+            outcomeBranches: goalDoc.outcomeBranches || [],
+          });
+          await processCompletionActions({
+            user: userDoc,
+            userId: req.userId,
+            task,
+            success,
+            summary,
+            error,
+            source: "goal",
+            sourceId: String(goalDoc._id),
+            sourceName: goalDoc.title || "Goal",
+            completionActionsEnabled: Boolean(goalDoc.completionActionsEnabled),
+            completionActionsPickMode:
+              goalDoc.completionActionsPickMode === "llm" ? "llm" : "rules",
+            completionActions: goalDoc.completionActions || [],
           });
         }
       }
@@ -537,6 +618,38 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
               success,
               chatId: task.chat ? String(task.chat) : null,
             },
+          });
+        }
+
+        const userDoc = await getUserForRouting();
+        if (userDoc) {
+          await processOutcomeRouting({
+            user: userDoc,
+            userId: req.userId,
+            task,
+            success,
+            summary,
+            error,
+            source: "trigger",
+            sourceId: String(triggerDoc._id),
+            sourceName: triggerDoc.name || "Trigger",
+            outcomeRoutingEnabled: Boolean(triggerDoc.outcomeRoutingEnabled),
+            outcomeBranches: triggerDoc.outcomeBranches || [],
+          });
+          await processCompletionActions({
+            user: userDoc,
+            userId: req.userId,
+            task,
+            success,
+            summary,
+            error,
+            source: "trigger",
+            sourceId: String(triggerDoc._id),
+            sourceName: triggerDoc.name || "Trigger",
+            completionActionsEnabled: Boolean(triggerDoc.completionActionsEnabled),
+            completionActionsPickMode:
+              triggerDoc.completionActionsPickMode === "llm" ? "llm" : "rules",
+            completionActions: triggerDoc.completionActions || [],
           });
         }
       }
@@ -567,7 +680,7 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     } else if (success && trajectory.length >= 2) {
       const existingDraft = await Skill.findOne({ user: req.userId, sourceTask: task._id });
       if (!existingDraft) {
-        const draft = await createLearnedSkillDraft(req.userId, {
+        const draft = await ensureSkillSuggestionFromTask(req.userId, {
           taskId: String(task._id),
           name: `Suggested: ${String(task.goal || "workflow").slice(0, 48)}`,
         });
@@ -575,11 +688,12 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
           await Message.create({
             chat: task.chat,
             role: "system",
-            content: `Skill draft suggested from this run — review “${draft.skill.name}” (/${draft.skill.slug}) on Skills.`,
+            content: `Skill draft suggested from this run — review “${draft.skill.name}” (/${draft.skill.slug}) on Skills → Suggested workflows.`,
             meta: {
               kind: "skill_suggestion",
               skillId: draft.skill._id,
               slug: draft.skill.slug,
+              demonstrationId: draft.demonstration?._id || null,
             },
           }).catch(() => {});
         }
@@ -871,14 +985,35 @@ async function loadEmailAgent(req) {
 workerRouter.post("/email/send", async (req, res, next) => {
   try {
     const { sendAgentEmail } = await import("../utils/agentEmail.js");
+    const { recordEmailMessage } = await import("../utils/emailLog.js");
     const agent = await loadEmailAgent(req);
+    const inReplyTo = String(req.body?.inReplyTo || "").trim();
+    const references = String(req.body?.references || "").trim();
     const result = await sendAgentEmail(agent, {
       to: req.body?.to,
       subject: req.body?.subject,
       text: req.body?.text,
       html: req.body?.html,
+      inReplyTo,
+      references,
     });
-    res.json(result);
+    const saved = await recordEmailMessage({
+      userId: req.userId,
+      agentId: agent._id,
+      entityId: req.body?.entityId || null,
+      enrollmentId: req.body?.enrollmentId || null,
+      taskId: req.body?.taskId || null,
+      direction: "outbound",
+      from: result.from,
+      to: result.to,
+      subject: result.subject,
+      text: req.body?.text || "",
+      messageId: result.messageId,
+      inReplyTo,
+      references,
+      threadKey: inReplyTo || result.messageId,
+    });
+    res.json({ ...result, emailMessageId: saved._id });
   } catch (err) {
     next(err);
   }
@@ -890,11 +1025,34 @@ workerRouter.post("/email/send", async (req, res, next) => {
 workerRouter.post("/email/check", async (req, res, next) => {
   try {
     const { checkAgentInbox } = await import("../utils/agentEmail.js");
+    const { recordEmailMessage, findEmailByMessageId } = await import("../utils/emailLog.js");
     const agent = await loadEmailAgent(req);
     const result = await checkAgentInbox(agent, {
       limit: req.body?.limit,
       unseenOnly: Boolean(req.body?.unseenOnly),
     });
+    for (const msg of result.messages || []) {
+      const messageId = String(msg.messageId || "").trim();
+      if (!messageId) continue;
+      const existing = await findEmailByMessageId(req.userId, messageId);
+      if (existing) continue;
+      await recordEmailMessage({
+        userId: req.userId,
+        agentId: agent._id,
+        entityId: req.body?.entityId || null,
+        enrollmentId: req.body?.enrollmentId || null,
+        taskId: req.body?.taskId || null,
+        direction: "inbound",
+        from: msg.from,
+        to: msg.to || result.fromAddress,
+        subject: msg.subject,
+        text: msg.snippet || "",
+        messageId,
+        inReplyTo: msg.inReplyTo || "",
+        imapUid: msg.uid,
+        at: msg.date ? new Date(msg.date) : new Date(),
+      });
+    }
     res.json(result);
   } catch (err) {
     next(err);

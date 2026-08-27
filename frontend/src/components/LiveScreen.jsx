@@ -9,6 +9,7 @@ import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ButtonWithHelp } from "./FieldLabel.jsx";
+import { FloatingChatWidget } from "./FloatingChatWidget.jsx";
 
 /**
  * Maps a browser KeyboardEvent to a Playwright key / combo string.
@@ -63,6 +64,7 @@ function playwrightKeyFromEvent(e) {
  *   taskId?: string,
  *   demoTitle?: string,
  *   recordDemo?: boolean,
+ *   chatId?: string,
  * }} props
  */
 export function LiveScreen({
@@ -77,6 +79,7 @@ export function LiveScreen({
   taskId,
   demoTitle = "Demonstration",
   recordDemo = true,
+  chatId,
 }) {
   const [live, setLive] = useState(null);
   const [error, setError] = useState(null);
@@ -85,6 +88,7 @@ export function LiveScreen({
   const [typeBuf, setTypeBuf] = useState("");
   const [status, setStatus] = useState("");
   const [demoRecording, setDemoRecording] = useState(false);
+  const [teachMode, setTeachMode] = useState(false);
   const [demoNotice, setDemoNotice] = useState(null);
   const [zoomed, setZoomed] = useState(false);
   const [viewSrc, setViewSrc] = useState("");
@@ -97,7 +101,10 @@ export function LiveScreen({
   const imgRef = useRef(null);
   const stageRef = useRef(null);
   const controlOnRef = useRef(false);
+  const teachModeRef = useRef(false);
   const demoIdRef = useRef(null);
+  /** Last click/hover on live screen — default targets Vughy left nav. */
+  const lastPointerRef = useRef({ xNorm: 0.06, yNorm: 0.55 });
 
   /**
    * Appends one step to the active demonstration (best-effort).
@@ -121,15 +128,20 @@ export function LiveScreen({
   }
 
   /**
-   * Payload for session toggle — server starts/finishes demo recording.
+   * Payload for session toggle — server starts/finishes demo recording when teaching.
+   * @param {boolean} active
+   * @param {{ teachSkill?: boolean, recordDemo?: boolean }} [opts]
    * @returns {object}
    */
-  function sessionControlBody(active) {
+  function sessionControlBody(active, opts = {}) {
+    const teaching = Boolean(opts.teachSkill);
     return {
       type: "session",
       active,
       taskId: taskId || null,
-      demoTitle,
+      demoTitle: teaching ? `Skill: ${demoTitle}` : demoTitle,
+      teachSkill: teaching,
+      recordDemo: teaching || opts.recordDemo === true,
     };
   }
 
@@ -137,33 +149,43 @@ export function LiveScreen({
    * @param {{ _id?: string, id?: string, title?: string, stepCount?: number }|null|undefined} demonstration
    */
   function applyDemonstrationResult(demonstration) {
-    if (!recordDemo) return;
+    const wasTeaching = teachModeRef.current;
+    teachModeRef.current = false;
+    setTeachMode(false);
+    if (!recordDemo && !wasTeaching) return;
     if (demonstration?._id || demonstration?.id) {
       demoIdRef.current = demonstration._id || demonstration.id;
       setDemoRecording(false);
       setDemoNotice({
         tone: "success",
-        text: `Demonstration saved (${demonstration.stepCount ?? "?"} steps) — convert it to a skill on Skills.`,
+        text: wasTeaching
+          ? `Skill demonstration saved (${demonstration.stepCount ?? "?"} steps) — convert it to a skill on Skills.`
+          : `Demonstration saved (${demonstration.stepCount ?? "?"} steps) — convert it to a skill on Skills.`,
         href: "/skills",
       });
       return;
     }
     demoIdRef.current = null;
     setDemoRecording(false);
-    if (recordDemo) {
+    if (wasTeaching) {
       setDemoNotice({
         tone: "warn",
-        text: "Control released, but no demonstration was saved. Use Take control from a task chat while the agent is LIVE.",
+        text: "Teaching ended, but no demonstration was saved. Try Teach skill again while the agent is online.",
+        href: "/skills",
+      });
+    } else if (recordDemo) {
+      setDemoNotice({
+        tone: "warn",
+        text: "Control released, but no demonstration was saved. Use Teach skill to record a workflow.",
         href: "/skills",
       });
     }
   }
 
   async function startDemoCapture() {
-    if (!recordDemo) return;
     setDemoNotice(null);
     setDemoRecording(true);
-    setStatus("Recording demonstration — perform the workflow, then Give control back.");
+    setStatus("Teaching skill — perform the workflow, then Done teaching.");
   }
 
   /**
@@ -354,24 +376,30 @@ export function LiveScreen({
 
   /**
    * @param {boolean} active
+   * @param {{ teachSkill?: boolean, recordDemo?: boolean }} [opts]
    */
-  async function setHumanSession(active) {
+  async function setHumanSession(active, opts = {}) {
     if (!active) {
       await releaseHumanControl();
       return;
     }
+    const teaching = Boolean(opts.teachSkill);
     setBusySession(true);
-    setStatus("Taking control…");
+    setStatus(teaching ? "Starting skill teaching…" : "Taking control…");
     setDesktopError("");
     setDemoNotice(null);
     try {
       const data = await api(`/api/agents/${agentId}/control`, {
         method: "POST",
-        body: JSON.stringify(sessionControlBody(true)),
+        body: JSON.stringify(sessionControlBody(true, opts)),
       });
       setControlOn(true);
+      teachModeRef.current = teaching;
+      setTeachMode(teaching);
       demoIdRef.current = data.demonstration?._id || data.demonstration?.id || null;
-      await startDemoCapture();
+      if (teaching && demoIdRef.current) {
+        await startDemoCapture();
+      }
       setViewSrc("");
       setViewError("");
       if (!zoomed) setZoomed(true);
@@ -384,24 +412,95 @@ export function LiveScreen({
         setDesktopSessionKey((k) => k + 1);
         setDesktopSrc(path);
         setStatus(
-          "Remote desktop connected — click inside the screen once, then use your mouse and keyboard."
+          teaching
+            ? "Teaching skill — click inside the screen, perform the workflow, then Done teaching."
+            : "Remote desktop connected — click inside the screen once, then use your mouse and keyboard."
         );
       } catch (deskErr) {
         setDesktopSrc("");
         setDesktopError(
           deskErr.detail || deskErr.message || "Desktop stream unavailable; using click map."
         );
-        setStatus("Take control (fallback click map) — desktop stream failed to open.");
+        setStatus(
+          teaching
+            ? "Teaching skill (fallback click map) — desktop stream failed to open."
+            : "Take control (fallback click map) — desktop stream failed to open."
+        );
         requestAnimationFrame(() => stageRef.current?.focus({ preventScroll: true }));
       }
     } catch (err) {
+      teachModeRef.current = false;
+      setTeachMode(false);
       setDemoNotice({
         tone: "error",
-        text: err.detail || err.message || "Could not take control",
+        text: err.detail || err.message || (teaching ? "Could not start teaching" : "Could not take control"),
       });
     } finally {
       setBusySession(false);
     }
+  }
+
+  /** Starts teach mode: human control + demonstration capture for Skills. */
+  async function startTeachSkill() {
+    if (controlOn && teachMode) {
+      await setHumanSession(false);
+      return;
+    }
+    await setHumanSession(true, { teachSkill: true });
+  }
+
+  /**
+   * Normalized pointer on the live screenshot (for scroll targeting).
+   * @param {number} clientX
+   * @param {number} clientY
+   * @returns {{ xNorm: number, yNorm: number }|null}
+   */
+  function pointerNormFromClient(clientX, clientY) {
+    const el = imgRef.current || stageRef.current;
+    if (!el) return null;
+    const rect = el.getBoundingClientRect();
+    if (!rect.width || !rect.height) return null;
+    const xNorm = (clientX - rect.left) / rect.width;
+    const yNorm = (clientY - rect.top) / rect.height;
+    if (!Number.isFinite(xNorm) || !Number.isFinite(yNorm)) return null;
+    return {
+      xNorm: Math.min(1, Math.max(0, xNorm)),
+      yNorm: Math.min(1, Math.max(0, yNorm)),
+    };
+  }
+
+  /** Vughy left nav — scroll targets this strip, not the whole page. */
+  const MENU_POINTER = { xNorm: 0.06, yNorm: 0.55 };
+
+  /**
+   * @param {number} dy
+   * @param {{ xNorm?: number, yNorm?: number }} [pointer]
+   */
+  async function sendScrollAt(dy, pointer) {
+    if (!controlOn) return;
+    const pt = pointer || lastPointerRef.current;
+    try {
+      await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "scroll",
+          dy,
+          xNorm: pt.xNorm,
+          yNorm: pt.yNorm,
+        }),
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+
+  /**
+   * Scroll Vughy left navigation menu (fixed x position on the sidebar).
+   * @param {number} dy
+   */
+  async function sendMenuScroll(dy) {
+    lastPointerRef.current = MENU_POINTER;
+    await sendScrollAt(dy, MENU_POINTER);
   }
 
   /**
@@ -417,6 +516,7 @@ export function LiveScreen({
       setStatus("Click ignored — screen not ready");
       return;
     }
+    lastPointerRef.current = { xNorm, yNorm };
     setStatus("Sending click…");
     try {
       await api(`/api/agents/${agentId}/control`, {
@@ -439,19 +539,25 @@ export function LiveScreen({
    * @param {React.WheelEvent} e
    */
   async function onWheel(e) {
-    if (!controlOn) return;
-    if (!e.shiftKey) return;
+    if (!controlOn || desktopSrc) return;
     e.preventDefault();
     const dy = Math.max(-1200, Math.min(1200, Math.round(e.deltaY)));
     if (!dy) return;
+    const pt = pointerNormFromClient(e.clientX, e.clientY);
+    if (pt) lastPointerRef.current = pt;
     try {
       await api(`/api/agents/${agentId}/control`, {
         method: "POST",
-        body: JSON.stringify({ type: "scroll", dy }),
+        body: JSON.stringify({
+          type: "scroll",
+          dy,
+          xNorm: (pt || lastPointerRef.current).xNorm,
+          yNorm: (pt || lastPointerRef.current).yNorm,
+        }),
       });
       await recordDemoStep({
         observation: live?.pageUrl || "",
-        action: { type: "scroll", dy },
+        action: { type: "scroll", dy, ...(pt || lastPointerRef.current) },
         result: "sent",
       });
     } catch {
@@ -506,15 +612,7 @@ export function LiveScreen({
   }
 
   async function sendScroll(dy) {
-    if (!controlOn) return;
-    try {
-      await api(`/api/agents/${agentId}/control`, {
-        method: "POST",
-        body: JSON.stringify({ type: "scroll", dy }),
-      });
-    } catch {
-      /* ignore */
-    }
+    await sendScrollAt(dy);
   }
 
   const provisioning =
@@ -575,21 +673,37 @@ export function LiveScreen({
                 type="button"
                 disabled={busySession || !live?.online}
                 onClick={() => setHumanSession(false)}
-                className="inline-flex min-h-11 items-center rounded-xl bg-amber-500 px-3 text-xs font-bold text-slate-950"
+                className={`inline-flex min-h-11 items-center rounded-xl px-3 text-xs font-bold ${
+                  teachMode
+                    ? "bg-violet-500 text-white"
+                    : "bg-amber-500 text-slate-950"
+                }`}
               >
-                Give control back
+                {teachMode ? "Done teaching" : "Give control back"}
               </button>
             ) : (
-              <ButtonWithHelp helpId="chat.takeControl">
-                <button
-                  type="button"
-                  disabled={busySession || !live?.online}
-                  onClick={() => setHumanSession(true)}
-                  className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
-                >
-                  Take control
-                </button>
-              </ButtonWithHelp>
+              <>
+                <ButtonWithHelp helpId="chat.teachSkill">
+                  <button
+                    type="button"
+                    disabled={busySession || !live?.online}
+                    onClick={() => void startTeachSkill()}
+                    className="inline-flex min-h-11 items-center rounded-xl bg-violet-600 px-3 text-xs font-bold text-white disabled:opacity-40"
+                  >
+                    Teach skill
+                  </button>
+                </ButtonWithHelp>
+                <ButtonWithHelp helpId="chat.takeControl">
+                  <button
+                    type="button"
+                    disabled={busySession || !live?.online}
+                    onClick={() => setHumanSession(true)}
+                    className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
+                  >
+                    Take control
+                  </button>
+                </ButtonWithHelp>
+              </>
             )}
             <button
               type="button"
@@ -626,14 +740,14 @@ export function LiveScreen({
 
         {controlOn ? (
           <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
-            {demoRecording ? (
-              <span className="mr-2 rounded bg-amber-200 px-1.5 py-0.5 font-bold uppercase tracking-wide text-amber-950">
-                Recording demo
+            {teachMode || demoRecording ? (
+              <span className="mr-2 rounded bg-violet-300 px-1.5 py-0.5 font-bold uppercase tracking-wide text-violet-950">
+                Teaching skill
               </span>
             ) : null}
             {desktopSrc
-              ? "Agent paused — real remote desktop (noVNC). Click inside the screen once, then move your mouse and type. Press Give control back when finished."
-              : "Agent paused — fallback click map (desktop stream unavailable). Click the screenshot; Shift+wheel scrolls. Prefer Give control back when done."}
+              ? "Agent paused — click inside the screen on the left menu, then scroll with the mouse wheel to reach Logout."
+              : "Agent paused — click the left menu once, then use Menu ↓ or scroll with the mouse wheel over the menu."}
             {desktopError ? ` (${desktopError})` : ""}
           </p>
         ) : null}
@@ -670,7 +784,7 @@ export function LiveScreen({
           onClick={() => {
             if (controlOn && !desktopSrc) stageRef.current?.focus({ preventScroll: true });
           }}
-          className={`relative min-h-0 w-full flex-1 overflow-auto bg-black outline-none ${
+          className={`relative flex min-h-0 w-full flex-1 items-start justify-center overflow-hidden bg-black outline-none ${
             controlOn ? "ring-2 ring-inset ring-amber-400/70" : ""
           }`}
         >
@@ -706,9 +820,9 @@ export function LiveScreen({
               alt="Agent cloud computer screen (full page)"
               onClick={onImageClick}
               draggable={false}
-              className={`mx-auto block h-auto w-full max-w-none bg-white object-top object-contain select-none ${
-                controlOn ? "cursor-crosshair touch-manipulation" : ""
-              }`}
+              className={`yb-live-screen-img bg-white select-none ${
+                modal ? "yb-live-screen-img--contain" : ""
+              } ${controlOn ? "cursor-crosshair touch-manipulation" : ""}`}
             />
           ) : (
             <p className="px-4 py-10 text-center text-sm text-white/60">
@@ -728,7 +842,7 @@ export function LiveScreen({
         {controlOn && !desktopSrc ? (
           <div className="flex shrink-0 flex-col gap-2 border-t border-white/10 bg-slate-900 px-3 py-3">
             <p className="text-xs text-white/60">
-              Desktop: click the screen then use your keyboard. Phone: use the box below.
+              To reach Logout: click the left menu, then <strong>Menu ↓</strong> several times (or Page Down).
             </p>
             <form onSubmit={sendType} className="flex flex-col gap-2 sm:flex-row">
               <input
@@ -745,7 +859,7 @@ export function LiveScreen({
               </button>
             </form>
             <div className="yb-scroll-x flex gap-2 pb-1 sm:flex-wrap">
-              {["Enter", "Tab", "Escape", "Backspace"].map((key) => (
+              {["Enter", "Tab", "Escape", "PageDown", "End"].map((key) => (
                 <button
                   key={key}
                   type="button"
@@ -757,17 +871,17 @@ export function LiveScreen({
               ))}
               <button
                 type="button"
-                onClick={() => sendScroll(500)}
-                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
+                onClick={() => sendMenuScroll(700)}
+                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-amber-400/40 bg-amber-950/40 px-3 text-xs font-semibold"
               >
-                Scroll down
+                Menu ↓
               </button>
               <button
                 type="button"
-                onClick={() => sendScroll(-500)}
+                onClick={() => sendMenuScroll(-700)}
                 className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
               >
-                Scroll up
+                Menu ↑
               </button>
             </div>
             {status ? <p className="text-xs text-teal-200/80">{status}</p> : null}
@@ -790,11 +904,11 @@ export function LiveScreen({
   // Why: when zoomed, keep a compact placeholder in-flow so layout does not jump.
   const inlineShell = `flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-sm ${
     showAttention ? "yb-needs-attention border-red-600" : "border-teal-100"
-  } ${fill ? "h-full flex-1" : ""} ${
+  } ${fill ? "h-full min-h-0 flex-1" : ""} ${
     !fill && compact
       ? wallMode
         ? "min-h-[14rem] sm:min-h-[16rem]"
-        : "min-h-[28vh] lg:min-h-[min(52vh,28rem)]"
+        : ""
       : !fill
         ? "min-h-[40vh]"
         : ""
@@ -820,10 +934,16 @@ export function LiveScreen({
             <div
               className={`flex h-full max-h-[100dvh] w-full max-w-[min(96rem,100%)] flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-2xl sm:max-h-[min(96dvh,100%)] ${
                 showAttention ? "yb-needs-attention border-red-600" : "border-white/15"
-              }`}
+              } relative`}
               onClick={(e) => e.stopPropagation()}
             >
               {renderBody({ modal: true })}
+              {chatId ? (
+                <FloatingChatWidget
+                  chatId={chatId}
+                  className="absolute bottom-3 right-3 z-20 sm:bottom-4 sm:right-4"
+                />
+              ) : null}
             </div>
           </div>,
           document.body
@@ -852,10 +972,14 @@ export function LiveScreen({
     );
   }
 
+  const demoNoticeBanner = renderDemoNoticeBanner();
+
   return (
     <>
-      {renderDemoNoticeBanner()}
       <section className={inlineShell}>
+        {demoNoticeBanner ? (
+          <div className="shrink-0 border-b border-white/10 px-3 py-2">{demoNoticeBanner}</div>
+        ) : null}
         {zoomed ? (
           <button
             type="button"
@@ -866,7 +990,7 @@ export function LiveScreen({
               {agentName ? `${agentName} — ` : ""}Live view open
             </span>
             <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">
-              Click to re-open · Esc to close · Take control to drive
+              Click to re-open · Esc to close · Teach skill or Take control
             </span>
           </button>
         ) : (

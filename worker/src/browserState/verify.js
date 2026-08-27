@@ -131,6 +131,28 @@ export function verifyAction(action, beforeObs, afterObs, domResult = {}) {
     case "extract":
     case "send_email":
     case "check_email":
+    case "search_entities":
+    case "get_entity":
+    case "create_entity":
+    case "update_entity":
+    case "add_entity_observation":
+    case "start_process":
+    case "advance_process":
+    case "set_entity_status":
+    case "assign_entity":
+    case "update_enrollment":
+    case "update_kpi":
+    case "update_ticket":
+    case "send_slack":
+    case "send_webhook":
+    case "create_calendar_event":
+    case "attach_document":
+    case "search_tickets":
+    case "create_ticket":
+    case "search_deals":
+    case "update_invoice":
+    case "crm_sync":
+    case "send_sms":
     case "solve_captcha":
       return {
         ...base,

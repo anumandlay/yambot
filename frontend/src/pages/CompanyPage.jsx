@@ -1,7 +1,7 @@
 /**
- * @fileoverview Company dashboard — world model, memory, processes.
- * Purpose: Entities, operating memory, and process definitions (AI Workforce OS).
- * Downstream: `/api/entities`, `/api/company-memory`, `/api/processes`.
+ * @fileoverview Company dashboard — entities, memory, processes, campaigns, email, OS view.
+ * Purpose: Company brain UI for Phases 1–4 (world model + campaigns + dashboard).
+ * Downstream: entities, company-memory, processes, campaigns, company-dashboard APIs.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -10,31 +10,93 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
 export function CompanyPage() {
-  const [tab, setTab] = useState("entities");
+  const [tab, setTab] = useState("dashboard");
   const [entities, setEntities] = useState([]);
   const [memories, setMemories] = useState([]);
   const [processes, setProcesses] = useState([]);
+  const [processInstances, setProcessInstances] = useState([]);
+  const [campaigns, setCampaigns] = useState([]);
+  const [enrollments, setEnrollments] = useState([]);
+  const [emailLog, setEmailLog] = useState([]);
+  const [dashboard, setDashboard] = useState(null);
+  const [agents, setAgents] = useState([]);
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
+
   const [entityName, setEntityName] = useState("");
+  const [entityEmail, setEntityEmail] = useState("");
+  const [entityType, setEntityType] = useState("lead");
   const [memoryKey, setMemoryKey] = useState("");
   const [memoryValue, setMemoryValue] = useState("");
   const [processName, setProcessName] = useState("");
+  const [editingProcessId, setEditingProcessId] = useState("");
+  const [stageJson, setStageJson] = useState("");
+  const [bottlenecks, setBottlenecks] = useState([]);
+  const [teams, setTeams] = useState([]);
+  const [teamName, setTeamName] = useState("");
+
+  const [campaignName, setCampaignName] = useState("");
+  const [campaignAgentId, setCampaignAgentId] = useState("");
+  const [campaignSubject, setCampaignSubject] = useState("Hello {{name}}");
+  const [campaignBody, setCampaignBody] = useState(
+    "Hi {{name}},\n\nI wanted to reach out about…\n\nBest"
+  );
+  const [selectedCampaignId, setSelectedCampaignId] = useState("");
+
+  const [entityTotal, setEntityTotal] = useState(0);
+  const [leadStats, setLeadStats] = useState({ total: 0, withEmail: 0 });
+  const [csvText, setCsvText] = useState("");
+  const [importBusy, setImportBusy] = useState(false);
+  const [importResult, setImportResult] = useState(null);
+  const [enrollBusy, setEnrollBusy] = useState(null);
 
   const load = useCallback(async () => {
-    const [ent, mem, proc] = await Promise.all([
-      api("/api/entities"),
+    const [ent, mem, proc, dash, camp, agentData, inst, mail, stats, teamData] = await Promise.all([
+      api("/api/entities?type=lead&limit=500"),
       api("/api/company-memory"),
       api("/api/processes/definitions"),
+      api("/api/company-dashboard").catch(() => ({ dashboard: null })),
+      api("/api/campaigns").catch(() => ({ campaigns: [] })),
+      api("/api/agents"),
+      api("/api/company-dashboard/process-instances").catch(() => ({ instances: [] })),
+      api("/api/company-dashboard/email?limit=30").catch(() => ({ messages: [] })),
+      api("/api/entities/stats?type=lead").catch(() => ({ total: 0, withEmail: 0 })),
+      api("/api/teams").catch(() => ({ teams: [] })),
     ]);
     setEntities(ent.entities || []);
+    setEntityTotal(ent.total ?? (ent.entities || []).length);
+    setLeadStats({ total: stats.total || 0, withEmail: stats.withEmail || 0 });
+    setTeams(teamData.teams || []);
     setMemories(mem.memories || []);
     setProcesses(proc.definitions || proc.processes || []);
+    setDashboard(dash.dashboard || null);
+    setCampaigns(camp.campaigns || []);
+    setAgents(agentData.agents || []);
+    setProcessInstances(inst.instances || []);
+    setEmailLog(mail.messages || []);
   }, []);
 
   useEffect(() => {
     load().catch((err) => setError(err));
   }, [load]);
+
+  useEffect(() => {
+    if (!agents.length) return;
+    setCampaignAgentId((prev) => prev || String(agents[0]._id));
+  }, [agents]);
+
+  async function loadEnrollments(campaignId) {
+    if (!campaignId) {
+      setEnrollments([]);
+      return;
+    }
+    const data = await api(`/api/campaigns/${campaignId}/enrollments`);
+    setEnrollments(data.enrollments || []);
+  }
+
+  useEffect(() => {
+    if (selectedCampaignId) loadEnrollments(selectedCampaignId).catch(() => setEnrollments([]));
+  }, [selectedCampaignId]);
 
   async function addEntity(e) {
     e.preventDefault();
@@ -43,14 +105,59 @@ export function CompanyPage() {
     try {
       await api("/api/entities", {
         method: "POST",
-        body: JSON.stringify({ name: entityName.trim(), type: "customer" }),
+        body: JSON.stringify({
+          name: entityName.trim(),
+          type: entityType,
+          attributes: entityEmail.trim() ? { email: entityEmail.trim() } : {},
+        }),
       });
       setEntityName("");
+      setEntityEmail("");
       setOkMsg("Entity created.");
       await load();
     } catch (err) {
       setError(err);
     }
+  }
+
+  /**
+   * @param {string} text
+   */
+  async function importCsv(text) {
+    const csv = String(text || "").trim();
+    if (!csv) return;
+    setImportBusy(true);
+    setError(null);
+    setOkMsg("");
+    setImportResult(null);
+    try {
+      const data = await api("/api/entities/import", {
+        method: "POST",
+        body: JSON.stringify({ csv, entityType: "lead", updateExisting: true }),
+        timeoutMs: 120000,
+      });
+      setImportResult(data);
+      setCsvText("");
+      setOkMsg(
+        `Import complete: ${data.created || 0} created, ${data.updated || 0} updated, ${data.skipped || 0} skipped.`
+      );
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  /**
+   * @param {import("react").ChangeEvent<HTMLInputElement>} e
+   */
+  async function onCsvFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = "";
+    if (!file) return;
+    const text = await file.text();
+    await importCsv(text);
   }
 
   async function addMemory(e) {
@@ -78,7 +185,10 @@ export function CompanyPage() {
     try {
       await api("/api/processes/definitions", {
         method: "POST",
-        body: JSON.stringify({ name: processName.trim(), steps: [] }),
+        body: JSON.stringify({
+          name: processName.trim(),
+          stages: [{ id: "start", name: "Start" }, { id: "done", name: "Done" }],
+        }),
       });
       setProcessName("");
       setOkMsg("Process definition created.");
@@ -88,10 +198,128 @@ export function CompanyPage() {
     }
   }
 
+  /**
+   * @param {object} proc
+   */
+  function startEditProcess(proc) {
+    setEditingProcessId(String(proc._id));
+    setStageJson(JSON.stringify(proc.stages || [], null, 2));
+    api(`/api/processes/definitions/${proc._id}/bottlenecks`)
+      .then((data) => setBottlenecks(data.bottlenecks || []))
+      .catch(() => setBottlenecks([]));
+  }
+
+  async function saveProcessStages() {
+    setError(null);
+    try {
+      const stages = JSON.parse(stageJson);
+      if (!Array.isArray(stages)) throw new Error("Stages must be a JSON array");
+      await api(`/api/processes/definitions/${editingProcessId}`, {
+        method: "PUT",
+        body: JSON.stringify({ stages }),
+      });
+      setOkMsg("Process stages saved.");
+      setEditingProcessId("");
+      await load();
+    } catch (err) {
+      setError(err instanceof Error ? { title: "Invalid JSON", detail: err.message } : err);
+    }
+  }
+
+  async function createCampaign(e) {
+    e.preventDefault();
+    setError(null);
+    setOkMsg("");
+    try {
+      await api("/api/campaigns", {
+        method: "POST",
+        body: JSON.stringify({
+          name: campaignName.trim() || "Outreach campaign",
+          agentId: campaignAgentId,
+          entityType: "lead",
+          emailSubject: campaignSubject,
+          emailBody: campaignBody,
+          status: "draft",
+        }),
+      });
+      setCampaignName("");
+      setOkMsg("Campaign created.");
+      await load();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  /**
+   * @param {string} id
+   * @param {string} status
+   */
+  async function setCampaignStatus(id, status) {
+    setError(null);
+    try {
+      await api(`/api/campaigns/${id}`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      });
+      setOkMsg(status === "active" ? "Campaign activated." : "Campaign updated.");
+      await load();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  /**
+   * @param {string} id
+   */
+  async function enrollCampaign(id) {
+    setError(null);
+    setOkMsg("");
+    setEnrollBusy(id);
+    try {
+      const data = await api(`/api/campaigns/${id}/enroll`, { method: "POST", body: "{}" });
+      const parts = [
+        `${data.added || 0} newly enrolled`,
+        `${data.totalEnrolled ?? "—"} total in campaign`,
+      ];
+      if (data.remaining > 0) {
+        parts.push(`${data.remaining} eligible leads not yet enrolled (missing email?)`);
+      } else if (data.totalEligible != null) {
+        parts.push(`${data.totalEligible} eligible leads scanned`);
+      }
+      setOkMsg(`Enroll all: ${parts.join(" · ")}.`);
+      setSelectedCampaignId(id);
+      await loadEnrollments(id);
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setEnrollBusy(null);
+    }
+  }
+
+  async function addTeam(e) {
+    e.preventDefault();
+    setError(null);
+    try {
+      await api("/api/teams", {
+        method: "POST",
+        body: JSON.stringify({ name: teamName.trim(), defaultForTickets: teams.length === 0 }),
+      });
+      setTeamName("");
+      await load();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
   const tabs = [
+    ["dashboard", "Dashboard"],
     ["entities", "Entities"],
+    ["campaigns", "Campaigns"],
+    ["email", "Email log"],
     ["memory", "Memory"],
     ["processes", "Processes"],
+    ["teams", "Teams"],
   ];
 
   return (
@@ -99,7 +327,8 @@ export function CompanyPage() {
       <div>
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Company</h1>
         <p className="text-sm text-teal-900/70">
-          World model entities, operating memory, and business processes.
+          World model, campaigns, email audit trail, and operating dashboard — agents read/write this
+          during runs.
         </p>
       </div>
 
@@ -131,23 +360,144 @@ export function CompanyPage() {
         ))}
       </div>
 
+      {tab === "dashboard" && dashboard ? (
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+          <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-bold text-teal-900">Entities</h2>
+            <ul className="mt-2 text-sm text-teal-900/80">
+              {(dashboard.entitiesByType || []).map((r) => (
+                <li key={r.type}>
+                  {r.type}: {r.count}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+            <h2 className="text-sm font-bold text-teal-900">Campaign funnel</h2>
+            <ul className="mt-2 text-sm text-teal-900/80">
+              {(dashboard.enrollmentsByStage || []).map((r) => (
+                <li key={r.stage}>
+                  {r.stage}: {r.count}
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:col-span-2">
+            <h2 className="text-sm font-bold text-teal-900">Agent workload</h2>
+            <ul className="mt-2 flex flex-col gap-1 text-sm">
+              {(dashboard.agentWorkload || []).map((a) => (
+                <li key={a._id} className="flex justify-between rounded-lg bg-teal-50/50 px-2 py-1">
+                  <span>
+                    {a.name}{" "}
+                    <span className={a.online ? "text-emerald-700" : "text-teal-900/50"}>
+                      {a.online ? "online" : "offline"}
+                    </span>
+                  </span>
+                  <span className="text-teal-900/70">{a.pendingTasks} queued</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:col-span-2">
+            <h2 className="text-sm font-bold text-teal-900">Active process instances</h2>
+            <ul className="mt-2 text-sm text-teal-900/80">
+              {(dashboard.activeProcessInstances || []).length ? (
+                dashboard.activeProcessInstances.map((p) => (
+                  <li key={p._id}>
+                    {p.definition} · {p.entity || "—"} · stage {p.currentStage}
+                  </li>
+                ))
+              ) : (
+                <li>None — agents can start_process during runs.</li>
+              )}
+            </ul>
+          </div>
+        </div>
+      ) : null}
+
       {tab === "entities" ? (
         <div className="flex flex-col gap-3">
-          <form onSubmit={addEntity} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-            <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
-              <FieldLabel helpId="company.entityName">Customer / lead name</FieldLabel>
+          <div className="rounded-2xl border border-teal-100 bg-teal-50/40 p-4 text-sm text-teal-900/80">
+            <strong>{leadStats.total}</strong> leads · <strong>{leadStats.withEmail}</strong> with
+            email (campaign-ready)
+            {entityTotal > entities.length ? (
+              <span className="text-teal-900/60"> · showing latest {entities.length}</span>
+            ) : null}
+          </div>
+
+          <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <FieldLabel helpId="company.csvImport">Bulk CSV import</FieldLabel>
+              <label className="cursor-pointer text-xs font-semibold text-teal-800 underline">
+                Choose file
+                <input type="file" accept=".csv,text/csv" className="hidden" onChange={onCsvFile} />
+              </label>
+            </div>
+            <p className="text-xs text-teal-900/60">
+              Header row optional. Columns: email, name, company, phone (up to 10,000 rows).
+            </p>
+            <textarea
+              className="min-h-28 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
+              value={csvText}
+              onChange={(e) => setCsvText(e.target.value)}
+              placeholder={"email,name,company\njane@example.com,Jane Doe,Acme Inc"}
+            />
+            <button
+              type="button"
+              disabled={importBusy || !csvText.trim()}
+              onClick={() => importCsv(csvText)}
+              className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+            >
+              {importBusy ? "Importing…" : "Import leads"}
+            </button>
+            {importResult?.errors?.length ? (
+              <ul className="text-xs text-amber-900">
+                {importResult.errors.slice(0, 8).map((msg, i) => (
+                  <li key={i}>{msg}</li>
+                ))}
+                {importResult.errors.length > 8 ? (
+                  <li>…and {importResult.errors.length - 8} more</li>
+                ) : null}
+              </ul>
+            ) : null}
+          </div>
+
+          <form
+            onSubmit={addEntity}
+            className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:items-end"
+          >
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.entityName">Name</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
                 value={entityName}
                 onChange={(e) => setEntityName(e.target.value)}
-                placeholder="Customer / lead name"
               />
             </label>
-            <ButtonWithHelp helpId="company.entities">
-              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-                Add
-              </button>
-            </ButtonWithHelp>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Type</span>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={entityType}
+                onChange={(e) => setEntityType(e.target.value)}
+              >
+                <option value="lead">lead</option>
+                <option value="customer">customer</option>
+                <option value="vendor">vendor</option>
+              </select>
+            </label>
+            <label className="flex flex-1 flex-col gap-1 text-sm">
+              <span className="font-medium">Email</span>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={entityEmail}
+                onChange={(e) => setEntityEmail(e.target.value)}
+                placeholder="for reply matching"
+              />
+            </label>
+            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+              Add
+            </button>
           </form>
           <ul className="flex flex-col gap-2">
             {entities.map((en) => (
@@ -155,11 +505,154 @@ export function CompanyPage() {
                 <div className="font-semibold">{en.name}</div>
                 <div className="text-teal-900/70">
                   {en.type} · {en.status}
+                  {en.attributes?.email ? ` · ${en.attributes.email}` : ""}
                 </div>
+                {en.observations?.length ? (
+                  <div className="mt-1 line-clamp-2 text-xs text-teal-900/50">
+                    Latest: {en.observations[en.observations.length - 1]?.content}
+                  </div>
+                ) : null}
               </li>
             ))}
           </ul>
         </div>
+      ) : null}
+
+      {tab === "campaigns" ? (
+        <div className="flex flex-col gap-3">
+          <form onSubmit={createCampaign} className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+            <label className="flex flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.campaignName">Campaign name</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={campaignName}
+                onChange={(e) => setCampaignName(e.target.value)}
+                placeholder="Q1 outreach"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Agent</span>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3"
+                value={campaignAgentId}
+                onChange={(e) => setCampaignAgentId(e.target.value)}
+              >
+                {agents.map((a) => (
+                  <option key={a._id} value={a._id}>
+                    {a.name}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Email subject</span>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+                value={campaignSubject}
+                onChange={(e) => setCampaignSubject(e.target.value)}
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Email body</span>
+              <textarea
+                className="min-h-24 rounded-xl border border-teal-100 px-3 py-2 text-sm"
+                value={campaignBody}
+                onChange={(e) => setCampaignBody(e.target.value)}
+              />
+            </label>
+            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+              Create campaign
+            </button>
+          </form>
+          <ul className="flex flex-col gap-2">
+            {campaigns.map((c) => (
+              <li key={c._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="font-semibold">{c.name}</div>
+                  <span className="rounded bg-teal-50 px-2 py-0.5 text-xs uppercase">{c.status}</span>
+                </div>
+                <div className="mt-1 text-xs text-teal-900/60">
+                  Enrolled {c.stats?.enrolled || 0} · Sent {c.stats?.sent || 0} · Replied{" "}
+                  {c.stats?.replied || 0}
+                </div>
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={enrollBusy === String(c._id)}
+                    onClick={() => enrollCampaign(String(c._id))}
+                    className="text-xs font-semibold text-teal-800 underline disabled:opacity-50"
+                  >
+                    {enrollBusy === String(c._id) ? "Enrolling…" : "Enroll all leads"}
+                  </button>
+                  {c.status !== "active" ? (
+                    <button
+                      type="button"
+                      onClick={() => setCampaignStatus(String(c._id), "active")}
+                      className="text-xs font-semibold text-emerald-800 underline"
+                    >
+                      Activate
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setCampaignStatus(String(c._id), "paused")}
+                      className="text-xs font-semibold text-amber-800 underline"
+                    >
+                      Pause
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => setSelectedCampaignId(String(c._id))}
+                    className="text-xs font-semibold text-violet-800 underline"
+                  >
+                    View enrollments
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {selectedCampaignId ? (
+            <div className="rounded-xl border border-violet-100 bg-violet-50/30 p-3">
+              <h3 className="text-sm font-bold">
+                Enrollments {enrollments.length ? `(${enrollments.length} shown)` : ""}
+              </h3>
+              {enrollments.length ? (
+                <ul className="mt-2 flex flex-col gap-1 text-xs">
+                  {enrollments.map((e) => (
+                    <li key={e._id}>
+                      {e.entity?.name || e.entity} · {e.stage}
+                      {e.nextActionAt ? ` · next ${new Date(e.nextActionAt).toLocaleString()}` : ""}
+                    </li>
+                  ))}
+                </ul>
+              ) : (
+                <p className="mt-2 text-xs text-teal-900/60">No enrollments yet — use Enroll all leads.</p>
+              )}
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === "email" ? (
+        <ul className="flex flex-col gap-2">
+          {emailLog.length === 0 ? (
+            <li className="rounded-xl border border-dashed border-teal-200 p-4 text-sm text-teal-900/60">
+              No email logged yet. Configure agent SMTP/IMAP and send or poll inbox.
+            </li>
+          ) : (
+            emailLog.map((m) => (
+              <li key={m._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
+                <div className="font-semibold">
+                  {m.direction === "outbound" ? "→" : "←"} {m.subject}
+                </div>
+                <div className="text-xs text-teal-900/60">
+                  {m.from} → {m.to} · {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}
+                </div>
+              </li>
+            ))
+          )}
+        </ul>
       ) : null}
 
       {tab === "memory" ? (
@@ -174,7 +667,6 @@ export function CompanyPage() {
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
                 value={memoryKey}
                 onChange={(e) => setMemoryKey(e.target.value)}
-                placeholder="Key"
               />
             </label>
             <label className="flex min-w-0 flex-[2] flex-col gap-1 text-sm">
@@ -183,14 +675,11 @@ export function CompanyPage() {
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
                 value={memoryValue}
                 onChange={(e) => setMemoryValue(e.target.value)}
-                placeholder="Value / fact"
               />
             </label>
-            <ButtonWithHelp helpId="company.memory">
-              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-                Save
-              </button>
-            </ButtonWithHelp>
+            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+              Save
+            </button>
           </form>
           <ul className="flex flex-col gap-2">
             {memories.map((m) => (
@@ -212,20 +701,112 @@ export function CompanyPage() {
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
                 value={processName}
                 onChange={(e) => setProcessName(e.target.value)}
-                placeholder="Process name"
               />
             </label>
-            <ButtonWithHelp helpId="company.processes">
-              <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
-                Add
-              </button>
-            </ButtonWithHelp>
+            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+              Add
+            </button>
           </form>
           <ul className="flex flex-col gap-2">
             {processes.map((p) => (
               <li key={p._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
-                <div className="font-semibold">{p.name}</div>
-                <div className="text-teal-900/70">{p.steps?.length || 0} steps</div>
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <div className="font-semibold">{p.name}</div>
+                    <div className="text-teal-900/70">{p.stages?.length || 0} stages</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => startEditProcess(p)}
+                    className="text-xs font-semibold text-teal-800 underline"
+                  >
+                    Edit stages
+                  </button>
+                </div>
+              </li>
+            ))}
+          </ul>
+          {editingProcessId ? (
+            <div className="rounded-xl border border-violet-100 bg-violet-50/30 p-3">
+              <h3 className="text-sm font-bold">Stage editor</h3>
+              <p className="mt-1 text-xs text-teal-900/60">
+                JSON array: [{"{"}id, name, description{"}"}, …]
+              </p>
+              <textarea
+                className="mt-2 min-h-40 w-full rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
+                value={stageJson}
+                onChange={(e) => setStageJson(e.target.value)}
+              />
+              <div className="mt-2 flex gap-2">
+                <button
+                  type="button"
+                  onClick={saveProcessStages}
+                  className="min-h-10 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white"
+                >
+                  Save stages
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setEditingProcessId("")}
+                  className="min-h-10 rounded-xl border border-teal-100 px-4 text-sm"
+                >
+                  Cancel
+                </button>
+              </div>
+              {bottlenecks.length ? (
+                <div className="mt-3">
+                  <h4 className="text-xs font-bold">Bottlenecks (active instances)</h4>
+                  <ul className="mt-1 text-xs text-teal-900/70">
+                    {bottlenecks.map((b) => (
+                      <li key={b.stage}>
+                        {b.stage}: {b.count}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          ) : null}
+          {processInstances.length ? (
+            <div className="rounded-xl border border-teal-50 bg-teal-50/30 p-3">
+              <h3 className="text-sm font-bold">Running instances</h3>
+              <ul className="mt-2 text-xs">
+                {processInstances.map((pi) => (
+                  <li key={pi._id}>
+                    {pi.definition?.name} · {pi.entity?.name || "—"} · {pi.currentStage} ({pi.status})
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+
+      {tab === "teams" ? (
+        <div className="flex flex-col gap-3">
+          <p className="text-sm text-teal-900/70">
+            Teams enable round-robin ticket assignment. Set default support agent in Company Memory key{" "}
+            <code className="text-xs">default_support_agent_id</code>.
+          </p>
+          <form onSubmit={addTeam} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4">
+            <input
+              className="min-h-11 flex-1 rounded-xl border px-3 text-sm"
+              placeholder="Team name"
+              value={teamName}
+              onChange={(e) => setTeamName(e.target.value)}
+            />
+            <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
+              Add team
+            </button>
+          </form>
+          <ul className="flex flex-col gap-2">
+            {teams.map((team) => (
+              <li key={team._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
+                <div className="font-semibold">{team.name}</div>
+                <div className="text-xs text-teal-900/60">
+                  {team.memberAgents?.length || 0} agents
+                  {team.defaultForTickets ? " · default for tickets" : ""}
+                </div>
               </li>
             ))}
           </ul>

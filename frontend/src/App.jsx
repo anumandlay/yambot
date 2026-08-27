@@ -34,6 +34,11 @@ import { HowToPage } from "./pages/HowToPage.jsx";
 import { AdminLoginPage } from "./pages/AdminLoginPage.jsx";
 import { AdminUsersPage } from "./pages/AdminUsersPage.jsx";
 import { WalletPage } from "./pages/WalletPage.jsx";
+import { QueuesPage } from "./pages/QueuesPage.jsx";
+import { TicketDetailPage } from "./pages/TicketDetailPage.jsx";
+import { PortalTicketPage } from "./pages/PortalTicketPage.jsx";
+import { DealsPage } from "./pages/DealsPage.jsx";
+import { InvoicesPage } from "./pages/InvoicesPage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
 
@@ -114,7 +119,7 @@ function ProtectedLayout() {
   if (!user) return <Navigate to="/login" replace />;
 
   return (
-    <div className="flex min-h-full w-full overflow-x-hidden">
+    <div className="flex h-dvh max-h-dvh min-h-0 w-full overflow-hidden">
       <AppSidebar
         open={mobileOpen}
         onClose={() => setMobileOpen(false)}
@@ -122,7 +127,7 @@ function ProtectedLayout() {
         onToggleCollapsed={() => setCollapsed((v) => !v)}
       />
 
-      <div className="flex min-w-0 flex-1 flex-col">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         {/* Mobile top bar — hamburger opens the left drawer */}
         <div className="sticky top-0 z-30 flex items-center gap-2 border-b border-teal-100 bg-white/95 px-3 py-2 pt-[max(0.5rem,env(safe-area-inset-top))] backdrop-blur lg:hidden">
           <button
@@ -137,7 +142,7 @@ function ProtectedLayout() {
           <HelpToggle compact />
         </div>
 
-        <main className="min-w-0 flex-1 overflow-x-hidden">{<Outlet />}</main>
+        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">{<Outlet />}</main>
       </div>
     </div>
   );
@@ -150,6 +155,7 @@ export default function App() {
         <Routes>
         <Route path="/login" element={<LoginPage />} />
         <Route path="/register" element={<RegisterPage />} />
+        <Route path="/portal/ticket/:token" element={<PortalTicketPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
         <Route element={<ProtectedLayout />}>
           <Route path="/" element={<ChatsPage />} />
@@ -163,6 +169,10 @@ export default function App() {
           <Route path="/policies" element={<PoliciesPage />} />
           <Route path="/workforce" element={<WorkforcePage />} />
           <Route path="/operations" element={<OperationsPage />} />
+          <Route path="/queues" element={<QueuesPage />} />
+          <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
+          <Route path="/deals" element={<DealsPage />} />
+          <Route path="/invoices" element={<InvoicesPage />} />
           <Route path="/company" element={<CompanyPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/skills/new" element={<SkillEditPage />} />

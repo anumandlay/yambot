@@ -23,6 +23,28 @@ export const ACTION_TYPES = [
   "ask_user",
   "send_email",
   "check_email",
+  "search_entities",
+  "get_entity",
+  "create_entity",
+  "update_entity",
+  "add_entity_observation",
+  "start_process",
+  "advance_process",
+  "set_entity_status",
+  "assign_entity",
+  "update_enrollment",
+  "update_kpi",
+  "update_ticket",
+  "send_slack",
+  "send_webhook",
+  "create_calendar_event",
+  "attach_document",
+  "search_tickets",
+  "create_ticket",
+  "search_deals",
+  "update_invoice",
+  "crm_sync",
+  "send_sms",
   "http_request",
   "investigate",
   "request_training",
@@ -34,7 +56,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 {
   "thought": "brief reason",
   "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|http_request|investigate|request_training|finish>",
+    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>",
     ...fields depending on type
   }
 }
@@ -46,7 +68,7 @@ Action fields:
   Also works on contenteditable compose bodies (Gmail message body) — use role textbox, name like "Message body".
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
-- scroll: { "type":"scroll", "direction":"down|up", "amount": 600 }
+- scroll: { "type":"scroll", "direction":"down|up", "amount": 600 } — scrolls the menu/sidebar under the pointer (Vughy nav), not just the whole page; optional ref to scroll a specific panel
 - wait: { "type":"wait", "ms": 800 } — prefer wait_for when you know what should appear; avoid long blind waits
 - wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000, "network_idle": false, "dom_stable": true }
   Semantic wait until condition met (role+name, text on page, url_contains, or ref visible). Avoid blind long sleeps.
@@ -59,8 +81,30 @@ Action fields:
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }
-- send_email: { "type":"send_email", "to":"user@example.com", "subject":"...", "text":"..." }
-- check_email: { "type":"check_email", "limit": 8, "unseenOnly": false }
+- send_email: { "type":"send_email", "to":"user@example.com", "subject":"...", "text":"...", "entityId":"...", "inReplyTo":"...", "references":"..." }
+- check_email: { "type":"check_email", "limit": 8, "unseenOnly": false, "entityId":"..." }
+- search_entities: { "type":"search_entities", "query":"aanya", "type_filter":"lead", "status":"active", "limit": 10 }
+- get_entity: { "type":"get_entity", "entityId":"..." }
+- create_entity: { "type":"create_entity", "name":"...", "type_filter":"lead", "attributes": { "email":"..." } }
+- update_entity: { "type":"update_entity", "entityId":"...", "status":"converted", "attributes": { "tier":"gold" } }
+- add_entity_observation: { "type":"add_entity_observation", "entityId":"...", "content":"...", "kind":"note" }
+- start_process: { "type":"start_process", "definitionId":"...", "entityId":"...", "note":"..." }
+- advance_process: { "type":"advance_process", "instanceId":"...", "stage":"qualified", "note":"...", "status":"active|completed" }
+- set_entity_status: { "type":"set_entity_status", "entityId":"...", "status":"converted|active|..." }
+- assign_entity: { "type":"assign_entity", "entityId":"...", "agentId":"..." }
+- update_enrollment: { "type":"update_enrollment", "enrollmentId":"...", "stage":"sent|awaiting_reply|engaged" }
+- update_kpi: { "type":"update_kpi", "goalId":"...", "kpiName":"leads_contacted", "delta": 1 }
+- update_ticket: { "type":"update_ticket", "ticketId":"...", "status":"in_progress|resolved", "assigneeAgentId":"..." }
+- send_slack: { "type":"send_slack", "text":"..." } — uses Company memory key slack_webhook_url
+- send_webhook: { "type":"send_webhook", "payload": { "event":"...", "data": {} } }
+- create_calendar_event: { "type":"create_calendar_event", "title":"...", "startAt":"ISO", "attendee":"email@..." }
+- attach_document: { "type":"attach_document", "filename":"...", "dataBase64":"...", "entityId":"...", "mimeType":"..." }
+- search_tickets: { "type":"search_tickets", "query":"login issue", "status":"open", "limit": 10 }
+- create_ticket: { "type":"create_ticket", "title":"...", "description":"...", "priority":"high" }
+- search_deals: { "type":"search_deals", "stage":"proposal" }
+- update_invoice: { "type":"update_invoice", "invoiceId":"...", "status":"paid|sent" }
+- crm_sync: { "type":"crm_sync", "provider":"hubspot|salesforce", "email":"...", "name":"...", "company":"..." }
+- send_sms: { "type":"send_sms", "to":"+1...", "body":"..." }
 - http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://api.example.com/...", "headers":{ "Authorization":"Bearer ..." }, "body":"..." } — server-side HTTP (host must be in Policies httpAllowHosts when configured)
 - investigate: { "type":"investigate", "question":"...", "sources":["https://..."], "evidence":[{ "source":"site A", "claim":"...", "confidence":0.8 }] } — multi-source research; pass evidence when synthesizing before finish
 - request_training: { "type":"request_training", "workflow":"...", "observation":"what failed", "recommendation":"..." } — file a human training request when stuck on a workflow
@@ -87,6 +131,8 @@ Rules:
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
 - Image/Amazon captchas cannot be solved automatically — ask_user so the human uses Take control on the live screen.
 - When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail (do not invent an inbox). Prefer send_email over Gmail web compose when SMTP is set.
+- COMPANY DATABASE: use search_entities / get_entity to find leads and customers; update_entity and add_entity_observation to persist CRM state; create_entity for new contacts. Threaded replies: pass inReplyTo from prior outbound messageId when replying.
+- TICKETS & STATE: use update_ticket for support queue; set_entity_status / assign_entity for CRM; update_enrollment after confirmed send_email; update_kpi to record goal progress (or include "KPI: name +1" in finish summary).
 `.trim();
 
 /**

@@ -55,9 +55,11 @@ export { runFillForm, runDismissDialog, runChooseMenuItem } from "./macros.js";
 export {
   detectSkill,
   formatSkillBlock,
+  formatSkillsCatalogBlock,
   computeSkillProgress,
   formatSkillProgressBlock,
   detectDbSkill,
+  detectDbSkillMatch,
   formatDbSkillBlock,
   computeDbSkillProgress,
   evaluateSkillVerification,

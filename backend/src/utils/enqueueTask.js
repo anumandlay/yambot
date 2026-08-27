@@ -7,6 +7,7 @@
 import { Agent, toAgentSnapshot } from "../models/Agent.js";
 import { Chat, Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
+import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.js";
 
 /**
  * @param {object} opts
@@ -25,12 +26,17 @@ import { Task, priorityRank } from "../models/Task.js";
  * @param {object} [opts.meta]
  * @param {string} [opts.source]
  * @param {string} [opts.triggerRef]
+ * @param {string} [opts.entityRef]
+ * @param {string} [opts.enrollmentRef]
+ * @param {string} [opts.campaignRef]
+ * @param {string} [opts.ticketRef]
+ * @param {boolean} [opts.skipCompanyContext]
  * @returns {Promise<{ task: import('mongoose').Document, chat: import('mongoose').Document, message: import('mongoose').Document }>}
  */
 export async function enqueueTask(opts) {
   const userId = opts.userId;
   const agentId = opts.agentId;
-  const goalText = String(opts.goalText || "").trim();
+  let goalText = String(opts.goalText || "").trim();
   if (!userId || !agentId || !goalText) {
     throw Object.assign(new Error("userId, agentId, and goalText required"), { status: 400 });
   }
@@ -38,6 +44,16 @@ export async function enqueueTask(opts) {
   const agentDoc = await Agent.findOne({ _id: agentId, user: userId });
   if (!agentDoc) {
     throw Object.assign(new Error("Agent missing"), { status: 404 });
+  }
+
+  if (!opts.skipCompanyContext) {
+    const contextBlock = await buildCompanyContextBlock(userId, {
+      agentId,
+      entityId: opts.entityRef || opts.meta?.entityId || null,
+      enrollmentId: opts.enrollmentRef || opts.meta?.enrollmentId || null,
+      ticketId: opts.ticketRef || opts.meta?.ticketId || null,
+    });
+    goalText = prependContextToGoal(goalText, contextBlock);
   }
 
   let chat;
@@ -77,6 +93,10 @@ export async function enqueueTask(opts) {
     goal: goalText,
     goalRef: opts.goalRef || null,
     triggerRef: opts.triggerRef || opts.meta?.triggerId || null,
+    entityRef: opts.entityRef || opts.meta?.entityId || null,
+    enrollmentRef: opts.enrollmentRef || opts.meta?.enrollmentId || null,
+    campaignRef: opts.campaignRef || opts.meta?.campaignId || null,
+    ticketRef: opts.ticketRef || opts.meta?.ticketId || null,
     priority,
     priorityRank: priorityRank(priority),
     agent: agentId,
@@ -94,6 +114,26 @@ export async function enqueueTask(opts) {
         payload: { source: opts.source || "enqueue", blocked: blockedByDeps > 0 },
       },
     ],
+  });
+
+  const source = String(opts.source || "enqueue");
+  const triggerLabel =
+    opts.meta?.triggerEventType || opts.meta?.triggerName || opts.meta?.triggerId || "";
+  const queueHint =
+    source.startsWith("trigger:") || opts.triggerRef
+      ? `Queued from Operations trigger${triggerLabel ? ` (${triggerLabel})` : ""}.`
+      : "Queued for cloud worker.";
+  await Message.create({
+    chat: chat._id,
+    role: "system",
+    content: queueHint,
+    meta: {
+      taskId: task._id,
+      kind: "queued",
+      status: task.status,
+      source,
+      triggerId: opts.triggerRef || opts.meta?.triggerId || null,
+    },
   });
 
   chat.updatedAt = new Date();

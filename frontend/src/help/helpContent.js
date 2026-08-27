@@ -70,6 +70,41 @@ export const HELP = {
     ),
     learnMore: "howto-operations",
   },
+  "nav.queues": {
+    title: "Queues",
+    body: helpBody(
+      "Operational work queues: support tickets (auto-created from inbound email), campaign pipeline stages, pending agent tasks, and document attachments.",
+      "Assign tickets to agents; agents use update_ticket and set_entity_status actions during runs."
+    ),
+  },
+  "nav.deals": {
+    title: "Deals",
+    body: helpBody("Sales pipeline — prospect through won/lost with amounts linked to entities."),
+  },
+  "nav.invoices": {
+    title: "Invoices",
+    body: helpBody("Billing documents: draft, sent, paid. Agents can update_invoice during runs."),
+  },
+  "deals.page": {
+    title: "Deals pipeline",
+    body: helpBody("Kanban-style deal stages. Move deals as sales progresses."),
+  },
+  "queues.page": {
+    title: "Queues page",
+    body: helpBody(
+      "Tickets tab: filter by status, assign agents, resolve/close. Campaign pipeline shows enrollment stages. Agent queue lists pending/running tasks. Documents: upload files to attach to entities."
+    ),
+  },
+  "queues.tickets": { title: "Ticket queue", body: helpBody("Inbound email creates tickets when not handled as campaign reply. Manual tickets supported too.") },
+  "queues.campaigns": { title: "Campaign pipeline", body: helpBody("Enrollment counts by stage across active campaigns.") },
+  "queues.tasks": { title: "Agent queue", body: helpBody("All pending, running, and waiting_user tasks across agents.") },
+  "queues.documents": { title: "Documents", body: helpBody("Upload up to 5 MB per file. Agents can attach_document during runs.") },
+  "ops.triggerType": {
+    title: "Trigger type",
+    body: helpBody(
+      "Event: fires on bus event type. Time: interval poll. Condition: metric baseline threshold. Threshold: goal KPI percent breach. Anomaly: high task failure rate in last hour."
+    ),
+  },
   "nav.company": {
     title: "Company",
     body: helpBody(
@@ -333,6 +368,29 @@ export const HELP = {
       "Permanently removes the agent, its cloud Chromium container, and associated data you don't need elsewhere. Chats may remain but lose the agent link. Confirm carefully."
     ),
   },
+  "agents.copy": {
+    title: "Copy agent",
+    body: helpBody(
+      "Duplicates this agent's configuration (instructions, facts, email, schedule, policies) into a new agent named “{name} copy YYYY-MM-DD HH:mm”.",
+      "A new cloud computer is provisioned. Edit the name after copying."
+    ),
+  },
+  "agents.groupFilter": {
+    title: "Filter by group",
+    body: helpBody(
+      "Show all agents, only ungrouped ones, or a single group folder. Groups are separate for agents vs goals."
+    ),
+  },
+  "agents.newGroup": {
+    title: "New agent group",
+    body: helpBody(
+      "Create a folder label (e.g. CRM team). Assign agents via the Group dropdown on each row or on the agent edit page."
+    ),
+  },
+  "agents.groupAssign": {
+    title: "Assign group",
+    body: helpBody("Move this agent into a group folder for easier browsing on the Agents list."),
+  },
 
   // ─── Agent edit ──────────────────────────────────────────────────────
   "agent.name": {
@@ -340,6 +398,12 @@ export const HELP = {
     body: helpBody(
       "Short unique label shown in lists, Live Wall, and chats (e.g. 'Pricing Analyst', 'Support Bot').",
       "The cloud container is labeled with this agent's ID internally; name is for humans only."
+    ),
+  },
+  "agent.group": {
+    title: "Agent group",
+    body: helpBody(
+      "Optional folder on the Agents list (e.g. CRM team). Create groups from the Agents page filter bar."
     ),
   },
   "agent.description": {
@@ -657,10 +721,41 @@ export const HELP = {
       "Does not replace autonomy — scheduled self-checks are separate."
     ),
   },
+  "goals.delete": {
+    title: "Delete goal",
+    body: helpBody(
+      "Permanently removes this goal definition and its run stats.",
+      "Tasks already started from this goal stay in chat history."
+    ),
+  },
+  "goals.copy": {
+    title: "Copy goal",
+    body: helpBody(
+      "Duplicates instructions, KPIs, completion actions, and events into a new goal titled “{title} copy YYYY-MM-DD HH:mm”. Run stats reset to zero."
+    ),
+  },
+  "goals.groupFilter": {
+    title: "Filter by group",
+    body: helpBody("Show all goals, ungrouped only, or one group folder."),
+  },
+  "goals.newGroup": {
+    title: "New goal group",
+    body: helpBody("Create a folder (e.g. Vughy workflows) and assign goals from the list or edit page."),
+  },
+  "goals.groupAssign": {
+    title: "Assign group",
+    body: helpBody("Move this goal into a group folder on the Goals list."),
+  },
   "goal.title": {
     title: "Goal title",
     body: helpBody(
       "Short name for dashboards and delegation ('Weekly competitor scan', 'Monitor support queue')."
+    ),
+  },
+  "goal.group": {
+    title: "Goal group",
+    body: helpBody(
+      "Optional folder on the Goals list. Create groups from the Goals page filter bar."
     ),
   },
   "goal.agent": {
@@ -718,6 +813,34 @@ export const HELP = {
     title: "Completion event type (failure)",
     body: helpBody(
       "Optional event type when the run fails (agent finish success:false). Leave blank to emit nothing on failure."
+    ),
+  },
+  "goal.outcomeRouting": {
+    title: "LLM outcome routing",
+    body: helpBody(
+      "After a run finishes, your LLM reads the agent's reply and picks one outcome branch to emit on the Operations bus.",
+      "Works alongside success/failure completion events — e.g. temperature below 50°F → weather.cold, else weather.warm."
+    ),
+    learnMore: "howto-operations",
+  },
+  "goal.outcomeBranch": {
+    title: "Outcome branch",
+    body: helpBody(
+      "Label + event type + plain-English 'when' condition. The LLM must pick one eventType from this list based on the task result."
+    ),
+  },
+  "goal.completionActions": {
+    title: "Completion actions",
+    body: helpBody(
+      "After a run finishes, spawn parallel follow-up tasks — instructions or other goals — with parent result injected via {{result}}.",
+      "Use Rules for keyword/regex matching, or LLM to pick which actions run from the result text."
+    ),
+    learnMore: "howto-operations",
+  },
+  "goal.completionAction": {
+    title: "Completion action",
+    body: helpBody(
+      "Unique label, run-on success/failure, optional when condition, agent override, and either free-text instructions or a goal to delegate."
     ),
   },
   "goal.kpi.name": {
@@ -817,6 +940,13 @@ export const HELP = {
       "Shortcut to agent editor if you have no agents yet."
     ),
   },
+  "chats.delete": {
+    title: "Delete chat",
+    body: helpBody(
+      "Removes this thread, its messages, and queued goals. Work running from this thread is stopped.",
+      "Other chats with the same agent are not affected."
+    ),
+  },
   "chat.agentPicker": {
     title: "Dispatch agent",
     body: helpBody(
@@ -850,6 +980,13 @@ export const HELP = {
     body: helpBody(
       "Start a goal with /skill-slug to load a production skill explicitly — e.g. /crm-followup check Aanya.",
       "Works with @mentions: @CRM Bot /crm-followup open follow-up tab."
+    ),
+  },
+  "chat.skillPick": {
+    title: "Skill selection",
+    body: helpBody(
+      "Shows which skill the worker loaded for a run and why: slash invoke (/slug), trigger pattern match, built-in template, or none.",
+      "Appears when you send a goal (slash hint on your message) and again when the cloud worker starts (confirmed pick from goal + URL)."
     ),
   },
   "chat.learn": {
@@ -887,8 +1024,22 @@ export const HELP = {
   "chat.takeControl": {
     title: "Take control",
     body: helpBody(
-      "Streams your mouse/keyboard to the agent's cloud Chromium — solve CAPTCHAs, manual login, or demo a workflow for Skills.",
-      "Release control to let the agent continue autonomously."
+      "Streams your mouse/keyboard to the agent's cloud Chromium — solve CAPTCHAs, manual login, or unblock the run.",
+      "Does not record a skill demonstration. Use Teach skill when you want to capture a workflow for Skills."
+    ),
+  },
+  "chat.teachSkill": {
+    title: "Teach skill",
+    body: helpBody(
+      "Pauses the agent and records your clicks, typing, and navigation as a Demonstration.",
+      "Perform the workflow once, click Done teaching, then convert the demo to a skill on the Skills page."
+    ),
+  },
+  "chat.zoomChat": {
+    title: "Chat in zoom",
+    body: helpBody(
+      "Floating chat feed while the live screen is full-screen — see agent messages, skill picks, and your goals without leaving zoom.",
+      "Collapse with − to get more screen space; it keeps polling the thread."
     ),
   },
   "chat.taskQueue": {
@@ -1174,7 +1325,8 @@ export const HELP = {
   "ops.emit": {
     title: "Emit event",
     body: helpBody(
-      "Creates event with source=user, runs trigger engine matching rules, may enqueue tasks."
+      "Creates event with source=user, runs trigger engine matching rules, may enqueue tasks.",
+      "Trigger tasks appear in Chats under threads titled Trigger · … — click Open chat thread on events below after tasks run."
     ),
   },
   "ops.triggers": {
@@ -1221,6 +1373,34 @@ export const HELP = {
       "Optional. When this trigger's enqueued task finishes successfully, YamBot emits this event on the bus (e.g. crm.logout.done). Use it to chain another trigger: IF crm.logout.done → next step."
     ),
   },
+  "ops.outcomeRouting": {
+    title: "LLM outcome routing",
+    body: helpBody(
+      "When this trigger's task completes, your LLM classifies the agent result into one branch and emits that event.",
+      "Use with downstream IF event triggers — e.g. weather.cold → send jacket reminder. Success/failure completion events still fire if configured."
+    ),
+    learnMore: "howto-operations",
+  },
+  "ops.outcomeBranch": {
+    title: "Outcome branch",
+    body: helpBody(
+      "Event type to emit when the LLM decides this branch matches the result. 'When' describes the condition in plain English for the classifier."
+    ),
+  },
+  "ops.completionActions": {
+    title: "Completion actions",
+    body: helpBody(
+      "When this trigger's task completes, run parallel follow-ups (instructions or goals) with parent result in {{result}}.",
+      "Rules match keywords/regex; LLM picks which actions to run."
+    ),
+    learnMore: "howto-operations",
+  },
+  "ops.completionAction": {
+    title: "Completion action",
+    body: helpBody(
+      "Label, success/failure filter, when condition, optional agent, and instruction text or goal to run."
+    ),
+  },
   "ops.triggerEdit": {
     title: "Edit trigger",
     body: helpBody(
@@ -1265,7 +1445,23 @@ export const HELP = {
     title: "Entities",
     body: helpBody(
       "Customers, leads, vendors, custom objects with name, externalId, status, attributes, and temporal observations (notes that age over time).",
+      "Bulk CSV import creates or updates leads by email. Campaigns enroll all leads that have an email address.",
       "POST observations when new facts arrive from tasks or integrations."
+    ),
+  },
+  "company.csvImport": {
+    title: "CSV lead import",
+    body: helpBody(
+      "Paste or upload a CSV with email (required), name, company, phone, first_name, last_name.",
+      "Up to 10,000 rows per import. Existing leads match on email and get name/company updated.",
+      "Example: email,name,company then jane@example.com,Jane Doe,Acme Inc"
+    ),
+  },
+  "company.campaigns": {
+    title: "Campaigns",
+    body: helpBody(
+      "Outbound email sequences tied to an agent. Activate a campaign, then Enroll all leads to queue every lead with an email.",
+      "Scheduler sends batchSize emails per tick (~1/min). Replies via IMAP advance enrollment stage."
     ),
   },
   "company.entityName": {
@@ -1311,8 +1507,8 @@ export const HELP = {
   "skills.page": {
     title: "Skills page",
     body: helpBody(
-      "Structured skill library + human demonstrations + training queue from agents.",
-      "Pipeline: Take control in chat → demo saved → convert to skill → set production → agent gets step hints on matching tasks."
+      "Suggested workflows (from completed tasks or Teach skill) each link to one draft skill.",
+      "Promote to production when ready — worker injects playbook on /slash or trigger match. Skill library lists production and manual skills only."
     ),
     learnMore: "howto-skills",
   },
@@ -1323,16 +1519,23 @@ export const HELP = {
     ),
   },
   "skills.demos": {
-    title: "Demonstrations",
+    title: "Suggested workflows",
     body: helpBody(
-      "Captured step sequences (observation, action, result) from human Take control sessions via worker /demos API.",
-      "Convert to Skill generates draft steps for review."
+      "Step sequences from completed tasks (2+ agent steps) or Teach skill recordings.",
+      "Each row links to one draft skill — Edit draft → set production. Created timestamps show when the workflow was saved."
     ),
   },
   "skills.convertDemo": {
-    title: "Convert to skill",
+    title: "Edit draft",
     body: helpBody(
-      "Creates Skill in training status from demonstration steps. Edit skill before relying on it in production."
+      "Opens the draft skill linked to this workflow. If missing, creates a draft from demonstration steps."
+    ),
+  },
+  "skills.deleteDemo": {
+    title: "Delete demonstration",
+    body: helpBody(
+      "Removes this recorded Take-control session from the list.",
+      "If you already converted it to a skill, that skill is kept."
     ),
   },
   "skills.list": {
@@ -1392,7 +1595,8 @@ export const HELP = {
   "skills.status": {
     title: "Skill status",
     body: helpBody(
-      "draft/training = not injected; production = worker loads on matching tasks; deprecated = kept for history."
+      "draft = not injected; production = worker loads on matching tasks; deprecated = kept for history.",
+      "Suggested workflows always start as draft — promote when triggers and playbook are ready."
     ),
   },
   "skills.agent": {
@@ -1432,6 +1636,13 @@ export const HELP = {
     title: "Add skill",
     body: helpBody(
       "Creates empty draft skill you can populate with steps manually or via demo conversion."
+    ),
+  },
+  "skills.delete": {
+    title: "Delete skill",
+    body: helpBody(
+      "Permanently removes this skill. `/slug` invoke in chat will no longer work.",
+      "Demonstrations that were converted to this skill can be converted again. Past task history is kept."
     ),
   },
 

@@ -24,6 +24,7 @@ export function ChatsPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [busyCommon, setBusyCommon] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
   const navigate = useNavigate();
 
   const { commonChats, agentChats } = useMemo(() => {
@@ -117,6 +118,30 @@ export function ChatsPage() {
   }
 
   /**
+   * @param {object} chat
+   */
+  async function deleteChat(chat) {
+    const label = chat.title || "this chat";
+    if (
+      !window.confirm(
+        `Delete “${label}”? Messages and queued goals for this thread will be removed. Running work from this thread will be stopped.`
+      )
+    ) {
+      return;
+    }
+    setDeletingId(chat._id);
+    setError(null);
+    try {
+      await api(`/api/chats/${chat._id}`, { method: "DELETE" });
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDeletingId("");
+    }
+  }
+
+  /**
    * @param {object[]} list
    * @param {string} emptyText
    */
@@ -129,17 +154,37 @@ export function ChatsPage() {
       );
     }
     return list.map((c) => (
-      <li key={c._id}>
+      <li
+        key={c._id}
+        className="flex min-w-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-2 shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3"
+      >
         <Link
           to={`/chats/${c._id}`}
-          className="flex min-h-11 min-w-0 flex-col gap-1 rounded-2xl border border-teal-100 bg-white px-3 py-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:px-4"
+          className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 sm:flex-row sm:items-center sm:justify-between sm:px-2"
         >
-          <span className="truncate font-semibold">{c.title}</span>
+          <span className="truncate font-semibold">
+            {c.title?.startsWith("Trigger ·") ? (
+              <span className="mr-1.5 rounded-md bg-violet-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-900">
+                Ops
+              </span>
+            ) : null}
+            {c.title}
+          </span>
           <span className="shrink-0 text-xs text-teal-900/60">
             {isCommonChat(c) ? "Common · " : c.agent?.name ? `${c.agent.name} · ` : ""}
             {new Date(c.updatedAt).toLocaleString()}
           </span>
         </Link>
+        <ButtonWithHelp helpId="chats.delete">
+          <button
+            type="button"
+            disabled={Boolean(deletingId)}
+            onClick={() => deleteChat(c)}
+            className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
+          >
+            {deletingId === c._id ? "Deleting…" : "Delete"}
+          </button>
+        </ButtonWithHelp>
       </li>
     ));
   }

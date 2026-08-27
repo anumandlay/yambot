@@ -20,10 +20,62 @@ export class LlmError extends Error {
   }
 }
 
-function hintForStatus(status, bodyText) {
+/** @param {string} text */
+function looksLikeHtml(text) {
+  const t = String(text || "").trimStart().toLowerCase();
+  return t.startsWith("<!doctype") || t.startsWith("<html");
+}
+
+/**
+ * Maps HTML / gateway responses to actionable user hints (503 ≠ wrong Base URL).
+ * @param {number} status
+ * @param {string} bodyText
+ * @param {string} [url]
+ */
+function describeHtmlLlmFailure(status, bodyText, url = "") {
+  const lower = String(bodyText || "").toLowerCase();
+  const host = (() => {
+    try {
+      return new URL(url).hostname.toLowerCase();
+    } catch {
+      return "";
+    }
+  })();
+
+  if (status === 503 || /503 service temporarily unavailable|server is busy|overloaded/i.test(lower)) {
+    return {
+      detail: `MiniMax API temporarily unavailable (${status || 503}).`,
+      hint: "The provider is overloaded or down — wait a few minutes and retry. Your Base URL is fine.",
+    };
+  }
+  if (status >= 500) {
+    return {
+      detail: `LLM provider error (${status}).`,
+      hint: "Server-side error from the LLM API — retry shortly.",
+    };
+  }
+  if (/bot\.vughy\.com|litellm|localhost|127\.0\.0\.1/i.test(lower + host)) {
+    return {
+      detail: "Received HTML instead of JSON — Base URL points at YamBot, not the LLM API.",
+      hint: "Open Settings → set Base URL to https://api.minimax.io/v1 and re-enter your MiniMax API key.",
+    };
+  }
+  if (/minimax\.io/i.test(host)) {
+    return {
+      detail: `MiniMax returned HTML instead of JSON (${status || "unknown"}).`,
+      hint: "Usually a temporary MiniMax outage — retry in a few minutes. Base URL https://api.minimax.io/v1 is correct.",
+    };
+  }
+  return {
+    detail: "Received HTML instead of JSON — check Base URL in Settings (should end with /v1, e.g. https://api.minimax.io/v1).",
+    hint: "Base URL is wrong (got a web page, not the LLM API). Use https://api.minimax.io/v1 for MiniMax.",
+  };
+}
+
+function hintForStatus(status, bodyText, url = "") {
   const lower = String(bodyText || "").toLowerCase();
   if (looksLikeHtml(bodyText)) {
-    return "Base URL is wrong (got a web page, not the LLM API). Open Settings → set Base URL to https://api.minimax.io/v1 and re-enter your MiniMax API key.";
+    return describeHtmlLlmFailure(status, bodyText, url).hint;
   }
   if (status === 401 || status === 403) return "Check your API key (and model access).";
   if (status === 404) return "Check the base URL ends with /v1 and the model name.";
@@ -35,9 +87,9 @@ function hintForStatus(status, bodyText) {
   return "Verify API key, base URL, and model in website Settings.";
 }
 
-function extractApiMessage(bodyText) {
+function extractApiMessage(bodyText, status = 0, url = "") {
   if (looksLikeHtml(bodyText)) {
-    return "Received HTML instead of JSON — check Base URL in Settings (should end with /v1, e.g. https://api.minimax.io/v1).";
+    return describeHtmlLlmFailure(status, bodyText, url).detail;
   }
   try {
     const json = JSON.parse(bodyText);
@@ -45,12 +97,6 @@ function extractApiMessage(bodyText) {
   } catch {
     return null;
   }
-}
-
-/** @param {string} text */
-function looksLikeHtml(text) {
-  const t = String(text || "").trimStart().toLowerCase();
-  return t.startsWith("<!doctype") || t.startsWith("<html");
 }
 
 /**
@@ -170,11 +216,11 @@ export async function chatCompletion({
 
   if (!res.ok) {
     const body = await res.text();
-    const apiMsg = extractApiMessage(body);
+    const apiMsg = extractApiMessage(body, res.status, url);
     throw new LlmError({
       title: `LLM request failed (${res.status})`,
       detail: apiMsg ? String(apiMsg) : body.slice(0, 500) || `HTTP ${res.status}`,
-      hint: hintForStatus(res.status, body),
+      hint: hintForStatus(res.status, body, url),
       status: res.status,
       url,
     });
@@ -195,13 +241,13 @@ export async function chatCompletion({
       }
     }
     if (!data) {
-      const detail = looksLikeHtml(bodyText)
-        ? "Received HTML instead of JSON — check Base URL in Settings."
-        : msg;
+      const htmlFailure = looksLikeHtml(bodyText)
+        ? describeHtmlLlmFailure(res.status, bodyText, url)
+        : null;
       throw new LlmError({
         title: "Invalid LLM response",
-        detail,
-        hint: "Provider returned non-JSON. Check base URL / model / API key in Settings.",
+        detail: htmlFailure?.detail || msg,
+        hint: htmlFailure?.hint || "Provider returned non-JSON. Check base URL / model / API key in Settings.",
         url,
       });
     }

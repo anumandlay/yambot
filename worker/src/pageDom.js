@@ -1550,10 +1550,139 @@ export function executeInPage(action) {
       return { ok: true };
     }
     case "scroll": {
-      const amount = Number(action.amount) || 600;
-      const dir = action.direction === "up" ? -1 : 1;
-      window.scrollBy({ top: dir * amount, behavior: "instant" });
-      return { ok: true };
+      const rawAmount = Number(action.amount);
+      const rawDy = Number(action.dy);
+      let delta =
+        Number.isFinite(rawDy) && !Number.isFinite(rawAmount)
+          ? rawDy
+          : Number.isFinite(rawAmount)
+            ? rawAmount
+            : 600;
+      if (action.direction === "up") delta = -Math.abs(delta);
+      else if (action.direction === "down") delta = Math.abs(delta);
+
+      /** @param {Element|null|undefined} el */
+      function isScrollableEl(el) {
+        if (!el || el.nodeType !== 1) return false;
+        if (el === document.body || el === document.documentElement) return false;
+        if (el.scrollHeight <= el.clientHeight + 4) return false;
+        const style = window.getComputedStyle(el);
+        const oy = style.overflowY;
+        if (oy === "auto" || oy === "scroll" || oy === "overlay") return true;
+        // Vughy-style side nav: overflow hidden on wrapper but scrollTop still works.
+        if (el.scrollHeight > el.clientHeight + 4 && oy !== "visible") return true;
+        return false;
+      }
+
+      /** @param {Element} el */
+      function navScore(el) {
+        const r = el.getBoundingClientRect();
+        let score = 0;
+        if (r.left < window.innerWidth * 0.4) score += 20;
+        score += Math.min(r.height, window.innerHeight) / Math.max(window.innerHeight, 1);
+        score += (el.scrollHeight - el.clientHeight) / 200;
+        return score;
+      }
+
+      /** @returns {Element|null} */
+      function findScrollableTarget() {
+        /** @type {Element[]} */
+        const candidates = [];
+
+        if (action.ref) {
+          try {
+            const el = resolveElement(action);
+            let node = el;
+            while (node && node !== document.body) {
+              if (isScrollableEl(node)) candidates.push(node);
+              node = node.parentElement;
+            }
+          } catch {
+            /* fall through */
+          }
+        }
+
+        const px = Number(action.xNorm);
+        const py = Number(action.yNorm);
+        const cx = Number.isFinite(px) ? px * window.innerWidth : window.innerWidth * 0.08;
+        const cy = Number.isFinite(py) ? py * window.innerHeight : window.innerHeight * 0.5;
+        let hit = document.elementFromPoint(cx, cy);
+        while (hit && hit !== document.body) {
+          if (isScrollableEl(hit)) candidates.push(hit);
+          hit = hit.parentElement;
+        }
+
+        const selectors = [
+          "nav",
+          "aside",
+          '[role="navigation"]',
+          '[class*="sidebar"]',
+          '[class*="side-menu"]',
+          '[class*="sidemenu"]',
+          '[class*="menu-scroll"]',
+          '[class*="nav-scroll"]',
+          '[class*="left-menu"]',
+          '[class*="leftmenu"]',
+        ];
+        for (const sel of selectors) {
+          try {
+            for (const node of document.querySelectorAll(sel)) {
+              if (!isVisible(node)) continue;
+              if (isScrollableEl(node)) candidates.push(node);
+              for (const child of node.querySelectorAll("*")) {
+                if (isScrollableEl(child)) candidates.push(child);
+              }
+            }
+          } catch {
+            /* invalid selector */
+          }
+        }
+
+        // Scan left strip — Vughy agency nav often lives here.
+        for (const node of document.querySelectorAll("div, ul, section")) {
+          if (!isVisible(node)) continue;
+          const r = node.getBoundingClientRect();
+          if (r.width < 40 || r.height < 120) continue;
+          if (r.right > window.innerWidth * 0.42) continue;
+          if (isScrollableEl(node)) candidates.push(node);
+        }
+
+        const unique = [...new Set(candidates)];
+        unique.sort((a, b) => navScore(b) - navScore(a));
+        return unique[0] || null;
+      }
+
+      /** @param {Element} target */
+      function applyScroll(target) {
+        const before = target.scrollTop;
+        target.scrollTop = before + delta;
+        if (target.scrollTop === before && delta !== 0) {
+          target.scrollBy({ top: delta, behavior: "instant" });
+        }
+        try {
+          const r = target.getBoundingClientRect();
+          target.dispatchEvent(
+            new WheelEvent("wheel", {
+              deltaY: delta,
+              deltaMode: 0,
+              bubbles: true,
+              cancelable: true,
+              clientX: r.left + Math.min(24, r.width / 2),
+              clientY: r.top + r.height / 2,
+            })
+          );
+        } catch {
+          /* ignore */
+        }
+        return { ok: true, target: target.tagName.toLowerCase(), scrollTop: target.scrollTop, before };
+      }
+
+      const target = findScrollableTarget();
+      if (target) {
+        return applyScroll(target);
+      }
+      window.scrollBy({ top: delta, behavior: "instant" });
+      return { ok: true, target: "window" };
     }
     case "extract": {
       return {

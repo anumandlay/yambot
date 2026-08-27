@@ -7,6 +7,7 @@
 import { Agent } from "../models/Agent.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { emitEvent } from "./eventBus.js";
+import { linkDemonstrationToTaskDraft } from "./skillSuggestion.js";
 
 /**
  * Starts a new demonstration capture on an agent.
@@ -76,6 +77,7 @@ export async function finishDemoSession(userId, opts) {
     await agent.save();
   }
   await demo.save();
+  await linkDemonstrationToTaskDraft(userId, demo).catch(() => {});
   if (wasActive && opts.emitBusEvent !== false) {
     await emitEvent({
       userId,

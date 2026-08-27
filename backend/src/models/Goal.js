@@ -42,6 +42,13 @@ const goalSchema = new mongoose.Schema(
     },
     title: { type: String, required: true, trim: true },
     description: { type: String, default: "", trim: true },
+    /** Optional list folder — EntityGroup with type goal. */
+    group: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EntityGroup",
+      default: null,
+      index: true,
+    },
     /** Text sent to the worker when this goal is run. */
     instructions: { type: String, default: "", trim: true },
     successCriteria: { type: String, default: "", trim: true },
@@ -89,6 +96,38 @@ const goalSchema = new mongoose.Schema(
     completionEventType: { type: String, default: "", trim: true },
     /** Optional event type when a linked task fails (e.g. crm.aanya.not_found). */
     completionEventOnFailure: { type: String, default: "", trim: true },
+    /** When true, LLM reads task result and emits one of outcomeBranches after completion. */
+    outcomeRoutingEnabled: { type: Boolean, default: false },
+    /** LLM outcome branches: { label, eventType, description }[] */
+    outcomeBranches: {
+      type: [
+        {
+          label: { type: String, default: "", trim: true },
+          eventType: { type: String, default: "", trim: true },
+          description: { type: String, default: "", trim: true },
+        },
+      ],
+      default: [],
+    },
+    /** When true, spawn parallel follow-up tasks/goals after each run completes. */
+    completionActionsEnabled: { type: Boolean, default: false },
+    /** rules = keyword/regex on when field; llm = LLM multi-picks from candidates. */
+    completionActionsPickMode: { type: String, enum: ["rules", "llm"], default: "rules" },
+    /** Parallel follow-ups: instruction text or delegate to another goal. */
+    completionActions: {
+      type: [
+        {
+          label: { type: String, default: "", trim: true },
+          runOn: { type: String, enum: ["success", "failure", "both"], default: "success" },
+          when: { type: String, default: "", trim: true },
+          kind: { type: String, enum: ["instruction", "goal"], default: "instruction" },
+          agentId: { type: String, default: "", trim: true },
+          goalId: { type: String, default: "", trim: true },
+          instructions: { type: String, default: "", trim: true },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
@@ -117,6 +156,7 @@ export function toGoalPublic(doc) {
     parentGoal: g.parentGoal,
     title: g.title,
     description: g.description || "",
+    group: g.group || null,
     instructions: g.instructions || "",
     successCriteria: g.successCriteria || "",
     status: g.status || "active",
@@ -126,6 +166,11 @@ export function toGoalPublic(doc) {
     sla: g.sla || { responseMinutes: 0, name: "" },
     completionEventType: g.completionEventType || "",
     completionEventOnFailure: g.completionEventOnFailure || "",
+    outcomeRoutingEnabled: Boolean(g.outcomeRoutingEnabled),
+    outcomeBranches: Array.isArray(g.outcomeBranches) ? g.outcomeBranches : [],
+    completionActionsEnabled: Boolean(g.completionActionsEnabled),
+    completionActionsPickMode: g.completionActionsPickMode === "llm" ? "llm" : "rules",
+    completionActions: Array.isArray(g.completionActions) ? g.completionActions : [],
     stats: g.stats || { runs: 0, successes: 0, failures: 0, lastRunAt: null },
     chatId: g.chatId,
     createdAt: g.createdAt,

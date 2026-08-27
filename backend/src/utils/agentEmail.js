@@ -56,7 +56,7 @@ export function resolveAgentMailConfig(agent) {
 /**
  * Sends an email via the agent's SMTP settings.
  * @param {object} agent
- * @param {{ to: string, subject: string, text?: string, html?: string }} mail
+ * @param {{ to: string, subject: string, text?: string, html?: string, inReplyTo?: string, references?: string, messageId?: string }} mail
  */
 export async function sendAgentEmail(agent, mail) {
   const resolved = resolveAgentMailConfig(agent);
@@ -84,12 +84,21 @@ export async function sendAgentEmail(agent, mail) {
     secure: c.smtpSecure,
     auth: { user: c.smtpUser, pass: c.password },
   });
+  const headers = {};
+  const inReplyTo = String(mail.inReplyTo || "").trim();
+  const references = String(mail.references || "").trim();
+  if (inReplyTo) headers["In-Reply-To"] = inReplyTo;
+  if (references) headers.References = references;
+  const customMessageId = String(mail.messageId || "").trim();
+  if (customMessageId) headers["Message-ID"] = customMessageId;
+
   const info = await transporter.sendMail({
     from: c.fromName ? `"${c.fromName}" <${c.fromAddress}>` : c.fromAddress,
     to,
     subject: subject.slice(0, 500),
     text: text.slice(0, 100_000),
     html: mail.html ? String(mail.html).slice(0, 200_000) : undefined,
+    headers: Object.keys(headers).length ? headers : undefined,
   });
   return {
     ok: true,
@@ -151,6 +160,8 @@ export async function checkAgentInbox(agent, opts = {}) {
         const env = msg.envelope || {};
         messages.push({
           uid,
+          messageId: env.messageId || "",
+          inReplyTo: env.inReplyTo || "",
           subject: env.subject || "(no subject)",
           from: (env.from || [])
             .map((a) => (a.name ? `${a.name} <${a.address}>` : a.address))

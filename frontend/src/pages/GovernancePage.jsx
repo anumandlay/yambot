@@ -16,6 +16,26 @@ export function GovernancePage() {
   const [reviews, setReviews] = useState([]);
   const [improvements, setImprovements] = useState([]);
   const [error, setError] = useState(null);
+  const [exporting, setExporting] = useState(false);
+
+  async function downloadAuditExport() {
+    setExporting(true);
+    setError(null);
+    try {
+      const data = await api("/api/audit/export");
+      const blob = new Blob([JSON.stringify(data.export, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `yambot-audit-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setExporting(false);
+    }
+  }
 
   const load = useCallback(async () => {
     const [usageData, auditData, budgetData, approvalData, perfData, impData] = await Promise.all([
@@ -74,6 +94,14 @@ export function GovernancePage() {
       </div>
 
       <PageGuideBanner helpId="nav.governance" />
+      <button
+        type="button"
+        disabled={exporting}
+        onClick={downloadAuditExport}
+        className="min-h-10 w-fit rounded-xl border border-teal-200 bg-white px-4 text-sm font-semibold text-teal-900 disabled:opacity-50"
+      >
+        {exporting ? "Exporting…" : "Export compliance bundle (JSON)"}
+      </button>
 
       {error ? (
         <ErrorAlert

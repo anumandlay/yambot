@@ -50,9 +50,21 @@ export function TrajectoryPanel({ task, className = "" }) {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState("");
 
-  if (!rows.length) return null;
-
   const failed = rows.filter((r) => !r.ok).length;
+  const shellClass = `flex shrink-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`;
+
+  if (!rows.length) {
+    return (
+      <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
+        <summary className="shrink-0 cursor-pointer list-none px-3 py-2 [&::-webkit-details-marker]:hidden">
+          <SectionTitle as="span" helpId="chat.trajectory" className="inline-flex">
+            Trajectory
+          </SectionTitle>
+          <span className="ml-2 text-xs font-normal text-teal-800/50">waiting for agent steps…</span>
+        </summary>
+      </details>
+    );
+  }
   const canSaveDemo =
     task?._id && ["done", "error"].includes(String(task.status || ""));
 
@@ -65,7 +77,7 @@ export function TrajectoryPanel({ task, className = "" }) {
         method: "POST",
         body: JSON.stringify({ title: (task.goal || "Task trajectory").slice(0, 120) }),
       });
-      setMsg("Demo saved — open Skills to convert.");
+      setMsg("Saved to Suggested workflows — open Skills to edit draft.");
       navigate("/skills");
       return data;
     } catch (err) {
@@ -76,11 +88,7 @@ export function TrajectoryPanel({ task, className = "" }) {
   }
 
   return (
-    <details
-      className={`rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`}
-      open={open}
-      onToggle={(e) => setOpen(e.currentTarget.open)}
-    >
+    <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
       <summary className="cursor-pointer list-none px-3 py-2 [&::-webkit-details-marker]:hidden">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <div>

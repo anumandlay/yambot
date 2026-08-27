@@ -29,6 +29,8 @@ import {
   startDemoSession,
 } from "../utils/demoSession.js";
 import { Demonstration } from "../models/Demonstration.js";
+import { copyNameWithTimestamp } from "../utils/copyName.js";
+import { EntityGroup } from "../models/EntityGroup.js";
 
 export const agentsRouter = Router();
 
@@ -282,6 +284,10 @@ function pickAgentFields(body, opts = {}) {
     }
     set("email", email);
   }
+  if (body.group != null || body.groupId != null) {
+    const gid = body.group ?? body.groupId;
+    set("group", gid ? String(gid) : null);
+  }
   return out;
 }
 
@@ -296,7 +302,10 @@ agentsRouter.get("/meta", (_req, res) => {
 
 agentsRouter.get("/", async (req, res, next) => {
   try {
-    const agents = await Agent.find({ user: req.userId })
+    const filter = { user: req.userId };
+    if (req.query.groupId === "ungrouped") filter.group = null;
+    else if (req.query.groupId) filter.group = String(req.query.groupId);
+    const agents = await Agent.find(filter)
       .select("-liveScreen.dataBase64 -workerTokenEnc -workerTokenHash -controlQueue")
       .sort({ updatedAt: -1 })
       .lean();
@@ -571,7 +580,10 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       /** @type {import('mongoose').Document|null} */
       let demonstration = null;
       if (active) {
-        if (!agent.computer.activeDemoId) {
+        /** Why: Take control is for CAPTCHA/handoff; Teach skill explicitly starts demo capture. */
+        const shouldRecordDemo =
+          Boolean(req.body?.teachSkill) || req.body?.recordDemo === true;
+        if (shouldRecordDemo && !agent.computer.activeDemoId) {
           try {
             demonstration = await startDemoSession(req.userId, {
               agentId: agent._id,
@@ -587,7 +599,7 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
           } catch (err) {
             console.error("[agents] demo session start failed", err?.message || err);
           }
-        } else {
+        } else if (agent.computer.activeDemoId) {
           demonstration = await Demonstration.findOne({
             _id: agent.computer.activeDemoId,
             user: req.userId,
@@ -863,6 +875,122 @@ agentsRouter.post("/:id/email/check", async (req, res, next) => {
       unseenOnly: Boolean(req.body?.unseenOnly),
     });
     res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/copy — duplicate config with timestamped name.
+ */
+agentsRouter.post("/:id/copy", async (req, res, next) => {
+  try {
+    const source = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!source) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+
+    const src = source.toObject();
+    const scheduleEnabled = Boolean(src.schedule?.enabled && src.schedule?.goal);
+    const fields = {
+      name: copyNameWithTimestamp(src.name),
+      description: src.description || "",
+      profile: src.profile || "",
+      skill: src.skill || "",
+      mode: src.mode || "browser",
+      instructions: src.instructions || "",
+      facts: Array.isArray(src.facts) ? src.facts : [],
+      autonomy: src.autonomy || {},
+      role: src.role || "worker",
+      managedAgents: Array.isArray(src.managedAgents) ? src.managedAgents : [],
+      policy: src.policy || {},
+      successCriteria: src.successCriteria || "",
+      allowedDomains: Array.isArray(src.allowedDomains) ? src.allowedDomains : [],
+      startUrl: src.startUrl || "",
+      active: src.active !== false,
+      group: src.group || null,
+      runner: "cloud",
+      memory: [],
+      email: {
+        enabled: Boolean(src.email?.enabled),
+        fromName: src.email?.fromName || "",
+        fromAddress: src.email?.fromAddress || "",
+        smtpHost: src.email?.smtpHost || "",
+        smtpPort: src.email?.smtpPort || 587,
+        smtpSecure: Boolean(src.email?.smtpSecure),
+        smtpUser: src.email?.smtpUser || "",
+        smtpPasswordEnc: src.email?.smtpPasswordEnc || "",
+        imapHost: src.email?.imapHost || "",
+        imapPort: src.email?.imapPort || 993,
+        imapSecure: src.email?.imapSecure !== false,
+      },
+      schedule: {
+        enabled: scheduleEnabled,
+        goal: src.schedule?.goal || "",
+        interval: src.schedule?.interval || "1h",
+        dailyAt: src.schedule?.dailyAt || "09:00",
+        lastRunAt: null,
+        nextRunAt: scheduleEnabled ? new Date() : null,
+        chatId: null,
+      },
+    };
+
+    if (fields.group) {
+      const groupOk = await EntityGroup.exists({
+        _id: fields.group,
+        user: req.userId,
+        type: "agent",
+      });
+      if (!groupOk) fields.group = null;
+    }
+
+    const settings = await getPlatformSettings();
+    const agentPriceCents = Math.max(0, Number(settings.agentPriceCents) || 0);
+
+    const agent = new Agent({ ...fields, user: req.userId });
+    ensureWorkerCredentials(agent);
+    syncComputerDesired(agent);
+
+    /** @type {{ transaction?: { _id: unknown } } | null} */
+    let debitResult = null;
+    if (agentPriceCents > 0) {
+      debitResult = await debitWallet({
+        userId: req.userId,
+        amountCents: agentPriceCents,
+        type: "agent_create",
+        note: `Copy agent: ${fields.name}`,
+        meta: { agentName: fields.name, priceCents: agentPriceCents, copiedFrom: String(source._id) },
+      });
+    }
+
+    try {
+      await agent.save();
+      if (debitResult?.transaction?._id) {
+        const { WalletTransaction } = await import("../models/WalletTransaction.js");
+        await WalletTransaction.findByIdAndUpdate(debitResult.transaction._id, {
+          agent: agent._id,
+        });
+      }
+    } catch (saveErr) {
+      if (agentPriceCents > 0) {
+        const { creditWallet } = await import("../utils/wallet.js");
+        await creditWallet({
+          userId: req.userId,
+          amountCents: agentPriceCents,
+          type: "refund",
+          note: `Refund — agent copy failed: ${fields.name}`,
+          meta: { reason: saveErr.message },
+        }).catch((refundErr) => console.error("[agents] refund after failed copy", refundErr));
+      }
+      throw saveErr;
+    }
+
+    res.status(201).json({
+      ok: true,
+      agent: publicAgent(agent),
+      copiedFrom: String(source._id),
+    });
   } catch (err) {
     next(err);
   }

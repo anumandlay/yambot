@@ -40,11 +40,37 @@ processesRouter.post("/definitions", async (req, res, next) => {
   }
 });
 
+processesRouter.put("/definitions/:id", async (req, res, next) => {
+  try {
+    const def = await ProcessDefinition.findOne({ _id: req.params.id, user: req.userId });
+    if (!def) {
+      res.status(404).json({ ok: false, detail: "Definition missing" });
+      return;
+    }
+    const body = req.body || {};
+    if (body.name != null) def.name = String(body.name).trim();
+    if (body.description != null) def.description = String(body.description);
+    if (Array.isArray(body.stages)) def.stages = body.stages;
+    if (Array.isArray(body.transitions)) def.transitions = body.transitions;
+    if (body.active != null) def.active = Boolean(body.active);
+    await def.save();
+    res.json({ ok: true, definition: def });
+  } catch (err) {
+    next(err);
+  }
+});
+
 processesRouter.get("/instances", async (req, res, next) => {
   try {
     const filter = { user: req.userId };
     if (req.query.definitionId) filter.definition = String(req.query.definitionId);
-    const instances = await ProcessInstance.find(filter).sort({ updatedAt: -1 }).limit(100).lean();
+    if (req.query.status) filter.status = String(req.query.status);
+    const instances = await ProcessInstance.find(filter)
+      .sort({ updatedAt: -1 })
+      .limit(200)
+      .populate("definition", "name stages")
+      .populate("entity", "name type")
+      .lean();
     res.json({ ok: true, instances });
   } catch (err) {
     next(err);

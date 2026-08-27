@@ -162,9 +162,7 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
     }
   }
 
-  const shellClass = `flex min-h-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${
-    compact ? "h-full [&[open]]:flex [&[open]]:min-h-0 [&[open]]:flex-1 [&[open]]:flex-col" : ""
-  } ${className}`;
+  const shellClass = `flex shrink-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`;
 
   if (!snapshots.length) {
     return (
@@ -216,7 +214,7 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
         )}
       </summary>
 
-      <div className="flex min-h-0 flex-1 flex-col border-t border-teal-50">
+      <div className="flex min-h-0 flex-col border-t border-teal-50">
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-teal-50 px-2 py-2">
           {[
             ["summary", "Summary"],
@@ -246,8 +244,8 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
         </div>
 
         <div
-          className={`yb-scroll-x min-h-0 overflow-auto p-2 text-xs ${
-            compact ? "flex-1" : "max-h-64 sm:max-h-72"
+          className={`yb-scroll-x overflow-auto p-2 text-xs ${
+            compact ? "max-h-40 sm:max-h-48 lg:max-h-52" : "max-h-64 sm:max-h-72"
           }`}
         >
           {view === "json" ? (

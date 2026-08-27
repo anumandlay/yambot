@@ -27,6 +27,7 @@ const EMPTY = {
   allowedDomains: "",
   startUrl: "",
   active: true,
+  group: "",
   autonomy: {
     allowSubmit: true,
     allowCaptcha: true,
@@ -90,6 +91,7 @@ export function AgentEditPage() {
   const [memoryNote, setMemoryNote] = useState("");
   const [memory, setMemory] = useState([]);
   const [allAgents, setAllAgents] = useState([]);
+  const [agentGroups, setAgentGroups] = useState([]);
   const [walletInfo, setWalletInfo] = useState({ balanceUsd: 0, agentPriceUsd: 0 });
 
   useEffect(() => {
@@ -111,6 +113,8 @@ export function AgentEditPage() {
         if (Array.isArray(meta.scheduleIntervals) && meta.scheduleIntervals.length) {
           setScheduleIntervals(meta.scheduleIntervals);
         }
+        const groupData = await api("/api/groups?type=agent");
+        setAgentGroups(groupData.groups || []);
         if (!isNew) {
           const data = await api(`/api/agents/${agentId}`);
           const a = data.agent;
@@ -118,6 +122,7 @@ export function AgentEditPage() {
           setAllAgents((agentsList.agents || []).filter((x) => x._id !== agentId));
           setForm({
             name: a.name || "",
+            group: a.group ? String(a.group) : "",
             description: a.description || "",
             profile: a.profile || "",
             skill: a.skill || "",
@@ -220,6 +225,7 @@ export function AgentEditPage() {
     setOkMsg("");
     const payload = {
       ...form,
+      group: form.group || null,
       facts: form.facts.filter((f) => f.key.trim()),
       allowedDomains: form.allowedDomains,
     };
@@ -336,6 +342,21 @@ export function AgentEditPage() {
             onChange={(e) => update("name", e.target.value)}
             required
           />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <FieldLabel helpId="agent.group">Group</FieldLabel>
+          <select
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.group}
+            onChange={(e) => update("group", e.target.value)}
+          >
+            <option value="">No group</option>
+            {agentGroups.map((g) => (
+              <option key={g._id} value={g._id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="agent.description">Short description</FieldLabel>

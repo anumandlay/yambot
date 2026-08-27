@@ -10,12 +10,21 @@ import { Task } from "../models/Task.js";
 import { User } from "../models/User.js";
 import { emitEvent } from "./eventBus.js";
 import { tickTriggers } from "./triggerEngine.js";
+import {
+  tickConditionTriggers,
+  tickThresholdTriggers,
+  tickAnomalyTriggers,
+} from "./triggerEvaluators.js";
 import { tickWatchers } from "./watcherEngine.js";
 import { tickGoalAutonomy } from "./goalAutonomy.js";
 import { tickManagerAutonomy } from "./managerAutonomy.js";
 import { tickPerformanceReviews } from "./performanceReview.js";
 import { tickImprovementProposals } from "./improvementLoop.js";
 import { unblockDependentTasks } from "./enqueueTask.js";
+import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
+import { tickCampaigns } from "./campaignEngine.js";
+import { tickTicketSla } from "./ticketSla.js";
+import { tickScheduledReports } from "./scheduledReports.js";
 
 /**
  * Finds or creates the dedicated schedule chat for an agent.
@@ -244,11 +253,18 @@ export function startAgentScheduler(opts = {}) {
       const esc = await tickTaskEscalations();
       const sla = await tickSlaBreaches();
       const triggers = await tickTriggers();
+      const condTriggers = await tickConditionTriggers();
+      const threshTriggers = await tickThresholdTriggers();
+      const anomalyTriggers = await tickAnomalyTriggers();
       const watchers = await tickWatchers();
       const goals = await tickGoalAutonomy();
       const managers = await tickManagerAutonomy();
       const reviews = await tickPerformanceReviews();
       const improvements = await tickImprovementProposals();
+      const emailWatch = await tickEmailInboxWatcher();
+      const campaigns = await tickCampaigns();
+      const ticketSla = await tickTicketSla();
+      const reports = await tickScheduledReports();
       await unblockDependentTasksForAll();
 
       if (
@@ -257,12 +273,19 @@ export function startAgentScheduler(opts = {}) {
         esc.escalated ||
         sla.breached ||
         triggers.fired ||
+        condTriggers.fired ||
+        threshTriggers.fired ||
+        anomalyTriggers.fired ||
         watchers.changed ||
         goals.spawned ||
-        managers.delegated
+        managers.delegated ||
+        emailWatch.newMessages ||
+        campaigns.enqueued ||
+        ticketSla.breached ||
+        reports.sent
       ) {
         console.log(
-          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created}`
+          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
         );
       }
     } catch (err) {

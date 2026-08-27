@@ -18,6 +18,13 @@ import { Agent, toAgentSnapshot } from "../models/Agent.js";
 import { Chat, Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
 import { writeAudit } from "../utils/audit.js";
+import { copyNameWithTimestamp } from "../utils/copyName.js";
+import { EntityGroup } from "../models/EntityGroup.js";
+import { normalizeOutcomeBranches } from "../utils/outcomeBranches.js";
+import {
+  normalizeCompletionActions,
+  normalizeCompletionActionsPickMode,
+} from "../utils/completionActions.js";
 
 export const goalsRouter = Router();
 
@@ -70,6 +77,25 @@ function pickGoalFields(body) {
   if (body.completionEventOnFailure != null) {
     out.completionEventOnFailure = normalizeGoalEventType(body.completionEventOnFailure);
   }
+  if (body.outcomeRoutingEnabled != null) {
+    out.outcomeRoutingEnabled = Boolean(body.outcomeRoutingEnabled);
+  }
+  if (body.outcomeBranches != null) {
+    out.outcomeBranches = normalizeOutcomeBranches(body.outcomeBranches);
+  }
+  if (body.completionActionsEnabled != null) {
+    out.completionActionsEnabled = Boolean(body.completionActionsEnabled);
+  }
+  if (body.completionActionsPickMode != null) {
+    out.completionActionsPickMode = normalizeCompletionActionsPickMode(body.completionActionsPickMode);
+  }
+  if (body.completionActions != null) {
+    out.completionActions = normalizeCompletionActions(body.completionActions);
+  }
+  if (body.group != null || body.groupId != null) {
+    const gid = body.group ?? body.groupId;
+    out.group = gid ? String(gid) : null;
+  }
   return out;
 }
 
@@ -82,6 +108,8 @@ goalsRouter.get("/", async (req, res, next) => {
     const filter = { user: req.userId };
     if (req.query.agentId) filter.agent = String(req.query.agentId);
     if (req.query.status) filter.status = String(req.query.status);
+    if (req.query.groupId === "ungrouped") filter.group = null;
+    else if (req.query.groupId) filter.group = String(req.query.groupId);
     const goals = await Goal.find(filter).sort({ updatedAt: -1 }).lean();
     res.json({ ok: true, goals: goals.map(toGoalPublic) });
   } catch (err) {
@@ -141,6 +169,66 @@ goalsRouter.put("/:id", async (req, res, next) => {
       detail: goal.title,
     });
     res.json({ ok: true, goal: toGoalPublic(goal) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/goals/:id/copy — duplicate goal config with timestamped title.
+ */
+goalsRouter.post("/:id/copy", async (req, res, next) => {
+  try {
+    const source = await Goal.findOne({ _id: req.params.id, user: req.userId });
+    if (!source) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Goal missing" });
+      return;
+    }
+    const src = source.toObject();
+    let group = src.group || null;
+    if (group) {
+      const groupOk = await EntityGroup.exists({ _id: group, user: req.userId, type: "goal" });
+      if (!groupOk) group = null;
+    }
+    const goal = await Goal.create({
+      user: req.userId,
+      agent: src.agent || null,
+      parentGoal: src.parentGoal || null,
+      group,
+      title: copyNameWithTimestamp(src.title),
+      description: src.description || "",
+      instructions: src.instructions || "",
+      successCriteria: src.successCriteria || "",
+      status: src.status === "archived" ? "active" : src.status || "active",
+      priority: src.priority || "normal",
+      kpis: Array.isArray(src.kpis)
+        ? src.kpis.map((k) => ({
+            name: k.name,
+            target: k.target,
+            current: 0,
+            unit: k.unit || "",
+          }))
+        : [],
+      autonomy: src.autonomy || { enabled: false, checkIntervalMinutes: 60, autoRun: true },
+      sla: src.sla || { responseMinutes: 0, name: "" },
+      completionEventType: src.completionEventType || "",
+      completionEventOnFailure: src.completionEventOnFailure || "",
+      outcomeRoutingEnabled: Boolean(src.outcomeRoutingEnabled),
+      outcomeBranches: Array.isArray(src.outcomeBranches) ? src.outcomeBranches : [],
+      completionActionsEnabled: Boolean(src.completionActionsEnabled),
+      completionActionsPickMode: src.completionActionsPickMode === "llm" ? "llm" : "rules",
+      completionActions: Array.isArray(src.completionActions) ? src.completionActions : [],
+      stats: { runs: 0, successes: 0, failures: 0, lastRunAt: null },
+      chatId: null,
+    });
+    await writeAudit({
+      userId: req.userId,
+      action: "goal.created",
+      goalId: String(goal._id),
+      agentId: goal.agent ? String(goal.agent) : null,
+      detail: `${goal.title} (copy)`,
+    });
+    res.status(201).json({ ok: true, goal: toGoalPublic(goal), copiedFrom: String(source._id) });
   } catch (err) {
     next(err);
   }

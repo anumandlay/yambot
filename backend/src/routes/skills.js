@@ -23,6 +23,10 @@ import {
   trajectoryToStepLines,
 } from "../utils/skillMd.js";
 import { allocateSkillSlug, createLearnedSkillDraft } from "../utils/skillLearn.js";
+import {
+  demoStepsToSkillSteps,
+  ensureSkillSuggestionFromTask,
+} from "../utils/skillSuggestion.js";
 
 export const skillsRouter = Router();
 
@@ -86,73 +90,23 @@ function syncSkillFromPlaybook(skill) {
 }
 
 /**
- * Converts demo actions into skill steps — prefers structured objects for replay.
- * @param {object[]} demoSteps
- * @returns {{ steps: unknown[], executionMode: string }}
+ * Normalizes legacy training status to draft for API responses.
+ * @param {object} skill
+ * @returns {object}
  */
-function demoStepsToSkillSteps(demoSteps) {
-  const actionSteps = (demoSteps || [])
-    .map((s) => s.action)
-    .filter((a) => a && typeof a === "object" && a.type && a.type !== "session");
-  if (actionSteps.length) {
-    return { steps: actionSteps, executionMode: "replay" };
-  }
-  const textSteps = (demoSteps || [])
-    .map((s) => {
-      const a = s.action || {};
-      if (a.type === "type" && a.text) return `Type: ${a.text}`;
-      if (a.type === "click") {
-        const x = Math.round((Number(a.xNorm) || 0) * 100);
-        const y = Math.round((Number(a.yNorm) || 0) * 100);
-        return `Click at ${x}%, ${y}%`;
-      }
-      if (a.type === "key" && a.key) return `Press key: ${a.key}`;
-      if (a.type === "scroll") return `Scroll ${Number(a.dy) > 0 ? "down" : "up"}`;
-      if (a.type === "session") return "Human took control";
-      if (typeof a === "object" && Object.keys(a).length) return JSON.stringify(a);
-      return "";
-    })
-    .filter(Boolean);
-  return { steps: textSteps, executionMode: "hints" };
-}
-
-/**
- * Converts stored task trajectory (or step events) into demonstration steps.
- * @param {object} task
- * @returns {object[]}
- */
-function trajectoryToDemoSteps(task) {
-  let rows = [];
-  if (Array.isArray(task.trajectory) && task.trajectory.length) {
-    rows = task.trajectory;
-  } else {
-    rows = (task.events || [])
-      .filter((e) => e.type === "step" && e.payload?.action)
-      .map((e) => ({
-        step: e.payload?.step,
-        action: e.payload.action,
-        ok: e.payload?.result?.ok !== false,
-        failure_class: e.payload?.result?.failure_class,
-      }));
-  }
-  return rows.map((row) => {
-    const a = row.action || {};
-    const parts = [a.type || "action"];
-    if (a.ref) parts.push(`ref:${a.ref}`);
-    if (a.name) parts.push(`"${a.name}"`);
-    if (a.url) parts.push(a.url);
-    return {
-      observation: row.url_changed ? "Page navigated" : "",
-      action: a,
-      result: row.ok === false ? row.failure_class || "failed" : "ok",
-    };
-  });
+function normalizeSkillStatus(skill) {
+  if (!skill || skill.status !== "training") return skill;
+  return { ...skill, status: "draft" };
 }
 
 skillsRouter.get("/", async (req, res, next) => {
   try {
+    await Skill.updateMany(
+      { user: req.userId, status: "training" },
+      { $set: { status: "draft" } }
+    );
     const skills = await Skill.find({ user: req.userId }).sort({ updatedAt: -1 }).lean();
-    res.json({ ok: true, skills });
+    res.json({ ok: true, skills: skills.map(normalizeSkillStatus) });
   } catch (err) {
     next(err);
   }
@@ -260,17 +214,37 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
       res.status(404).json({ ok: false, detail: "Demonstration missing" });
       return;
     }
+    if (demo.convertedSkill) {
+      const existing = await Skill.findOne({ _id: demo.convertedSkill, user: req.userId });
+      if (existing) {
+        res.json({ ok: true, skill: normalizeSkillStatus(existing.toObject()), alreadyLinked: true });
+        return;
+      }
+    }
+    if (demo.task) {
+      const linked = await ensureSkillSuggestionFromTask(req.userId, {
+        taskId: String(demo.task),
+        minSteps: 1,
+      });
+      if (linked?.skill) {
+        demo.convertedSkill = linked.skill._id;
+        await demo.save();
+        res.json({ ok: true, skill: normalizeSkillStatus(linked.skill.toObject()), linked: true });
+        return;
+      }
+    }
     const { steps, executionMode } = demoStepsToSkillSteps(demo.steps);
     const skill = await Skill.create({
       user: req.userId,
       agent: demo.agent,
       name: String(req.body?.name || demo.title || "Learned skill").trim(),
-      description: `Generated from demonstration ${demo._id}`,
-      status: "training",
+      description: `Learned from demonstration: ${String(demo.title || "").slice(0, 160)}`,
+      status: "draft",
       steps,
       executionMode,
       verificationRules: ["Replay steps without error", "Match success criteria"],
       sourceDemonstration: demo._id,
+      sourceTask: demo.task || null,
     });
     demo.convertedSkill = skill._id;
     await demo.save();
@@ -339,19 +313,20 @@ skillsRouter.post("/demos/from-task/:taskId", async (req, res, next) => {
       res.status(404).json({ ok: false, detail: "Task missing" });
       return;
     }
-    const steps = trajectoryToDemoSteps(task);
-    if (!steps.length) {
+    const result = await ensureSkillSuggestionFromTask(req.userId, {
+      taskId: String(task._id),
+      name: String(req.body?.title || task.goal || "Task run").trim().slice(0, 120),
+      minSteps: 1,
+    });
+    if (!result) {
       res.status(400).json({ ok: false, detail: "Task has no trajectory to save" });
       return;
     }
-    const demo = await Demonstration.create({
-      user: req.userId,
-      agent: task.agent,
-      task: task._id,
-      title: String(req.body?.title || task.goal || "Task trajectory").trim().slice(0, 120),
-      steps,
+    res.status(201).json({
+      ok: true,
+      demonstration: result.demonstration,
+      skill: normalizeSkillStatus(result.skill.toObject()),
     });
-    res.status(201).json({ ok: true, demonstration: demo });
   } catch (err) {
     next(err);
   }
@@ -361,6 +336,28 @@ skillsRouter.get("/demos", async (req, res, next) => {
   try {
     const demos = await Demonstration.find({ user: req.userId }).sort({ createdAt: -1 }).limit(50).lean();
     res.json({ ok: true, demonstrations: demos });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/skills/demos/:demoId — remove a captured demonstration.
+ * Why: Keeps converted skills; only clears sourceDemonstration link on those skills.
+ */
+skillsRouter.delete("/demos/:demoId", async (req, res, next) => {
+  try {
+    const demo = await Demonstration.findOne({ _id: req.params.demoId, user: req.userId });
+    if (!demo) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Demonstration missing" });
+      return;
+    }
+    await Skill.updateMany(
+      { user: req.userId, sourceDemonstration: demo._id },
+      { $unset: { sourceDemonstration: "" } }
+    );
+    await Demonstration.deleteOne({ _id: demo._id });
+    res.json({ ok: true, deletedId: String(demo._id) });
   } catch (err) {
     next(err);
   }
@@ -407,7 +404,7 @@ skillsRouter.get("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, detail: "Skill missing" });
       return;
     }
-    res.json({ ok: true, skill });
+    res.json({ ok: true, skill: normalizeSkillStatus(skill) });
   } catch (err) {
     next(err);
   }
@@ -434,7 +431,9 @@ skillsRouter.patch("/:id", async (req, res, next) => {
     }
     if (body.description != null) skill.description = String(body.description).trim();
     if (body.playbookMd != null) skill.playbookMd = String(body.playbookMd);
-    if (body.status != null && SKILL_STATUSES.includes(body.status)) skill.status = body.status;
+    if (body.status != null && SKILL_STATUSES.includes(body.status)) {
+      skill.status = body.status === "training" ? "draft" : body.status;
+    }
     if (body.agentId != null || body.agent != null) {
       skill.agent = body.agentId || body.agent || null;
     }
@@ -469,6 +468,34 @@ skillsRouter.patch("/:id", async (req, res, next) => {
     }
     await skill.save();
     res.json({ ok: true, skill });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/skills/:id — remove a skill; unlink demos/training that pointed at it.
+ */
+skillsRouter.delete("/:id", async (req, res, next) => {
+  try {
+    const skill = await Skill.findOne({ _id: req.params.id, user: req.userId });
+    if (!skill) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Skill missing" });
+      return;
+    }
+    const skillId = skill._id;
+    await Promise.all([
+      Demonstration.updateMany(
+        { user: req.userId, convertedSkill: skillId },
+        { $unset: { convertedSkill: "" } }
+      ),
+      TrainingRequest.updateMany(
+        { user: req.userId, skill: skillId },
+        { $unset: { skill: "" } }
+      ),
+    ]);
+    await Skill.deleteOne({ _id: skillId });
+    res.json({ ok: true, deletedId: String(skillId) });
   } catch (err) {
     next(err);
   }

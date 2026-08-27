@@ -69,6 +69,7 @@ import {
   computeSkillProgress,
   formatSkillProgressBlock,
   detectDbSkill,
+  detectDbSkillMatch,
   formatDbSkillBlock,
   formatSkillsCatalogBlock,
   computeDbSkillProgress,
@@ -744,7 +745,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
       return;
     }
     if (cmd.type === "scroll") {
-      await page.mouse.wheel(0, Number(cmd.dy) || 400);
+      const dy = Number(cmd.dy) || 400;
+      const xNorm = cmd.xNorm != null ? Number(cmd.xNorm) : 0.08;
+      const yNorm = cmd.yNorm != null ? Number(cmd.yNorm) : 0.5;
+      const x = Math.round(Math.min(1, Math.max(0, xNorm)) * vw);
+      const y = Math.round(Math.min(1, Math.max(0, yNorm)) * vh);
+      await page.mouse.move(x, y);
+      await page.mouse.click(x, y, { delay: 30 });
+      await page.evaluate(executeInPage, {
+        type: "scroll",
+        xNorm,
+        yNorm,
+        dy,
+        amount: Math.abs(dy),
+        direction: dy < 0 ? "up" : "down",
+      });
+      await page.mouse.wheel(0, dy);
+      log(`[${config.workerName}] remote scroll ${dy} at ${x},${y}`);
+      return;
     }
   }
 
@@ -1312,6 +1330,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
       /** @type {object|null} */
       let activeDbSkill = null;
+      /** @type {{ skill: object, matchedTriggers: string[], score: number }|null} */
+      let triggerMatch = null;
       const invokedSkillId = task.invokedSkill?._id || task.invokedSkill || null;
       if (invokedSkillId) {
         try {
@@ -1322,13 +1342,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
       }
       if (!activeDbSkill) {
-        const dbSkillMatch = detectDbSkill(productionSkills, goal, pageUrl);
-        if (dbSkillMatch?._id) {
+        triggerMatch = detectDbSkillMatch(productionSkills, goal, pageUrl);
+        if (triggerMatch?.skill?._id) {
           try {
-            const one = await api(`/api/worker/skills/${dbSkillMatch._id}`);
-            activeDbSkill = one?.skill || dbSkillMatch;
+            const one = await api(`/api/worker/skills/${triggerMatch.skill._id}`);
+            activeDbSkill = one?.skill || triggerMatch.skill;
           } catch {
-            activeDbSkill = dbSkillMatch;
+            activeDbSkill = triggerMatch.skill;
           }
         }
       }
@@ -1336,6 +1356,57 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const templateSkill = detectSkill(goal, pageUrl);
       const activeSkill = activeDbSkill ? null : templateSkill;
       currentActiveDbSkill = activeDbSkill;
+
+      /** Why: chat thread shows which skill loaded and why (slash, trigger, template, or none). */
+      const skillPick = (() => {
+        if (activeDbSkill) {
+          if (invokedSkillId) {
+            return {
+              source: "slash",
+              skillId: String(activeDbSkill._id || activeDbSkill.id || ""),
+              skillName: activeDbSkill.name,
+              slug: activeDbSkill.slug || "",
+              reason: `You typed /${activeDbSkill.slug || "skill"} in the goal (explicit slash invoke).`,
+            };
+          }
+          const triggers = triggerMatch?.matchedTriggers || [];
+          return {
+            source: "trigger",
+            skillId: String(activeDbSkill._id || activeDbSkill.id || ""),
+            skillName: activeDbSkill.name,
+            slug: activeDbSkill.slug || "",
+            matchedTriggers: triggers,
+            reason:
+              triggers.length > 0
+                ? `Trigger pattern matched in your goal${pageUrl ? " or page URL" : ""}: ${triggers.map((t) => `"${t}"`).join(", ")}.`
+                : "Trigger pattern matched in your goal or page URL.",
+          };
+        }
+        if (templateSkill) {
+          return {
+            source: "template",
+            templateId: templateSkill.id,
+            skillName: templateSkill.label,
+            reason: `Built-in "${templateSkill.label}" template matched keywords in your goal or URL.`,
+          };
+        }
+        return {
+          source: "none",
+          reason: "No production skill or template matched — agent uses general instructions only.",
+        };
+      })();
+      const skillPickLines =
+        skillPick.source === "none"
+          ? ["No skill matched for this run.", skillPick.reason]
+          : [
+              `Skill: ${skillPick.skillName || skillPick.templateId}${skillPick.slug ? ` (/${skillPick.slug})` : ""}`,
+              `Why: ${skillPick.reason}`,
+            ];
+      await mirror(taskId, "skill_selected", {
+        payload: skillPick,
+        appendMessage: skillPickLines.join("\n"),
+      }).catch(() => {});
+
       // Why: skip extra planning LLM call for login/short goals — saves ~20–30s before step 1.
       const goalText = String(goal || "").trim();
       let goalPlan =
@@ -2095,10 +2166,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
           method: "POST",
           body: JSON.stringify({
             agentId: config.agentId,
+            taskId: ctx.taskId,
             to: action.to,
             subject: action.subject,
             text: action.text || action.body || "",
             html: action.html,
+            entityId: action.entityId,
+            enrollmentId: action.enrollmentId,
+            inReplyTo: action.inReplyTo,
+            references: action.references,
           }),
         });
         notes.push(
@@ -2114,18 +2190,299 @@ export function createCloudAgent({ api, config, log = console.log }) {
           method: "POST",
           body: JSON.stringify({
             agentId: config.agentId,
+            taskId: ctx.taskId,
             limit: action.limit,
             unseenOnly: Boolean(action.unseenOnly),
+            entityId: action.entityId,
           }),
         });
         const lines = (result.messages || []).map(
           (m) =>
             `- ${m.date || ""} | ${m.from} | ${m.subject}${
-              m.snippet ? ` | ${m.snippet.slice(0, 200)}` : ""
-            }`
+              m.messageId ? ` | id=${m.messageId}` : ""
+            }${m.snippet ? ` | ${m.snippet.slice(0, 200)}` : ""}`
         );
         notes.push(`Inbox (${result.count || 0}):\n${lines.join("\n") || "(empty)"}`);
         return { ok: true, email: result };
+      }
+      case "search_entities": {
+        const result = await api("/api/worker/entities/search", {
+          method: "POST",
+          body: JSON.stringify({
+            query: action.query || action.q,
+            type: action.type_filter || action.entityType || action.type,
+            status: action.status,
+            limit: action.limit,
+          }),
+        });
+        notes.push(
+          `Entities (${result.count || 0}):\n${(result.entities || [])
+            .map((e) => `- ${e._id} ${e.type}: ${e.name} (${e.status})`)
+            .join("\n") || "(none)"}`
+        );
+        return { ok: true, entities: result.entities };
+      }
+      case "get_entity": {
+        const result = await api("/api/worker/entities/get", {
+          method: "POST",
+          body: JSON.stringify({ entityId: action.entityId || action.id }),
+        });
+        notes.push(result.formatted || JSON.stringify(result.entity));
+        return { ok: true, entity: result.entity };
+      }
+      case "create_entity": {
+        const result = await api("/api/worker/entities/create", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId,
+            name: action.name,
+            type: action.type_filter || action.entityType || action.type,
+            externalId: action.externalId,
+            status: action.status,
+            attributes: action.attributes,
+          }),
+        });
+        notes.push(result.formatted || `Created entity ${result.entity?._id}`);
+        return { ok: true, entity: result.entity };
+      }
+      case "update_entity": {
+        const result = await api("/api/worker/entities/update", {
+          method: "POST",
+          body: JSON.stringify({
+            entityId: action.entityId || action.id,
+            name: action.name,
+            status: action.status,
+            externalId: action.externalId,
+            attributes: action.attributes,
+          }),
+        });
+        notes.push(result.formatted || `Updated entity ${action.entityId}`);
+        return { ok: true, entity: result.entity };
+      }
+      case "add_entity_observation": {
+        const result = await api("/api/worker/entities/observe", {
+          method: "POST",
+          body: JSON.stringify({
+            entityId: action.entityId || action.id,
+            content: action.content || action.text,
+            kind: action.kind,
+            taskId: ctx.taskId,
+          }),
+        });
+        notes.push(`Observation on ${action.entityId}: ${String(action.content || "").slice(0, 300)}`);
+        return { ok: true, entity: result.entity };
+      }
+      case "start_process": {
+        const result = await api("/api/worker/process/start", {
+          method: "POST",
+          body: JSON.stringify({
+            definitionId: action.definitionId,
+            entityId: action.entityId,
+            stage: action.stage,
+            note: action.note,
+          }),
+        });
+        notes.push(`Started process instance ${result.instance?._id}`);
+        return { ok: true, instance: result.instance };
+      }
+      case "advance_process": {
+        const result = await api("/api/worker/process/advance", {
+          method: "POST",
+          body: JSON.stringify({
+            instanceId: action.instanceId,
+            stage: action.stage || action.nextStage,
+            note: action.note,
+            status: action.status,
+          }),
+        });
+        notes.push(`Process ${action.instanceId} → ${action.stage || action.nextStage}`);
+        return { ok: true, instance: result.instance };
+      }
+      case "set_entity_status": {
+        const result = await api("/api/worker/entities/set-status", {
+          method: "POST",
+          body: JSON.stringify({
+            entityId: action.entityId || action.id,
+            status: action.status,
+            assigneeAgentId: action.agentId,
+            attributes: action.attributes,
+          }),
+        });
+        notes.push(result.formatted || `Entity ${action.entityId} → ${action.status}`);
+        return { ok: true, entity: result.entity };
+      }
+      case "assign_entity": {
+        const result = await api("/api/worker/entities/assign", {
+          method: "POST",
+          body: JSON.stringify({
+            entityId: action.entityId || action.id,
+            agentId: action.agentId || action.assigneeAgentId,
+          }),
+        });
+        notes.push(`Assigned entity ${action.entityId} to agent ${action.agentId}`);
+        return { ok: true, entity: result.entity };
+      }
+      case "update_enrollment": {
+        const result = await api("/api/worker/enrollment/update", {
+          method: "POST",
+          body: JSON.stringify({
+            enrollmentId: action.enrollmentId,
+            stage: action.stage,
+            nextActionAt: action.nextActionAt,
+          }),
+        });
+        notes.push(`Enrollment ${action.enrollmentId} → ${action.stage}`);
+        return { ok: true, enrollment: result.enrollment };
+      }
+      case "update_kpi": {
+        const result = await api("/api/worker/kpi/update", {
+          method: "POST",
+          body: JSON.stringify({
+            goalId: action.goalId,
+            kpiName: action.kpiName || action.name,
+            delta: action.delta ?? action.amount ?? 1,
+            setAbsolute: action.setAbsolute,
+          }),
+        });
+        notes.push(`KPI ${action.kpiName}: ${result.kpi?.current}`);
+        return { ok: true, kpi: result.kpi };
+      }
+      case "update_ticket": {
+        const result = await api("/api/worker/tickets/update", {
+          method: "POST",
+          body: JSON.stringify({
+            ticketId: action.ticketId,
+            status: action.status,
+            assigneeAgentId: action.assigneeAgentId || action.agentId,
+            title: action.title,
+            description: action.description,
+          }),
+        });
+        notes.push(`Ticket ${action.ticketId} → ${action.status || "updated"}`);
+        return { ok: true, ticket: result.ticket };
+      }
+      case "send_slack": {
+        const result = await api("/api/worker/integrations/slack", {
+          method: "POST",
+          body: JSON.stringify({ text: action.text || action.message, username: action.username }),
+        });
+        notes.push(result.ok ? "Slack message sent" : `Slack failed: ${result.detail || result.body}`);
+        return { ok: Boolean(result.ok), slack: result };
+      }
+      case "send_webhook": {
+        const result = await api("/api/worker/integrations/webhook", {
+          method: "POST",
+          body: JSON.stringify({ url: action.url, payload: action.payload || action.body }),
+        });
+        notes.push(result.ok ? `Webhook ${result.status}` : "Webhook failed");
+        return { ok: Boolean(result.ok), webhook: result };
+      }
+      case "create_calendar_event": {
+        const result = await api("/api/worker/integrations/calendar", {
+          method: "POST",
+          body: JSON.stringify({
+            title: action.title,
+            description: action.description,
+            startAt: action.startAt,
+            endAt: action.endAt,
+            attendee: action.attendee,
+            location: action.location,
+          }),
+        });
+        notes.push(`Calendar ICS generated (${result.downloadHint || "ok"})`);
+        return { ok: true, calendar: result };
+      }
+      case "attach_document": {
+        const result = await api("/api/worker/documents/attach", {
+          method: "POST",
+          body: JSON.stringify({
+            filename: action.filename,
+            dataBase64: action.dataBase64 || action.base64,
+            mimeType: action.mimeType,
+            entityId: action.entityId,
+            ticketId: action.ticketId,
+            description: action.description,
+          }),
+        });
+        notes.push(`Attached document ${result.filename} (${result.documentId})`);
+        return { ok: true, document: result };
+      }
+      case "search_tickets": {
+        const result = await api("/api/worker/tickets/search", {
+          method: "POST",
+          body: JSON.stringify({
+            query: action.query || action.q,
+            status: action.status,
+            limit: action.limit,
+          }),
+        });
+        notes.push(
+          `Tickets (${result.count || 0}):\n${(result.tickets || [])
+            .map((t) => `- ${t._id} [${t.status}] ${t.title}`)
+            .join("\n") || "(none)"}`
+        );
+        return { ok: true, tickets: result.tickets };
+      }
+      case "create_ticket": {
+        const result = await api("/api/worker/tickets/create", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId,
+            title: action.title,
+            description: action.description,
+            priority: action.priority,
+            entityId: action.entityId,
+          }),
+        });
+        notes.push(`Created ticket ${result.ticket?._id}: ${action.title}`);
+        return { ok: true, ticket: result.ticket };
+      }
+      case "search_deals": {
+        const result = await api("/api/worker/deals/search", {
+          method: "POST",
+          body: JSON.stringify({ stage: action.stage }),
+        });
+        notes.push(
+          `Deals:\n${(result.deals || []).map((d) => `- ${d._id} ${d.stage}: ${d.name} $${d.amount}`).join("\n") || "(none)"}`
+        );
+        return { ok: true, deals: result.deals };
+      }
+      case "update_invoice": {
+        const result = await api("/api/worker/invoices/update", {
+          method: "POST",
+          body: JSON.stringify({
+            invoiceId: action.invoiceId,
+            status: action.status,
+            amount: action.amount,
+          }),
+        });
+        notes.push(`Invoice ${action.invoiceId} → ${action.status || "updated"}`);
+        return { ok: true, invoice: result.invoice };
+      }
+      case "crm_sync": {
+        const result = await api("/api/worker/integrations/crm", {
+          method: "POST",
+          body: JSON.stringify({
+            provider: action.provider || "hubspot",
+            contact: {
+              email: action.email,
+              name: action.name,
+              company: action.company,
+              firstname: action.firstname,
+              lastname: action.lastname,
+            },
+          }),
+        });
+        notes.push(result.ok ? `CRM sync ok (${action.provider})` : `CRM sync failed: ${result.detail}`);
+        return { ok: Boolean(result.ok), crm: result };
+      }
+      case "send_sms": {
+        const result = await api("/api/worker/integrations/sms", {
+          method: "POST",
+          body: JSON.stringify({ to: action.to, body: action.body || action.text }),
+        });
+        notes.push(result.ok ? `SMS sent to ${action.to}` : `SMS failed: ${result.detail}`);
+        return { ok: Boolean(result.ok), sms: result };
       }
       case "investigate": {
         const question = String(action.question || ctx.goal || "").trim();

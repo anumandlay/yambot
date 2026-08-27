@@ -13,6 +13,7 @@ export const ENTITY_TYPES = [
   "product",
   "process",
   "document",
+  "ticket",
   "custom",
 ];
 

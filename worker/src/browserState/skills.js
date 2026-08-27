@@ -186,6 +186,42 @@ export function normalizeSkillSteps(steps) {
 }
 
 /**
+ * Matches production skills against goal + URL; returns matched trigger patterns.
+ * @param {object[]} skills
+ * @param {string} goal
+ * @param {string} [url]
+ * @returns {{ skill: object, matchedTriggers: string[], score: number }|null}
+ */
+export function detectDbSkillMatch(skills, goal, url = "") {
+  const blob = `${goal} ${url}`;
+  let best = null;
+  let bestScore = 0;
+  let bestTriggers = [];
+  for (const skill of skills || []) {
+    const triggers = skill.triggers || [];
+    if (!triggers.length) continue;
+    const matchedTriggers = [];
+    for (const trigger of triggers) {
+      const pat = String(trigger || "").trim();
+      if (!pat) continue;
+      try {
+        if (new RegExp(pat, "i").test(blob)) matchedTriggers.push(pat);
+      } catch {
+        if (blob.toLowerCase().includes(pat.toLowerCase())) matchedTriggers.push(pat);
+      }
+    }
+    const score = matchedTriggers.length;
+    if (score > bestScore) {
+      bestScore = score;
+      best = skill;
+      bestTriggers = matchedTriggers;
+    }
+  }
+  if (!best || bestScore <= 0) return null;
+  return { skill: best, matchedTriggers: bestTriggers, score: bestScore };
+}
+
+/**
  * Matches a production skill from MongoDB against goal text + URL using trigger patterns.
  * @param {object[]} skills
  * @param {string} goal
@@ -193,28 +229,7 @@ export function normalizeSkillSteps(steps) {
  * @returns {object|null}
  */
 export function detectDbSkill(skills, goal, url = "") {
-  const blob = `${goal} ${url}`;
-  let best = null;
-  let bestScore = 0;
-  for (const skill of skills || []) {
-    const triggers = skill.triggers || [];
-    if (!triggers.length) continue;
-    let score = 0;
-    for (const trigger of triggers) {
-      const pat = String(trigger || "").trim();
-      if (!pat) continue;
-      try {
-        if (new RegExp(pat, "i").test(blob)) score += 1;
-      } catch {
-        if (blob.toLowerCase().includes(pat.toLowerCase())) score += 1;
-      }
-    }
-    if (score > bestScore) {
-      bestScore = score;
-      best = skill;
-    }
-  }
-  return bestScore > 0 ? best : null;
+  return detectDbSkillMatch(skills, goal, url)?.skill || null;
 }
 
 /**

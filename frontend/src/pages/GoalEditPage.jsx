@@ -13,6 +13,21 @@ import {
   PageGuideBanner,
   SectionTitle,
 } from "../components/FieldLabel.jsx";
+import { OutcomeBranchesEditor, sanitizeOutcomeBranchesForSave } from "../components/OutcomeBranchesEditor.jsx";
+import {
+  CompletionActionsEditor,
+  sanitizeCompletionActionsForSave,
+} from "../components/CompletionActionsEditor.jsx";
+
+const EMPTY_ACTION = {
+  label: "",
+  runOn: "success",
+  when: "",
+  kind: "instruction",
+  agentId: "",
+  goalId: "",
+  instructions: "",
+};
 
 const EMPTY = {
   title: "",
@@ -28,6 +43,12 @@ const EMPTY = {
   sla: { responseMinutes: 0, name: "" },
   completionEventType: "",
   completionEventOnFailure: "",
+  outcomeRoutingEnabled: false,
+  outcomeBranches: [{ label: "", eventType: "", description: "" }],
+  completionActionsEnabled: false,
+  completionActionsPickMode: "rules",
+  completionActions: [{ ...EMPTY_ACTION }],
+  group: "",
 };
 
 export function GoalEditPage() {
@@ -37,6 +58,7 @@ export function GoalEditPage() {
   const [form, setForm] = useState(EMPTY);
   const [agents, setAgents] = useState([]);
   const [goals, setGoals] = useState([]);
+  const [goalGroups, setGoalGroups] = useState([]);
   const [statuses, setStatuses] = useState(["active", "paused", "completed", "archived"]);
   const [priorities, setPriorities] = useState(["low", "normal", "high", "urgent"]);
   const [error, setError] = useState(null);
@@ -46,20 +68,23 @@ export function GoalEditPage() {
   useEffect(() => {
     (async () => {
       try {
-        const [meta, agentData, goalListData] = await Promise.all([
+        const [meta, agentData, goalListData, groupData] = await Promise.all([
           api("/api/goals/meta"),
           api("/api/agents"),
           api("/api/goals"),
+          api("/api/groups?type=goal"),
         ]);
         if (Array.isArray(meta.statuses)) setStatuses(meta.statuses);
         if (Array.isArray(meta.priorities)) setPriorities(meta.priorities);
         setAgents(agentData.agents || []);
+        setGoalGroups(groupData.groups || []);
         setGoals((goalListData.goals || []).filter((g) => String(g._id) !== String(goalId)));
         if (!isNew) {
           const one = await api(`/api/goals/${goalId}`);
           const g = one.goal;
           setForm({
             title: g.title || "",
+            group: g.group ? String(g.group) : "",
             description: g.description || "",
             instructions: g.instructions || "",
             successCriteria: g.successCriteria || "",
@@ -86,6 +111,27 @@ export function GoalEditPage() {
             },
             completionEventType: g.completionEventType || "",
             completionEventOnFailure: g.completionEventOnFailure || "",
+            outcomeRoutingEnabled: Boolean(g.outcomeRoutingEnabled),
+            outcomeBranches: g.outcomeBranches?.length
+              ? g.outcomeBranches.map((b) => ({
+                  label: b.label || "",
+                  eventType: b.eventType || "",
+                  description: b.description || "",
+                }))
+              : [{ label: "", eventType: "", description: "" }],
+            completionActionsEnabled: Boolean(g.completionActionsEnabled),
+            completionActionsPickMode: g.completionActionsPickMode === "llm" ? "llm" : "rules",
+            completionActions: g.completionActions?.length
+              ? g.completionActions.map((a) => ({
+                  label: a.label || "",
+                  runOn: a.runOn || "success",
+                  when: a.when || "",
+                  kind: a.kind === "goal" ? "goal" : "instruction",
+                  agentId: a.agentId ? String(a.agentId) : "",
+                  goalId: a.goalId ? String(a.goalId) : "",
+                  instructions: a.instructions || "",
+                }))
+              : [{ ...EMPTY_ACTION }],
           });
         }
       } catch (err) {
@@ -127,6 +173,7 @@ export function GoalEditPage() {
       ...form,
       agent: form.agent || null,
       parentGoal: form.parentGoal || null,
+      group: form.group || null,
       kpis: form.kpis
         .filter((k) => k.name.trim())
         .map((k) => ({
@@ -137,6 +184,11 @@ export function GoalEditPage() {
         })),
       autonomy: form.autonomy,
       sla: form.sla,
+      outcomeRoutingEnabled: form.outcomeRoutingEnabled,
+      outcomeBranches: sanitizeOutcomeBranchesForSave(form.outcomeBranches),
+      completionActionsEnabled: form.completionActionsEnabled,
+      completionActionsPickMode: form.completionActionsPickMode,
+      completionActions: sanitizeCompletionActionsForSave(form.completionActions),
     };
     try {
       if (isNew) {
@@ -188,6 +240,21 @@ export function GoalEditPage() {
             onChange={(e) => update("title", e.target.value)}
             required
           />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <FieldLabel helpId="goal.group">Group</FieldLabel>
+          <select
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.group}
+            onChange={(e) => update("group", e.target.value)}
+          >
+            <option value="">No group</option>
+            {goalGroups.map((g) => (
+              <option key={g._id} value={g._id}>
+                {g.name}
+              </option>
+            ))}
+          </select>
         </label>
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="goal.agent">Assigned agent</FieldLabel>
@@ -426,6 +493,28 @@ export function GoalEditPage() {
             />
           </label>
         </div>
+
+        <OutcomeBranchesEditor
+          enabled={form.outcomeRoutingEnabled}
+          onEnabledChange={(v) => update("outcomeRoutingEnabled", v)}
+          branches={form.outcomeBranches}
+          onBranchesChange={(branches) => update("outcomeBranches", branches)}
+          helpIdEnabled="goal.outcomeRouting"
+          helpIdBranch="goal.outcomeBranch"
+        />
+
+        <CompletionActionsEditor
+          enabled={form.completionActionsEnabled}
+          onEnabledChange={(v) => update("completionActionsEnabled", v)}
+          pickMode={form.completionActionsPickMode}
+          onPickModeChange={(v) => update("completionActionsPickMode", v)}
+          actions={form.completionActions}
+          onActionsChange={(actions) => update("completionActions", actions)}
+          agents={agents}
+          goals={goals}
+          helpIdEnabled="goal.completionActions"
+          helpIdAction="goal.completionAction"
+        />
 
         <ButtonWithHelp helpId="goal.save">
           <button

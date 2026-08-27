@@ -82,6 +82,33 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** Primary Entity (lead/customer) this run operates on. */
+    entityRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Entity",
+      default: null,
+      index: true,
+    },
+    /** Campaign enrollment when spawned from campaignEngine. */
+    enrollmentRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Enrollment",
+      default: null,
+      index: true,
+    },
+    campaignRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Campaign",
+      default: null,
+      index: true,
+    },
+    /** Support ticket this run triages or resolves. */
+    ticketRef: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Ticket",
+      default: null,
+      index: true,
+    },
     priority: {
       type: String,
       enum: TASK_PRIORITIES,

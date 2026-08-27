@@ -6,9 +6,12 @@
 
 import { Trigger } from "../models/Trigger.js";
 import { Goal } from "../models/Goal.js";
+import { Chat } from "../models/Chat.js";
 import { enqueueTask } from "./enqueueTask.js";
 import { emitEvent } from "./eventBus.js";
 import { buildInvestigationGoal } from "./investigation.js";
+import { shouldFireCronTrigger } from "./cronMatch.js";
+import { Ticket } from "../models/Ticket.js";
 
 /**
  * @param {import('mongoose').Document} event
@@ -35,9 +38,16 @@ export async function tickTriggers() {
   const now = Date.now();
 
   for (const trigger of timeTriggers) {
-    const intervalMin = Math.max(5, Number(trigger.config?.intervalMinutes) || 60);
-    const last = trigger.lastFiredAt ? new Date(trigger.lastFiredAt).getTime() : 0;
-    if (now - last < intervalMin * 60_000) continue;
+    const cron = String(trigger.config?.cron || "").trim();
+    if (cron) {
+      if (!shouldFireCronTrigger(trigger.config, new Date())) continue;
+      const last = trigger.lastFiredAt ? new Date(trigger.lastFiredAt).getTime() : 0;
+      if (now - last < 60_000) continue;
+    } else {
+      const intervalMin = Math.max(5, Number(trigger.config?.intervalMinutes) || 60);
+      const last = trigger.lastFiredAt ? new Date(trigger.lastFiredAt).getTime() : 0;
+      if (now - last < intervalMin * 60_000) continue;
+    }
     await fireTrigger(trigger, {});
     fired += 1;
   }
@@ -64,24 +74,70 @@ export async function fireTrigger(trigger, ctx = {}) {
       payload: { triggerId: String(trigger._id), event: ctx.event || null },
     });
   } else if (trigger.action === "enqueue_task" && trigger.agent) {
-    const instructions =
+    let instructions =
       cfg.instructions ||
       cfg.goalText ||
       cfg.goal ||
       `Autonomous work from trigger "${trigger.name}"`;
     const eventPayload = ctx.event?.payload && typeof ctx.event.payload === "object" ? ctx.event.payload : {};
-    await enqueueTask({
+    const ticketId = eventPayload.ticketId ? String(eventPayload.ticketId) : "";
+    const entityId = eventPayload.entityId ? String(eventPayload.entityId) : "";
+
+    if (ticketId && (cfg.injectTicketContext || ctx.event?.type === "ticket.created")) {
+      const ticket = await Ticket.findById(ticketId).lean();
+      if (ticket) {
+        instructions = [
+          instructions,
+          "",
+          "TICKET CONTEXT:",
+          `ticketId: ${ticketId}`,
+          `Title: ${ticket.title}`,
+          `Status: ${ticket.status}`,
+          `Priority: ${ticket.priority}`,
+          `Description: ${String(ticket.description || "").slice(0, 1500)}`,
+          ticket.publicToken ? `Customer portal: /portal/ticket/${ticket.publicToken}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n");
+      }
+    }
+
+    const chatTitle = `Trigger · ${trigger.name}`.slice(0, 80);
+    let chatId = eventPayload.chatId || cfg.chatId || undefined;
+    if (!chatId) {
+      const existing = await Chat.findOne({
+        user: userId,
+        agent: trigger.agent,
+        title: chatTitle,
+      })
+        .sort({ updatedAt: -1 })
+        .select("_id")
+        .lean();
+      if (existing?._id) chatId = String(existing._id);
+    }
+    const enqueued = await enqueueTask({
       userId,
       agentId: String(trigger.agent),
       goalText: instructions,
       goalRef: trigger.goal ? String(trigger.goal) : null,
       triggerRef: String(trigger._id),
-      chatId: eventPayload.chatId || cfg.chatId || undefined,
+      chatId,
       priority: cfg.priority || "normal",
       source: `trigger:${trigger._id}`,
-      chatTitle: `Trigger · ${trigger.name}`.slice(0, 80),
-      meta: { triggerId: String(trigger._id), triggerEventType: ctx.event?.type || null },
+      chatTitle,
+      entityRef: entityId || undefined,
+      ticketRef: ticketId || undefined,
+      meta: {
+        triggerId: String(trigger._id),
+        triggerName: trigger.name,
+        triggerEventType: ctx.event?.type || null,
+        ticketId: ticketId || null,
+        entityId: entityId || null,
+      },
     });
+    if (!cfg.chatId && enqueued.chat?._id) {
+      trigger.actionConfig = { ...cfg, chatId: String(enqueued.chat._id) };
+    }
   } else if (trigger.action === "delegate_goal" && trigger.goal) {
     const goal = await Goal.findOne({ _id: trigger.goal, user: userId });
     if (goal?.agent) {

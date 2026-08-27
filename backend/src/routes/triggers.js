@@ -6,6 +6,11 @@
 
 import { Router } from "express";
 import { Trigger, TRIGGER_TYPES, TRIGGER_ACTIONS, normalizeTriggerEventType } from "../models/Trigger.js";
+import { normalizeOutcomeBranches } from "../utils/outcomeBranches.js";
+import {
+  normalizeCompletionActions,
+  normalizeCompletionActionsPickMode,
+} from "../utils/completionActions.js";
 
 export const triggersRouter = Router();
 
@@ -37,6 +42,11 @@ triggersRouter.post("/", async (req, res, next) => {
       actionConfig: body.actionConfig || {},
       completionEventType: normalizeTriggerEventType(body.completionEventType),
       completionEventOnFailure: normalizeTriggerEventType(body.completionEventOnFailure),
+      outcomeRoutingEnabled: Boolean(body.outcomeRoutingEnabled),
+      outcomeBranches: normalizeOutcomeBranches(body.outcomeBranches),
+      completionActionsEnabled: Boolean(body.completionActionsEnabled),
+      completionActionsPickMode: normalizeCompletionActionsPickMode(body.completionActionsPickMode),
+      completionActions: normalizeCompletionActions(body.completionActions),
     });
     res.status(201).json({ ok: true, trigger });
   } catch (err) {
@@ -54,6 +64,7 @@ triggersRouter.put("/:id", async (req, res, next) => {
     const body = req.body || {};
     if (body.name != null) trigger.name = String(body.name).trim();
     if (body.enabled != null) trigger.enabled = Boolean(body.enabled);
+    if (body.type != null && TRIGGER_TYPES.includes(body.type)) trigger.type = body.type;
     if (body.config != null) trigger.config = body.config;
     if (body.actionConfig != null) trigger.actionConfig = body.actionConfig;
     if (body.completionEventType != null) {
@@ -61,6 +72,23 @@ triggersRouter.put("/:id", async (req, res, next) => {
     }
     if (body.completionEventOnFailure != null) {
       trigger.completionEventOnFailure = normalizeTriggerEventType(body.completionEventOnFailure);
+    }
+    if (body.outcomeRoutingEnabled != null) {
+      trigger.outcomeRoutingEnabled = Boolean(body.outcomeRoutingEnabled);
+    }
+    if (body.outcomeBranches != null) {
+      trigger.outcomeBranches = normalizeOutcomeBranches(body.outcomeBranches);
+    }
+    if (body.completionActionsEnabled != null) {
+      trigger.completionActionsEnabled = Boolean(body.completionActionsEnabled);
+    }
+    if (body.completionActionsPickMode != null) {
+      trigger.completionActionsPickMode = normalizeCompletionActionsPickMode(
+        body.completionActionsPickMode
+      );
+    }
+    if (body.completionActions != null) {
+      trigger.completionActions = normalizeCompletionActions(body.completionActions);
     }
     if (body.agentId != null || body.agent != null) {
       trigger.agent = body.agentId || body.agent || null;

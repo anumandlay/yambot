@@ -40,6 +40,34 @@ const triggerSchema = new mongoose.Schema(
     completionEventType: { type: String, default: "", trim: true },
     /** Event bus type emitted when this trigger's enqueued task fails. */
     completionEventOnFailure: { type: String, default: "", trim: true },
+    /** When true, LLM reads task result and emits one of outcomeBranches after completion. */
+    outcomeRoutingEnabled: { type: Boolean, default: false },
+    outcomeBranches: {
+      type: [
+        {
+          label: { type: String, default: "", trim: true },
+          eventType: { type: String, default: "", trim: true },
+          description: { type: String, default: "", trim: true },
+        },
+      ],
+      default: [],
+    },
+    completionActionsEnabled: { type: Boolean, default: false },
+    completionActionsPickMode: { type: String, enum: ["rules", "llm"], default: "rules" },
+    completionActions: {
+      type: [
+        {
+          label: { type: String, default: "", trim: true },
+          runOn: { type: String, enum: ["success", "failure", "both"], default: "success" },
+          when: { type: String, default: "", trim: true },
+          kind: { type: String, enum: ["instruction", "goal"], default: "instruction" },
+          agentId: { type: String, default: "", trim: true },
+          goalId: { type: String, default: "", trim: true },
+          instructions: { type: String, default: "", trim: true },
+        },
+      ],
+      default: [],
+    },
     lastFiredAt: { type: Date, default: null },
     fireCount: { type: Number, default: 0 },
   },

@@ -1,7 +1,6 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
- * Purpose: Left thread scrolls; right rail keeps screen + snapshot + goal visible in one column.
- * On mobile, the same three blocks stay fixed at the bottom in a viewport grid.
+ * Purpose: Left thread scrolls on desktop; agent rail (screen + snapshot + goal) beside or below on mobile.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -9,6 +8,7 @@ import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { resolveAgentMention } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
+import { skillPickFromMessage, skillPickFromTask } from "../lib/skillPick.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, ButtonWithHelp, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
@@ -16,6 +16,7 @@ import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
 import { TrajectoryPanel } from "../components/TrajectoryPanel.jsx";
+import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -38,6 +39,7 @@ export function ChatDetailPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
+  const [opsTriggerChats, setOpsTriggerChats] = useState([]);
   const threadRef = useRef(null);
   const bottomRef = useRef(null);
   /** Why: follow live agent text unless the user scrolls the thread up to read history. */
@@ -176,6 +178,33 @@ export function ChatDetailPage() {
       ) || activeRun
     );
   }, [activeRun, activeRuns, isCommon, watchAgentId]);
+
+  const activeSkillPick = useMemo(
+    () => skillPickFromTask(watchedRun || activeRun),
+    [activeRun, watchedRun]
+  );
+
+  const isOpsTriggerChat = Boolean(chat?.title?.startsWith("Trigger ·"));
+
+  useEffect(() => {
+    if (isCommon || !liveAgentId || isOpsTriggerChat) {
+      setOpsTriggerChats([]);
+      return;
+    }
+    api("/api/chats")
+      .then((data) => {
+        const ops = (data.chats || []).filter(
+          (c) =>
+            c.kind !== "common" &&
+            c.agent &&
+            String(c.agent?._id || c.agent) === String(liveAgentId) &&
+            String(c._id) !== String(chatId) &&
+            String(c.title || "").startsWith("Trigger ·")
+        );
+        setOpsTriggerChats(ops.slice(0, 8));
+      })
+      .catch(() => setOpsTriggerChats([]));
+  }, [chatId, isCommon, isOpsTriggerChat, liveAgentId]);
 
   useEffect(() => {
     if (!isCommon || !activeRuns.length) return;
@@ -405,226 +434,230 @@ export function ChatDetailPage() {
     }
   }
 
-  /** Screen + snapshot + goal — always visible together (grid rows, no outer scroll). */
-  const stickyAgentStack = (
-    <div className="grid min-h-0 flex-1 grid-rows-[minmax(7.5rem,1fr)_minmax(5rem,0.35fr)_auto_auto] gap-2">
-      <div className="flex min-h-0 flex-col overflow-hidden">
-        <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
-          <SectionTitle helpId="chat.liveScreen">Agent screen</SectionTitle>
-          {activeRun ? (
-            <ButtonWithHelp helpId="chat.stop">
-              <button
-                type="button"
-                onClick={stopAgent}
-                disabled={stopping}
-                className="inline-flex min-h-9 items-center rounded-xl bg-red-600 px-3 text-xs font-bold text-white disabled:opacity-50 lg:min-h-11 lg:px-4 lg:text-sm"
-              >
-                {stopping ? "Stopping…" : "Stop"}
-              </button>
-            </ButtonWithHelp>
-          ) : null}
-        </div>
+  /** Fixed-aspect live screen box — screenshot scales inside, no inner scrollbar. */
+  const agentScreenBlock = (
+    <div className="flex shrink-0 flex-col overflow-hidden">
+      <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
+        <SectionTitle helpId="chat.liveScreen">Agent screen</SectionTitle>
+        {activeRun ? (
+          <ButtonWithHelp helpId="chat.stop">
+            <button
+              type="button"
+              onClick={stopAgent}
+              disabled={stopping}
+              className="inline-flex min-h-9 items-center rounded-xl bg-red-600 px-3 text-xs font-bold text-white disabled:opacity-50 lg:min-h-11 lg:px-4 lg:text-sm"
+            >
+              {stopping ? "Stopping…" : "Stop"}
+            </button>
+          </ButtonWithHelp>
+        ) : null}
+      </div>
+      <div className="aspect-[16/10] w-full max-h-[min(40dvh,14rem)] min-h-[10.5rem] overflow-hidden sm:max-h-[min(42dvh,16rem)] lg:max-h-[min(36vh,20rem)] lg:min-h-[12rem]">
         {liveAgentId ? (
           <LiveScreen
             agentId={String(liveAgentId)}
+            agentName={liveAgentName || ""}
             taskId={watchedRun?._id ? String(watchedRun._id) : activeRun?._id ? String(activeRun._id) : undefined}
             demoTitle={(snapshotTask?.goal || chat?.title || "Chat demonstration").slice(0, 120)}
+            chatId={chatId}
             fill
             compact
-            className="min-h-0 flex-1"
+            className="h-full w-full"
           />
         ) : (
-          <p className="flex min-h-0 flex-1 items-center rounded-2xl border border-dashed border-teal-200 bg-white p-3 text-sm text-teal-900/70">
+          <p className="flex h-full items-center rounded-2xl border border-dashed border-teal-200 bg-white p-3 text-sm text-teal-900/70">
             {isCommon
               ? "Pick an agent and send a goal — the live screen follows whichever agent is running."
               : "No agent bound — no cloud screen."}
           </p>
         )}
       </div>
-
-      <PageSnapshotPanel events={snapshotEvents} compact className="min-h-0" />
-
-      <TrajectoryPanel task={snapshotTask} className="shrink-0" />
-
-      <div className="flex shrink-0 flex-col gap-2">
-        {waitingTask ? (
-          <form
-            onSubmit={sendAnswer}
-            className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 sm:p-3"
-          >
-            <FieldLabel helpId="chat.answer" className="text-xs text-amber-950 sm:text-sm">
-              Agent is waiting for your answer
-            </FieldLabel>
-            <input
-              className="min-h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-sm"
-              value={answer}
-              onChange={(e) => setAnswer(e.target.value)}
-              placeholder="Type your reply…"
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="min-h-10 w-full rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              Send answer
-            </button>
-          </form>
-        ) : null}
-
-        {isCommon && activeRuns.length > 1 ? (
-          <label className="mb-1 flex shrink-0 flex-col gap-1 text-xs">
-            <span className="font-semibold text-violet-900">Watch agent</span>
-            <select
-              className="min-h-9 rounded-xl border border-violet-100 bg-white px-2"
-              value={watchAgentId || String(activeRuns[0]?.agent?._id || activeRuns[0]?.agent || "")}
-              onChange={(e) => setWatchAgentId(e.target.value)}
-            >
-              {activeRuns.map((t) => (
-                <option key={t._id} value={String(t.agent?._id || t.agent)}>
-                  {t.agent?.name || "Agent"} · {t.status}
-                </option>
-              ))}
-            </select>
-          </label>
-        ) : null}
-
-        <form onSubmit={sendGoal} className="flex flex-col gap-2">
-          {isCommon ? (
-            <>
-              <label className="flex items-center gap-2 text-sm text-violet-950">
-                <input
-                  type="checkbox"
-                  checked={autoRoute}
-                  disabled={routeBusy}
-                  onChange={toggleAutoRoute}
-                  className="h-4 w-4 rounded border-violet-200"
-                />
-                <FieldLabel helpId="chat.autoRoute" className="text-sm">
-                  Auto-route to best agent
-                </FieldLabel>
-              </label>
-              <label className="flex w-full flex-col gap-1 text-sm">
-                <FieldLabel helpId="chat.agentPicker">
-                  {autoRoute ? "Override agent (optional)" : "Dispatch to agent"}
-                </FieldLabel>
-                <select
-                  className="min-h-11 w-full rounded-xl border border-violet-100 bg-white px-3"
-                  value={dispatchAgentId}
-                  onChange={(e) => setDispatchAgentId(e.target.value)}
-                  disabled={busy}
-                >
-                  {agents.length === 0 ? (
-                    <option value="">No agents — create one first</option>
-                  ) : (
-                    agents.map((a) => (
-                      <option key={a._id} value={a._id}>
-                        {a.name} ({a.skill})
-                      </option>
-                    ))
-                  )}
-                </select>
-              </label>
-              <label className="flex items-center gap-2 text-sm text-violet-950">
-                <input
-                  type="checkbox"
-                  checked={pinDefault}
-                  disabled={pinBusy || !dispatchAgentId}
-                  onChange={togglePinDefault}
-                  className="h-4 w-4 rounded border-violet-200"
-                />
-                <FieldLabel helpId="chat.pinDefault" className="text-sm">
-                  Pin as default agent for this chat
-                </FieldLabel>
-              </label>
-              {mentionPreview?.matched ? (
-                <p className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-950">
-                  @mention → <strong>{mentionPreview.agentName}</strong>
-                  {mentionPreview.strippedContent
-                    ? ` · goal: “${mentionPreview.strippedContent.slice(0, 80)}”`
-                    : ""}
-                </p>
-              ) : null}
-              {learnPreview ? (
-                <p className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                  /learn → draft skill from latest completed task
-                  {learnPreview.name ? ` named “${learnPreview.name}”` : ""}
-                </p>
-              ) : null}
-              {skillSlashPreview?.skill ? (
-                <p className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-950">
-                  /{skillSlashPreview.slug} → <strong>{skillSlashPreview.skill.name}</strong>
-                  {skillSlashPreview.goal ? ` · ${skillSlashPreview.goal.slice(0, 80)}` : ""}
-                </p>
-              ) : null}
-              {productionSkills.length ? (
-                <p className="text-xs text-teal-900/60">
-                  Skills: {productionSkills.slice(0, 4).map((s) => `/${s.slug || s.name}`).join(", ")}
-                  {productionSkills.length > 4 ? "…" : ""}
-                </p>
-              ) : null}
-            </>
-          ) : null}
-          {pendingRoute ? (
-            <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-              <p>
-                Route to <strong>{pendingRoute.suggestion.agentName}</strong>? (
-                {Math.round((pendingRoute.suggestion.confidence || 0) * 100)}% confidence)
-              </p>
-              <p className="text-xs text-amber-900/80">{pendingRoute.suggestion.reason}</p>
-              <div className="flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  onClick={confirmPendingRoute}
-                  disabled={busy}
-                  className="min-h-10 rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Confirm
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setPendingRoute(null);
-                    setDispatchAgentId(String(pendingRoute.suggestion.agentId));
-                  }}
-                  className="min-h-10 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950"
-                >
-                  Pick different agent
-                </button>
-              </div>
-            </div>
-          ) : null}
-          <FieldLabel helpId="chat.goalInput" className="text-sm">
-            Goal / instructions
-          </FieldLabel>
-          <textarea
-            className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
-            placeholder={
-              isCommon
-                ? autoRoute
-                  ? "Type your goal — auto-routes to the best agent"
-                  : "@Agent /skill-slug goal… or /learn"
-                : "/skill-slug goal… or /learn"
-            }
-            value={input}
-            onChange={(e) => setInput(e.target.value)}
-            rows={3}
-          />
-          <ButtonWithHelp helpId="chat.send" className="flex w-full items-center gap-1.5">
-            <button
-              type="submit"
-              disabled={busy}
-              className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
-            >
-              {busy ? "Sending…" : activeRun ? "Queue goal" : "Send goal"}
-            </button>
-          </ButtonWithHelp>
-        </form>
-      </div>
     </div>
   );
 
+  /** Goal / instructions — own card section (not bundled with snapshot + trajectory scroll). */
+  const goalSection = (
+    <section className="flex shrink-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
+      {waitingTask ? (
+        <form
+          onSubmit={sendAnswer}
+          className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 sm:p-3"
+        >
+          <FieldLabel helpId="chat.answer" className="text-xs text-amber-950 sm:text-sm">
+            Agent is waiting for your answer
+          </FieldLabel>
+          <input
+            className="min-h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-sm"
+            value={answer}
+            onChange={(e) => setAnswer(e.target.value)}
+            placeholder="Type your reply…"
+          />
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-10 w-full rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            Send answer
+          </button>
+        </form>
+      ) : null}
+
+      {isCommon && activeRuns.length > 1 ? (
+        <label className="mb-1 flex shrink-0 flex-col gap-1 text-xs">
+          <span className="font-semibold text-violet-900">Watch agent</span>
+          <select
+            className="min-h-9 rounded-xl border border-violet-100 bg-white px-2"
+            value={watchAgentId || String(activeRuns[0]?.agent?._id || activeRuns[0]?.agent || "")}
+            onChange={(e) => setWatchAgentId(e.target.value)}
+          >
+            {activeRuns.map((t) => (
+              <option key={t._id} value={String(t.agent?._id || t.agent)}>
+                {t.agent?.name || "Agent"} · {t.status}
+              </option>
+            ))}
+          </select>
+        </label>
+      ) : null}
+
+      <form onSubmit={sendGoal} className="flex flex-col gap-2">
+        {isCommon ? (
+          <>
+            <label className="flex items-center gap-2 text-sm text-violet-950">
+              <input
+                type="checkbox"
+                checked={autoRoute}
+                disabled={routeBusy}
+                onChange={toggleAutoRoute}
+                className="h-4 w-4 rounded border-violet-200"
+              />
+              <FieldLabel helpId="chat.autoRoute" className="text-sm">
+                Auto-route to best agent
+              </FieldLabel>
+            </label>
+            <label className="flex w-full flex-col gap-1 text-sm">
+              <FieldLabel helpId="chat.agentPicker">
+                {autoRoute ? "Override agent (optional)" : "Dispatch to agent"}
+              </FieldLabel>
+              <select
+                className="min-h-11 w-full rounded-xl border border-violet-100 bg-white px-3"
+                value={dispatchAgentId}
+                onChange={(e) => setDispatchAgentId(e.target.value)}
+                disabled={busy}
+              >
+                {agents.length === 0 ? (
+                  <option value="">No agents — create one first</option>
+                ) : (
+                  agents.map((a) => (
+                    <option key={a._id} value={a._id}>
+                      {a.name} ({a.skill})
+                    </option>
+                  ))
+                )}
+              </select>
+            </label>
+            <label className="flex items-center gap-2 text-sm text-violet-950">
+              <input
+                type="checkbox"
+                checked={pinDefault}
+                disabled={pinBusy || !dispatchAgentId}
+                onChange={togglePinDefault}
+                className="h-4 w-4 rounded border-violet-200"
+              />
+              <FieldLabel helpId="chat.pinDefault" className="text-sm">
+                Pin as default agent for this chat
+              </FieldLabel>
+            </label>
+            {mentionPreview?.matched ? (
+              <p className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-950">
+                @mention → <strong>{mentionPreview.agentName}</strong>
+                {mentionPreview.strippedContent
+                  ? ` · goal: “${mentionPreview.strippedContent.slice(0, 80)}”`
+                  : ""}
+              </p>
+            ) : null}
+            {learnPreview ? (
+              <p className="rounded-xl border border-amber-100 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                /learn → draft skill from latest completed task
+                {learnPreview.name ? ` named “${learnPreview.name}”` : ""}
+              </p>
+            ) : null}
+            {skillSlashPreview?.skill ? (
+              <p className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-950">
+                /{skillSlashPreview.slug} → <strong>{skillSlashPreview.skill.name}</strong>
+                {skillSlashPreview.goal ? ` · ${skillSlashPreview.goal.slice(0, 80)}` : ""}
+                <span className="mt-1 block text-teal-900/75">
+                  Will load via slash invoke when you send.
+                </span>
+              </p>
+            ) : null}
+            {productionSkills.length ? (
+              <p className="text-xs text-teal-900/60">
+                Skills: {productionSkills.slice(0, 4).map((s) => `/${s.slug || s.name}`).join(", ")}
+                {productionSkills.length > 4 ? "…" : ""}
+              </p>
+            ) : null}
+          </>
+        ) : null}
+        {pendingRoute ? (
+          <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <p>
+              Route to <strong>{pendingRoute.suggestion.agentName}</strong>? (
+              {Math.round((pendingRoute.suggestion.confidence || 0) * 100)}% confidence)
+            </p>
+            <p className="text-xs text-amber-900/80">{pendingRoute.suggestion.reason}</p>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                onClick={confirmPendingRoute}
+                disabled={busy}
+                className="min-h-10 rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setPendingRoute(null);
+                  setDispatchAgentId(String(pendingRoute.suggestion.agentId));
+                }}
+                className="min-h-10 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950"
+              >
+                Pick different agent
+              </button>
+            </div>
+          </div>
+        ) : null}
+        <FieldLabel helpId="chat.goalInput" className="text-sm">
+          Goal / instructions
+        </FieldLabel>
+        <textarea
+          className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
+          placeholder={
+            isCommon
+              ? autoRoute
+                ? "Type your goal — auto-routes to the best agent"
+                : "@Agent /skill-slug goal… or /learn"
+              : "/skill-slug goal… or /learn"
+          }
+          value={input}
+          onChange={(e) => setInput(e.target.value)}
+          rows={3}
+        />
+        <ButtonWithHelp helpId="chat.send" className="flex w-full items-center gap-1.5">
+          <button
+            type="submit"
+            disabled={busy}
+            className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
+          >
+            {busy ? "Sending…" : activeRun ? "Queue goal" : "Send goal"}
+          </button>
+        </ButtonWithHelp>
+      </form>
+    </section>
+  );
+
   const controlPanel = (
-    <div className="flex h-full min-h-0 flex-col gap-2 overflow-hidden lg:gap-3">
+    <div className="flex flex-col gap-2 lg:gap-3">
       <AgentTaskQueue
         chatId={chatId}
         agentQueue={agentQueue}
@@ -632,12 +665,15 @@ export function ChatDetailPage() {
         onChanged={load}
         onError={setError}
       />
-      {stickyAgentStack}
+      {agentScreenBlock}
+      <PageSnapshotPanel events={snapshotEvents} compact />
+      <TrajectoryPanel task={snapshotTask} />
+      {goalSection}
     </div>
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 pt-3 pb-0 sm:gap-4 sm:px-4 sm:pt-4 md:px-6 lg:h-[calc(100dvh-0.5rem)] lg:max-h-[calc(100dvh-0.5rem)] lg:overflow-hidden lg:pb-4">
+    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 md:px-6 lg:flex lg:h-full lg:min-h-0 lg:min-h-full lg:flex-1 lg:overflow-hidden">
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
         <Link
           to="/"
@@ -663,6 +699,36 @@ export function ChatDetailPage() {
 
       <PageGuideBanner helpId="chats.page" />
 
+      {isOpsTriggerChat ? (
+        <p className="shrink-0 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-sm text-violet-950">
+          <strong>Operations trigger thread</strong> — goals, agent replies, and outcome routing messages
+          for this trigger appear in this chat (not your main agent chat).
+        </p>
+      ) : opsTriggerChats.length ? (
+        <div className="shrink-0 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-sm text-violet-950">
+          <p className="font-semibold">Operations trigger threads for this agent</p>
+          <p className="mt-1 text-xs text-violet-900/80">
+            Automation from Operations runs in separate chats. Open one to see task results and outcome
+            routing:
+          </p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {opsTriggerChats.map((c) => (
+              <li key={c._id}>
+                <Link
+                  to={`/chats/${c._id}`}
+                  className="font-semibold text-violet-900 underline"
+                >
+                  {c.title}
+                </Link>
+                <span className="ml-2 text-xs text-violet-900/60">
+                  {c.updatedAt ? new Date(c.updatedAt).toLocaleString() : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -673,43 +739,48 @@ export function ChatDetailPage() {
       ) : null}
 
       {activeRun || tasks[0] ? (
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 break-words rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
-          <span>
+        <div className="flex shrink-0 flex-col gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
+          <div className="flex flex-wrap items-center justify-between gap-2 break-words">
+            <span>
+              {activeRun ? (
+                <>
+                  {isCommon && activeRun.agent?.name ? (
+                    <>
+                      <strong>{activeRun.agent.name}</strong> is{" "}
+                    </>
+                  ) : null}
+                  Agent is <strong>{activeRun.status}</strong>
+                  {activeRun.resultSummary
+                    ? ` — ${activeRun.resultSummary.slice(0, 120)}`
+                    : ` — ${activeRun.goal.slice(0, 80)}`}
+                </>
+              ) : (
+                <>
+                  Latest task: <strong>{tasks[0].status}</strong>
+                  {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
+                </>
+              )}
+            </span>
             {activeRun ? (
-              <>
-                {isCommon && activeRun.agent?.name ? (
-                  <>
-                    <strong>{activeRun.agent.name}</strong> is{" "}
-                  </>
-                ) : null}
-                Agent is <strong>{activeRun.status}</strong>
-                {activeRun.resultSummary
-                  ? ` — ${activeRun.resultSummary.slice(0, 120)}`
-                  : ` — ${activeRun.goal.slice(0, 80)}`}
-              </>
-            ) : (
-              <>
-                Latest task: <strong>{tasks[0].status}</strong>
-                {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
-              </>
-            )}
-          </span>
-          {activeRun ? (
-            <ButtonWithHelp helpId="chat.stop" className="shrink-0 lg:hidden">
-              <button
-                type="button"
-                onClick={stopAgent}
-                disabled={stopping}
-                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50"
-              >
-                {stopping ? "Stopping…" : "Stop"}
-              </button>
-            </ButtonWithHelp>
+              <ButtonWithHelp helpId="chat.stop" className="shrink-0 lg:hidden">
+                <button
+                  type="button"
+                  onClick={stopAgent}
+                  disabled={stopping}
+                  className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50"
+                >
+                  {stopping ? "Stopping…" : "Stop"}
+                </button>
+              </ButtonWithHelp>
+            ) : null}
+          </div>
+          {activeSkillPick ? (
+            <SkillPickNotice pick={activeSkillPick} className="text-xs" />
           ) : null}
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
         <div
           ref={threadRef}
           onScroll={onThreadScroll}
@@ -720,6 +791,11 @@ export function ChatDetailPage() {
           ) : null}
           {messages.map((m) => {
             const agentLabel = messageAgentLabel(m);
+            const skillPick =
+              m.meta?.kind === "skill_selected" && m.meta?.skillPick
+                ? m.meta.skillPick
+                : skillPickFromMessage(m);
+            const isSkillPickNotice = m.meta?.kind === "skill_selected" && skillPick;
             return (
             <article
               key={m._id}
@@ -728,12 +804,14 @@ export function ChatDetailPage() {
                   ? "self-end bg-teal-700 text-white"
                   : m.role === "assistant"
                     ? "self-start bg-teal-50 text-teal-950"
-                    : "self-start bg-slate-50 text-slate-700"
+                    : isSkillPickNotice
+                      ? "self-start border border-violet-100 bg-violet-50/50 text-violet-950"
+                      : "self-start bg-slate-50 text-slate-700"
               }`}
             >
               <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
                 <span className="uppercase">
-                  {m.role}
+                  {isSkillPickNotice ? "skill" : m.role}
                   {agentLabel ? (
                     <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
                   ) : null}
@@ -747,26 +825,27 @@ export function ChatDetailPage() {
                   </time>
                 ) : null}
               </div>
-              <div className="whitespace-pre-wrap break-words">{m.content}</div>
+              {isSkillPickNotice ? (
+                <SkillPickNotice pick={skillPick} />
+              ) : (
+                <>
+                  {m.role === "user" && skillPick ? (
+                    <div className="mb-2 [&_.rounded-xl]:border-teal-500/30 [&_.rounded-xl]:bg-teal-600/40 [&_.rounded-xl]:text-white">
+                      <SkillPickNotice pick={skillPick} />
+                    </div>
+                  ) : null}
+                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                </>
+              )}
             </article>
             );
           })}
           <div ref={bottomRef} className="h-px w-full shrink-0" />
         </div>
 
-        <aside className="hidden min-h-0 overflow-hidden lg:sticky lg:top-3 lg:flex lg:max-h-[calc(100dvh-5.5rem)] lg:flex-col lg:self-start lg:rounded-2xl lg:border lg:border-teal-100 lg:bg-[color-mix(in_srgb,var(--yb-bg)_88%,white)] lg:p-3 lg:shadow-sm lg:backdrop-blur-md">
+        <aside className="flex min-h-0 w-full min-w-0 flex-col gap-2 sm:gap-3 lg:max-h-full lg:overflow-y-auto lg:overscroll-contain">
           {controlPanel}
         </aside>
-      </div>
-
-      {/* Why: reserve scroll room so the fixed mobile dock does not cover the last messages. */}
-      <div className="h-[min(68dvh,30rem)] shrink-0 lg:hidden" aria-hidden />
-
-      <div
-        className="fixed inset-x-0 bottom-0 z-30 grid max-h-[min(68dvh,calc(100dvh-env(safe-area-inset-bottom,0px)-3rem))] grid-rows-[auto_minmax(0,1fr)] overflow-hidden border-t border-teal-100 bg-[var(--yb-bg)] shadow-[0_-8px_24px_rgba(16,35,31,0.08)] lg:hidden"
-        style={{ paddingBottom: "env(safe-area-inset-bottom, 0px)" }}
-      >
-        <div className="min-h-0 overflow-hidden px-3 pt-2 pb-2">{controlPanel}</div>
       </div>
     </div>
   );

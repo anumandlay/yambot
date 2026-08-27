@@ -60,7 +60,10 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
   }
 
   const nav = (
-    <nav className="flex flex-1 flex-col gap-1.5 p-3" aria-label="Main">
+    <nav
+      className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain p-3"
+      aria-label="Main"
+    >
       {user?.isSuperAdmin || user?.role === "superadmin" ? (
         <NavItem to="/admin/users" helpId="admin.nav" letter="SA" label="Super admin" />
       ) : null}
@@ -73,6 +76,9 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       <NavItem to="/" helpId="nav.chats" letter="C" label="Chats" end />
       <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
       <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
+      <NavItem to="/queues" helpId="nav.queues" letter="Q" label="Queues" />
+      <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
+      <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
       <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
       <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
       <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
@@ -96,12 +102,12 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       />
 
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[min(18rem,88vw)] flex-col border-r border-teal-100 bg-white pt-[env(safe-area-inset-top,0px)] shadow-lg transition-transform duration-200 lg:static lg:z-20 lg:h-auto lg:min-h-full lg:shadow-none ${
+        className={`fixed inset-y-0 left-0 z-50 flex h-dvh max-h-dvh min-h-0 w-[min(18rem,88vw)] flex-col overflow-hidden border-r border-teal-100 bg-white pt-[env(safe-area-inset-top,0px)] shadow-lg transition-transform duration-200 lg:static lg:z-20 lg:h-full lg:max-h-dvh lg:min-h-0 lg:shadow-none ${
           collapsed ? "lg:w-[4.5rem]" : "lg:w-56"
         } ${open ? "translate-x-0" : "-translate-x-full lg:translate-x-0"}`}
       >
         <div
-          className={`flex items-center gap-2 border-b border-teal-100 px-3 py-3 ${
+          className={`flex shrink-0 items-center gap-2 border-b border-teal-100 px-3 py-3 ${
             collapsed ? "lg:justify-center lg:px-2" : ""
           }`}
         >
@@ -141,7 +147,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
 
         {nav}
 
-        <div className={`border-t border-teal-100 p-3 ${collapsed ? "lg:px-2" : ""}`}>
+        <div className={`shrink-0 border-t border-teal-100 p-3 ${collapsed ? "lg:px-2" : ""}`}>
           {collapsed ? (
             <div className="mb-2 flex justify-center">
               <HelpToggle compact />
@@ -151,7 +157,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
           )}
         </div>
 
-        <div className={`mt-auto border-t border-teal-100 p-3 ${collapsed ? "lg:px-2" : ""}`}>
+        <div className={`shrink-0 border-t border-teal-100 p-3 ${collapsed ? "lg:px-2" : ""}`}>
           {!collapsed ? (
             <p className="mb-2 truncate px-1 text-xs text-teal-900/60" title={user?.email}>
               {user?.email}

@@ -5,13 +5,8 @@
  */
 
 import { Skill } from "../models/Skill.js";
-import { Task } from "../models/Task.js";
-import {
-  normalizeSkillSlug,
-  slugFromName,
-  trajectoryToPlaybookMd,
-  trajectoryToStepLines,
-} from "./skillMd.js";
+import { normalizeSkillSlug, slugFromName } from "./skillMd.js";
+import { ensureSkillSuggestionFromTask } from "./skillSuggestion.js";
 
 /**
  * @param {string} userId
@@ -35,37 +30,16 @@ export async function allocateSkillSlug(userId, name, preferred = "", excludeId 
 
 /**
  * @param {string} userId
- * @param {{ taskId?: string, chatId?: string, name?: string }} opts
+ * @param {{ taskId?: string, chatId?: string, name?: string, slug?: string }} opts
  */
 export async function createLearnedSkillDraft(userId, opts = {}) {
-  let task = null;
-  if (opts.taskId) {
-    task = await Task.findOne({ _id: opts.taskId, user: userId });
-  } else if (opts.chatId) {
-    task = await Task.findOne({
-      user: userId,
-      chat: opts.chatId,
-      status: { $in: ["done", "error"] },
-      trajectory: { $exists: true, $not: { $size: 0 } },
-    })
-      .sort({ completedAt: -1, updatedAt: -1 })
-      .lean();
-  }
-  if (!task) return null;
-
-  const name = String(opts.name || task.goal || "Learned skill").trim().slice(0, 120);
-  const slug = await allocateSkillSlug(userId, name, opts.slug || "");
-  const skill = await Skill.create({
-    user: userId,
-    agent: task.agent || null,
-    name,
-    slug,
-    description: `Learned from task: ${String(task.goal || "").slice(0, 160)}`,
-    playbookMd: trajectoryToPlaybookMd(task),
-    status: "draft",
-    steps: trajectoryToStepLines(task),
-    verificationRules: ["Goal completed successfully"],
-    sourceTask: task._id,
+  const result = await ensureSkillSuggestionFromTask(userId, {
+    taskId: opts.taskId,
+    chatId: opts.chatId,
+    name: opts.name,
+    slug: opts.slug,
+    minSteps: 1,
   });
-  return { skill, sourceTaskId: task._id };
+  if (!result) return null;
+  return { skill: result.skill, sourceTaskId: result.sourceTaskId };
 }

@@ -7,6 +7,7 @@
 import { useEffect, useState } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
+import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import {
   ButtonWithHelp,
@@ -43,7 +44,7 @@ Describe when this skill should run.
 - Success looks like…
 `;
 
-const STATUSES = ["draft", "training", "production", "deprecated"];
+const STATUSES = ["draft", "production", "deprecated"];
 const EXECUTION_MODES = [
   { value: "hints", label: "Hints only (inject steps into agent prompt)" },
   { value: "replay", label: "Replay (run stored click/type/navigate actions first)" },
@@ -61,6 +62,8 @@ export function SkillEditPage() {
   const [okMsg, setOkMsg] = useState("");
   const [importMd, setImportMd] = useState("");
   const [showImport, setShowImport] = useState(false);
+  const [createdAt, setCreatedAt] = useState("");
+  const [updatedAt, setUpdatedAt] = useState("");
 
   useEffect(() => {
     (async () => {
@@ -76,7 +79,7 @@ export function SkillEditPage() {
             description: s.description || "",
             playbookMd: s.playbookMd || "",
             agent: s.agent ? String(s.agent) : "",
-            status: s.status || "draft",
+            status: s.status === "training" ? "draft" : s.status || "draft",
             executionMode: s.executionMode || "hints",
             enforceVerification: Boolean(s.enforceVerification),
             triggers: (s.triggers || []).join("\n"),
@@ -90,6 +93,8 @@ export function SkillEditPage() {
             verificationRules: (s.verificationRules || []).join("\n"),
           });
           setStats(s.stats || { runs: 0, successes: 0, failures: 0 });
+          setCreatedAt(s.createdAt || "");
+          setUpdatedAt(s.updatedAt || "");
         }
       } catch (err) {
         setError(err);
@@ -183,6 +188,14 @@ export function SkillEditPage() {
           <p className="text-sm text-teal-900/70">
             Production skills inject step hints when triggers match the goal or URL.
           </p>
+          {!isNew && createdAt ? (
+            <p className="mt-1 text-xs text-teal-900/45">
+              Created {formatChatMessageTime(createdAt)}
+              {updatedAt && updatedAt !== createdAt
+                ? ` · Updated ${formatChatMessageTime(updatedAt)}`
+                : ""}
+            </p>
+          ) : null}
         </div>
         <Link
           to="/skills"

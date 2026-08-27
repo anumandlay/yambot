@@ -1,5 +1,197 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 10:35] Fix YamBot AppSidebar nav scroll
+
+- **Prompt Provided:** Left YamBot app menu (AppSidebar) does not scroll to reach Log out
+- **Architectural Flow:** aside `overflow-hidden` + nav `flex-1 min-h-0 overflow-y-auto`; header/help/footer `shrink-0`
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/AppSidebar.jsx`
+
+## [2026-08-27 10:25] Vughy left nav scroll — sidebar panel targeting
+
+- **Prompt Provided:** Left navigation menu scroll still broken; cannot scroll to Logout
+- **Architectural Flow:** Scan left 40% viewport for scrollable nav panels; set scrollTop + wheel event; remote control clicks menu then evaluate scroll; LiveScreen Menu ↓/↑ + PageDown/End
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/agent.js`, `frontend/src/components/LiveScreen.jsx`
+
+## [2026-08-27 10:20] Fix Vughy sidebar menu scroll (nested scroll + takeover)
+
+- **Prompt Provided:** After Vughy portal login, menu scrolling does not work
+- **Architectural Flow:** Vughy sidebar uses inner overflow scroll; agent `scroll` only called `window.scrollBy`; now finds scrollable nav/aside at ref or pointer; remote control moves mouse to click/wheel point before `mouse.wheel`; LiveScreen wheel scroll without Shift and passes xNorm/yNorm
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/agent.js`, `frontend/src/components/LiveScreen.jsx`, `worker/src/actions.js`
+
+## [2026-08-27 08:45] Fix production 502 — duplicate Ticket import crash
+
+- **Prompt Provided:** Login on production returns HTTP 502
+- **Architectural Flow:** API container failed to start due to duplicate `import { Ticket }` in `workerEntities.js`; removed duplicate so Node can load the module graph; redeploy
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/workerEntities.js`
+
+## [2026-08-27 01:00] Close all OS gaps — tickets, deals, teams, SLA, CRM, SMS, portal, audit
+
+- **Prompt Provided:** Implement all remaining gaps (bugs + partial features + missing work types) without omission
+- **Architectural Flow:** pending_send/bounced enrollment stages; KPI→MetricBaseline; ticket mirror entity + auto-assign + support process + SLA job + triage trigger; ticket detail + portal; deals/invoices/teams models; unsubscribe/bounce; document filesystem storage; cron triggers + change UI; process transition validation; worker actions (search/create ticket, deals, invoice, crm_sync, send_sms); scheduled weekly reports; audit export; smoke tests
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/*`, `backend/src/utils/*`, `backend/src/routes/*`, `backend/test/smoke.test.js`, `worker/src/*`, `frontend/src/pages/*`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/pages/GovernancePage.jsx`, `frontend/src/pages/CompanyPage.jsx`
+
+## [2026-08-27 00:15] Agent OS upgrades 1–8 — tickets, processes, state, triggers, KPI, integrations, docs, queues
+
+- **Prompt Provided:** Implement all 8 upgrade areas: tickets, process builder, state APIs, full triggers, KPI loop, integrations, documents, queue UX
+- **Architectural Flow:** Ticket model + email→ticket engine; QueuesPage (tickets/campaigns/tasks/docs); process stage editor + bottlenecks; worker actions (set_entity_status, update_enrollment, update_kpi, update_ticket, slack/webhook/calendar, attach_document); campaign pending_send→sent on task complete; condition/threshold/anomaly trigger evaluators; KPI parse from finish summary
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Ticket.js`, `DocumentFile.js`, `Entity.js`, `backend/src/utils/ticketEngine.js`, `stateHelpers.js`, `kpiUpdater.js`, `integrations.js`, `triggerEvaluators.js`, `emailInboxWatcher.js`, `campaignEngine.js`, `scheduler.js`, `routes/tickets.js`, `documents.js`, `queues.js`, `processes.js`, `triggers.js`, `workerEntities.js`, `worker.js`, `index.js`, `worker/src/actions.js`, `agent.js`, `verify.js`, `frontend/src/pages/QueuesPage.jsx`, `CompanyPage.jsx`, `OperationsPage.jsx`, `App.jsx`, `AppSidebar.jsx`, `helpContent.js`
+
+## [2026-08-26 23:55] Bulk CSV lead import + enroll all campaigns
+
+- **Prompt Provided:** Bulk CSV import for leads + campaign enroll all (5000-email outreach workflow)
+- **Architectural Flow:** `csvLeadsImport.js` parses CSV → upserts Entity type lead by email; `POST /api/entities/import` + `/stats`; `enrollCampaignEntities` paginates all eligible leads (no 500 cap); CompanyPage Entities tab CSV paste/file upload; Campaigns "Enroll all leads" with full stats
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/csvLeadsImport.js`, `backend/src/utils/campaignEngine.js`, `backend/src/routes/entities.js`, `backend/src/routes/campaigns.js`, `frontend/src/pages/CompanyPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 23:30] Company OS Phases 1–4 — agent database, email ops, campaigns, dashboard
+
+- **Prompt Provided:** Build Phase 1+2 (entity brain + email log/threading) then Phase 3 (campaigns) and Phase 4 (process instances + company dashboard)
+- **Architectural Flow:** `entityContext` injects company memory + entities into every enqueue; worker entity/process actions; `EmailMessage` log + IMAP watcher → `email.received`/`email.replied`; Campaign/Enrollment + `campaignEngine` scheduler; Company dashboard API + expanded CompanyPage tabs
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Task.js`, `backend/src/models/EmailMessage.js`, `backend/src/models/Campaign.js`, `backend/src/utils/entityContext.js`, `backend/src/utils/emailLog.js`, `backend/src/utils/emailInboxWatcher.js`, `backend/src/utils/campaignEngine.js`, `backend/src/utils/enqueueTask.js`, `backend/src/utils/agentEmail.js`, `backend/src/utils/scheduler.js`, `backend/src/routes/workerEntities.js`, `backend/src/routes/worker.js`, `backend/src/routes/campaigns.js`, `backend/src/routes/companyDashboard.js`, `backend/src/routes/entities.js`, `backend/src/index.js`, `worker/src/actions.js`, `worker/src/agent.js`, `worker/src/browserState/verify.js`, `frontend/src/pages/CompanyPage.jsx`
+
+## [2026-08-26 18:50] Group delete — safer UX (no accidental ×)
+
+- **Prompt Provided:** Group delete too easy to trigger by mistake on the × chip
+- **Architectural Flow:** Remove inline × delete; collapsible “Manage groups” panel with type-group-name confirmation before Delete is enabled
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/GroupFilterBar.jsx`
+
+## [2026-08-26 18:45] Agents & goals — groups + copy with timestamp
+
+- **Prompt Provided:** Group agents and goals into named folders; copy agent/goal with same config and name suffixed with date/time for editing
+- **Architectural Flow:** EntityGroup model (type agent|goal); Agent.group / Goal.group refs; `/api/groups` CRUD; POST `/api/agents/:id/copy` and `/api/goals/:id/copy` via `copyNameWithTimestamp`; list pages group sections + filter + assign dropdown
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/EntityGroup.js`, `backend/src/models/Agent.js`, `backend/src/models/Goal.js`, `backend/src/utils/copyName.js`, `backend/src/routes/groups.js`, `backend/src/routes/agents.js`, `backend/src/routes/goals.js`, `backend/src/index.js`, `frontend/src/lib/groupedList.js`, `frontend/src/components/GroupFilterBar.jsx`, `frontend/src/pages/AgentsPage.jsx`, `frontend/src/pages/GoalsPage.jsx`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/pages/GoalEditPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 16:50] Multi-action completion routing (goals + triggers)
+
+- **Prompt Provided:** On success and failure, LLM/rules pick parallel follow-ups (instructions + goals) with parent result injected; configure on Goals and Operations triggers
+- **Architectural Flow:** Goal/Trigger `completionActions` + `completionActionsPickMode`; `completionActionsRunner.js` rule/LLM multi-pick → parallel `enqueueTask` with parent context block and `{{result}}` templates; worker complete handler after outcome routing
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/completionActions.js`, `backend/src/utils/completionActionsRunner.js`, `backend/src/models/Goal.js`, `backend/src/models/Trigger.js`, `backend/src/routes/goals.js`, `backend/src/routes/triggers.js`, `backend/src/routes/worker.js`, `frontend/src/components/CompletionActionsEditor.jsx`, `frontend/src/pages/GoalEditPage.jsx`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 15:48] Skills page — show created timestamps
+
+- **Prompt Provided:** Show time when demonstrations, skills, and drafts were created on /skills
+- **Architectural Flow:** SkillsPage shows `Created` timestamps (with seconds) on suggested workflow rows and skill library rows via `formatChatMessageTime`
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 15:36] Skills — unified draft + suggested workflows (no training duplicate)
+
+- **Prompt Provided:** Simplify skills UX — one draft per workflow, demonstrations when task completes, drop training status clutter
+- **Architectural Flow:** `ensureSkillSuggestionFromTask` creates linked Demonstration + draft Skill on task complete; Teach skill links to same draft; `training` migrated to `draft`; Skills UI splits Suggested workflows vs Skill library
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/skillSuggestion.js`, `backend/src/utils/skillLearn.js`, `backend/src/utils/demoSession.js`, `backend/src/routes/worker.js`, `backend/src/routes/skills.js`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/components/TrajectoryPanel.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 13:26] Goals save — fix missing writeAudit import
+
+- **Prompt Provided:** Server error on goal save: writeAudit is not defined
+- **Architectural Flow:** Restore `writeAudit` import removed during outcome-branches work in goals router
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/goals.js`
+
+## [2026-08-26 13:02] Operations triggers — visible chat threads + reuse
+
+- **Prompt Provided:** Cannot see messages in chat when testing outcome routing via Operations triggers
+- **Architectural Flow:** Triggers reuse `actionConfig.chatId` per trigger; enqueue posts system queued message; events/task.completed carry `chatId`; Operations + Chats + ChatDetail link to trigger threads
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/triggerEngine.js`, `backend/src/utils/enqueueTask.js`, `backend/src/routes/worker.js`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/pages/ChatsPage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 12:32] LLM outcome routing on task completion (goals + triggers)
+
+- **Prompt Provided:** Along with current event triggering, use LLM to decide which outcome branch fires based on agent result (e.g. weather &lt; 50)
+- **Architectural Flow:** Goal/Trigger `outcomeBranches` + `outcomeRoutingEnabled`; `resultRouter.js` classifies `resultSummary` after existing success/failure completion events; emits chosen event → existing event triggers fire
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/outcomeBranches.js`, `backend/src/utils/resultRouter.js`, `backend/src/models/Goal.js`, `backend/src/models/Trigger.js`, `backend/src/routes/goals.js`, `backend/src/routes/triggers.js`, `backend/src/routes/worker.js`, `frontend/src/components/OutcomeBranchesEditor.jsx`, `frontend/src/pages/GoalEditPage.jsx`, `frontend/src/pages/OperationsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 12:10] Live screen — Teach skill button + floating chat in zoom
+
+- **Prompt Provided:** Teach skill button beside Zoom/Take control; floating chat widget in full-screen zoom to see chat activity
+- **Architectural Flow:** Take control = handoff only (no demo); Teach skill = session + demo capture; `FloatingChatWidget` polls chat in zoom modal when `chatId` passed from ChatDetailPage
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/agents.js`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/components/FloatingChatWidget.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`, `frontend/src/pages/SkillsPage.jsx`
+
+## [2026-08-26 12:02] Chat — show which skill was picked and why
+
+- **Prompt Provided:** In chat, see which skill is picked up and why
+- **Architectural Flow:** Slash invoke stores `pickReason` at queue; worker emits `skill_selected` with trigger/template/none reason; `SkillPickNotice` in thread + active-run bar
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/chats.js`, `backend/src/routes/worker.js`, `worker/src/browserState/skills.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, `frontend/src/components/SkillPickNotice.jsx`, `frontend/src/lib/skillPick.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 11:54] Skills page — delete demonstration button
+
+- **Prompt Provided:** Add delete button on skill demonstrations list
+- **Architectural Flow:** `DELETE /api/skills/demos/:demoId` removes demo, unlinks `sourceDemonstration` on skills; Skills page row delete with confirm
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/skills.js`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 11:46] Goals page — delete goal button
+
+- **Prompt Provided:** Delete button on /goals page
+- **Architectural Flow:** Wire existing `DELETE /api/goals/:id` to Goals list row with confirm dialog
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/GoalsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 11:44] Skills page — delete skill button
+
+- **Prompt Provided:** Delete skill button on Skills page
+- **Architectural Flow:** `DELETE /api/skills/:id` removes skill, clears demo `convertedSkill` links; Skills list row delete with confirm
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/skills.js`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 09:50] Chat detail — scroll right rail to goal box
+
+- **Prompt Provided:** Cannot scroll down to goal/instructions box; need page scroller
+- **Architectural Flow:** Remove rail `overflow-hidden`; aside + control panel scroll vertically; snapshot fixed max-height (no flex-1 steal); mobile chat page flows in main scroll
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/PageSnapshotPanel.jsx`
+
+## [2026-08-26 09:46] Chats page — delete chat button
+
+- **Prompt Provided:** Add delete chat button on chats page
+- **Architectural Flow:** `DELETE /api/chats/:id` cancels active/pending tasks scoped to thread, removes messages/tasks/chat; ChatsPage row action with confirm
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/chats.js`, `frontend/src/pages/ChatsPage.jsx`, `frontend/src/help/helpContent.js`
+
+## [2026-08-26 09:42] Fix blank main content — revert aggressive #root flex rule
+
+- **Prompt Provided:** /agents, /goals, /live and all pages show only sidebar menu, no page content
+- **Architectural Flow:** `#root > * { flex-direction: column }` overrode ProtectedLayout row flex; sidebar `h-full` consumed viewport; main clipped to 0. Remove rule; main scrolls (`overflow-y-auto`); chat page keeps `flex-1 h-full` fill
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/index.css`, `frontend/src/App.jsx`
+
+## [2026-08-26 09:38] Chat detail — three separate rail sections (snapshot / trajectory / goal)
+
+- **Prompt Provided:** Page snapshot, Trajectory, and Goal/instructions should be 3 sections; stop bundling them in one scroller
+- **Architectural Flow:** Remove nested `overflow-y-auto` wrapper; each panel is its own bordered card; snapshot flexes on desktop with internal scroll; trajectory + goal stay distinct shrink sections
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/PageSnapshotPanel.jsx`, `frontend/src/components/TrajectoryPanel.jsx`
+
+## [2026-08-26 09:36] Chat detail desktop — fill viewport (no teal bottom strip)
+
+- **Prompt Provided:** Teal strip at very bottom of browser window on desktop
+- **Architectural Flow:** `#root` + providers pass `100dvh`; ProtectedLayout `h-dvh overflow-hidden`; chat page `flex-1 h-full`; grid stretches thread + aside to fill main
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/index.css`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/pages/ChatDetailPage.jsx`
+
+## [2026-08-26 09:32] Chat detail — eliminate bottom strip (layout + live screen cover)
+
+- **Prompt Provided:** Bottom strip still visible after removing mobile dock
+- **Architectural Flow:** flex-1 height chain App→main→chat; grid `items-start` stops empty thread stretch; live screen `object-fit: cover` removes black letterbox bar; page flex-1 only on lg
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/App.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/index.css`
+
+## [2026-08-26 09:30] Chat detail — remove bottom strip (no fixed mobile dock)
+
+- **Prompt Provided:** Empty strip at bottom of chat page returned; remove completely
+- **Architectural Flow:** Dropped fixed mobile dock + thread padding hack; agent rail flows inline below messages on mobile; desktop sticky aside unchanged
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`
+
+## [2026-08-26 09:28] Chat detail — Page snapshot not squeezed in flex box
+
+- **Prompt Provided:** Page snapshot appears trapped inside a box after live screen layout change
+- **Architectural Flow:** Remove compact `h-full`/`flex-1` on snapshot panel; use fixed max-height scroll area; right rail scrolls as one column
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/PageSnapshotPanel.jsx`, `frontend/src/pages/ChatDetailPage.jsx`
+
+## [2026-08-26 09:24] Chat detail — live screen box layout (no inner scroll)
+
+- **Prompt Provided:** Chat page live screen has bottom strip and inner scroller; show as clean box
+- **Architectural Flow:** Aspect-ratio frame wraps LiveScreen; screenshot uses `object-fit: contain` + `overflow-hidden`; mobile dock pins screen on top, removes empty spacer strip; demo notice moved inside screen chrome
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/index.css`
+
+## [2026-08-26 09:16] Clarify LLM errors — MiniMax 503 vs wrong Base URL
+
+- **Prompt Provided:** User sees "Received HTML instead of JSON — check Base URL" for MiniMax
+- **Architectural Flow:** Production Base URL already `https://api.minimax.io/v1`; MiniMax returns nginx 503 HTML; worker/API test now distinguish provider outage from YamBot URL misconfig
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/llm.js`, `backend/src/utils/llmTest.js`
+
+## [2026-08-26 09:12] Fix worker crash — missing formatSkillsCatalogBlock export
+
+- **Prompt Provided:** Live screen stuck on STARTING at bot.vughy.com chat; workers crash-looping
+- **Architectural Flow:** Phase C added `formatSkillsCatalogBlock` import in `agent.js` but omitted re-export from `browserState/index.js`; worker exits on boot → no heartbeat → UI shows STARTING…
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserState/index.js`
+
 ## [2026-08-25 21:15] Common chat Phase D — LLM auto-router with confirm
 
 - **Prompt Provided:** Implement Phase D auto-router for common chat

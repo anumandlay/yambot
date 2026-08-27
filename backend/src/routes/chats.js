@@ -384,6 +384,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           slug: slash.slug,
           skillId: invokedSkillDoc._id,
           skillName: invokedSkillDoc.name,
+          pickSource: "slash",
+          pickReason: `You typed /${slash.slug} in the goal (explicit slash invoke).`,
         };
       } else {
         goalText = afterMention;
@@ -496,6 +498,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           slug: slash.slug,
           skillId: invokedSkillDoc._id,
           skillName: invokedSkillDoc.name,
+          pickSource: "slash",
+          pickReason: `You typed /${slash.slug} in the goal (explicit slash invoke).`,
         };
       }
       agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
@@ -575,6 +579,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         invokedSkillId: skillSlashMeta.skillId,
         invokedSkillName: skillSlashMeta.skillName,
         skillSlug: skillSlashMeta.slug,
+        pickSource: skillSlashMeta.pickSource,
+        pickReason: skillSlashMeta.pickReason,
+        skillPick: {
+          source: "slash",
+          skillId: String(skillSlashMeta.skillId),
+          skillName: skillSlashMeta.skillName,
+          slug: skillSlashMeta.slug,
+          reason: skillSlashMeta.pickReason,
+        },
       });
     }
 
@@ -621,12 +634,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       routerMeta?.agentName && mentionMeta?.dispatchSource === "router"
         ? ` (auto-routed, ${Math.round((routerMeta.confidence || 0) * 100)}%)`
         : "";
+    const slashPickHint = skillSlashMeta?.pickReason
+      ? ` ${skillSlashMeta.pickReason}`
+      : "";
     const queueHint =
       "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
-      content: `Goal queued${agentLabel}${skillLabel}${routeLabel}. ${queueHint}`,
+      content: `Goal queued${agentLabel}${skillLabel}${routeLabel}.${slashPickHint} ${queueHint}`,
       meta: {
         taskId: task._id,
         status: "pending",
@@ -634,6 +650,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         agentName: snapshot?.name || null,
         invokedSkillId: invokedSkillDoc?._id || null,
         invokedSkillName: invokedSkillDoc?.name || null,
+        skillSlug: skillSlashMeta?.slug || null,
+        skillPick: skillSlashMeta
+          ? {
+              source: "slash",
+              skillId: String(skillSlashMeta.skillId),
+              skillName: skillSlashMeta.skillName,
+              slug: skillSlashMeta.slug,
+              reason: skillSlashMeta.pickReason,
+            }
+          : null,
         runner: "cloud",
       },
     });
@@ -727,6 +753,59 @@ chatsRouter.patch("/:id/tasks/:taskId", async (req, res, next) => {
     await task.save();
     await Message.findByIdAndUpdate(task.message, { content: goal }).catch(() => {});
     res.json({ ok: true, task });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/chats/:id — remove a chat thread and its messages/tasks.
+ * Why: Cancels in-flight work for this thread only (not other chats on the same agent).
+ */
+chatsRouter.delete("/:id", async (req, res, next) => {
+  try {
+    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId });
+    if (!chat) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
+      return;
+    }
+
+    const chatId = chat._id;
+    const now = new Date();
+    const active = await Task.find({
+      user: req.userId,
+      chat: chatId,
+      status: { $in: ["running", "waiting_user"] },
+    });
+    const agentIds = new Set();
+    for (const task of active) {
+      task.status = "cancelled";
+      task.completedAt = now;
+      task.resultSummary = "Chat deleted";
+      task.events.push({
+        type: "cancelled",
+        payload: { reason: "chat_deleted" },
+      });
+      await task.save();
+      if (task.agent) agentIds.add(String(task.agent));
+    }
+    for (const id of agentIds) {
+      await clearAgentNeedsAttention(id);
+      await clearAgentHumanControl(id);
+    }
+
+    const [messageResult, taskResult] = await Promise.all([
+      Message.deleteMany({ chat: chatId }),
+      Task.deleteMany({ user: req.userId, chat: chatId }),
+    ]);
+    await Chat.deleteOne({ _id: chatId });
+
+    res.json({
+      ok: true,
+      cancelledActive: active.length,
+      deletedMessages: messageResult.deletedCount,
+      deletedTasks: taskResult.deletedCount,
+    });
   } catch (err) {
     next(err);
   }

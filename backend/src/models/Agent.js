@@ -103,6 +103,13 @@ const agentSchema = new mongoose.Schema(
     },
     name: { type: String, required: true, trim: true },
     description: { type: String, default: "", trim: true },
+    /** Optional list folder — EntityGroup with type agent. */
+    group: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EntityGroup",
+      default: null,
+      index: true,
+    },
     /** Who this agent is / persona for forms and tone. */
     profile: { type: String, default: "", trim: true },
     /**

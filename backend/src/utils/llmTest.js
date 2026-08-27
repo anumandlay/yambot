@@ -20,12 +20,59 @@ export function looksLikeHtml(text) {
 }
 
 /**
+ * Maps HTML gateway pages to user-facing hints (503 from MiniMax ≠ wrong Base URL).
+ * @param {number} status
  * @param {string} bodyText
+ * @param {string} [baseUrl]
+ */
+export function describeHtmlLlmFailure(status, bodyText, baseUrl = "") {
+  const lower = String(bodyText || "").toLowerCase();
+  let host = "";
+  try {
+    host = new URL(baseUrl).hostname.toLowerCase();
+  } catch {
+    /* ignore */
+  }
+
+  if (status === 503 || /503 service temporarily unavailable|server is busy|overloaded/i.test(lower)) {
+    return {
+      detail: `MiniMax API temporarily unavailable (${status || 503}).`,
+      hint: "The provider is overloaded or down — wait a few minutes and retry. Your Base URL is fine.",
+    };
+  }
+  if (status >= 500) {
+    return {
+      detail: `LLM provider error (${status}).`,
+      hint: "Server-side error from the LLM API — retry shortly.",
+    };
+  }
+  if (/bot\.vughy\.com|litellm|localhost|127\.0\.0\.1/i.test(lower + host)) {
+    return {
+      detail: "Received HTML instead of JSON — Base URL points at YamBot, not the LLM API.",
+      hint: "Use https://api.minimax.io/v1 for MiniMax.",
+    };
+  }
+  if (/minimax\.io/i.test(host)) {
+    return {
+      detail: `MiniMax returned HTML instead of JSON (${status || "unknown"}).`,
+      hint: "Usually a temporary MiniMax outage — retry in a few minutes.",
+    };
+  }
+  return {
+    detail: "Received HTML instead of JSON — check Base URL (should end with /v1, e.g. https://api.minimax.io/v1).",
+    hint: "Base URL is wrong (got a web page, not the LLM API). Use https://api.minimax.io/v1 for MiniMax.",
+  };
+}
+
+/**
+ * @param {string} bodyText
+ * @param {number} [status]
+ * @param {string} [baseUrl]
  * @returns {string|null}
  */
-export function extractLlmApiMessage(bodyText) {
+export function extractLlmApiMessage(bodyText, status = 0, baseUrl = "") {
   if (looksLikeHtml(bodyText)) {
-    return "Received HTML instead of JSON — check Base URL (should end with /v1, e.g. https://api.minimax.io/v1).";
+    return describeHtmlLlmFailure(status, bodyText, baseUrl).detail;
   }
   try {
     const json = JSON.parse(bodyText);
@@ -38,11 +85,12 @@ export function extractLlmApiMessage(bodyText) {
 /**
  * @param {number} status
  * @param {string} bodyText
+ * @param {string} [baseUrl]
  * @returns {string}
  */
-export function hintForLlmStatus(status, bodyText) {
+export function hintForLlmStatus(status, bodyText, baseUrl = "") {
   if (looksLikeHtml(bodyText)) {
-    return "Base URL is wrong (got a web page, not the LLM API). Use https://api.minimax.io/v1 for MiniMax.";
+    return describeHtmlLlmFailure(status, bodyText, baseUrl).hint;
   }
   if (status === 401 || status === 403) return "Check your API key (and model access).";
   if (status === 404) return "Check the base URL ends with /v1 and the model name.";
@@ -112,11 +160,11 @@ export async function probeLlmConnection({ apiKey, baseUrl, model, timeoutMs = 6
 
   const text = await response.text();
   if (!response.ok) {
-    const apiMsg = extractLlmApiMessage(text);
+    const apiMsg = extractLlmApiMessage(text, response.status, root);
     const detail = apiMsg ? String(apiMsg) : text.slice(0, 500) || `HTTP ${response.status}`;
     throw Object.assign(new Error(detail), {
       title: `LLM request failed (${response.status})`,
-      hint: hintForLlmStatus(response.status, text),
+      hint: hintForLlmStatus(response.status, text, root),
     });
   }
 
