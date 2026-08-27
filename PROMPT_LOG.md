@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 13:54] Goals list — next autonomy run countdown
+
+- **Prompt Provided:** On /goals page, show a timer for next run of each particular goal
+- **Architectural Flow:** Client computes next check from autonomy.lastCheckAt + checkIntervalMinutes; live 1s countdown on active autonomy goals; light poll refresh so lastCheckAt stays current
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/GoalsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 13:47] Disable auto skill drafts — Teach skill / New skill / import only
 
 - **Prompt Provided:** Stop automatically developing skills after runs; only create when user clicks Teach skill or New skill / import (lots of suggested skills were noise)

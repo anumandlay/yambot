@@ -718,7 +718,8 @@ export const HELP = {
     title: "Goals page",
     body: helpBody(
       "Lists durable objectives (Employee OS Layer 1). Each goal can have KPIs, priority, assigned agent, parent goal for delegation, autonomy, and SLA.",
-      "Run enqueues a browser task using the goal's instructions. Stats track runs and outcomes over time."
+      "Run enqueues a browser task using the goal's instructions. Stats track runs and outcomes over time.",
+      "When autonomy is on and status is active, a live countdown shows time until the next autonomy check may enqueue a run."
     ),
     learnMore: "howto-goals",
   },

@@ -1,6 +1,7 @@
 /**
  * @fileoverview Goals list — durable objectives with groups and copy.
  * Purpose: Create, run, group, copy, and track agent goals with KPIs and priority.
+ * Downstream: Goal autonomy next-run countdown uses lastCheckAt + checkIntervalMinutes.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -12,6 +13,36 @@ import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/Field
 import { GroupAssignSelect, GroupFilterBar } from "../components/GroupFilterBar.jsx";
 
 /**
+ * Epoch ms when autonomy may next spawn a run, or null if timer does not apply.
+ * Why: mirrors tickGoalAutonomy — interval from lastCheckAt (0 = due immediately).
+ * @param {object} goal
+ * @returns {number|null}
+ */
+function nextAutonomyAtMs(goal) {
+  if (!goal?.autonomy?.enabled) return null;
+  if (goal.status !== "active") return null;
+  const intervalMin = Math.max(1, Number(goal.autonomy.checkIntervalMinutes) || 60);
+  const last = goal.autonomy.lastCheckAt ? new Date(goal.autonomy.lastCheckAt).getTime() : 0;
+  if (!Number.isFinite(last)) return Date.now();
+  return last + intervalMin * 60_000;
+}
+
+/**
+ * @param {number} remainingMs
+ * @returns {string}
+ */
+function formatCountdown(remainingMs) {
+  if (remainingMs <= 0) return "Due now";
+  const totalSec = Math.ceil(remainingMs / 1000);
+  const h = Math.floor(totalSec / 3600);
+  const m = Math.floor((totalSec % 3600) / 60);
+  const s = totalSec % 60;
+  if (h > 0) return `${h}h ${m}m ${String(s).padStart(2, "0")}s`;
+  if (m > 0) return `${m}:${String(s).padStart(2, "0")}`;
+  return `${s}s`;
+}
+
+/**
  * @param {object} props
  */
 function GoalRow({
@@ -21,11 +52,20 @@ function GoalRow({
   busyId,
   deletingId,
   copyingId,
+  nowMs,
   onRun,
   onDelete,
   onCopy,
   onAssignGroup,
 }) {
+  const nextAt = nextAutonomyAtMs(goal);
+  const nextLabel =
+    nextAt == null
+      ? null
+      : nextAt <= nowMs
+        ? "Due now"
+        : `Next run in ${formatCountdown(nextAt - nowMs)}`;
+
   return (
     <li className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
       <div className="min-w-0">
@@ -39,6 +79,22 @@ function GoalRow({
           <span>
             Runs: {goal.stats?.runs || 0} ({goal.stats?.successes || 0} ok)
           </span>
+          {nextLabel ? (
+            <span
+              className={`rounded px-1.5 py-0.5 font-semibold tabular-nums ${
+                nextAt <= nowMs
+                  ? "bg-emerald-50 text-emerald-900"
+                  : "bg-sky-50 text-sky-900"
+              }`}
+              title="Time until the next autonomy check may enqueue a run"
+            >
+              {nextLabel}
+            </span>
+          ) : goal.autonomy?.enabled && goal.status !== "active" ? (
+            <span className="rounded bg-slate-100 px-1.5 py-0.5 text-slate-600">
+              Autonomy paused
+            </span>
+          ) : null}
         </div>
         {goal.description ? (
           <p className="mt-1 line-clamp-2 text-sm text-teal-900/70">{goal.description}</p>
@@ -111,6 +167,7 @@ export function GoalsPage() {
   const [busyId, setBusyId] = useState("");
   const [deletingId, setDeletingId] = useState("");
   const [copyingId, setCopyingId] = useState("");
+  const [nowMs, setNowMs] = useState(() => Date.now());
   const navigate = useNavigate();
 
   async function loadGroups() {
@@ -135,6 +192,26 @@ export function GoalsPage() {
   useEffect(() => {
     load();
   }, []);
+
+  /** Why: live countdown for autonomy next-run badges. */
+  useEffect(() => {
+    const id = window.setInterval(() => setNowMs(Date.now()), 1000);
+    return () => window.clearInterval(id);
+  }, []);
+
+  /** Why: pick up lastCheckAt after the scheduler ticks without forcing a full page reload. */
+  const hasAutonomyTimer = useMemo(
+    () => goals.some((g) => g.autonomy?.enabled && g.status === "active"),
+    [goals]
+  );
+
+  useEffect(() => {
+    if (!hasAutonomyTimer) return undefined;
+    const id = window.setInterval(() => {
+      load().catch(() => {});
+    }, 30_000);
+    return () => window.clearInterval(id);
+  }, [hasAutonomyTimer]);
 
   const agentNameById = useMemo(() => {
     const map = new Map();
@@ -228,6 +305,7 @@ export function GoalsPage() {
     busyId,
     deletingId,
     copyingId,
+    nowMs,
     onRun: runGoal,
     onDelete: deleteGoal,
     onCopy: copyGoal,
@@ -244,6 +322,7 @@ export function GoalsPage() {
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Goals</h1>
           <p className="text-sm text-teal-900/70">
             Durable objectives with success criteria and KPIs — run on an agent&apos;s cloud computer.
+            Autonomy goals show a live countdown to the next scheduled check.
           </p>
         </div>
         <ButtonWithHelp helpId="goals.new">
