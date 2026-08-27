@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 16:15] Goal create — Generate fields from plain-English brief
+
+- **Prompt Provided:** Add “Describe the job in plain English” + Generate with AI on create/edit goal (like agents)
+- **Architectural Flow:** POST /api/goals/draft-from-brief → draftGoalFromBrief LLM → fills title/description/instructions/successCriteria; human still assigns agent
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/goalDraftFromBrief.js`, `backend/src/routes/goals.js`, `frontend/src/pages/GoalEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 15:54] Surface all Entity types in Company + docs
 
 - **Prompt Provided:** Update all entity types in the project so Company/help/agents list the full type catalog

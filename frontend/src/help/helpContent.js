@@ -811,6 +811,14 @@ export const HELP = {
       "Short name for dashboards and delegation ('Weekly competitor scan', 'Monitor support queue')."
     ),
   },
+  "goal.jobBrief": {
+    title: "Job brief (plain English)",
+    body: helpBody(
+      "Describe what this goal should accomplish. Generate with AI fills title, description, run instructions, and success criteria.",
+      "You still pick the Assigned agent yourself — the draft does not choose who runs it.",
+      "Review and edit before saving. Differ from agent brief: this drafts the job (goal), not the employee persona."
+    ),
+  },
   "goal.group": {
     title: "Goal group",
     body: helpBody(
