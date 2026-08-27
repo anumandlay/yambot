@@ -1255,6 +1255,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     if (running) throw new Error("Worker already running a task");
     running = true;
     const taskId = String(task._id);
+    const goalRef = task.goalRef ? String(task.goalRef) : "";
     const goal = String(task.goal || "").trim();
     const taskMaxMinutes = Number(task.maxDurationMinutes) || 0;
     const taskValueUsd = Number(task.estimatedValueUsd) || 0;
@@ -1814,6 +1815,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               settings,
               obs,
               taskId,
+              goalRef,
               goal,
               agentSnapshot,
               notes,
@@ -1865,6 +1867,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   settings,
                   obs: currentObs,
                   taskId,
+                  goalRef,
                   goal,
                   agentSnapshot,
                   notes,
@@ -2335,10 +2338,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, enrollment: result.enrollment };
       }
       case "update_kpi": {
+        // Why: LLM often omits goalId — inherit from the task's goalRef when this run is goal-linked.
+        const goalId = String(action.goalId || ctx.goalRef || "").trim();
+        if (!goalId) {
+          throw new Error("update_kpi requires goalId (no goal linked to this task)");
+        }
         const result = await api("/api/worker/kpi/update", {
           method: "POST",
           body: JSON.stringify({
-            goalId: action.goalId,
+            goalId,
             kpiName: action.kpiName || action.name,
             delta: action.delta ?? action.amount ?? 1,
             setAbsolute: action.setAbsolute,

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 12:32] Fix update_kpi — auto-inject goalRef from task
+
+- **Prompt Provided:** Goal test run succeeded but update_kpi failed (empty goalId); user testing KPI + autonomy with vughy/yahoo goal
+- **Architectural Flow:** Worker passes task.goalRef into executeAction ctx; update_kpi uses action.goalId || ctx.goalRef so goal-linked runs bump KPIs without LLM supplying Mongo id
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`
+
 ## [2026-08-27 12:22] Goal autonomy — 1 minute minimum interval
 
 - **Prompt Provided:** Lower goal autonomy check interval minimum from 15 minutes to 1 minute
