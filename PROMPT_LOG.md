@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 14:01] Chats list — show which threads are live/working
+
+- **Prompt Provided:** On chat page, show which thread is working when Live is running something
+- **Architectural Flow:** GET /api/chats attaches live task status per chatId; ChatsPage badges Running / Needs you / Queued and polls every few seconds
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/chats.js`, `frontend/src/pages/ChatsPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 13:54] Goals list — next autonomy run countdown
 
 - **Prompt Provided:** On /goals page, show a timer for next run of each particular goal

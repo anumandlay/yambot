@@ -926,7 +926,8 @@ export const HELP = {
     title: "Chats page",
     body: helpBody(
       "Two kinds of threads: **Common chat** — one inbox, pick an agent per goal. **Agent chats** — dedicated thread bound to one worker.",
-      "Each agent still has its own cloud Chromium box and global FIFO queue per agent."
+      "Each agent still has its own cloud Chromium box and global FIFO queue per agent.",
+      "Threads with a live browser job show badges: Live (running), Needs you (waiting), or Queued."
     ),
     learnMore: "howto-chats",
   },

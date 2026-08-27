@@ -1,6 +1,7 @@
 /**
  * @fileoverview Chat list — agent-bound chats + common inbox.
  * Purpose: Start conversations bound to an agent or open a neutral common chat.
+ * Downstream: GET /api/chats includes `live` activity for threads with pending/running tasks.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -17,6 +18,38 @@ import { useSetupStatus } from "../hooks/useSetupStatus.js";
  */
 function isCommonChat(chat) {
   return chat?.kind === "common" || (!chat?.agent && chat?.kind !== "agent");
+}
+
+/**
+ * Badge copy for a thread's live browser job.
+ * @param {{ status?: string, goal?: string }|null|undefined} live
+ * @returns {{ label: string, className: string, title: string }|null}
+ */
+function liveBadge(live) {
+  if (!live?.status) return null;
+  const goalHint = live.goal ? String(live.goal).slice(0, 80) : "Browser job in this thread";
+  if (live.status === "running") {
+    return {
+      label: "Live",
+      className: "bg-emerald-100 text-emerald-900",
+      title: goalHint,
+    };
+  }
+  if (live.status === "waiting_user") {
+    return {
+      label: "Needs you",
+      className: "bg-amber-100 text-amber-950",
+      title: goalHint,
+    };
+  }
+  if (live.status === "pending") {
+    return {
+      label: "Queued",
+      className: "bg-sky-100 text-sky-900",
+      title: goalHint,
+    };
+  }
+  return null;
 }
 
 export function ChatsPage() {
@@ -40,6 +73,11 @@ export function ChatsPage() {
     return { commonChats: common, agentChats: agent };
   }, [chats]);
 
+  const workingCount = useMemo(
+    () => chats.filter((c) => c.live?.status === "running" || c.live?.status === "waiting_user").length,
+    [chats]
+  );
+
   async function load() {
     try {
       const [chatData, agentData] = await Promise.all([
@@ -59,6 +97,15 @@ export function ChatsPage() {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
+
+  /** Why: keep Live / Queued badges in sync while agents work without requiring a reload. */
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      load().catch(() => {});
+    }, 5_000);
+    return () => window.clearInterval(id);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [agentId]);
 
   async function createAgentChat() {
     if (!agentId) {
@@ -156,40 +203,60 @@ export function ChatsPage() {
         </li>
       );
     }
-    return list.map((c) => (
-      <li
-        key={c._id}
-        className="flex min-w-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-2 shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3"
-      >
-        <Link
-          to={`/chats/${c._id}`}
-          className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 sm:flex-row sm:items-center sm:justify-between sm:px-2"
+    return list.map((c) => {
+      const badge = liveBadge(c.live);
+      const isWorking = c.live?.status === "running" || c.live?.status === "waiting_user";
+      return (
+        <li
+          key={c._id}
+          className={`flex min-w-0 flex-col gap-2 rounded-2xl border bg-white p-2 shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3 ${
+            isWorking ? "border-emerald-300 ring-1 ring-emerald-100" : "border-teal-100"
+          }`}
         >
-          <span className="truncate font-semibold">
-            {c.title?.startsWith("Trigger ·") ? (
-              <span className="mr-1.5 rounded-md bg-violet-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-900">
-                Ops
-              </span>
-            ) : null}
-            {c.title}
-          </span>
-          <span className="shrink-0 text-xs text-teal-900/60">
-            {isCommonChat(c) ? "Common · " : c.agent?.name ? `${c.agent.name} · ` : ""}
-            {new Date(c.updatedAt).toLocaleString()}
-          </span>
-        </Link>
-        <ButtonWithHelp helpId="chats.delete">
-          <button
-            type="button"
-            disabled={Boolean(deletingId)}
-            onClick={() => deleteChat(c)}
-            className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
+          <Link
+            to={`/chats/${c._id}`}
+            className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 sm:flex-row sm:items-center sm:justify-between sm:px-2"
           >
-            {deletingId === c._id ? "Deleting…" : "Delete"}
-          </button>
-        </ButtonWithHelp>
-      </li>
-    ));
+            <span className="flex min-w-0 items-center gap-2 truncate font-semibold">
+              {badge ? (
+                <span
+                  className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${badge.className}`}
+                  title={badge.title}
+                >
+                  {c.live?.status === "running" ? (
+                    <span
+                      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+                      aria-hidden
+                    />
+                  ) : null}
+                  {badge.label}
+                </span>
+              ) : null}
+              {c.title?.startsWith("Trigger ·") ? (
+                <span className="shrink-0 rounded-md bg-violet-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-900">
+                  Ops
+                </span>
+              ) : null}
+              <span className="truncate">{c.title}</span>
+            </span>
+            <span className="shrink-0 text-xs text-teal-900/60">
+              {isCommonChat(c) ? "Common · " : c.agent?.name ? `${c.agent.name} · ` : ""}
+              {new Date(c.updatedAt).toLocaleString()}
+            </span>
+          </Link>
+          <ButtonWithHelp helpId="chats.delete">
+            <button
+              type="button"
+              disabled={Boolean(deletingId)}
+              onClick={() => deleteChat(c)}
+              className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
+            >
+              {deletingId === c._id ? "Deleting…" : "Delete"}
+            </button>
+          </ButtonWithHelp>
+        </li>
+      );
+    });
   }
 
   return (
@@ -201,6 +268,14 @@ export function ChatsPage() {
             Send goals in plain English — agents run them in cloud browsers.{" "}
             <strong>Agent chats</strong> bind one worker per thread.{" "}
             <strong>Shared inbox</strong> lets you pick an agent per message.
+            {workingCount > 0 ? (
+              <>
+                {" "}
+                <span className="font-semibold text-emerald-800">
+                  {workingCount} thread{workingCount === 1 ? "" : "s"} working now.
+                </span>
+              </>
+            ) : null}
           </p>
         </div>
       </div>

@@ -130,6 +130,7 @@ function taskMatchesChat(chat, task) {
 
 /**
  * GET /api/chats — list current user's chats (newest first).
+ * Why: attach live activity so the list shows which threads have a running/queued browser job.
  */
 chatsRouter.get("/", async (req, res, next) => {
   try {
@@ -138,7 +139,38 @@ chatsRouter.get("/", async (req, res, next) => {
       .select("title agent kind createdAt updatedAt")
       .populate("agent", "name skill")
       .lean();
-    res.json({ ok: true, chats });
+
+    const liveTasks = await Task.find({
+      user: req.userId,
+      chat: { $in: chats.map((c) => c._id) },
+      status: { $in: ["pending", "running", "waiting_user"] },
+    })
+      .select("chat status goal updatedAt")
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    /** Prefer running / waiting_user over pending when a thread has both. */
+    const rank = { running: 3, waiting_user: 2, pending: 1 };
+    /** @type {Map<string, { status: string, goal: string }>} */
+    const liveByChat = new Map();
+    for (const t of liveTasks) {
+      const cid = String(t.chat);
+      const prev = liveByChat.get(cid);
+      const nextRank = rank[t.status] || 0;
+      if (!prev || nextRank > (rank[prev.status] || 0)) {
+        liveByChat.set(cid, {
+          status: t.status,
+          goal: String(t.goal || "").slice(0, 120),
+        });
+      }
+    }
+
+    const enriched = chats.map((c) => ({
+      ...c,
+      live: liveByChat.get(String(c._id)) || null,
+    }));
+
+    res.json({ ok: true, chats: enriched });
   } catch (err) {
     next(err);
   }
