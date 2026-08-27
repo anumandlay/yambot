@@ -1641,7 +1641,16 @@ export const HELP = {
     title: "Edit skill",
     body: helpBody(
       "Hermes-style SKILL.md playbook + triggers + replay steps. Set status to production when ready.",
-      "Export/import SKILL.md for sharing. Slash command must match what you type in chat."
+      "Use Describe the skill in plain English → Generate with AI to draft the playbook, or Export/import SKILL.md for sharing.",
+      "Slash command must match what you type in chat."
+    ),
+  },
+  "skills.jobBrief": {
+    title: "Skill brief (plain English)",
+    body: helpBody(
+      "Describe the reusable workflow. Generate with AI fills name, slash slug, description, SKILL.md playbook, triggers, steps, and verification rules.",
+      "Status stays draft until you promote to production. Agent scope and execution mode stay yours to set.",
+      "Unlike agent/goal briefs: this drafts a playbook injected when triggers match — not a full employee persona or one-off job."
     ),
   },
   "skills.slug": {

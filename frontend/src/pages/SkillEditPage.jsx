@@ -1,6 +1,6 @@
 /**
  * @fileoverview Create / edit a reusable skill (steps, triggers, status).
- * Purpose: Review demos converted to skills and promote to production for worker injection.
+ * Purpose: Review demos converted to skills and promote to production for worker injection; optional AI draft from brief.
  * Downstream: PATCH `/api/skills/:id`, worker `GET /api/worker/skills`.
  */
 
@@ -15,6 +15,7 @@ import {
   PageGuideBanner,
   SectionTitle,
 } from "../components/FieldLabel.jsx";
+import { HelpTooltip } from "../components/HelpTooltip.jsx";
 
 const EMPTY = {
   name: "",
@@ -64,6 +65,8 @@ export function SkillEditPage() {
   const [showImport, setShowImport] = useState(false);
   const [createdAt, setCreatedAt] = useState("");
   const [updatedAt, setUpdatedAt] = useState("");
+  const [jobBrief, setJobBrief] = useState("");
+  const [draftBusy, setDraftBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -101,6 +104,43 @@ export function SkillEditPage() {
       }
     })();
   }, [isNew, skillId]);
+
+  /**
+   * Fills playbook / triggers / steps / verification from a plain-English skill brief.
+   */
+  async function generateFromBrief() {
+    setDraftBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api("/api/skills/draft-from-brief", {
+        method: "POST",
+        body: JSON.stringify({ brief: jobBrief }),
+        timeoutMs: 90_000,
+      });
+      const d = data.draft || {};
+      const joinLines = (arr) => (Array.isArray(arr) ? arr.join("\n") : String(arr || ""));
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name.trim() ? prev.name : d.name || prev.name,
+        slug: prev.slug.trim() ? prev.slug : d.slug || prev.slug,
+        description: prev.description.trim()
+          ? prev.description
+          : d.description || prev.description,
+        playbookMd: d.playbookMd || prev.playbookMd,
+        triggers: joinLines(d.triggers) || prev.triggers,
+        steps: joinLines(d.steps) || prev.steps,
+        verificationRules: joinLines(d.verificationRules) || prev.verificationRules,
+      }));
+      setOkMsg(
+        "AI filled name, playbook, triggers, steps, and verification — review, keep status as draft until ready, then save."
+      );
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDraftBusy(false);
+    }
+  }
 
   /**
    * @param {React.FormEvent} e

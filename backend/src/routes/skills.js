@@ -27,6 +27,7 @@ import {
   demoStepsToSkillSteps,
   ensureSkillSuggestionFromTask,
 } from "../utils/skillSuggestion.js";
+import { draftSkillFromBrief } from "../utils/skillDraftFromBrief.js";
 
 export const skillsRouter = Router();
 
@@ -112,6 +113,24 @@ skillsRouter.get("/", async (req, res, next) => {
   }
 });
 
+/**
+ * POST /api/skills/draft-from-brief — LLM fills playbook/triggers/steps from plain English.
+ * Body: { brief: string }
+ * Why: before /:id routes so path is not treated as an id.
+ */
+skillsRouter.post("/draft-from-brief", async (req, res, next) => {
+  try {
+    const result = await draftSkillFromBrief(req.userId, req.body?.brief || req.body?.text || "");
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json({ ok: true, draft: result.draft });
+  } catch (err) {
+    next(err);
+  }
+});
+
 skillsRouter.post("/", async (req, res, next) => {
   try {
     const body = req.body || {};
@@ -125,9 +144,19 @@ skillsRouter.post("/", async (req, res, next) => {
       description: body.description || "",
       playbookMd: body.playbookMd || "",
       status: SKILL_STATUSES.includes(body.status) ? body.status : "draft",
-      triggers: Array.isArray(body.triggers) ? body.triggers : [],
+      triggers: Array.isArray(body.triggers)
+        ? body.triggers.map((t) => String(t).trim()).filter(Boolean)
+        : String(body.triggers || "")
+            .split(/[\n,]+/)
+            .map((t) => t.trim())
+            .filter(Boolean),
       steps: body.steps != null ? parseSkillStepsInput(body.steps) : [],
-      verificationRules: Array.isArray(body.verificationRules) ? body.verificationRules : [],
+      verificationRules: Array.isArray(body.verificationRules)
+        ? body.verificationRules.map((r) => String(r).trim()).filter(Boolean)
+        : String(body.verificationRules || "")
+            .split("\n")
+            .map((r) => r.trim())
+            .filter(Boolean),
       executionMode: SKILL_EXECUTION_MODES.includes(body.executionMode) ? body.executionMode : "hints",
       enforceVerification: Boolean(body.enforceVerification),
     });
