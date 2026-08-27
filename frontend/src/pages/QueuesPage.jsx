@@ -20,6 +20,9 @@ export function QueuesPage() {
   const [tickets, setTickets] = useState([]);
   const [ticketStats, setTicketStats] = useState([]);
   const [agents, setAgents] = useState([]);
+  const [agentGroups, setAgentGroups] = useState([]);
+  const [ticketGroupFilter, setTicketGroupFilter] = useState("");
+  const [newTicketGroupId, setNewTicketGroupId] = useState("");
   const [campaigns, setCampaigns] = useState([]);
   const [pipeline, setPipeline] = useState([]);
   const [tasks, setTasks] = useState([]);
@@ -33,12 +36,20 @@ export function QueuesPage() {
   const [docEntityId, setDocEntityId] = useState("");
 
   const load = useCallback(async () => {
-    const [ticketData, stats, agentData, campData, taskData, docData] = await Promise.all([
-      api(`/api/tickets?status=${ticketFilter === "all" ? "" : ticketFilter}&limit=100`).catch(() => ({
+    const groupQs =
+      ticketGroupFilter === "ungrouped"
+        ? "&groupId=ungrouped"
+        : ticketGroupFilter
+          ? `&groupId=${encodeURIComponent(ticketGroupFilter)}`
+          : "";
+    const statusQs = ticketFilter === "all" ? "" : ticketFilter;
+    const [ticketData, stats, agentData, groupData, campData, taskData, docData] = await Promise.all([
+      api(`/api/tickets?status=${statusQs}&limit=100${groupQs}`).catch(() => ({
         tickets: [],
       })),
-      api("/api/tickets/stats").catch(() => ({ byStatus: [] })),
+      api(`/api/tickets/stats${groupQs ? `?${groupQs.slice(1)}` : ""}`).catch(() => ({ byStatus: [] })),
       api("/api/agents"),
+      api("/api/groups?type=agent").catch(() => ({ groups: [] })),
       api("/api/queues/campaigns").catch(() => ({ campaigns: [], pipeline: [] })),
       api("/api/queues/tasks").catch(() => ({ tasks: [] })),
       api("/api/documents").catch(() => ({ documents: [] })),
@@ -46,11 +57,12 @@ export function QueuesPage() {
     setTickets(ticketData.tickets || []);
     setTicketStats(stats.byStatus || []);
     setAgents(agentData.agents || []);
+    setAgentGroups(groupData.groups || []);
     setCampaigns(campData.campaigns || []);
     setPipeline(campData.pipeline || []);
     setTasks(taskData.tasks || []);
     setDocuments(docData.documents || []);
-  }, [ticketFilter]);
+  }, [ticketFilter, ticketGroupFilter]);
 
   useEffect(() => {
     load().catch((err) => setError(err));
@@ -66,6 +78,7 @@ export function QueuesPage() {
           title: newTicketTitle.trim(),
           description: newTicketDesc.trim(),
           priority: "normal",
+          groupId: newTicketGroupId || null,
         }),
       });
       setNewTicketTitle("");
@@ -205,6 +218,9 @@ export function QueuesPage() {
 
       {tab === "tickets" ? (
         <div className="flex flex-col gap-3">
+          <p className="text-xs text-teal-900/65">
+            Tickets are scoped by agent group (country). Support agents in USA only see USA tickets.
+          </p>
           <div className="flex flex-wrap gap-2 text-xs">
             {ticketStats.map((s) => (
               <span key={s.status} className="rounded-lg bg-teal-50 px-2 py-1">
@@ -212,6 +228,22 @@ export function QueuesPage() {
               </span>
             ))}
           </div>
+          <label className="flex max-w-md flex-col gap-1 text-sm">
+            <FieldLabel helpId="queues.ticketTerritory">Territory filter</FieldLabel>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 bg-white px-3 text-sm"
+              value={ticketGroupFilter}
+              onChange={(e) => setTicketGroupFilter(e.target.value)}
+            >
+              <option value="">All territories</option>
+              <option value="ungrouped">Ungrouped</option>
+              {agentGroups.map((g) => (
+                <option key={g._id} value={g._id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
           <div className="flex flex-wrap gap-2">
             {["open", "assigned", "in_progress", "waiting_customer", "resolved", "all"].map((s) => (
               <button
@@ -240,6 +272,21 @@ export function QueuesPage() {
               value={newTicketDesc}
               onChange={(e) => setNewTicketDesc(e.target.value)}
             />
+            <label className="flex flex-col gap-1 text-sm">
+              <span className="font-medium">Territory</span>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={newTicketGroupId}
+                onChange={(e) => setNewTicketGroupId(e.target.value)}
+              >
+                <option value="">Ungrouped</option>
+                {agentGroups.map((g) => (
+                  <option key={g._id} value={g._id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <button type="submit" className="min-h-11 rounded-xl bg-teal-700 px-4 font-semibold text-white">
               Create ticket
             </button>
@@ -254,6 +301,7 @@ export function QueuesPage() {
                     </Link>
                     <div className="text-xs text-teal-900/60">
                       {t.status} · {t.priority}
+                      {t.group?.name ? ` · ${t.group.name}` : " · ungrouped"}
                       {t.requesterEntity?.name ? ` · ${t.requesterEntity.name}` : ""}
                       {t.source === "email" ? " · from email" : ""}
                     </div>

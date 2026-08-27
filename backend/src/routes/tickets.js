@@ -9,17 +9,20 @@ import { Ticket, TICKET_STATUSES, TICKET_PRIORITIES } from "../models/Ticket.js"
 import { EmailMessage } from "../models/EmailMessage.js";
 import { ProcessInstance } from "../models/Process.js";
 import { DocumentFile } from "../models/DocumentFile.js";
+import { EntityGroup } from "../models/EntityGroup.js";
 import { setTicketStatus, finalizeNewTicket } from "../utils/ticketEngine.js";
 import { emitEvent } from "../utils/eventBus.js";
+import { applyGroupIdQuery } from "../utils/entityTerritory.js";
 
 export const ticketsRouter = Router();
 
 ticketsRouter.get("/", async (req, res, next) => {
   try {
-    const filter = { user: req.userId };
+    let filter = { user: req.userId };
     if (req.query.status) filter.status = String(req.query.status);
     if (req.query.assignee) filter.assigneeAgent = String(req.query.assignee);
     if (req.query.priority) filter.priority = String(req.query.priority);
+    filter = applyGroupIdQuery(filter, req.query.groupId);
     const limit = Math.min(200, Number(req.query.limit) || 50);
     const [tickets, total] = await Promise.all([
       Ticket.find(filter)
@@ -27,6 +30,7 @@ ticketsRouter.get("/", async (req, res, next) => {
         .limit(limit)
         .populate("requesterEntity", "name attributes")
         .populate("assigneeAgent", "name")
+        .populate("group", "name")
         .lean(),
       Ticket.countDocuments(filter),
     ]);
@@ -38,8 +42,10 @@ ticketsRouter.get("/", async (req, res, next) => {
 
 ticketsRouter.get("/stats", async (req, res, next) => {
   try {
+    let match = { user: req.userId };
+    match = applyGroupIdQuery(match, req.query.groupId);
     const rows = await Ticket.aggregate([
-      { $match: { user: req.userId } },
+      { $match: match },
       { $group: { _id: "$status", count: { $sum: 1 } } },
     ]);
     res.json({ ok: true, byStatus: rows.map((r) => ({ status: r._id, count: r.count })) });
@@ -89,8 +95,25 @@ ticketsRouter.post("/", async (req, res, next) => {
       res.status(400).json({ ok: false, detail: "title required" });
       return;
     }
+    let group = null;
+    if (body.group != null || body.groupId != null) {
+      const gid = String(body.group ?? body.groupId ?? "").trim();
+      if (gid && gid !== "ungrouped") {
+        const g = await EntityGroup.findOne({
+          _id: gid,
+          user: req.userId,
+          type: "agent",
+        }).lean();
+        if (!g) {
+          res.status(400).json({ ok: false, detail: "group must be an agent group you own" });
+          return;
+        }
+        group = g._id;
+      }
+    }
     const ticket = await Ticket.create({
       user: req.userId,
+      group,
       title,
       description: String(body.description || "").trim(),
       status: TICKET_STATUSES.includes(body.status) ? body.status : "open",
@@ -99,13 +122,13 @@ ticketsRouter.post("/", async (req, res, next) => {
       requesterEntity: body.requesterEntityId || null,
       source: "manual",
     });
-    await finalizeNewTicket(ticket, { isNew: true });
+    await finalizeNewTicket(ticket, { isNew: true, agentId: body.assigneeAgentId });
     await emitEvent({
       userId: req.userId,
       type: "ticket.created",
       source: "tickets_api",
       summary: `New ticket: ${ticket.title}`,
-      payload: { ticketId: String(ticket._id) },
+      payload: { ticketId: String(ticket._id), groupId: group ? String(group) : null },
     });
     res.status(201).json({ ok: true, ticket });
   } catch (err) {
@@ -125,6 +148,23 @@ ticketsRouter.put("/:id", async (req, res, next) => {
     if (body.description != null) ticket.description = String(body.description).trim();
     if (body.priority && TICKET_PRIORITIES.includes(body.priority)) ticket.priority = body.priority;
     if (body.assigneeAgentId != null) ticket.assigneeAgent = body.assigneeAgentId || null;
+    if (body.group !== undefined || body.groupId !== undefined) {
+      const gid = body.group ?? body.groupId;
+      if (gid == null || gid === "" || gid === "ungrouped") {
+        ticket.group = null;
+      } else {
+        const g = await EntityGroup.findOne({
+          _id: String(gid),
+          user: req.userId,
+          type: "agent",
+        }).lean();
+        if (!g) {
+          res.status(400).json({ ok: false, detail: "group must be an agent group you own" });
+          return;
+        }
+        ticket.group = g._id;
+      }
+    }
     if (body.status && TICKET_STATUSES.includes(body.status)) {
       await setTicketStatus(ticket, body.status, { assigneeAgentId: body.assigneeAgentId });
     } else {

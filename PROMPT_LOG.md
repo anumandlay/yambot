@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 14:39] Territory-scoped support tickets by agent group
+
+- **Prompt Provided:** Scope Tickets by country/group like leads so support agents 4–6 share a country ticket table
+- **Architectural Flow:** Ticket.group = Agent.group; create/search/update scoped; email intake tags inbox agent territory; Queues UI territory filter; mirror Entity inherits group
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Ticket.js`, `backend/src/utils/entityTerritory.js`, `backend/src/utils/ticketEngine.js`, `backend/src/routes/workerEntities.js`, `backend/src/routes/tickets.js`, `backend/src/routes/groups.js`, `worker/src/agent.js`, `worker/src/actions.js`, `frontend/src/pages/QueuesPage.jsx`, `frontend/src/help/helpContent.js`, `frontend/src/help/agentActionsContent.js`
+
 ## [2026-08-27 14:23] Territory-scoped lead DBs by agent group
 
 - **Prompt Provided:** Implement shared lead database per agent group (country); finder + email agents share DB; fields via instructions; status new filter; isolate countries

@@ -27,6 +27,7 @@ import {
   applyTerritoryFilter,
   entityInTerritory,
   resolveAgentTerritory,
+  ticketInTerritory,
 } from "../utils/entityTerritory.js";
 
 export const workerEntitiesRouter = Router();
@@ -424,18 +425,40 @@ workerEntitiesRouter.post("/integrations/calendar", async (req, res, next) => {
 });
 
 /**
+ * Loads a ticket and enforces territory when agentId is provided.
+ * @param {string} userId
+ * @param {string} ticketId
+ * @param {string} [agentId]
+ */
+async function findTicketForAgent(userId, ticketId, agentId) {
+  const ticket = await Ticket.findOne({ _id: ticketId, user: userId });
+  if (!ticket) return { ticket: null, forbidden: false };
+  if (agentId) {
+    const { groupId } = await resolveAgentTerritory(userId, agentId);
+    if (!ticketInTerritory(ticket, groupId)) return { ticket: null, forbidden: true };
+  }
+  return { ticket, forbidden: false };
+}
+
+/**
  * POST /api/worker/tickets/update
  */
 workerEntitiesRouter.post("/tickets/update", async (req, res, next) => {
   try {
     const ticketId = String(req.body?.ticketId || "").trim();
-    const ticket = await Ticket.findOne({ _id: ticketId, user: req.userId });
+    const agentId = String(req.body?.callerAgentId || req.body?.agentId || "").trim();
+    const { ticket, forbidden } = await findTicketForAgent(req.userId, ticketId, agentId);
     if (!ticket) {
-      res.status(404).json({ ok: false, detail: "Ticket missing" });
+      res.status(forbidden ? 403 : 404).json({
+        ok: false,
+        detail: forbidden ? "Ticket is outside this agent's territory group" : "Ticket missing",
+      });
       return;
     }
     if (req.body?.status) {
-      await setTicketStatus(ticket, req.body.status, { assigneeAgentId: req.body?.assigneeAgentId });
+      await setTicketStatus(ticket, req.body.status, {
+        assigneeAgentId: req.body?.assigneeAgentId,
+      });
     } else {
       if (req.body?.title) ticket.title = String(req.body.title).trim();
       if (req.body?.description) ticket.description = String(req.body.description).trim();
@@ -489,13 +512,19 @@ workerEntitiesRouter.post("/documents/attach", async (req, res, next) => {
  */
 workerEntitiesRouter.post("/tickets/search", async (req, res, next) => {
   try {
-    const filter = { user: req.userId };
+    let filter = { user: req.userId };
     if (req.body?.status) filter.status = String(req.body.status);
+    const agentId = String(req.body?.agentId || "").trim();
+    if (agentId) {
+      const { groupId } = await resolveAgentTerritory(req.userId, agentId);
+      filter = applyTerritoryFilter(filter, groupId);
+    }
     const q = String(req.body?.query || req.body?.q || "").trim();
     if (q) {
+      const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
       filter.$or = [
-        { title: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
-        { description: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
+        { title: { $regex: escaped, $options: "i" } },
+        { description: { $regex: escaped, $options: "i" } },
       ];
     }
     const limit = Math.min(25, Number(req.body?.limit) || 10);
@@ -516,12 +545,15 @@ workerEntitiesRouter.post("/tickets/create", async (req, res, next) => {
       res.status(400).json({ ok: false, detail: "title required" });
       return;
     }
+    const territory = await resolveAgentTerritory(req.userId, req.body?.agentId);
     const ticket = await Ticket.create({
       user: req.userId,
+      group: territory.groupId,
       title,
       description: String(req.body?.description || "").trim(),
       priority: req.body?.priority || "normal",
       requesterEntity: req.body?.entityId || null,
+      assigneeAgent: territory.agentId || null,
       source: "agent",
     });
     await finalizeNewTicket(ticket, { isNew: true, agentId: req.body?.agentId });

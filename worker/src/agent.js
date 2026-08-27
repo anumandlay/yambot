@@ -2367,6 +2367,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/tickets/update", {
           method: "POST",
           body: JSON.stringify({
+            callerAgentId: config.agentId,
             ticketId: action.ticketId,
             status: action.status,
             assigneeAgentId: action.assigneeAgentId || action.agentId,
@@ -2427,6 +2428,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/tickets/search", {
           method: "POST",
           body: JSON.stringify({
+            agentId: config.agentId,
             query: action.query || action.q,
             status: action.status,
             limit: action.limit,

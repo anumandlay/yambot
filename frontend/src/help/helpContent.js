@@ -110,7 +110,19 @@ export const HELP = {
       "Tickets tab: filter by status, assign agents, resolve/close. Campaign pipeline shows enrollment stages. Agent queue lists pending/running tasks. Documents: upload files to attach to entities."
     ),
   },
-  "queues.tickets": { title: "Ticket queue", body: helpBody("Inbound email creates tickets when not handled as campaign reply. Manual tickets supported too.") },
+  "queues.tickets": {
+    title: "Ticket queue",
+    body: helpBody(
+      "Inbound email creates tickets when not handled as campaign reply. Manual tickets supported too.",
+      "Tickets are scoped by agent group (country): USA support agents only see USA tickets."
+    ),
+  },
+  "queues.ticketTerritory": {
+    title: "Ticket territory",
+    body: helpBody(
+      "Filter Queues tickets by agent group (e.g. USA). Same territory model as Company leads."
+    ),
+  },
   "queues.campaigns": { title: "Campaign pipeline", body: helpBody("Enrollment counts by stage across active campaigns.") },
   "queues.tasks": { title: "Agent queue", body: helpBody("All pending, running, and waiting_user tasks across agents.") },
   "queues.documents": { title: "Documents", body: helpBody("Upload up to 5 MB per file. Agents can attach_document during runs.") },

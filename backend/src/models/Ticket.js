@@ -2,6 +2,7 @@
  * @fileoverview Ticket model — support/ops queue records linked to entities and email.
  * Purpose: First-class ticket workflow (open → assigned → resolved) for customer support.
  * Downstream: tickets routes, emailInboxWatcher, worker assign/status actions, Queues UI.
+ * Territory: group matches Agent.group (country) so support agents share a country ticket DB.
  */
 
 import mongoose from "mongoose";
@@ -22,6 +23,16 @@ const ticketSchema = new mongoose.Schema(
       type: mongoose.Schema.Types.ObjectId,
       ref: "User",
       required: true,
+      index: true,
+    },
+    /**
+     * Territory folder — same EntityGroup as Agent.group (type agent), e.g. USA.
+     * Support agents in that group share this ticket pool.
+     */
+    group: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EntityGroup",
+      default: null,
       index: true,
     },
     title: { type: String, required: true, trim: true },
@@ -85,6 +96,7 @@ const ticketSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-ticketSchema.index({ user: 1, status: 1, updatedAt: -1 });
+ticketSchema.index({ user: 1, group: 1, status: 1, updatedAt: -1 });
+ticketSchema.index({ user: 1, group: 1, emailThreadKey: 1 });
 
 export const Ticket = mongoose.model("Ticket", ticketSchema);

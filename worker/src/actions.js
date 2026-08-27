@@ -99,8 +99,8 @@ Action fields:
 - send_webhook: { "type":"send_webhook", "payload": { "event":"...", "data": {} } }
 - create_calendar_event: { "type":"create_calendar_event", "title":"...", "startAt":"ISO", "attendee":"email@..." }
 - attach_document: { "type":"attach_document", "filename":"...", "dataBase64":"...", "entityId":"...", "mimeType":"..." }
-- search_tickets: { "type":"search_tickets", "query":"login issue", "status":"open", "limit": 10 }
-- create_ticket: { "type":"create_ticket", "title":"...", "description":"...", "priority":"high" }
+- search_tickets: { "type":"search_tickets", "query":"login issue", "status":"open", "limit": 10 } — scoped to this agent's territory group
+- create_ticket: { "type":"create_ticket", "title":"...", "description":"...", "priority":"high" } — saved into the agent's group ticket DB
 - search_deals: { "type":"search_deals", "stage":"proposal" }
 - update_invoice: { "type":"update_invoice", "invoiceId":"...", "status":"paid|sent" }
 - crm_sync: { "type":"crm_sync", "provider":"hubspot|salesforce", "email":"...", "name":"...", "company":"..." }

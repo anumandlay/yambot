@@ -9,6 +9,7 @@ import { EntityGroup, ENTITY_GROUP_TYPES, toEntityGroupPublic } from "../models/
 import { Agent } from "../models/Agent.js";
 import { Goal } from "../models/Goal.js";
 import { Entity } from "../models/Entity.js";
+import { Ticket } from "../models/Ticket.js";
 
 export const groupsRouter = Router();
 
@@ -86,8 +87,9 @@ groupsRouter.delete("/:id", async (req, res, next) => {
     }
     if (group.type === "agent") {
       await Agent.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
-      /** Why: leads inherit agent-group territory — clear them when the folder is deleted. */
+      /** Why: leads and tickets inherit agent-group territory — clear them when the folder is deleted. */
       await Entity.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
+      await Ticket.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
     } else {
       await Goal.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
     }

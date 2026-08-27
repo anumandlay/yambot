@@ -1,7 +1,7 @@
 /**
  * @fileoverview Territory (agent-group) scoping for Company entities / leads.
  * Purpose: Agents in the same agent group (e.g. USA) share one lead DB; other groups are isolated.
- * Downstream: workerEntities, entities API, campaignEngine, entityContext, CSV import.
+ * Downstream: workerEntities, entities API, campaignEngine, entityContext, CSV import, tickets.
  */
 
 import { Agent } from "../models/Agent.js";
@@ -63,13 +63,22 @@ export function applyGroupIdQuery(filter, rawGroupId) {
 }
 
 /**
- * Whether an entity belongs to the agent's territory.
- * @param {{ group?: unknown }} entity
+ * Whether a document with a `group` field belongs to the agent's territory.
+ * @param {{ group?: unknown }} doc
  * @param {string|null} groupId
  * @returns {boolean}
  */
-export function entityInTerritory(entity, groupId) {
-  const eg = entity?.group ? String(entity.group) : null;
+export function entityInTerritory(doc, groupId) {
+  const eg = doc?.group ? String(doc.group) : null;
   const want = groupId ? String(groupId) : null;
   return eg === want;
+}
+
+/**
+ * @param {{ group?: unknown }} ticket
+ * @param {string|null} groupId
+ * @returns {boolean}
+ */
+export function ticketInTerritory(ticket, groupId) {
+  return entityInTerritory(ticket, groupId);
 }

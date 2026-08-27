@@ -11,6 +11,7 @@ import { autoAssignTicket } from "./ticketAssign.js";
 import { setTicketSlaDue } from "./ticketSla.js";
 import { startSupportProcessForTicket, generateTicketPublicToken } from "./supportProcess.js";
 import { ensureDefaultTicketTriageTrigger } from "./ticketTriageTrigger.js";
+import { resolveAgentTerritory } from "./entityTerritory.js";
 
 /**
  * Normalizes subject for thread matching (strip Re:/Fwd:).
@@ -45,6 +46,7 @@ export async function syncTicketMirrorEntity(ticket) {
   const email = ticket.attributes?.from || "";
   const entity = await Entity.create({
     user: ticket.user,
+    group: ticket.group || null,
     type: "ticket",
     name: ticket.title.slice(0, 200),
     status: ticket.status,
@@ -101,8 +103,10 @@ export async function maybeCreateTicketFromEmail(opts) {
   if (skipIfEnrollment && enrollmentId) return null;
 
   const threadKey = buildEmailThreadKey(from, subject);
+  const { groupId } = await resolveAgentTerritory(userId, agentId);
   let ticket = await Ticket.findOne({
     user: userId,
+    group: groupId,
     emailThreadKey: threadKey,
     status: { $nin: ["resolved", "closed"] },
   });
@@ -112,6 +116,7 @@ export async function maybeCreateTicketFromEmail(opts) {
     isNew = true;
     ticket = await Ticket.create({
       user: userId,
+      group: groupId,
       title: String(subject || "Inbound email").slice(0, 300),
       description: String(snippet || "").slice(0, 4000),
       status: "open",
