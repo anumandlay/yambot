@@ -138,9 +138,15 @@ export function CompanyPage() {
       });
       setImportResult(data);
       setCsvText("");
-      setOkMsg(
-        `Import complete: ${data.created || 0} created, ${data.updated || 0} updated, ${data.skipped || 0} skipped.`
-      );
+      const parts = [
+        `${data.totalRows ?? "?"} row(s)`,
+        `${data.uniqueEmails ?? "?"} unique email(s)`,
+        `${data.created || 0} created`,
+        `${data.updated || 0} updated`,
+      ];
+      if (data.skipped) parts.push(`${data.skipped} skipped`);
+      if (data.duplicatesInFile) parts.push(`${data.duplicatesInFile} duplicate(s) in file`);
+      setOkMsg(`Import complete: ${parts.join(", ")}.`);
       await load();
     } catch (err) {
       setError(err);
@@ -434,7 +440,7 @@ export function CompanyPage() {
               </label>
             </div>
             <p className="text-xs text-teal-900/60">
-              Header row optional. Columns:{" "}
+              Header row optional. One agency per line. Columns:{" "}
               <code className="font-mono text-xs">email,name,company</code> or{" "}
               <code className="font-mono text-xs">name,type,email</code> (up to 10,000 rows).
             </p>

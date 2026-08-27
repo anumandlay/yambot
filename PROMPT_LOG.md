@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 11:50] CSV import — multiple agencies on one line
+
+- **Prompt Provided:** User pasted 3 agencies but only 1 lead was imported
+- **Architectural Flow:** expand wide `name,type,email` rows when pasted without line breaks; clearer import result message in UI
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/csvLeadsImport.js`, `backend/test/smoke.test.js`, `frontend/src/pages/CompanyPage.jsx`
+
 ## [2026-08-27 11:45] Fix CSV import name,type,email format
 
 - **Prompt Provided:** Bulk entity CSV paste `name,type,email` fails with "No valid email addresses found"

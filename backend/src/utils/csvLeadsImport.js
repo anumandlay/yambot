@@ -9,6 +9,48 @@ import { Entity, ENTITY_TYPES } from "../models/Entity.js";
 /** Max rows per import request (abuse guard). */
 export const CSV_IMPORT_MAX_ROWS = 10_000;
 
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/**
+ * When paste loses newlines, multiple `name,type,email` triplets land on one CSV row.
+ * @param {string[]} headers
+ * @param {string[][]} rows
+ * @returns {string[][]}
+ */
+export function expandNameTypeEmailRows(headers, rows) {
+  if (headers.length !== 3) return rows;
+  const h = headers.map((x) => x.toLowerCase());
+  if (h[0] !== "name" || h[2] !== "email") return rows;
+
+  /** @type {string[][]} */
+  const out = [];
+  for (const row of rows) {
+    if (row.length <= 3) {
+      out.push(row);
+      continue;
+    }
+    if (row.length % 3 !== 0) {
+      out.push(row);
+      continue;
+    }
+    let validTriplets = true;
+    for (let i = 2; i < row.length; i += 3) {
+      if (!EMAIL_RE.test(String(row[i] || "").trim())) {
+        validTriplets = false;
+        break;
+      }
+    }
+    if (!validTriplets) {
+      out.push(row);
+      continue;
+    }
+    for (let i = 0; i < row.length; i += 3) {
+      out.push(row.slice(i, i + 3));
+    }
+  }
+  return out;
+}
+
 /**
  * @param {string} line
  * @returns {string[]}
@@ -68,23 +110,21 @@ export function parseCsvText(raw) {
   const hasHeader = first.some((h) => headerKeywords.includes(h));
   if (!hasHeader) {
     const cols = parseCsvLine(lines[0]);
-    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    if (cols.length >= 3 && emailRe.test(String(cols[cols.length - 1] || "").trim())) {
-      return {
-        headers: ["name", "type", "email"],
-        rows: lines.map((l) => parseCsvLine(l)),
-      };
+    if (cols.length >= 3 && EMAIL_RE.test(String(cols[cols.length - 1] || "").trim())) {
+      const headers = ["name", "type", "email"];
+      const rows = expandNameTypeEmailRows(headers, lines.map((l) => parseCsvLine(l)));
+      return { headers, rows };
     }
     if (cols.length >= 2) {
       const c0 = String(cols[0] || "").trim();
       const c1 = String(cols[1] || "").trim();
-      if (emailRe.test(c0)) {
+      if (EMAIL_RE.test(c0)) {
         return {
           headers: ["email", "name"],
           rows: lines.map((l) => parseCsvLine(l)),
         };
       }
-      if (emailRe.test(c1)) {
+      if (EMAIL_RE.test(c1)) {
         return {
           headers: ["name", "email"],
           rows: lines.map((l) => parseCsvLine(l)),
@@ -101,7 +141,10 @@ export function parseCsvText(raw) {
     };
   }
   const headers = first;
-  const rows = lines.slice(1).map(parseCsvLine).filter((r) => r.some((c) => c.trim()));
+  const rows = expandNameTypeEmailRows(
+    headers,
+    lines.slice(1).map(parseCsvLine).filter((r) => r.some((c) => c.trim()))
+  );
   return { headers, rows };
 }
 
@@ -129,7 +172,7 @@ function normalizeLeadRow(rec) {
   )
     .trim()
     .toLowerCase();
-  if (!email || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) return null;
+  if (!email || !EMAIL_RE.test(email)) return null;
 
   const first = rec.first_name || rec.firstname || rec.first || "";
   const last = rec.last_name || rec.lastname || rec.last || "";

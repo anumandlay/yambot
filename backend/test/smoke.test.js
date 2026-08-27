@@ -16,7 +16,7 @@ import {
   renderCompletionTemplate,
   actionMatchesRunOn,
 } from "../src/utils/completionActions.js";
-import { parseCsvText } from "../src/utils/csvLeadsImport.js";
+import { expandNameTypeEmailRows, parseCsvText } from "../src/utils/csvLeadsImport.js";
 
 describe("cronMatch", () => {
   it("matches wildcard minute", () => {
@@ -102,5 +102,22 @@ Kumar Travels,lead,airlines.support@vughy.com`;
     assert.deepEqual(headers, ["name", "type", "email"]);
     assert.equal(rows.length, 2);
     assert.equal(rows[0][2], "support@vughy.com");
+  });
+
+  it("splits multiple name,type,email triplets on one line", () => {
+    const csv =
+      "Sunrise Travel,lead,support@vughy.com,Kumar Travels,lead,airlines.support@vughy.com,Test Agency,lead,corporate.support@vughy.com";
+    const { headers, rows } = parseCsvText(csv);
+    assert.deepEqual(headers, ["name", "type", "email"]);
+    assert.equal(rows.length, 3);
+    assert.equal(rows[2][0], "Test Agency");
+    assert.equal(rows[2][2], "corporate.support@vughy.com");
+  });
+
+  it("expandNameTypeEmailRows leaves wide rows alone when triplets are invalid", () => {
+    const headers = ["name", "type", "email"];
+    const rows = expandNameTypeEmailRows(headers, [["A", "lead", "a@b.com", "extra", "cols"]]);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0].length, 5);
   });
 });
