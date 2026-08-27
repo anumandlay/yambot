@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 14:57] Agent create — Generate fields from plain-English brief
+
+- **Prompt Provided:** Text box on create agent for plain English job; AI generates standing instructions (with entities), persona, skill, success criteria; group assigned separately
+- **Architectural Flow:** POST /api/agents/draft-from-brief uses user LLM via agentDraftFromBrief; AgentEditPage job brief + Generate with AI fills form fields for review
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/agentDraftFromBrief.js`, `backend/src/routes/agents.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 14:50] Agent edit — Entities how-to popup beside instructions
 
 - **Prompt Provided:** On agent create/edit, beside instructions, small link that opens popup explaining entities and how to use them in instructions
