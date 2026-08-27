@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 14:50] Agent edit — Entities how-to popup beside instructions
+
+- **Prompt Provided:** On agent create/edit, beside instructions, small link that opens popup explaining entities and how to use them in instructions
+- **Architectural Flow:** HelpTooltip gains alwaysVisible + linkLabel; agent.entitiesGuide help content with copy-paste examples; AgentEditPage shows link next to Standing instructions (works even when Help toggle is off)
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/HelpTooltip.jsx`, `frontend/src/help/helpContent.js`, `frontend/src/pages/AgentEditPage.jsx`
+
 ## [2026-08-27 14:39] Territory-scoped support tickets by agent group
 
 - **Prompt Provided:** Scope Tickets by country/group like leads so support agents 4–6 share a country ticket table

@@ -13,6 +13,7 @@ import {
   PageGuideBanner,
   SectionTitle,
 } from "../components/FieldLabel.jsx";
+import { HelpTooltip } from "../components/HelpTooltip.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { SiteProfilesPanel } from "../components/SiteProfilesPanel.jsx";
 
@@ -385,12 +386,19 @@ export function AgentEditPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="agent.instructions">Standing instructions</FieldLabel>
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <FieldLabel helpId="agent.instructions">Standing instructions</FieldLabel>
+            <HelpTooltip
+              helpId="agent.entitiesGuide"
+              alwaysVisible
+              linkLabel="Entities & how to use →"
+            />
+          </span>
           <textarea
             className="min-h-28 rounded-xl border border-teal-100 px-3 py-2"
             value={form.instructions}
             onChange={(e) => update("instructions", e.target.value)}
-            placeholder="Clear rules for every run…"
+            placeholder="Clear rules for every run… e.g. create_entity for new leads with status new"
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">

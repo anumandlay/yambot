@@ -457,8 +457,21 @@ export const HELP = {
     title: "Standing instructions",
     body: helpBody(
       "Persistent rules applied on every task run: cite sources, prefer official sites, always screenshot checkout, ask before login, etc.",
-      "These override casual chat tone — treat as mandatory operating procedures."
+      "These override casual chat tone — treat as mandatory operating procedures.",
+      "Use the “Entities & how to use” link next to this field for lead/CRM instruction examples."
     ),
+  },
+  "agent.entitiesGuide": {
+    title: "Entities — your agent’s database",
+    body: helpBody(
+      "Entities are Company CRM records (leads, customers, tickets-as-entities). Agents in the same group (e.g. USA) share one territory database. UK agents cannot see USA leads.",
+      "Common fields you can tell the agent to save:\n• name — agency / contact name\n• type — usually lead\n• status — e.g. new, sent_email, contacted, converted\n• attributes — email, phone, address, website (any keys you invent)",
+      "Lead finder example (paste into instructions):\nSearch Google for travel agencies. For each agency, create_entity type lead, status \"new\", with attributes email, phone, address, website. Skip if email is missing. Avoid duplicates.",
+      "Email / nurture example:\nsearch_entities type lead with status \"new\". For each lead, send a promotional email to attributes.email, then set status to \"sent_email\". Follow up until converted.",
+      "Support agents in the same group can use create_ticket / search_tickets (also territory-scoped). See Queues for tickets; Company → Entities for leads.",
+      "Tip: use the exact same status spelling everywhere (new vs New are different)."
+    ),
+    learnMore: "howto-company",
   },
   "agent.successCriteria": {
     title: "Success criteria",
