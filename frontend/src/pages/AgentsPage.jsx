@@ -10,6 +10,8 @@ import { buildGroupedSections, filterByGroup } from "../lib/groupedList.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { GroupAssignSelect, GroupFilterBar } from "../components/GroupFilterBar.jsx";
+import { GettingStartedCard } from "../components/GettingStartedCard.jsx";
+import { useSetupStatus } from "../hooks/useSetupStatus.js";
 
 /**
  * @param {object} props
@@ -245,6 +247,7 @@ export function AgentsPage() {
   };
 
   const showGrouped = !filterGroupId;
+  const { complete: setupComplete, refresh: refreshSetup } = useSetupStatus();
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6 lg:max-w-4xl">
@@ -271,6 +274,8 @@ export function AgentsPage() {
 
       <PageGuideBanner helpId="agents.page" />
 
+      {!setupComplete ? <GettingStartedCard compact onAgentCreated={refreshSetup} /> : null}
+
       <GroupFilterBar
         entityType="agent"
         groups={groups}
@@ -290,7 +295,11 @@ export function AgentsPage() {
 
       {agents.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-teal-200 bg-white/70 p-6 text-sm text-teal-900/70">
-          No agents yet. Create one, then start a chat with it.
+          No agents yet. Use the setup steps above for a quick create, or{" "}
+          <Link to="/agents/new" className="font-semibold text-teal-800 underline">
+            open the full agent form
+          </Link>{" "}
+          for advanced options.
         </div>
       ) : visibleAgents.length === 0 ? (
         <div className="rounded-2xl border border-dashed border-teal-200 bg-white/70 p-6 text-sm text-teal-900/70">

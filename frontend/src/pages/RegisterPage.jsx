@@ -28,7 +28,7 @@ export function RegisterPage() {
     setError(null);
     try {
       await register({ name, email, password });
-      navigate("/");
+      navigate("/start");
     } catch (err) {
       setError(err);
     } finally {
@@ -39,6 +39,9 @@ export function RegisterPage() {
   return (
     <div className="mx-auto flex w-full max-w-md flex-col gap-4 px-3 py-8 sm:px-4 sm:py-10 md:px-0">
       <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Create your YamBot account</h1>
+      <p className="text-sm text-teal-900/70">
+        After sign-up you&apos;ll connect an AI key, create your first browser agent, and send a goal.
+      </p>
       {error ? (
         <ErrorAlert
           title={error.title}

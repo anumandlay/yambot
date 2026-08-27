@@ -8,6 +8,8 @@ import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
+import { GettingStartedCard } from "../components/GettingStartedCard.jsx";
+import { useSetupStatus } from "../hooks/useSetupStatus.js";
 
 /**
  * @param {object} chat
@@ -26,6 +28,7 @@ export function ChatsPage() {
   const [busyCommon, setBusyCommon] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const navigate = useNavigate();
+  const { complete: setupComplete, refresh: refreshSetup } = useSetupStatus();
 
   const { commonChats, agentChats } = useMemo(() => {
     const common = [];
@@ -195,93 +198,107 @@ export function ChatsPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Chats</h1>
           <p className="text-sm text-teal-900/70">
-            <strong>Common chat</strong> — pick an agent per message. <strong>Agent chats</strong> — one
-            dedicated worker per thread.
+            Send goals in plain English — agents run them in cloud browsers.{" "}
+            <strong>Agent chats</strong> bind one worker per thread.{" "}
+            <strong>Shared inbox</strong> lets you pick an agent per message.
           </p>
         </div>
       </div>
 
-      <PageGuideBanner helpId="chats.page" />
+      <GettingStartedCard compact onAgentCreated={refreshSetup} />
 
-      <section className="flex flex-col gap-2 rounded-2xl border border-violet-100 bg-violet-50/40 p-3 shadow-sm sm:p-4">
-        <h2 className="text-sm font-bold text-violet-950">Common chat</h2>
-        <p className="text-xs text-violet-950/80">
-          One inbox — dispatch each goal to whichever agent you choose.
-        </p>
-        <div className="flex flex-wrap gap-2">
-          <ButtonWithHelp helpId="chats.commonChat">
-            <button
-              type="button"
-              disabled={busyCommon}
-              onClick={openCommonChat}
-              className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-            >
-              {busyCommon ? "Opening…" : commonChats.length ? "Open common chat" : "Start common chat"}
-            </button>
-          </ButtonWithHelp>
-          {commonChats.length ? (
-            <button
-              type="button"
-              disabled={busyCommon}
-              onClick={createAnotherCommonChat}
-              className="min-h-11 rounded-xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-900 disabled:opacity-50"
-            >
-              New common thread
-            </button>
-          ) : null}
+      {!setupComplete ? (
+        <div className="rounded-2xl border border-teal-100 bg-teal-50/40 p-4 text-sm text-teal-900/75">
+          Finish the steps above to unlock chat creation, or open{" "}
+          <Link to="/start" className="font-semibold text-teal-800 underline">
+            Get started
+          </Link>{" "}
+          for the full walkthrough.
         </div>
-      </section>
+      ) : (
+        <>
+          <PageGuideBanner helpId="chats.page" />
 
-      <section className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4">
-        <h2 className="text-sm font-bold text-teal-950">New agent chat</h2>
-        <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
-          <label className="flex w-full min-w-0 flex-col gap-1 text-sm sm:flex-1">
-            <FieldLabel helpId="chats.agentSelect">Agent</FieldLabel>
-            <select
-              className="min-h-11 w-full rounded-xl border border-teal-100 px-3"
-              value={agentId}
-              onChange={(e) => setAgentId(e.target.value)}
-            >
-              {agents.length === 0 ? (
-                <option value="">No agents yet</option>
-              ) : (
-                agents.map((a) => (
-                  <option key={a._id} value={a._id}>
-                    {a.name} ({a.skill})
-                  </option>
-                ))
-              )}
-            </select>
-          </label>
-          <ButtonWithHelp helpId="chats.newChat">
-            <button
-              type="button"
-              disabled={busy || !agentId}
-              onClick={createAgentChat}
-              className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
-            >
-              {busy ? "Creating…" : "New agent chat"}
-            </button>
-          </ButtonWithHelp>
-          <ButtonWithHelp helpId="chats.newAgentLink">
-            <Link
-              to="/agents/new"
-              className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold sm:w-auto"
-            >
-              New agent
+          <section className="flex flex-col gap-2 rounded-2xl border border-violet-100 bg-violet-50/40 p-3 shadow-sm sm:p-4">
+            <h2 className="text-sm font-bold text-violet-950">Shared inbox</h2>
+            <p className="text-xs text-violet-950/80">
+              One thread — choose which agent handles each goal.
+            </p>
+            <div className="flex flex-wrap gap-2">
+              <ButtonWithHelp helpId="chats.commonChat">
+                <button
+                  type="button"
+                  disabled={busyCommon}
+                  onClick={openCommonChat}
+                  className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  {busyCommon ? "Opening…" : commonChats.length ? "Open shared inbox" : "Start shared inbox"}
+                </button>
+              </ButtonWithHelp>
+              {commonChats.length ? (
+                <button
+                  type="button"
+                  disabled={busyCommon}
+                  onClick={createAnotherCommonChat}
+                  className="min-h-11 rounded-xl border border-violet-200 bg-white px-4 text-sm font-semibold text-violet-900 disabled:opacity-50"
+                >
+                  New shared thread
+                </button>
+              ) : null}
+            </div>
+          </section>
+
+          <section className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4">
+            <h2 className="text-sm font-bold text-teal-950">New agent chat</h2>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
+              <label className="flex w-full min-w-0 flex-col gap-1 text-sm sm:flex-1">
+                <FieldLabel helpId="chats.agentSelect">Agent</FieldLabel>
+                <select
+                  className="min-h-11 w-full rounded-xl border border-teal-100 px-3"
+                  value={agentId}
+                  onChange={(e) => setAgentId(e.target.value)}
+                >
+                  {agents.length === 0 ? (
+                    <option value="">No agents yet</option>
+                  ) : (
+                    agents.map((a) => (
+                      <option key={a._id} value={a._id}>
+                        {a.name} ({a.skill})
+                      </option>
+                    ))
+                  )}
+                </select>
+              </label>
+              <ButtonWithHelp helpId="chats.newChat">
+                <button
+                  type="button"
+                  disabled={busy || !agentId}
+                  onClick={createAgentChat}
+                  className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
+                >
+                  {busy ? "Creating…" : "New agent chat"}
+                </button>
+              </ButtonWithHelp>
+              <ButtonWithHelp helpId="chats.newAgentLink">
+                <Link
+                  to="/agents/new"
+                  className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-100 px-4 text-sm font-semibold sm:w-auto"
+                >
+                  New agent
+                </Link>
+              </ButtonWithHelp>
+            </div>
+          </section>
+
+          <div className="break-words rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
+            <strong>Tip:</strong> Watch all agent browsers on{" "}
+            <Link to="/live" className="font-semibold underline">
+              Live Wall
             </Link>
-          </ButtonWithHelp>
-        </div>
-      </section>
-
-      <div className="break-words rounded-2xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
-        <strong>Cloud workers:</strong> Each agent has a dedicated Chromium box on the VPS. Goals queue
-        per agent — watch progress on{" "}
-        <Link to="/live" className="font-semibold underline">
-          Live Wall
-        </Link>
-        .
-      </div>
+            .
+          </div>
+        </>
+      )}
 
       {error ? (
         <ErrorAlert
@@ -292,19 +309,23 @@ export function ChatsPage() {
         />
       ) : null}
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-bold text-teal-900/80">Common</h2>
-        <ul className="flex flex-col gap-2">
-          {renderChatList(commonChats, "No common chats yet — start one above.")}
-        </ul>
-      </section>
+      {setupComplete ? (
+        <>
+          <section className="flex flex-col gap-2">
+            <h2 className="text-sm font-bold text-teal-900/80">Shared inbox</h2>
+            <ul className="flex flex-col gap-2">
+              {renderChatList(commonChats, "No shared inbox threads yet — start one above.")}
+            </ul>
+          </section>
 
-      <section className="flex flex-col gap-2">
-        <h2 className="text-sm font-bold text-teal-900/80">Agent chats</h2>
-        <ul className="flex flex-col gap-2">
-          {renderChatList(agentChats, "No agent chats yet. Pick an agent and start a chat.")}
-        </ul>
-      </section>
+          <section className="flex flex-col gap-2">
+            <h2 className="text-sm font-bold text-teal-900/80">Agent chats</h2>
+            <ul className="flex flex-col gap-2">
+              {renderChatList(agentChats, "No agent chats yet. Pick an agent and start a chat.")}
+            </ul>
+          </section>
+        </>
+      ) : null}
     </div>
   );
 }

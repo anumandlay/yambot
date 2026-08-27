@@ -1,15 +1,18 @@
 /**
  * @fileoverview Left app sidebar with collapse/toggle — replaces the old top nav.
- * Purpose: Mobile drawer + desktop sticky rail for Agents / Chats / System / Settings.
+ * Purpose: Mobile drawer + desktop sticky rail grouped into Start / More / Account.
  * Downstream: ProtectedLayout in App.jsx.
  */
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useHelp } from "../context/HelpContext.jsx";
+import { useSetupStatus } from "../hooks/useSetupStatus.js";
 import { HelpTooltip } from "./HelpTooltip.jsx";
 import { HelpToggle } from "./HelpToggle.jsx";
+
+const MORE_COLLAPSE_KEY = "yambot.sidebar.moreCollapsed";
 
 /**
  * @param {{
@@ -22,6 +25,14 @@ import { HelpToggle } from "./HelpToggle.jsx";
 export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
   const { user, logout } = useAuth();
   const { helpEnabled } = useHelp();
+  const { complete: setupComplete } = useSetupStatus();
+  const [moreCollapsed, setMoreCollapsed] = useState(() => {
+    try {
+      return localStorage.getItem(MORE_COLLAPSE_KEY) !== "0";
+    } catch {
+      return true;
+    }
+  });
 
   // Why: lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -32,6 +43,14 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       document.body.style.overflow = prev;
     };
   }, [open]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem(MORE_COLLAPSE_KEY, moreCollapsed ? "1" : "0");
+    } catch {
+      /* ignore */
+    }
+  }, [moreCollapsed]);
 
   const linkClass = ({ isActive }) =>
     `flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold transition-colors ${
@@ -59,33 +78,85 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
     );
   }
 
+  /**
+   * @param {{ label: string }} props
+   */
+  function SectionLabel({ label }) {
+    if (collapsed) return null;
+    return (
+      <div className="px-3 pb-1 pt-2 text-[0.65rem] font-bold uppercase tracking-wider text-teal-800/50">
+        {label}
+      </div>
+    );
+  }
+
   const nav = (
     <nav
-      className="flex min-h-0 flex-1 flex-col gap-1.5 overflow-y-auto overscroll-contain p-3"
+      className="flex min-h-0 flex-1 flex-col gap-0.5 overflow-y-auto overscroll-contain p-3"
       aria-label="Main"
     >
       {user?.isSuperAdmin || user?.role === "superadmin" ? (
         <NavItem to="/admin/users" helpId="admin.nav" letter="SA" label="Super admin" />
       ) : null}
+
+      {!setupComplete ? (
+        <NavItem to="/start" helpId="nav.start" letter="★" label="Get started" />
+      ) : null}
+
+      <SectionLabel label="Start here" />
+      <NavItem to="/" helpId="nav.chats" letter="C" label="Chats" end />
+      <NavItem to="/agents" helpId="nav.agents" letter="A" label="Agents" />
+      <NavItem to="/live" helpId="nav.live" letter="L" label="Live Wall" />
+      <NavItem to="/goals" helpId="nav.goals" letter="G" label="Scheduled goals" />
+
       {helpEnabled ? (
         <NavItem to="/how-to" helpId="nav.howto" letter="?" label="How To" />
       ) : null}
-      <NavItem to="/agents" helpId="nav.agents" letter="A" label="Agents" />
-      <NavItem to="/goals" helpId="nav.goals" letter="G" label="Goals" />
-      <NavItem to="/live" helpId="nav.live" letter="L" label="Live Wall" />
-      <NavItem to="/" helpId="nav.chats" letter="C" label="Chats" end />
-      <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
-      <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
-      <NavItem to="/queues" helpId="nav.queues" letter="Q" label="Queues" />
-      <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
-      <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
-      <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
-      <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
-      <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
-      <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
-      <NavItem to="/system" helpId="nav.system" letter="S" label="System" />
+
+      {/* Why: enterprise modules overwhelm new users — tuck them under a collapsible group. */}
+      {collapsed ? (
+        <>
+          <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
+          <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
+          <NavItem to="/queues" helpId="nav.queues" letter="Q" label="Queues" />
+          <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
+          <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
+          <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
+          <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Workflows" />
+          <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
+          <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
+        </>
+      ) : (
+        <>
+          <button
+            type="button"
+            onClick={() => setMoreCollapsed((v) => !v)}
+            className="mt-2 flex min-h-9 items-center justify-between rounded-lg px-3 text-[0.65rem] font-bold uppercase tracking-wider text-teal-800/50 hover:bg-teal-50"
+            aria-expanded={!moreCollapsed}
+          >
+            <span>More</span>
+            <span aria-hidden>{moreCollapsed ? "▸" : "▾"}</span>
+          </button>
+          {!moreCollapsed ? (
+            <div className="flex flex-col gap-0.5">
+              <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
+              <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
+              <NavItem to="/queues" helpId="nav.queues" letter="Q" label="Queues" />
+              <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
+              <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
+              <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
+              <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Workflows" />
+              <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
+              <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
+            </div>
+          ) : null}
+        </>
+      )}
+
+      <SectionLabel label="Account" />
       <NavItem to="/settings" helpId="nav.settings" letter="⚙" label="Settings" />
       <NavItem to="/wallet" helpId="nav.wallet" letter="$" label="Wallet" />
+      <NavItem to="/system" helpId="nav.system" letter="S" label="System" />
     </nav>
   );
 
@@ -112,7 +183,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
           }`}
         >
           <Link
-            to="/"
+            to={setupComplete ? "/" : "/start"}
             onClick={onClose}
             className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 ${
               collapsed ? "lg:flex-none lg:justify-center" : ""

@@ -1,6 +1,11 @@
 # PROMPT_LOG.md
 
-## [2026-08-27 11:50] CSV import — multiple agencies on one line
+## [2026-08-27 12:00] UX simplification — guided setup + grouped nav
+
+- **Prompt Provided:** User finds the product confusing; wants it easy to do things
+- **Architectural Flow:** Add `/start` welcome page + GettingStartedCard checklist (LLM → quick agent → chat); group sidebar into Start here / More / Account; rename Common chat → Shared inbox, Skills → Workflows, Goals → Scheduled goals; register/login redirect to `/start`
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/hooks/useSetupStatus.js`, `frontend/src/components/GettingStartedCard.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/pages/StartPage.jsx`, `frontend/src/pages/ChatsPage.jsx`, `frontend/src/pages/AgentsPage.jsx`, `frontend/src/pages/RegisterPage.jsx`, `frontend/src/pages/LoginPage.jsx`, `frontend/src/App.jsx`
+
 
 - **Prompt Provided:** User pasted 3 agencies but only 1 lead was imported
 - **Architectural Flow:** expand wide `name,type,email` rows when pasted without line breaks; clearer import result message in UI

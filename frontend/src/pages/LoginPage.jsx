@@ -31,7 +31,7 @@ export function LoginPage() {
     setError(null);
     try {
       await login({ email, password });
-      navigate("/");
+      navigate("/start");
     } catch (err) {
       setError(err);
     } finally {

@@ -20,6 +20,14 @@ export function helpBody(...parts) {
 /** @type {Record<string, HelpEntry>} */
 export const HELP = {
   // ─── Global / navigation ─────────────────────────────────────────────
+  "nav.start": {
+    title: "Get started",
+    body: helpBody(
+      "First-run checklist: connect your LLM, create one agent, open a chat, and send a goal.",
+      "Complete these three steps once — after that, Chats is your home for day-to-day work."
+    ),
+    learnMore: "getting-started",
+  },
   "nav.agents": {
     title: "Agents",
     body: helpBody(
