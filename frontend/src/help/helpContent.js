@@ -28,6 +28,13 @@ export const HELP = {
     ),
     learnMore: "getting-started",
   },
+  "nav.agentActions": {
+    title: "Agent actions",
+    body: helpBody(
+      "Reference catalog of every command agents can run: navigate, create_entity, update_kpi, send_email, and more.",
+      "Copy example instructions into Goals or chats — the LLM picks actions; YamBot saves to chat or database as documented."
+    ),
+  },
   "nav.agents": {
     title: "Agents",
     body: helpBody(

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 13:25] Agent Actions reference page
+
+- **Prompt Provided:** User wants a page listing all agent actions with clear explanations and usage examples
+- **Architectural Flow:** Add agentActionsContent.js catalog + AgentActionsPage with search/TOC/copy; route /agent-actions; sidebar link under Start here
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/help/agentActionsContent.js`, `frontend/src/pages/AgentActionsPage.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 12:32] Fix update_kpi — auto-inject goalRef from task
 
 - **Prompt Provided:** Goal test run succeeded but update_kpi failed (empty goalId); user testing KPI + autonomy with vughy/yahoo goal
