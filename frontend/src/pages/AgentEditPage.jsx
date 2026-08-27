@@ -436,8 +436,9 @@ export function AgentEditPage() {
           </span>
           <p className="text-xs text-violet-950/70">
             Example: search Google for new travel agency leads and save them in the database with
-            email and phone. AI will draft persona, skill, standing instructions, and success
-            criteria. Assign the country group below separately.
+            email and phone — or “collect daily weather with city, tempC, humidity into a weather
+            table”. AI will draft persona, skill, standing instructions, and success criteria.
+            Assign the country group below separately.
           </p>
           <textarea
             className="min-h-24 rounded-xl border border-violet-100 bg-white px-3 py-2 text-sm"

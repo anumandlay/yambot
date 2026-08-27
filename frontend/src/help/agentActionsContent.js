@@ -243,9 +243,9 @@ export const AGENT_ACTION_SECTIONS = [
         whenToUse: "Before create_entity — avoid duplicate leads; pull status=new for nurture agents.",
         savesTo: "Reads database only.",
         exampleInstruction:
-          "search_entities for type lead with status new, then email each contact.",
+          "search_entities for type lead with status new, then email each contact. For custom tables: kind weather.",
         exampleJson:
-          '{ "type": "search_entities", "query": "", "type_filter": "lead", "status": "new", "limit": 10 }',
+          '{ "type": "search_entities", "query": "", "type_filter": "custom", "kind": "weather", "limit": 10 }',
       },
       {
         id: "get_entity",
@@ -263,9 +263,9 @@ export const AGENT_ACTION_SECTIONS = [
         whenToUse: "Sales prospecting — save each new agency/contact you find on the web.",
         savesTo: "Company → Entities (MongoDB), tagged with the agent's group (e.g. USA).",
         exampleInstruction:
-          "For each new agency: create_entity with name, type lead, status new, attributes { email, phone, address, website }.",
+          "For each new agency: create_entity type lead status new with attributes. For weather: type custom, kind weather, attributes { city, tempC }.",
         exampleJson:
-          '{ "type": "create_entity", "name": "Sunshine Travel", "type_filter": "lead", "status": "new", "attributes": { "email": "info@sun.com", "phone": "+1…", "address": "LA" } }',
+          '{ "type": "create_entity", "name": "NYC 2026-08-28", "type_filter": "custom", "kind": "weather", "attributes": { "city": "NYC", "tempC": 22 } }',
       },
       {
         id: "update_entity",

@@ -2215,13 +2215,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
             agentId: config.agentId,
             query: action.query || action.q,
             type: action.type_filter || action.entityType || action.type,
+            kind: action.kind || action.table || action.tableName,
             status: action.status,
             limit: action.limit,
           }),
         });
         notes.push(
           `Entities (${result.count || 0}):\n${(result.entities || [])
-            .map((e) => `- ${e._id} ${e.type}: ${e.name} (${e.status})`)
+            .map((e) => `- ${e._id} ${e.type}${e.kind ? `/${e.kind}` : ""}: ${e.name} (${e.status})`)
             .join("\n") || "(none)"}`
         );
         return { ok: true, entities: result.entities };
@@ -2244,6 +2245,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             agentId: config.agentId,
             name: action.name,
             type: action.type_filter || action.entityType || action.type,
+            kind: action.kind || action.table || action.tableName,
             externalId: action.externalId,
             status: action.status,
             attributes: action.attributes,
@@ -2260,6 +2262,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             entityId: action.entityId || action.id,
             name: action.name,
             status: action.status,
+            kind: action.kind || action.table || action.tableName,
             externalId: action.externalId,
             attributes: action.attributes,
           }),

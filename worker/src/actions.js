@@ -83,9 +83,9 @@ Action fields:
 - ask_user: { "type":"ask_user", "question":"..." }
 - send_email: { "type":"send_email", "to":"user@example.com", "subject":"...", "text":"...", "entityId":"...", "inReplyTo":"...", "references":"..." }
 - check_email: { "type":"check_email", "limit": 8, "unseenOnly": false, "entityId":"..." }
-- search_entities: { "type":"search_entities", "query":"aanya", "type_filter":"lead", "status":"new", "limit": 10 } — scoped to this agent's territory group
+- search_entities: { "type":"search_entities", "query":"aanya", "type_filter":"lead", "status":"new", "limit": 10 } — scoped to this agent's territory group; optional "kind":"weather" for custom tables
 - get_entity: { "type":"get_entity", "entityId":"..." }
-- create_entity: { "type":"create_entity", "name":"...", "type_filter":"lead", "status":"new", "attributes": { "email":"...", "phone":"...", "address":"..." } } — saved into the agent's group lead DB
+- create_entity: { "type":"create_entity", "name":"...", "type_filter":"lead", "status":"new", "attributes": { "email":"...", "phone":"...", "address":"..." } } — or type_filter "custom" + "kind":"weather" + attributes for ad-hoc tables
 - update_entity: { "type":"update_entity", "entityId":"...", "status":"converted", "attributes": { "tier":"gold" } }
 - add_entity_observation: { "type":"add_entity_observation", "entityId":"...", "content":"...", "kind":"note" }
 - start_process: { "type":"start_process", "definitionId":"...", "entityId":"...", "note":"..." }
@@ -131,7 +131,7 @@ Rules:
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
 - Image/Amazon captchas cannot be solved automatically — ask_user so the human uses Take control on the live screen.
 - When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail (do not invent an inbox). Prefer send_email over Gmail web compose when SMTP is set.
-- COMPANY DATABASE: use search_entities / get_entity to find leads and customers in THIS agent's territory group (same agent group folder, e.g. USA); update_entity and add_entity_observation to persist CRM state; create_entity for new contacts (defaults status "new" for leads). Filter by status "new" for unworked leads. Threaded replies: pass inReplyTo from prior outbound messageId when replying.
+- COMPANY DATABASE: use search_entities / get_entity to find leads and customers in THIS agent's territory group (same agent group folder, e.g. USA); update_entity and add_entity_observation to persist CRM state; create_entity for new contacts (defaults status "new" for leads). For custom datasets (weather, inventory, …) use type_filter "custom" and kind "<table_name>" with attributes for fields. Filter by status "new" for unworked leads. Threaded replies: pass inReplyTo from prior outbound messageId when replying.
 - TICKETS & STATE: use update_ticket for support queue; set_entity_status / assign_entity for CRM; update_enrollment after confirmed send_email; update_kpi to record goal progress (or include "KPI: name +1" in finish summary).
 `.trim();
 

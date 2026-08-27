@@ -94,6 +94,8 @@ export async function draftAgentFromBrief(userId, brief) {
     "- If the brief involves finding/saving leads, contacts, CRM, or a database: include create_entity / search_entities / update_entity or set_entity_status.",
     "  For new leads use type lead, status \"new\", and attributes such as email, phone, address, website when available.",
     "  Tell the agent to skip duplicates and skip rows without email when prospecting.",
+    "- If the brief invents a custom dataset/table (weather, inventory, surveys, …): use type custom and kind \"<table_name>\" (slug, e.g. weather).",
+    "  Put the fields in attributes. Instruct create_entity and search_entities with the same kind so another agent can read that table.",
     "- If the brief involves support issues: mention create_ticket / search_tickets / update_ticket.",
     "- If the brief involves email outreach: mention send_email and status updates after send.",
     "- Do NOT mention country, territory, or agent group folders — the human assigns the group separately.",

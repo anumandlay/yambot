@@ -9,6 +9,7 @@ import { Entity, ENTITY_TYPES, appendEntityObservation } from "../models/Entity.
 import { EntityGroup } from "../models/EntityGroup.js";
 import { importLeadsFromCsv, CSV_IMPORT_MAX_ROWS } from "../utils/csvLeadsImport.js";
 import { applyGroupIdQuery } from "../utils/entityTerritory.js";
+import { kindFromBody, normalizeEntityKind } from "../utils/entityKind.js";
 
 export const entitiesRouter = Router();
 
@@ -20,6 +21,8 @@ entitiesRouter.get("/", async (req, res, next) => {
   try {
     let filter = { user: req.userId };
     if (req.query.type) filter.type = String(req.query.type);
+    const kind = normalizeEntityKind(req.query.kind || req.query.table || "");
+    if (kind) filter.kind = kind;
     filter = applyGroupIdQuery(filter, req.query.groupId);
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
     const [entities, total] = await Promise.all([
@@ -108,6 +111,7 @@ entitiesRouter.get("/import/meta", (_req, res) => {
 entitiesRouter.post("/", async (req, res, next) => {
   try {
     const body = req.body || {};
+    const kind = kindFromBody(body);
     const type = ENTITY_TYPES.includes(body.type) ? body.type : "custom";
     let group = null;
     if (body.group != null || body.groupId != null) {
@@ -125,6 +129,7 @@ entitiesRouter.post("/", async (req, res, next) => {
       user: req.userId,
       group,
       type,
+      kind,
       name: String(body.name || "").trim(),
       externalId: String(body.externalId || "").trim(),
       status: body.status || (type === "lead" ? "new" : "active"),
@@ -169,6 +174,9 @@ entitiesRouter.put("/:id", async (req, res, next) => {
     if (body.type != null && ENTITY_TYPES.includes(body.type)) entity.type = body.type;
     if (body.status != null) entity.status = String(body.status).trim();
     if (body.externalId != null) entity.externalId = String(body.externalId).trim();
+    if (body.kind != null || body.table != null) {
+      entity.kind = kindFromBody(body);
+    }
     if (body.attributes != null && typeof body.attributes === "object") {
       entity.attributes = body.attributes;
       entity.markModified("attributes");

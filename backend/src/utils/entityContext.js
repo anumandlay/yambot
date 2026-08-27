@@ -29,6 +29,7 @@ export function formatEntityBlock(entity) {
       : "";
   return [
     `ENTITY ${entity._id} (${entity.type || "custom"}): ${entity.name}`,
+    entity.kind ? `Table/kind: ${entity.kind}` : "",
     entity.status ? `Status: ${entity.status}` : "",
     entity.group ? `Territory group: ${entity.group}` : "Territory group: (ungrouped)",
     entity.externalId ? `External ID: ${entity.externalId}` : "",

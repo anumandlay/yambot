@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 15:21] Custom entity tables via Entity.kind
+
+- **Prompt Provided:** Create arbitrary tables (e.g. weather) with fields; one agent writes, another reads in same group
+- **Architectural Flow:** Entity.kind = custom table slug; create/search/update accept kind/table; AI brief + help teach type custom + kind; Company type/kind filters
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/entityKind.js`, `backend/src/models/Entity.js`, `backend/src/routes/workerEntities.js`, `backend/src/routes/entities.js`, `backend/src/utils/entityContext.js`, `backend/src/utils/agentDraftFromBrief.js`, `worker/src/agent.js`, `worker/src/actions.js`, `frontend/src/pages/CompanyPage.jsx`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`, `frontend/src/help/agentActionsContent.js`
+
 ## [2026-08-27 15:14] Agent edit — upload leads into agent group territory
 
 - **Prompt Provided:** Upload leads on the agent page so they go to that agent's database

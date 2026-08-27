@@ -29,6 +29,7 @@ import {
   resolveAgentTerritory,
   ticketInTerritory,
 } from "../utils/entityTerritory.js";
+import { kindFromBody } from "../utils/entityKind.js";
 
 export const workerEntitiesRouter = Router();
 
@@ -41,6 +42,8 @@ async function buildEntitySearchFilter(userId, body) {
   let filter = { user: userId };
   if (body.type && ENTITY_TYPES.includes(body.type)) filter.type = body.type;
   if (body.status) filter.status = String(body.status);
+  const kind = kindFromBody(body);
+  if (kind) filter.kind = kind;
   const agentId = String(body.agentId || "").trim();
   if (agentId) {
     const { groupId } = await resolveAgentTerritory(userId, agentId);
@@ -85,6 +88,7 @@ workerEntitiesRouter.post("/entities/search", async (req, res, next) => {
       entities: entities.map((e) => ({
         _id: e._id,
         type: e.type,
+        kind: e.kind || "",
         name: e.name,
         status: e.status,
         group: e.group || null,
@@ -134,7 +138,9 @@ workerEntitiesRouter.post("/entities/create", async (req, res, next) => {
       res.status(400).json({ ok: false, detail: "name required" });
       return;
     }
-    const type = ENTITY_TYPES.includes(body.type) ? body.type : "lead";
+    const kind = kindFromBody(body);
+    /** Why: custom tables (weather, …) default to type custom; plain CRM still defaults to lead. */
+    const type = ENTITY_TYPES.includes(body.type) ? body.type : kind ? "custom" : "lead";
     /** Why: travel-agency CRM loop defaults new leads to status "new" for the nurture agent filter. */
     const defaultStatus = type === "lead" ? "new" : "active";
     const territory = await resolveAgentTerritory(req.userId, body.agentId);
@@ -142,6 +148,7 @@ workerEntitiesRouter.post("/entities/create", async (req, res, next) => {
       user: req.userId,
       group: territory.groupId,
       type,
+      kind,
       name,
       externalId: String(body.externalId || "").trim(),
       status: String(body.status || defaultStatus).trim(),
@@ -172,6 +179,9 @@ workerEntitiesRouter.post("/entities/update", async (req, res, next) => {
     if (req.body?.name != null) entity.name = String(req.body.name).trim();
     if (req.body?.status != null) entity.status = String(req.body.status).trim();
     if (req.body?.externalId != null) entity.externalId = String(req.body.externalId).trim();
+    if (req.body?.kind != null || req.body?.table != null) {
+      entity.kind = kindFromBody(req.body);
+    }
     if (req.body?.attributes != null && typeof req.body.attributes === "object") {
       entity.attributes = { ...(entity.attributes || {}), ...req.body.attributes };
       entity.markModified("attributes");

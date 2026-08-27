@@ -23,6 +23,8 @@ export function CompanyPage() {
   const [agentGroups, setAgentGroups] = useState([]);
   const [entityGroupFilter, setEntityGroupFilter] = useState("");
   const [entityFormGroupId, setEntityFormGroupId] = useState("");
+  const [entityKindFilter, setEntityKindFilter] = useState("");
+  const [entityListType, setEntityListType] = useState("lead");
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
 
@@ -60,9 +62,14 @@ export function CompanyPage() {
         : entityGroupFilter
           ? `&groupId=${encodeURIComponent(entityGroupFilter)}`
           : "";
+    const typeQs =
+      entityListType && entityListType !== "all" ? `&type=${encodeURIComponent(entityListType)}` : "";
+    const kindQs = entityKindFilter.trim()
+      ? `&kind=${encodeURIComponent(entityKindFilter.trim())}`
+      : "";
     const [ent, mem, proc, dash, camp, agentData, groupData, inst, mail, stats, teamData] =
       await Promise.all([
-        api(`/api/entities?type=lead&limit=500${groupQs}`),
+        api(`/api/entities?limit=500${typeQs}${groupQs}${kindQs}`),
         api("/api/company-memory"),
         api("/api/processes/definitions"),
         api("/api/company-dashboard").catch(() => ({ dashboard: null })),
@@ -86,7 +93,7 @@ export function CompanyPage() {
     setAgentGroups(groupData.groups || []);
     setProcessInstances(inst.instances || []);
     setEmailLog(mail.messages || []);
-  }, [entityGroupFilter]);
+  }, [entityGroupFilter, entityKindFilter, entityListType]);
 
   useEffect(() => {
     load().catch((err) => setError(err));
@@ -471,6 +478,31 @@ export function CompanyPage() {
             </select>
           </label>
 
+          <div className="flex flex-wrap gap-3">
+            <label className="flex min-w-[8rem] flex-col gap-1 text-sm">
+              <span className="font-medium">Type</span>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 bg-white px-3 text-sm"
+                value={entityListType}
+                onChange={(e) => setEntityListType(e.target.value)}
+              >
+                <option value="lead">lead</option>
+                <option value="custom">custom</option>
+                <option value="customer">customer</option>
+                <option value="all">all types</option>
+              </select>
+            </label>
+            <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.entityKind">Custom table (kind)</FieldLabel>
+              <input
+                className="min-h-11 rounded-xl border border-teal-100 bg-white px-3 text-sm"
+                value={entityKindFilter}
+                onChange={(e) => setEntityKindFilter(e.target.value)}
+                placeholder="e.g. weather (blank = any)"
+              />
+            </label>
+          </div>
+
           <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
               <FieldLabel helpId="company.csvImport">Bulk CSV import</FieldLabel>
@@ -569,7 +601,8 @@ export function CompanyPage() {
               <li key={en._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
                 <div className="font-semibold">{en.name}</div>
                 <div className="text-teal-900/70">
-                  {en.type} · {en.status}
+                  {en.type}
+                  {en.kind ? `/${en.kind}` : ""} · {en.status}
                   {en.group?.name || en.group
                     ? ` · ${en.group?.name || "territory"}`
                     : " · ungrouped"}
