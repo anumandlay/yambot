@@ -6,6 +6,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { PageGuideBanner } from "../components/FieldLabel.jsx";
 
@@ -102,6 +103,7 @@ function CpuChart({ values, color = "#0f766e", label = "CPU", height = 120 }) {
 }
 
 export function SystemPage() {
+  const { user } = useAuth();
   const [overview, setOverview] = useState(null);
   const [error, setError] = useState(null);
   const [hostHistory, setHostHistory] = useState([]);
@@ -183,6 +185,15 @@ export function SystemPage() {
         <p className="text-sm text-teal-900/70">
           Live Docker containers on the VPS and processor load. Refreshes every few seconds.
         </p>
+        {overview?.scope === "user" ? (
+          <p className="mt-1 text-xs text-teal-800/70">
+            Showing cloud computers for <strong>your agents</strong> only.
+          </p>
+        ) : user?.isSuperAdmin ? (
+          <p className="mt-1 text-xs text-teal-800/70">
+            Super admin view — all platform and agent containers on this VPS.
+          </p>
+        ) : null}
       </div>
 
       <PageGuideBanner helpId="system.page" />
@@ -275,7 +286,9 @@ export function SystemPage() {
               {(overview?.containers || []).length === 0 ? (
                 <tr>
                   <td colSpan={6} className="px-3 py-6 text-teal-900/60">
-                    No containers reported yet.
+                    {overview?.scope === "user"
+                      ? "No cloud computers running for your agents yet. Create an agent to provision one."
+                      : "No containers reported yet."}
                   </td>
                 </tr>
               ) : (

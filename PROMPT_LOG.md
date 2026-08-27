@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 10:45] System page — tenant-scoped agent containers
+
+- **Prompt Provided:** System page should show only the user's agents; super admin sees all
+- **Architectural Flow:** `/api/system/overview` filters `yambot-agent-*` by Agent.user unless isSuperAdmin; stop endpoint checks ownership; SystemPage shows scope hint
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/system.js`, `frontend/src/pages/SystemPage.jsx`
+
 ## [2026-08-27 10:35] Fix YamBot AppSidebar nav scroll
 
 - **Prompt Provided:** Left YamBot app menu (AppSidebar) does not scroll to reach Log out

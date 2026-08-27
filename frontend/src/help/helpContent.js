@@ -1658,8 +1658,8 @@ export const HELP = {
   "system.page": {
     title: "System page",
     body: helpBody(
-      "Infrastructure dashboard: API health, docker worker containers per agent, restart actions.",
-      "Use when agent shows offline or after deploy to confirm version."
+      "Cloud computer inventory and CPU charts. Regular users see only containers for agents they own.",
+      "Super admins see every agent and platform container on the VPS."
     ),
     learnMore: "howto-system",
   },
