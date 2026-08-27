@@ -6,9 +6,21 @@
 
 import mongoose from "mongoose";
 
+/**
+ * Fixed world-model categories (agents cannot invent new type strings).
+ * Use `kind` for user segments/tables (airlines, weather) inside a type.
+ * - lead: prospect not sold yet
+ * - customer: won / paying account
+ * - vendor: supplier you buy from
+ * - product: thing you sell
+ * - process: workflow-linked object (prefer Process definitions UI)
+ * - document: contract/file-style record
+ * - ticket: support case as entity (prefer Ticket queue for email)
+ * - custom: invented datasets; pair with kind + attributes
+ */
 export const ENTITY_TYPES = [
-  "customer",
   "lead",
+  "customer",
   "vendor",
   "product",
   "process",

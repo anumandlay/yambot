@@ -259,13 +259,13 @@ export const AGENT_ACTION_SECTIONS = [
       {
         id: "create_entity",
         title: "create_entity",
-        summary: "Create a lead/customer in this agent's territory group lead DB.",
-        whenToUse: "Sales prospecting — save each new agency/contact you find on the web.",
+        summary: "Create a Company record in this agent's territory (lead, customer, custom table, …).",
+        whenToUse: "Prospecting, CRM, or inventing a dataset (weather). name is always required.",
         savesTo: "Company → Entities (MongoDB), tagged with the agent's group (e.g. USA).",
         exampleInstruction:
-          "For each new agency: create_entity type lead status new with attributes. For weather: type custom, kind weather, attributes { city, tempC }.",
+          "Leads: type lead + kind airlines|corporate|travel_agency_leads. Custom: type custom + kind weather + attributes.",
         exampleJson:
-          '{ "type": "create_entity", "name": "NYC 2026-08-28", "type_filter": "custom", "kind": "weather", "attributes": { "city": "NYC", "tempC": 22 } }',
+          '{ "type": "create_entity", "name": "Acme Air", "type_filter": "lead", "kind": "airlines", "status": "new", "attributes": { "email": "info@acme.com" } }',
       },
       {
         id: "update_entity",

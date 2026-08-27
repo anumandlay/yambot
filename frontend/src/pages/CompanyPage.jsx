@@ -6,6 +6,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import { ENTITY_TYPE_OPTIONS } from "../lib/entityTypes.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 
@@ -479,26 +480,28 @@ export function CompanyPage() {
           </label>
 
           <div className="flex flex-wrap gap-3">
-            <label className="flex min-w-[8rem] flex-col gap-1 text-sm">
-              <span className="font-medium">Type</span>
+            <label className="flex min-w-[10rem] flex-col gap-1 text-sm">
+              <FieldLabel helpId="company.entityType">Type</FieldLabel>
               <select
                 className="min-h-11 rounded-xl border border-teal-100 bg-white px-3 text-sm"
                 value={entityListType}
                 onChange={(e) => setEntityListType(e.target.value)}
               >
-                <option value="lead">lead</option>
-                <option value="custom">custom</option>
-                <option value="customer">customer</option>
-                <option value="all">all types</option>
+                <option value="all">All types</option>
+                {ENTITY_TYPE_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-sm">
-              <FieldLabel helpId="company.entityKind">Custom table (kind)</FieldLabel>
+              <FieldLabel helpId="company.entityKind">Kind (segment / table)</FieldLabel>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 bg-white px-3 text-sm"
                 value={entityKindFilter}
                 onChange={(e) => setEntityKindFilter(e.target.value)}
-                placeholder="e.g. weather (blank = any)"
+                placeholder="e.g. airlines, weather (blank = any)"
               />
             </label>
           </div>
@@ -572,15 +575,17 @@ export function CompanyPage() {
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
-              <span className="font-medium">Type</span>
+              <FieldLabel helpId="company.entityType">Type</FieldLabel>
               <select
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
                 value={entityType}
                 onChange={(e) => setEntityType(e.target.value)}
               >
-                <option value="lead">lead</option>
-                <option value="customer">customer</option>
-                <option value="vendor">vendor</option>
+                {ENTITY_TYPE_OPTIONS.map((t) => (
+                  <option key={t.value} value={t.value}>
+                    {t.label}
+                  </option>
+                ))}
               </select>
             </label>
             <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-sm">

@@ -482,12 +482,13 @@ export const HELP = {
     title: "Entities — your agent’s database",
     body: helpBody(
       "Entities are Company CRM records in the agent's group territory (e.g. USA). Agents in the same group share that database.",
-      "Built-in: type lead (sales) with status new → contacted → converted. Support uses Tickets (also territory-scoped).",
-      "Custom tables: type custom + kind \"weather\" (any name you invent). Fields go in attributes (city, tempC, humidity, …). Another agent searches with the same kind.",
-      "Lead finder example:\ncreate_entity type lead, status \"new\", attributes email, phone, address, website.",
-      "Weather writer example:\ncreate_entity type custom, kind \"weather\", name \"NYC 2026-08-28\", attributes { city, tempC, humidity, date }.",
-      "Weather reader example:\nsearch_entities type custom, kind \"weather\" — summarize today's rows.",
-      "Tip: use the exact same kind spelling everywhere (weather vs Weather are normalized to weather)."
+      "type (fixed): lead | customer | vendor | product | process | document | ticket | custom.",
+      "kind (yours): segment or table inside a type — e.g. lead+kind airlines, custom+kind weather.",
+      "lead = prospect (status new → contacted → converted). customer = won. vendor = supplier. product = what you sell. custom = invented data (always set kind). Prefer Queues → Tickets for support email.",
+      "Lead finder:\ncreate_entity type lead, kind \"travel_agency_leads\", status \"new\", attributes email, phone, website.",
+      "Weather writer:\ncreate_entity type custom, kind \"weather\", name \"NYC 2026-08-28\", attributes { city, tempC, humidity, date }.",
+      "Weather reader:\nsearch_entities type custom, kind \"weather\".",
+      "Tip: same kind spelling everywhere (normalized to lowercase snake_case)."
     ),
     learnMore: "howto-company",
   },
@@ -1503,11 +1504,20 @@ export const HELP = {
   "company.entities": {
     title: "Entities",
     body: helpBody(
-      "Customers, leads, vendors, custom objects with name, externalId, status, attributes, and temporal observations (notes that age over time).",
-      "Leads inherit the creating agent's territory group (e.g. USA). Agents in that group share the pool; other groups cannot see those leads.",
-      "Custom tables: type custom + kind (e.g. weather) with fields in attributes. Filter Company by kind when viewing.",
-      "Bulk CSV import creates or updates leads by email within the selected territory. Campaigns enroll leads from the campaign agent's territory only.",
-      "POST observations when new facts arrive from tasks or integrations."
+      "World-model records: name (required), type, kind, status, attributes, observations, territory group.",
+      "Types: lead (prospect), customer (won), vendor (supplier), product (what you sell), process/document/ticket (secondary), custom (invented tables via kind).",
+      "kind splits a type (lead+airlines, custom+weather). Filter Company by type and kind.",
+      "Bulk CSV import creates/updates leads by email in the selected territory. Campaigns enroll that territory only."
+    ),
+  },
+  "company.entityType": {
+    title: "Entity type",
+    body: helpBody(
+      "Fixed list — you cannot invent new type strings.",
+      "lead — prospect. customer — won account. vendor — supplier. product — offering.",
+      "process / document / ticket — specialized; prefer Processes UI and Tickets queue when those fit better.",
+      "custom — any invented dataset; set kind (weather, inventory) and put fields in attributes.",
+      "Segments like airlines or corporate stay type lead with kind airlines / corporate."
     ),
   },
   "company.territoryFilter": {
@@ -1517,9 +1527,10 @@ export const HELP = {
     ),
   },
   "company.entityKind": {
-    title: "Custom table (kind)",
+    title: "Kind (segment / table)",
     body: helpBody(
-      "Optional filter for user-defined tables (weather, inventory). Leave blank to see all. Agents use create_entity kind \"weather\" with type custom."
+      "Optional free-text filter. Examples: airlines, corporate, travel_agency_leads, weather.",
+      "Leave blank to see all kinds. Agents pass the same kind on create_entity / search_entities."
     ),
   },
   "company.csvImport": {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 15:54] Surface all Entity types in Company + docs
+
+- **Prompt Provided:** Update all entity types in the project so Company/help/agents list the full type catalog
+- **Architectural Flow:** Shared frontend ENTITY_TYPE_OPTIONS; Company filter + Add form use full enum; help + worker prompts document lead|customer|vendor|product|process|document|ticket|custom vs kind
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/lib/entityTypes.js`, `frontend/src/pages/CompanyPage.jsx`, `frontend/src/help/helpContent.js`, `frontend/src/help/agentActionsContent.js`, `backend/src/models/Entity.js`, `backend/src/utils/agentDraftFromBrief.js`, `worker/src/actions.js`
+
 ## [2026-08-27 15:21] Custom entity tables via Entity.kind
 
 - **Prompt Provided:** Create arbitrary tables (e.g. weather) with fields; one agent writes, another reads in same group
