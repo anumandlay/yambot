@@ -1,6 +1,6 @@
 /**
  * @fileoverview Create / edit a durable goal (Employee OS / Layer 1).
- * Purpose: Title, instructions, KPIs, priority, parent goal, assigned agent.
+ * Purpose: Title, instructions, KPIs, priority, parent goal, assigned agent; optional AI draft from brief.
  */
 
 import { useEffect, useState } from "react";
@@ -13,6 +13,7 @@ import {
   PageGuideBanner,
   SectionTitle,
 } from "../components/FieldLabel.jsx";
+import { HelpTooltip } from "../components/HelpTooltip.jsx";
 import { OutcomeBranchesEditor, sanitizeOutcomeBranchesForSave } from "../components/OutcomeBranchesEditor.jsx";
 import {
   CompletionActionsEditor,
@@ -64,6 +65,8 @@ export function GoalEditPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [okMsg, setOkMsg] = useState("");
+  const [jobBrief, setJobBrief] = useState("");
+  const [draftBusy, setDraftBusy] = useState(false);
 
   useEffect(() => {
     (async () => {
@@ -162,6 +165,35 @@ export function GoalEditPage() {
   }
 
   /**
+   * Fills title / description / instructions / success criteria from a plain-English job brief.
+   */
+  async function generateFromBrief() {
+    setDraftBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api("/api/goals/draft-from-brief", {
+        method: "POST",
+        body: JSON.stringify({ brief: jobBrief }),
+        timeoutMs: 90_000,
+      });
+      const d = data.draft || {};
+      setForm((prev) => ({
+        ...prev,
+        title: prev.title.trim() ? prev.title : d.title || prev.title,
+        description: prev.description.trim() ? prev.description : d.description || prev.description,
+        instructions: d.instructions || prev.instructions,
+        successCriteria: d.successCriteria || prev.successCriteria,
+      }));
+      setOkMsg("AI filled title, description, instructions, and success criteria — review, assign an agent, and save.");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  /**
    * @param {React.FormEvent} e
    */
   async function onSave(e) {
@@ -230,6 +262,37 @@ export function GoalEditPage() {
       ) : null}
 
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-violet-50/50 p-3">
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <FieldLabel helpId="goal.jobBrief">Describe the job in plain English</FieldLabel>
+            <HelpTooltip
+              helpId="agent.entitiesGuide"
+              alwaysVisible
+              linkLabel="Entities & how to use →"
+            />
+          </span>
+          <p className="text-xs text-violet-950/70">
+            Example: find 10 new travel agency leads and save them with email — or collect today’s
+            NYC weather into a weather table. AI drafts title, description, run instructions, and
+            success criteria. Assign the agent below separately.
+          </p>
+          <textarea
+            className="min-h-24 rounded-xl border border-violet-100 bg-white px-3 py-2 text-sm"
+            value={jobBrief}
+            onChange={(e) => setJobBrief(e.target.value)}
+            placeholder="e.g. Find new airline leads and save them as type lead kind airlines…"
+            disabled={draftBusy}
+          />
+          <button
+            type="button"
+            disabled={draftBusy || jobBrief.trim().length < 8}
+            onClick={generateFromBrief}
+            className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {draftBusy ? "Generating…" : "Generate with AI"}
+          </button>
+        </div>
+
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="goal.title" required>
             Title

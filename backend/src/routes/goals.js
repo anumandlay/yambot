@@ -25,6 +25,7 @@ import {
   normalizeCompletionActions,
   normalizeCompletionActionsPickMode,
 } from "../utils/completionActions.js";
+import { draftGoalFromBrief } from "../utils/goalDraftFromBrief.js";
 
 export const goalsRouter = Router();
 
@@ -101,6 +102,24 @@ function pickGoalFields(body) {
 
 goalsRouter.get("/meta", (_req, res) => {
   res.json({ ok: true, statuses: GOAL_STATUSES, priorities: GOAL_PRIORITIES });
+});
+
+/**
+ * POST /api/goals/draft-from-brief — LLM fills title/description/instructions/success from plain English.
+ * Body: { brief: string }
+ * Why: registered before /:id so "draft-from-brief" is not treated as a goal id.
+ */
+goalsRouter.post("/draft-from-brief", async (req, res, next) => {
+  try {
+    const result = await draftGoalFromBrief(req.userId, req.body?.brief || req.body?.text || "");
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json({ ok: true, draft: result.draft });
+  } catch (err) {
+    next(err);
+  }
 });
 
 goalsRouter.get("/", async (req, res, next) => {
