@@ -1452,9 +1452,9 @@ export const HELP = {
   "company.csvImport": {
     title: "CSV lead import",
     body: helpBody(
-      "Paste or upload a CSV with email (required), name, company, phone, first_name, last_name.",
-      "Up to 10,000 rows per import. Existing leads match on email and get name/company updated.",
-      "Example: email,name,company then jane@example.com,Jane Doe,Acme Inc"
+      "Paste or upload CSV with email (required). Formats: email,name,company OR name,type,email (no header needed).",
+      "Up to 10,000 rows. Existing leads match on email and get name/attributes updated.",
+      "Example: Sunrise Travel,lead,support@vughy.com — or header row email,name,company"
     ),
   },
   "company.campaigns": {

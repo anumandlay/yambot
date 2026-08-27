@@ -16,6 +16,7 @@ import {
   renderCompletionTemplate,
   actionMatchesRunOn,
 } from "../src/utils/completionActions.js";
+import { parseCsvText } from "../src/utils/csvLeadsImport.js";
 
 describe("cronMatch", () => {
   it("matches wildcard minute", () => {
@@ -90,5 +91,16 @@ describe("completionActions (multi trigger)", () => {
     const action = { runOn: "success", label: "x" };
     assert.equal(actionMatchesRunOn(action, true), true);
     assert.equal(actionMatchesRunOn(action, false), false);
+  });
+});
+
+describe("csvLeadsImport", () => {
+  it("parses name,type,email rows without header", () => {
+    const csv = `Sunrise Travel,lead,support@vughy.com
+Kumar Travels,lead,airlines.support@vughy.com`;
+    const { headers, rows } = parseCsvText(csv);
+    assert.deepEqual(headers, ["name", "type", "email"]);
+    assert.equal(rows.length, 2);
+    assert.equal(rows[0][2], "support@vughy.com");
   });
 });

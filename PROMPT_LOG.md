@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 11:45] Fix CSV import name,type,email format
+
+- **Prompt Provided:** Bulk entity CSV paste `name,type,email` fails with "No valid email addresses found"
+- **Architectural Flow:** parseCsvText detects 3-column rows with email in last column; UI placeholder/help updated
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/csvLeadsImport.js`, `backend/test/smoke.test.js`, `frontend/src/pages/CompanyPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 10:45] System page — tenant-scoped agent containers
 
 - **Prompt Provided:** System page should show only the user's agents; super admin sees all

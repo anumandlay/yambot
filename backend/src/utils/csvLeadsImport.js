@@ -55,12 +55,41 @@ export function parseCsvText(raw) {
   const lines = text.split(/\r?\n/).filter((l) => l.trim());
   if (!lines.length) return { headers: [], rows: [] };
   const first = parseCsvLine(lines[0]).map((h) => h.toLowerCase().trim());
-  const hasHeader = first.some((h) =>
-    ["email", "e-mail", "name", "company", "phone", "first_name", "last_name"].includes(h)
-  );
+  const headerKeywords = [
+    "email",
+    "e-mail",
+    "name",
+    "company",
+    "phone",
+    "first_name",
+    "last_name",
+    "type",
+  ];
+  const hasHeader = first.some((h) => headerKeywords.includes(h));
   if (!hasHeader) {
     const cols = parseCsvLine(lines[0]);
+    const emailRe = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (cols.length >= 3 && emailRe.test(String(cols[cols.length - 1] || "").trim())) {
+      return {
+        headers: ["name", "type", "email"],
+        rows: lines.map((l) => parseCsvLine(l)),
+      };
+    }
     if (cols.length >= 2) {
+      const c0 = String(cols[0] || "").trim();
+      const c1 = String(cols[1] || "").trim();
+      if (emailRe.test(c0)) {
+        return {
+          headers: ["email", "name"],
+          rows: lines.map((l) => parseCsvLine(l)),
+        };
+      }
+      if (emailRe.test(c1)) {
+        return {
+          headers: ["name", "email"],
+          rows: lines.map((l) => parseCsvLine(l)),
+        };
+      }
       return {
         headers: ["email", "name"],
         rows: lines.map((l) => parseCsvLine(l)),

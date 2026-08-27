@@ -434,13 +434,17 @@ export function CompanyPage() {
               </label>
             </div>
             <p className="text-xs text-teal-900/60">
-              Header row optional. Columns: email, name, company, phone (up to 10,000 rows).
+              Header row optional. Columns:{" "}
+              <code className="font-mono text-xs">email,name,company</code> or{" "}
+              <code className="font-mono text-xs">name,type,email</code> (up to 10,000 rows).
             </p>
             <textarea
               className="min-h-28 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
               value={csvText}
               onChange={(e) => setCsvText(e.target.value)}
-              placeholder={"email,name,company\njane@example.com,Jane Doe,Acme Inc"}
+              placeholder={
+                "name,type,email\nSunrise Travel,lead,support@vughy.com\n\nor:\n\nemail,name,company\njane@example.com,Jane Doe,Acme Inc"
+              }
             />
             <button
               type="button"
