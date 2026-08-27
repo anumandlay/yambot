@@ -77,6 +77,8 @@ export function AgentEditPage() {
   const isNew = !agentId || agentId === "new";
   const navigate = useNavigate();
   const [form, setForm] = useState(EMPTY);
+  const [jobBrief, setJobBrief] = useState("");
+  const [draftBusy, setDraftBusy] = useState(false);
   const [scheduleIntervals, setScheduleIntervals] = useState([
     "15m",
     "30m",
@@ -217,6 +219,37 @@ export function AgentEditPage() {
   }
 
   /**
+   * Fills persona / skill / instructions / success criteria from a plain-English job brief.
+   */
+  async function generateFromBrief() {
+    setDraftBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api("/api/agents/draft-from-brief", {
+        method: "POST",
+        body: JSON.stringify({ brief: jobBrief }),
+        timeoutMs: 90_000,
+      });
+      const d = data.draft || {};
+      setForm((prev) => ({
+        ...prev,
+        name: prev.name.trim() ? prev.name : d.name || prev.name,
+        description: prev.description.trim() ? prev.description : d.description || prev.description,
+        skill: d.skill || prev.skill,
+        profile: d.profile || prev.profile,
+        instructions: d.instructions || prev.instructions,
+        successCriteria: d.successCriteria || prev.successCriteria,
+      }));
+      setOkMsg("AI filled skill, persona, instructions, and success criteria — review and save.");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDraftBusy(false);
+    }
+  }
+
+  /**
    * @param {React.FormEvent} e
    */
   async function onSave(e) {
@@ -333,6 +366,37 @@ export function AgentEditPage() {
       ) : null}
 
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-violet-50/50 p-3">
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <FieldLabel helpId="agent.jobBrief">Describe the job in plain English</FieldLabel>
+            <HelpTooltip
+              helpId="agent.entitiesGuide"
+              alwaysVisible
+              linkLabel="Entities & how to use →"
+            />
+          </span>
+          <p className="text-xs text-violet-950/70">
+            Example: search Google for new travel agency leads and save them in the database with
+            email and phone. AI will draft persona, skill, standing instructions, and success
+            criteria. Assign the country group below separately.
+          </p>
+          <textarea
+            className="min-h-24 rounded-xl border border-violet-100 bg-white px-3 py-2 text-sm"
+            value={jobBrief}
+            onChange={(e) => setJobBrief(e.target.value)}
+            placeholder="e.g. Search Google for new leads and save them in the database…"
+            disabled={draftBusy}
+          />
+          <button
+            type="button"
+            disabled={draftBusy || jobBrief.trim().length < 8}
+            onClick={generateFromBrief}
+            className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {draftBusy ? "Generating…" : "Generate with AI"}
+          </button>
+        </div>
+
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="agent.name" required>
             Name

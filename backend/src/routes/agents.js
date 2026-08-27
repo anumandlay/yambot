@@ -31,6 +31,7 @@ import {
 import { Demonstration } from "../models/Demonstration.js";
 import { copyNameWithTimestamp } from "../utils/copyName.js";
 import { EntityGroup } from "../models/EntityGroup.js";
+import { draftAgentFromBrief } from "../utils/agentDraftFromBrief.js";
 
 export const agentsRouter = Router();
 
@@ -298,6 +299,23 @@ agentsRouter.get("/meta", (_req, res) => {
     roles: AGENT_ROLES,
     scheduleIntervals: SCHEDULE_INTERVALS,
   });
+});
+
+/**
+ * POST /api/agents/draft-from-brief — LLM fills persona/skill/instructions/success from plain English.
+ * Body: { brief: string }
+ */
+agentsRouter.post("/draft-from-brief", async (req, res, next) => {
+  try {
+    const result = await draftAgentFromBrief(req.userId, req.body?.brief || req.body?.text || "");
+    if (!result.ok) {
+      res.status(result.title === "LLM not configured" ? 400 : 400).json(result);
+      return;
+    }
+    res.json({ ok: true, draft: result.draft });
+  } catch (err) {
+    next(err);
+  }
 });
 
 agentsRouter.get("/", async (req, res, next) => {

@@ -426,6 +426,14 @@ export const HELP = {
       "The cloud container is labeled with this agent's ID internally; name is for humans only."
     ),
   },
+  "agent.jobBrief": {
+    title: "Job brief (plain English)",
+    body: helpBody(
+      "Describe what this agent should do in everyday language. Generate with AI fills skill, persona, standing instructions (including entities when relevant), and success criteria.",
+      "You still pick the Group (country) yourself — the draft does not set territory.",
+      "Review and edit the generated fields before saving."
+    ),
+  },
   "agent.group": {
     title: "Agent group",
     body: helpBody(
