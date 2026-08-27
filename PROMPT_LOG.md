@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 17:26] Skill create — Generate fields from plain-English brief
+
+- **Prompt Provided:** Add Generate with AI on skills page to write skills from plain English
+- **Architectural Flow:** POST /api/skills/draft-from-brief → draftSkillFromBrief → fills name/slug/description/playbookMd/triggers/steps/verification; SkillEditPage violet brief UI; create accepts newline triggers like PATCH
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/skillDraftFromBrief.js`, `backend/src/routes/skills.js`, `frontend/src/pages/SkillEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 16:15] Goal create — Generate fields from plain-English brief
 
 - **Prompt Provided:** Add “Describe the job in plain English” + Generate with AI on create/edit goal (like agents)

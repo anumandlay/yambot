@@ -263,6 +263,37 @@ export function SkillEditPage() {
       ) : null}
 
       <form onSubmit={save} className="flex flex-col gap-4 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+        <div className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-violet-50/50 p-3">
+          <span className="flex flex-wrap items-center justify-between gap-2">
+            <FieldLabel helpId="skills.jobBrief">Describe the skill in plain English</FieldLabel>
+            <HelpTooltip
+              helpId="agent.entitiesGuide"
+              alwaysVisible
+              linkLabel="Entities & how to use →"
+            />
+          </span>
+          <p className="text-xs text-violet-950/70">
+            Example: log into Gmail and open unread mail — or save a travel agency lead with email
+            and phone. AI drafts the SKILL.md playbook, triggers, steps, and verification. Leave
+            status as draft until you promote to production.
+          </p>
+          <textarea
+            className="min-h-24 rounded-xl border border-violet-100 bg-white px-3 py-2 text-sm"
+            value={jobBrief}
+            onChange={(e) => setJobBrief(e.target.value)}
+            placeholder="e.g. When goal mentions competitor pricing, open their pricing page and extract plan names…"
+            disabled={draftBusy}
+          />
+          <button
+            type="button"
+            disabled={draftBusy || jobBrief.trim().length < 8}
+            onClick={generateFromBrief}
+            className="min-h-11 rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {draftBusy ? "Generating…" : "Generate with AI"}
+          </button>
+        </div>
+
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="skills.name">Name</FieldLabel>
           <input
