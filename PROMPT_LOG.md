@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 14:23] Territory-scoped lead DBs by agent group
+
+- **Prompt Provided:** Implement shared lead database per agent group (country); finder + email agents share DB; fields via instructions; status new filter; isolate countries
+- **Architectural Flow:** Entity.group = Agent.group; create_entity tags territory; search/get/update scoped; campaigns enroll by campaign agent group; Company territory filter + CSV/import into group; default lead status new
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/entityTerritory.js`, `backend/src/models/Entity.js`, `backend/src/routes/workerEntities.js`, `backend/src/routes/entities.js`, `backend/src/routes/groups.js`, `backend/src/utils/campaignEngine.js`, `backend/src/utils/entityContext.js`, `backend/src/utils/csvLeadsImport.js`, `worker/src/agent.js`, `worker/src/actions.js`, `frontend/src/pages/CompanyPage.jsx`, `frontend/src/help/helpContent.js`, `frontend/src/help/agentActionsContent.js`
+
 ## [2026-08-27 14:01] Chats list — show which threads are live/working
 
 - **Prompt Provided:** On chat page, show which thread is working when Live is running something

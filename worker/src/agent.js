@@ -2212,6 +2212,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/entities/search", {
           method: "POST",
           body: JSON.stringify({
+            agentId: config.agentId,
             query: action.query || action.q,
             type: action.type_filter || action.entityType || action.type,
             status: action.status,
@@ -2228,7 +2229,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
       case "get_entity": {
         const result = await api("/api/worker/entities/get", {
           method: "POST",
-          body: JSON.stringify({ entityId: action.entityId || action.id }),
+          body: JSON.stringify({
+            agentId: config.agentId,
+            entityId: action.entityId || action.id,
+          }),
         });
         notes.push(result.formatted || JSON.stringify(result.entity));
         return { ok: true, entity: result.entity };
@@ -2252,6 +2256,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/entities/update", {
           method: "POST",
           body: JSON.stringify({
+            agentId: config.agentId,
             entityId: action.entityId || action.id,
             name: action.name,
             status: action.status,
@@ -2266,6 +2271,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/entities/observe", {
           method: "POST",
           body: JSON.stringify({
+            agentId: config.agentId,
             entityId: action.entityId || action.id,
             content: action.content || action.text,
             kind: action.kind,
@@ -2305,9 +2311,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/entities/set-status", {
           method: "POST",
           body: JSON.stringify({
+            callerAgentId: config.agentId,
             entityId: action.entityId || action.id,
             status: action.status,
-            assigneeAgentId: action.agentId,
+            assigneeAgentId: action.assigneeAgentId || action.agentId,
             attributes: action.attributes,
           }),
         });
@@ -2318,6 +2325,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await api("/api/worker/entities/assign", {
           method: "POST",
           body: JSON.stringify({
+            callerAgentId: config.agentId,
             entityId: action.entityId || action.id,
             agentId: action.agentId || action.assigneeAgentId,
           }),

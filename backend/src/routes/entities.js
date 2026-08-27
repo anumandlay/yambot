@@ -6,7 +6,9 @@
 
 import { Router } from "express";
 import { Entity, ENTITY_TYPES, appendEntityObservation } from "../models/Entity.js";
+import { EntityGroup } from "../models/EntityGroup.js";
 import { importLeadsFromCsv, CSV_IMPORT_MAX_ROWS } from "../utils/csvLeadsImport.js";
+import { applyGroupIdQuery } from "../utils/entityTerritory.js";
 
 export const entitiesRouter = Router();
 
@@ -16,11 +18,16 @@ entitiesRouter.get("/meta", (_req, res) => {
 
 entitiesRouter.get("/", async (req, res, next) => {
   try {
-    const filter = { user: req.userId };
+    let filter = { user: req.userId };
     if (req.query.type) filter.type = String(req.query.type);
+    filter = applyGroupIdQuery(filter, req.query.groupId);
     const limit = Math.min(500, Math.max(1, Number(req.query.limit) || 100));
     const [entities, total] = await Promise.all([
-      Entity.find(filter).sort({ updatedAt: -1 }).limit(limit).lean(),
+      Entity.find(filter)
+        .sort({ updatedAt: -1 })
+        .limit(limit)
+        .populate("group", "name")
+        .lean(),
       Entity.countDocuments(filter),
     ]);
     res.json({ ok: true, entities, total, limit });
@@ -34,8 +41,9 @@ entitiesRouter.get("/", async (req, res, next) => {
  */
 entitiesRouter.get("/stats", async (req, res, next) => {
   try {
-    const filter = { user: req.userId };
+    let filter = { user: req.userId };
     if (req.query.type) filter.type = String(req.query.type);
+    filter = applyGroupIdQuery(filter, req.query.groupId);
     const total = await Entity.countDocuments(filter);
     const withEmail = await Entity.countDocuments({
       ...filter,
@@ -49,7 +57,7 @@ entitiesRouter.get("/stats", async (req, res, next) => {
 
 /**
  * POST /api/entities/import — bulk CSV lead import (name, email, …).
- * Body: { csv: string, entityType?: string, updateExisting?: boolean }
+ * Body: { csv: string, entityType?: string, updateExisting?: boolean, groupId?: string|null }
  */
 entitiesRouter.post("/import", async (req, res, next) => {
   try {
@@ -59,9 +67,24 @@ entitiesRouter.post("/import", async (req, res, next) => {
       return;
     }
     const entityType = ENTITY_TYPES.includes(req.body?.entityType) ? req.body.entityType : "lead";
+    let groupId = null;
+    const rawGroup = req.body?.groupId;
+    if (rawGroup != null && String(rawGroup).trim() && String(rawGroup) !== "ungrouped") {
+      const g = await EntityGroup.findOne({
+        _id: String(rawGroup),
+        user: req.userId,
+        type: "agent",
+      }).lean();
+      if (!g) {
+        res.status(400).json({ ok: false, detail: "groupId must be an agent group you own" });
+        return;
+      }
+      groupId = String(g._id);
+    }
     const result = await importLeadsFromCsv(req.userId, csv, {
       entityType,
       updateExisting: req.body?.updateExisting !== false,
+      groupId,
     });
     if (!result.ok) {
       res.status(400).json(result);
@@ -85,12 +108,26 @@ entitiesRouter.get("/import/meta", (_req, res) => {
 entitiesRouter.post("/", async (req, res, next) => {
   try {
     const body = req.body || {};
+    const type = ENTITY_TYPES.includes(body.type) ? body.type : "custom";
+    let group = null;
+    if (body.group != null || body.groupId != null) {
+      const gid = String(body.group ?? body.groupId ?? "").trim();
+      if (gid && gid !== "ungrouped") {
+        const g = await EntityGroup.findOne({ _id: gid, user: req.userId, type: "agent" }).lean();
+        if (!g) {
+          res.status(400).json({ ok: false, detail: "group must be an agent group you own" });
+          return;
+        }
+        group = g._id;
+      }
+    }
     const entity = await Entity.create({
       user: req.userId,
-      type: ENTITY_TYPES.includes(body.type) ? body.type : "custom",
+      group,
+      type,
       name: String(body.name || "").trim(),
       externalId: String(body.externalId || "").trim(),
-      status: body.status || "active",
+      status: body.status || (type === "lead" ? "new" : "active"),
       attributes: body.attributes || {},
     });
     res.status(201).json({ ok: true, entity });
@@ -138,6 +175,23 @@ entitiesRouter.put("/:id", async (req, res, next) => {
     }
     if (body.relatedAgents != null && Array.isArray(body.relatedAgents)) {
       entity.relatedAgents = body.relatedAgents.map(String).filter(Boolean).slice(0, 20);
+    }
+    if (body.group !== undefined || body.groupId !== undefined) {
+      const gid = body.group ?? body.groupId;
+      if (gid == null || gid === "" || gid === "ungrouped") {
+        entity.group = null;
+      } else {
+        const g = await EntityGroup.findOne({
+          _id: String(gid),
+          user: req.userId,
+          type: "agent",
+        }).lean();
+        if (!g) {
+          res.status(400).json({ ok: false, detail: "group must be an agent group you own" });
+          return;
+        }
+        entity.group = g._id;
+      }
     }
     await entity.save();
     res.json({ ok: true, entity });

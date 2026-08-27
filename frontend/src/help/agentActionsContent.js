@@ -239,12 +239,13 @@ export const AGENT_ACTION_SECTIONS = [
       {
         id: "search_entities",
         title: "search_entities",
-        summary: "Search your existing Company records (leads, customers, etc.).",
-        whenToUse: "Before create_entity — avoid duplicate leads; look up prior contacts.",
+        summary: "Search Company records in this agent's territory group (leads, customers, etc.).",
+        whenToUse: "Before create_entity — avoid duplicate leads; pull status=new for nurture agents.",
         savesTo: "Reads database only.",
-        exampleInstruction: "Before saving, search_entities for the agency name to skip duplicates.",
+        exampleInstruction:
+          "search_entities for type lead with status new, then email each contact.",
         exampleJson:
-          '{ "type": "search_entities", "query": "Sunshine Travel", "type_filter": "lead", "limit": 5 }',
+          '{ "type": "search_entities", "query": "", "type_filter": "lead", "status": "new", "limit": 10 }',
       },
       {
         id: "get_entity",
@@ -258,13 +259,13 @@ export const AGENT_ACTION_SECTIONS = [
       {
         id: "create_entity",
         title: "create_entity",
-        summary: "Create a new lead/customer record in Company.",
+        summary: "Create a lead/customer in this agent's territory group lead DB.",
         whenToUse: "Sales prospecting — save each new agency/contact you find on the web.",
-        savesTo: "Company → Entities (MongoDB).",
+        savesTo: "Company → Entities (MongoDB), tagged with the agent's group (e.g. USA).",
         exampleInstruction:
-          "For each new agency: create_entity with name, type lead, attributes { city, email, website }.",
+          "For each new agency: create_entity with name, type lead, status new, attributes { email, phone, address, website }.",
         exampleJson:
-          '{ "type": "create_entity", "name": "Sunshine Travel", "type_filter": "lead", "attributes": { "city": "LA", "email": "info@sun.com" } }',
+          '{ "type": "create_entity", "name": "Sunshine Travel", "type_filter": "lead", "status": "new", "attributes": { "email": "info@sun.com", "phone": "+1…", "address": "LA" } }',
       },
       {
         id: "update_entity",

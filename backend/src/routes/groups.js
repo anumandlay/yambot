@@ -1,13 +1,14 @@
 /**
  * @fileoverview Entity groups API — CRUD folders for agents and goals.
- * Purpose: List/create/rename/delete groups; members link via Agent.group / Goal.group.
- * Downstream: EntityGroup model, AgentsPage, GoalsPage.
+ * Purpose: List/create/rename/delete groups; members link via Agent.group / Goal.group / Entity.group.
+ * Downstream: EntityGroup model, AgentsPage, GoalsPage, Company territory leads.
  */
 
 import { Router } from "express";
 import { EntityGroup, ENTITY_GROUP_TYPES, toEntityGroupPublic } from "../models/EntityGroup.js";
 import { Agent } from "../models/Agent.js";
 import { Goal } from "../models/Goal.js";
+import { Entity } from "../models/Entity.js";
 
 export const groupsRouter = Router();
 
@@ -85,6 +86,8 @@ groupsRouter.delete("/:id", async (req, res, next) => {
     }
     if (group.type === "agent") {
       await Agent.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
+      /** Why: leads inherit agent-group territory — clear them when the folder is deleted. */
+      await Entity.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
     } else {
       await Goal.updateMany({ user: req.userId, group: group._id }, { $unset: { group: 1 } });
     }

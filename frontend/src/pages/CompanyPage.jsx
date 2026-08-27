@@ -20,6 +20,9 @@ export function CompanyPage() {
   const [emailLog, setEmailLog] = useState([]);
   const [dashboard, setDashboard] = useState(null);
   const [agents, setAgents] = useState([]);
+  const [agentGroups, setAgentGroups] = useState([]);
+  const [entityGroupFilter, setEntityGroupFilter] = useState("");
+  const [entityFormGroupId, setEntityFormGroupId] = useState("");
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
 
@@ -51,18 +54,26 @@ export function CompanyPage() {
   const [enrollBusy, setEnrollBusy] = useState(null);
 
   const load = useCallback(async () => {
-    const [ent, mem, proc, dash, camp, agentData, inst, mail, stats, teamData] = await Promise.all([
-      api("/api/entities?type=lead&limit=500"),
-      api("/api/company-memory"),
-      api("/api/processes/definitions"),
-      api("/api/company-dashboard").catch(() => ({ dashboard: null })),
-      api("/api/campaigns").catch(() => ({ campaigns: [] })),
-      api("/api/agents"),
-      api("/api/company-dashboard/process-instances").catch(() => ({ instances: [] })),
-      api("/api/company-dashboard/email?limit=30").catch(() => ({ messages: [] })),
-      api("/api/entities/stats?type=lead").catch(() => ({ total: 0, withEmail: 0 })),
-      api("/api/teams").catch(() => ({ teams: [] })),
-    ]);
+    const groupQs =
+      entityGroupFilter === "ungrouped"
+        ? "&groupId=ungrouped"
+        : entityGroupFilter
+          ? `&groupId=${encodeURIComponent(entityGroupFilter)}`
+          : "";
+    const [ent, mem, proc, dash, camp, agentData, groupData, inst, mail, stats, teamData] =
+      await Promise.all([
+        api(`/api/entities?type=lead&limit=500${groupQs}`),
+        api("/api/company-memory"),
+        api("/api/processes/definitions"),
+        api("/api/company-dashboard").catch(() => ({ dashboard: null })),
+        api("/api/campaigns").catch(() => ({ campaigns: [] })),
+        api("/api/agents"),
+        api("/api/groups?type=agent").catch(() => ({ groups: [] })),
+        api("/api/company-dashboard/process-instances").catch(() => ({ instances: [] })),
+        api("/api/company-dashboard/email?limit=30").catch(() => ({ messages: [] })),
+        api(`/api/entities/stats?type=lead${groupQs}`).catch(() => ({ total: 0, withEmail: 0 })),
+        api("/api/teams").catch(() => ({ teams: [] })),
+      ]);
     setEntities(ent.entities || []);
     setEntityTotal(ent.total ?? (ent.entities || []).length);
     setLeadStats({ total: stats.total || 0, withEmail: stats.withEmail || 0 });
@@ -72,9 +83,10 @@ export function CompanyPage() {
     setDashboard(dash.dashboard || null);
     setCampaigns(camp.campaigns || []);
     setAgents(agentData.agents || []);
+    setAgentGroups(groupData.groups || []);
     setProcessInstances(inst.instances || []);
     setEmailLog(mail.messages || []);
-  }, []);
+  }, [entityGroupFilter]);
 
   useEffect(() => {
     load().catch((err) => setError(err));
@@ -108,6 +120,8 @@ export function CompanyPage() {
         body: JSON.stringify({
           name: entityName.trim(),
           type: entityType,
+          status: entityType === "lead" ? "new" : "active",
+          groupId: entityFormGroupId || null,
           attributes: entityEmail.trim() ? { email: entityEmail.trim() } : {},
         }),
       });
@@ -133,7 +147,12 @@ export function CompanyPage() {
     try {
       const data = await api("/api/entities/import", {
         method: "POST",
-        body: JSON.stringify({ csv, entityType: "lead", updateExisting: true }),
+        body: JSON.stringify({
+          csv,
+          entityType: "lead",
+          updateExisting: true,
+          groupId: entityFormGroupId || null,
+        }),
         timeoutMs: 120000,
       });
       setImportResult(data);
@@ -429,7 +448,28 @@ export function CompanyPage() {
             {entityTotal > entities.length ? (
               <span className="text-teal-900/60"> · showing latest {entities.length}</span>
             ) : null}
+            <p className="mt-1 text-xs text-teal-900/65">
+              Territory = agent group (e.g. USA). Agents in that group share this lead DB; other
+              countries cannot see it.
+            </p>
           </div>
+
+          <label className="flex max-w-md flex-col gap-1 text-sm">
+            <FieldLabel helpId="company.territoryFilter">Territory filter</FieldLabel>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 bg-white px-3 text-sm"
+              value={entityGroupFilter}
+              onChange={(e) => setEntityGroupFilter(e.target.value)}
+            >
+              <option value="">All territories</option>
+              <option value="ungrouped">Ungrouped</option>
+              {agentGroups.map((g) => (
+                <option key={g._id} value={g._id}>
+                  {g.name}
+                </option>
+              ))}
+            </select>
+          </label>
 
           <div className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
             <div className="flex flex-wrap items-center justify-between gap-2">
@@ -440,10 +480,25 @@ export function CompanyPage() {
               </label>
             </div>
             <p className="text-xs text-teal-900/60">
-              Header row optional. One agency per line. Columns:{" "}
+              Imports into the territory selected below for Add/Import. Header row optional. Columns:{" "}
               <code className="font-mono text-xs">email,name,company</code> or{" "}
               <code className="font-mono text-xs">name,type,email</code> (up to 10,000 rows).
             </p>
+            <label className="flex max-w-md flex-col gap-1 text-sm">
+              <span className="font-medium">Import / add into territory</span>
+              <select
+                className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
+                value={entityFormGroupId}
+                onChange={(e) => setEntityFormGroupId(e.target.value)}
+              >
+                <option value="">Ungrouped</option>
+                {agentGroups.map((g) => (
+                  <option key={g._id} value={g._id}>
+                    {g.name}
+                  </option>
+                ))}
+              </select>
+            </label>
             <textarea
               className="min-h-28 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
               value={csvText}
@@ -474,7 +529,7 @@ export function CompanyPage() {
 
           <form
             onSubmit={addEntity}
-            className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:items-end"
+            className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm sm:flex-row sm:flex-wrap sm:items-end"
           >
             <label className="flex flex-col gap-1 text-sm">
               <FieldLabel helpId="company.entityName">Name</FieldLabel>
@@ -496,7 +551,7 @@ export function CompanyPage() {
                 <option value="vendor">vendor</option>
               </select>
             </label>
-            <label className="flex flex-1 flex-col gap-1 text-sm">
+            <label className="flex min-w-[10rem] flex-1 flex-col gap-1 text-sm">
               <span className="font-medium">Email</span>
               <input
                 className="min-h-11 rounded-xl border border-teal-100 px-3 text-sm"
@@ -515,7 +570,11 @@ export function CompanyPage() {
                 <div className="font-semibold">{en.name}</div>
                 <div className="text-teal-900/70">
                   {en.type} · {en.status}
+                  {en.group?.name || en.group
+                    ? ` · ${en.group?.name || "territory"}`
+                    : " · ungrouped"}
                   {en.attributes?.email ? ` · ${en.attributes.email}` : ""}
+                  {en.attributes?.phone ? ` · ${en.attributes.phone}` : ""}
                 </div>
                 {en.observations?.length ? (
                   <div className="mt-1 line-clamp-2 text-xs text-teal-900/50">

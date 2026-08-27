@@ -1,7 +1,7 @@
 /**
  * @fileoverview Entity model — company objects with temporal memory (world model seed).
  * Purpose: Track customers, leads, vendors, products with observation history.
- * Downstream: entity routes, goal autonomy, investigation evidence.
+ * Downstream: entity routes, goal autonomy, investigation evidence; group = agent-territory lead DB.
  */
 
 import mongoose from "mongoose";
@@ -37,6 +37,16 @@ const entitySchema = new mongoose.Schema(
       required: true,
       index: true,
     },
+    /**
+     * Territory folder — same EntityGroup as Agent.group (type agent), e.g. USA.
+     * Agents in that group share this lead pool; other groups cannot see it.
+     */
+    group: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "EntityGroup",
+      default: null,
+      index: true,
+    },
     type: {
       type: String,
       enum: ENTITY_TYPES,
@@ -60,6 +70,8 @@ const entitySchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
+
+entitySchema.index({ user: 1, group: 1, type: 1, status: 1 });
 
 /**
  * @param {import('mongoose').Document} entity

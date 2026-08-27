@@ -201,11 +201,12 @@ function normalizeLeadRow(rec) {
  * Bulk import leads from CSV text.
  * @param {string} userId
  * @param {string} csvText
- * @param {{ entityType?: string, updateExisting?: boolean }} [opts]
+ * @param {{ entityType?: string, updateExisting?: boolean, groupId?: string|null }} [opts]
  */
 export async function importLeadsFromCsv(userId, csvText, opts = {}) {
   const entityType = ENTITY_TYPES.includes(opts.entityType) ? opts.entityType : "lead";
   const updateExisting = opts.updateExisting !== false;
+  const groupId = opts.groupId ? String(opts.groupId) : null;
   const { headers, rows } = parseCsvText(csvText);
 
   if (!rows.length) {
@@ -245,6 +246,7 @@ export async function importLeadsFromCsv(userId, csvText, opts = {}) {
   const existing = await Entity.find({
     user: userId,
     type: entityType,
+    group: groupId,
     $or: [{ "attributes.email": { $in: emails } }, { externalId: { $in: emails } }],
   }).lean();
 
@@ -272,6 +274,7 @@ export async function importLeadsFromCsv(userId, csvText, opts = {}) {
           $set: {
             name: lead.name,
             externalId: email,
+            group: groupId,
             attributes: { ...(found.attributes || {}), ...lead.attributes },
           },
         }
@@ -280,17 +283,22 @@ export async function importLeadsFromCsv(userId, csvText, opts = {}) {
     } else {
       await Entity.create({
         user: userId,
+        group: groupId,
         type: entityType,
         name: lead.name,
         externalId: email,
-        status: "active",
+        status: "new",
         attributes: lead.attributes,
       });
       created += 1;
     }
   }
 
-  const totalLeads = await Entity.countDocuments({ user: userId, type: entityType });
+  const totalLeads = await Entity.countDocuments({
+    user: userId,
+    type: entityType,
+    group: groupId,
+  });
 
   return {
     ok: true,

@@ -9,6 +9,7 @@ import { formatCompanyMemoryBlock } from "../models/CompanyMemory.js";
 import { Enrollment } from "../models/Campaign.js";
 import { Ticket } from "../models/Ticket.js";
 import { EmailMessage } from "../models/EmailMessage.js";
+import { applyTerritoryFilter, resolveAgentTerritory } from "./entityTerritory.js";
 
 /**
  * @param {object} entity
@@ -29,6 +30,7 @@ export function formatEntityBlock(entity) {
   return [
     `ENTITY ${entity._id} (${entity.type || "custom"}): ${entity.name}`,
     entity.status ? `Status: ${entity.status}` : "",
+    entity.group ? `Territory group: ${entity.group}` : "Territory group: (ungrouped)",
     entity.externalId ? `External ID: ${entity.externalId}` : "",
     attrs ? `Attributes:\n${attrs}` : "",
     obs ? `Recent observations:\n${obs}` : "",
@@ -112,16 +114,15 @@ export async function buildCompanyContextBlock(userId, opts = {}) {
   const entityLimit = Math.min(15, Number(opts.entityLimit) || 8);
   const agentId = opts.agentId ? String(opts.agentId) : null;
   if (agentId && !opts.entityId) {
-    const related = await Entity.find({
-      user: userId,
-      relatedAgents: agentId,
-    })
+    const { groupId } = await resolveAgentTerritory(userId, agentId);
+    const territoryFilter = applyTerritoryFilter({ user: userId }, groupId);
+    const related = await Entity.find(territoryFilter)
       .sort({ updatedAt: -1 })
       .limit(entityLimit)
       .lean();
     if (related.length) {
       parts.push(
-        `ENTITIES LINKED TO THIS AGENT (${related.length}):\n${related.map((e) => formatEntityBlock(e)).join("\n\n")}`
+        `ENTITIES IN THIS AGENT'S TERRITORY (${related.length}):\n${related.map((e) => formatEntityBlock(e)).join("\n\n")}`
       );
     }
   }

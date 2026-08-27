@@ -1461,15 +1461,22 @@ export const HELP = {
     title: "Entities",
     body: helpBody(
       "Customers, leads, vendors, custom objects with name, externalId, status, attributes, and temporal observations (notes that age over time).",
-      "Bulk CSV import creates or updates leads by email. Campaigns enroll all leads that have an email address.",
+      "Leads inherit the creating agent's territory group (e.g. USA). Agents in that group share the pool; other groups cannot see those leads.",
+      "Bulk CSV import creates or updates leads by email within the selected territory. Campaigns enroll leads from the campaign agent's territory only.",
       "POST observations when new facts arrive from tasks or integrations."
+    ),
+  },
+  "company.territoryFilter": {
+    title: "Territory filter",
+    body: helpBody(
+      "Filter Company leads by agent group (country folder). All = every territory; Ungrouped = leads with no group; pick USA to see only that country's DB."
     ),
   },
   "company.csvImport": {
     title: "CSV lead import",
     body: helpBody(
       "Paste or upload CSV with email (required). Formats: email,name,company OR name,type,email (no header needed).",
-      "Up to 10,000 rows. Existing leads match on email and get name/attributes updated.",
+      "Imports into the territory selected on the Entities tab (agent group). Up to 10,000 rows. Existing leads match on email within that territory.",
       "Example: Sunrise Travel,lead,support@vughy.com — or header row email,name,company"
     ),
   },

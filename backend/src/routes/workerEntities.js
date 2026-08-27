@@ -23,8 +23,51 @@ import {
 import { DocumentFile, DOCUMENT_MAX_BYTES } from "../models/DocumentFile.js";
 import { setTicketStatus, finalizeNewTicket } from "../utils/ticketEngine.js";
 import { storeDocumentBytes, extractDocumentText } from "../utils/documentStorage.js";
+import {
+  applyTerritoryFilter,
+  entityInTerritory,
+  resolveAgentTerritory,
+} from "../utils/entityTerritory.js";
 
 export const workerEntitiesRouter = Router();
+
+/**
+ * Builds search filter scoped to the calling agent's territory when agentId is set.
+ * @param {string} userId
+ * @param {object} body
+ */
+async function buildEntitySearchFilter(userId, body) {
+  let filter = { user: userId };
+  if (body.type && ENTITY_TYPES.includes(body.type)) filter.type = body.type;
+  if (body.status) filter.status = String(body.status);
+  const agentId = String(body.agentId || "").trim();
+  if (agentId) {
+    const { groupId } = await resolveAgentTerritory(userId, agentId);
+    filter = applyTerritoryFilter(filter, groupId);
+  }
+  const q = String(body.query || body.q || "").trim();
+  if (q) {
+    const escaped = q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    filter.$or = [{ name: { $regex: escaped, $options: "i" } }, { externalId: q }];
+  }
+  return filter;
+}
+
+/**
+ * Loads an entity and enforces territory when agentId is provided.
+ * @param {string} userId
+ * @param {string} entityId
+ * @param {string} [agentId]
+ */
+async function findEntityForAgent(userId, entityId, agentId) {
+  const entity = await Entity.findOne({ _id: entityId, user: userId });
+  if (!entity) return { entity: null, forbidden: false };
+  if (agentId) {
+    const { groupId } = await resolveAgentTerritory(userId, agentId);
+    if (!entityInTerritory(entity, groupId)) return { entity: null, forbidden: true };
+  }
+  return { entity, forbidden: false };
+}
 
 /**
  * POST /api/worker/entities/search
@@ -32,16 +75,7 @@ export const workerEntitiesRouter = Router();
 workerEntitiesRouter.post("/entities/search", async (req, res, next) => {
   try {
     const body = req.body || {};
-    const filter = { user: req.userId };
-    if (body.type && ENTITY_TYPES.includes(body.type)) filter.type = body.type;
-    if (body.status) filter.status = String(body.status);
-    const q = String(body.query || body.q || "").trim();
-    if (q) {
-      filter.$or = [
-        { name: { $regex: q.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), $options: "i" } },
-        { externalId: q },
-      ];
-    }
+    const filter = await buildEntitySearchFilter(req.userId, body);
     const limit = Math.min(25, Math.max(1, Number(body.limit) || 10));
     const entities = await Entity.find(filter).sort({ updatedAt: -1 }).limit(limit).lean();
     res.json({
@@ -52,6 +86,7 @@ workerEntitiesRouter.post("/entities/search", async (req, res, next) => {
         type: e.type,
         name: e.name,
         status: e.status,
+        group: e.group || null,
         externalId: e.externalId,
         attributes: e.attributes || {},
         observationCount: Array.isArray(e.observations) ? e.observations.length : 0,
@@ -72,9 +107,13 @@ workerEntitiesRouter.post("/entities/get", async (req, res, next) => {
       res.status(400).json({ ok: false, detail: "entityId required" });
       return;
     }
-    const entity = await Entity.findOne({ _id: entityId, user: req.userId }).lean();
+    const agentId = String(req.body?.agentId || "").trim();
+    const { entity, forbidden } = await findEntityForAgent(req.userId, entityId, agentId);
     if (!entity) {
-      res.status(404).json({ ok: false, detail: "Entity missing" });
+      res.status(forbidden ? 403 : 404).json({
+        ok: false,
+        detail: forbidden ? "Entity is outside this agent's territory group" : "Entity missing",
+      });
       return;
     }
     res.json({ ok: true, entity, formatted: formatEntityBlock(entity) });
@@ -94,18 +133,20 @@ workerEntitiesRouter.post("/entities/create", async (req, res, next) => {
       res.status(400).json({ ok: false, detail: "name required" });
       return;
     }
+    const type = ENTITY_TYPES.includes(body.type) ? body.type : "lead";
+    /** Why: travel-agency CRM loop defaults new leads to status "new" for the nurture agent filter. */
+    const defaultStatus = type === "lead" ? "new" : "active";
+    const territory = await resolveAgentTerritory(req.userId, body.agentId);
     const entity = await Entity.create({
       user: req.userId,
-      type: ENTITY_TYPES.includes(body.type) ? body.type : "lead",
+      group: territory.groupId,
+      type,
       name,
       externalId: String(body.externalId || "").trim(),
-      status: String(body.status || "active").trim(),
+      status: String(body.status || defaultStatus).trim(),
       attributes: body.attributes && typeof body.attributes === "object" ? body.attributes : {},
+      relatedAgents: territory.agentId ? [territory.agentId] : [],
     });
-    if (body.agentId) {
-      entity.relatedAgents = [String(body.agentId)];
-      await entity.save();
-    }
     res.status(201).json({ ok: true, entity, formatted: formatEntityBlock(entity) });
   } catch (err) {
     next(err);
@@ -118,9 +159,13 @@ workerEntitiesRouter.post("/entities/create", async (req, res, next) => {
 workerEntitiesRouter.post("/entities/update", async (req, res, next) => {
   try {
     const entityId = String(req.body?.entityId || req.body?.id || "").trim();
-    const entity = await Entity.findOne({ _id: entityId, user: req.userId });
+    const agentId = String(req.body?.agentId || "").trim();
+    const { entity, forbidden } = await findEntityForAgent(req.userId, entityId, agentId);
     if (!entity) {
-      res.status(404).json({ ok: false, detail: "Entity missing" });
+      res.status(forbidden ? 403 : 404).json({
+        ok: false,
+        detail: forbidden ? "Entity is outside this agent's territory group" : "Entity missing",
+      });
       return;
     }
     if (req.body?.name != null) entity.name = String(req.body.name).trim();
@@ -143,9 +188,13 @@ workerEntitiesRouter.post("/entities/update", async (req, res, next) => {
 workerEntitiesRouter.post("/entities/observe", async (req, res, next) => {
   try {
     const entityId = String(req.body?.entityId || req.body?.id || "").trim();
-    const entity = await Entity.findOne({ _id: entityId, user: req.userId });
+    const agentId = String(req.body?.agentId || "").trim();
+    const { entity, forbidden } = await findEntityForAgent(req.userId, entityId, agentId);
     if (!entity) {
-      res.status(404).json({ ok: false, detail: "Entity missing" });
+      res.status(forbidden ? 403 : 404).json({
+        ok: false,
+        detail: forbidden ? "Entity is outside this agent's territory group" : "Entity missing",
+      });
       return;
     }
     appendEntityObservation(entity, {
@@ -257,6 +306,17 @@ workerEntitiesRouter.post("/entities/set-status", async (req, res, next) => {
   try {
     const entityId = String(req.body?.entityId || "").trim();
     const status = String(req.body?.status || "").trim();
+    const callerAgentId = String(req.body?.callerAgentId || req.body?.agentId || "").trim();
+    if (callerAgentId) {
+      const { entity, forbidden } = await findEntityForAgent(req.userId, entityId, callerAgentId);
+      if (!entity) {
+        res.status(forbidden ? 403 : 404).json({
+          ok: false,
+          detail: forbidden ? "Entity is outside this agent's territory group" : "Entity missing",
+        });
+        return;
+      }
+    }
     const result = await setEntityStatus(req.userId, entityId, status, {
       assigneeAgentId: req.body?.assigneeAgentId,
       attributes: req.body?.attributes,
@@ -278,9 +338,17 @@ workerEntitiesRouter.post("/entities/assign", async (req, res, next) => {
   try {
     const entityId = String(req.body?.entityId || "").trim();
     const assigneeAgentId = String(req.body?.agentId || req.body?.assigneeAgentId || "").trim();
-    const entity = await Entity.findOne({ _id: entityId, user: req.userId });
+    const callerAgentId = String(req.body?.callerAgentId || "").trim();
+    const { entity, forbidden } = await findEntityForAgent(
+      req.userId,
+      entityId,
+      callerAgentId || undefined
+    );
     if (!entity) {
-      res.status(404).json({ ok: false, detail: "Entity missing" });
+      res.status(forbidden ? 403 : 404).json({
+        ok: false,
+        detail: forbidden ? "Entity is outside this agent's territory group" : "Entity missing",
+      });
       return;
     }
     entity.relatedAgents = [assigneeAgentId].filter(Boolean);

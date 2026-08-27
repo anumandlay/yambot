@@ -10,6 +10,7 @@ import { Goal, buildGoalRunText } from "../models/Goal.js";
 import { Task } from "../models/Task.js";
 import { enqueueTask } from "./enqueueTask.js";
 import { emitEvent } from "./eventBus.js";
+import { applyTerritoryFilter, resolveAgentTerritory } from "./entityTerritory.js";
 
 /**
  * @param {import('mongoose').Document|object} campaign
@@ -47,8 +48,14 @@ function buildCampaignGoalText(campaign, entity, enrollment, kind) {
  * @param {{ limit?: number }} [opts] limit=0 means enroll all eligible leads
  */
 export async function enrollCampaignEntities(campaign, opts = {}) {
-  const filter = { user: campaign.user, type: campaign.entityType || "lead" };
+  let filter = { user: campaign.user, type: campaign.entityType || "lead" };
   if (!ENTITY_TYPES.includes(filter.type)) filter.type = "lead";
+
+  /** Why: campaign agent belongs to a country group — only enroll that territory's leads. */
+  if (campaign.agent) {
+    const { groupId } = await resolveAgentTerritory(String(campaign.user), String(campaign.agent));
+    filter = applyTerritoryFilter(filter, groupId);
+  }
 
   const existing = await Enrollment.find({
     user: campaign.user,
