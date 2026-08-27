@@ -357,18 +357,18 @@ export const AGENT_ACTION_SECTIONS = [
       {
         id: "search_tickets",
         title: "search_tickets",
-        summary: "Find support tickets by query or status.",
-        whenToUse: "Triage open tickets, find duplicates, daily support sweep goals.",
-        savesTo: "Reads ticket database.",
+        summary: "Find support tickets in this agent's territory group.",
+        whenToUse: "Triage open tickets in your country queue; find duplicates.",
+        savesTo: "Reads ticket database scoped by agent group.",
         exampleInstruction: "Search open tickets mentioning “login” and summarize each.",
         exampleJson: '{ "type": "search_tickets", "query": "login", "status": "open", "limit": 10 }',
       },
       {
         id: "create_ticket",
         title: "create_ticket",
-        summary: "Open a new support ticket.",
+        summary: "Open a support ticket in this agent's territory group.",
         whenToUse: "Agent finds a customer issue while browsing; escalate from monitoring goals.",
-        savesTo: "Tickets in MongoDB + Queues page.",
+        savesTo: "Tickets in MongoDB + Queues page (tagged with agent group).",
         exampleInstruction: "If the status page shows an outage, create_ticket with details.",
         exampleJson:
           '{ "type": "create_ticket", "title": "Site down", "description": "500 on /pricing", "priority": "high" }',
@@ -376,7 +376,7 @@ export const AGENT_ACTION_SECTIONS = [
       {
         id: "update_ticket",
         title: "update_ticket",
-        summary: "Change ticket status or assignee.",
+        summary: "Change ticket status or assignee (same territory only).",
         whenToUse: "Resolve, escalate, or reassign during support goals.",
         savesTo: "Tickets in MongoDB.",
         exampleInstruction: "After verifying fix, update_ticket status to resolved.",
