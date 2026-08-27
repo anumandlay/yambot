@@ -1,7 +1,7 @@
 /**
- * @fileoverview Unified skill suggestion — one draft + demonstration per completed task.
- * Purpose: Replace duplicate draft/training/demo paths after task complete or Teach skill.
- * Downstream: worker task complete, skills routes, demo finish, /learn.
+ * @fileoverview Unified skill draft helper — one draft + demonstration when user opts in.
+ * Purpose: Teach skill finish, convert-demo, and explicit /learn (not auto on task complete).
+ * Downstream: skills routes, demoSession finish, skillLearn /learn.
  */
 
 import { Skill } from "../models/Skill.js";

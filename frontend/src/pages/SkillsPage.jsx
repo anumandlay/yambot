@@ -1,5 +1,5 @@
 /**
- * @fileoverview Skills dashboard — suggested workflows, skill library, training requests.
+ * @fileoverview Skills dashboard — Teach-skill demos, skill library, training requests.
  * Purpose: One draft + demonstration per completed task; production skills in library list.
  * Downstream: `/api/skills`, `/api/worker/demos/*`, LiveScreen Teach skill.
  */
@@ -177,9 +177,9 @@ export function SkillsPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Skills</h1>
           <p className="text-sm text-teal-900/70">
-            Completed tasks save a <strong>suggested workflow</strong> (steps + draft skill). Edit →{" "}
-            <strong>production</strong> to inject hints on matching runs. Use <strong>Teach skill</strong> in
-            chat to enrich the same draft with your clicks.
+            Skills are created only when you choose: <strong>Teach skill</strong> on the live screen,{" "}
+            <strong>New skill</strong> / import, or <strong>/learn</strong> in chat. Promote a draft to{" "}
+            <strong>production</strong> so matching runs can use it.
           </p>
         </div>
         <Link
@@ -216,9 +216,8 @@ export function SkillsPage() {
           </button>
         </div>
         <p className="text-xs text-teal-900/50">
-          Created when a task finishes (2+ steps) or when you use <strong>Teach skill</strong> on the live
-          screen. Each row links to one <strong>draft</strong> skill — edit triggers and playbook, then set{" "}
-          <strong>production</strong>.
+          Recordings from <strong>Teach skill</strong> (and demos you convert). Each row can link to one{" "}
+          <strong>draft</strong> skill — edit triggers and playbook, then set <strong>production</strong>.
         </p>
         <ul className="flex flex-col gap-2">
           {demos.map((d) => (
@@ -303,7 +302,7 @@ export function SkillsPage() {
           ))}
           {!demos.length ? (
             <p className="text-sm text-teal-900/60">
-              No suggested workflows yet. Finish a multi-step task in chat or use Teach skill during a run.
+              No workflows yet. Use Teach skill during a live run, or create a skill with New skill / import.
             </p>
           ) : null}
         </ul>
@@ -381,8 +380,8 @@ export function SkillsPage() {
           Skill library
         </SectionTitle>
         <p className="text-xs text-teal-900/50">
-          Production skills and skills you created manually. Auto-suggested drafts appear under{" "}
-          <strong>Suggested workflows</strong> above.
+          Production skills and skills you created manually. Teach-skill drafts appear under{" "}
+          <strong>Suggested workflows</strong> above until you promote them.
         </p>
         <form onSubmit={createSkill} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">

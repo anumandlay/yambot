@@ -131,8 +131,7 @@ export const HELP = {
   "nav.skills": {
     title: "Skills",
     body: helpBody(
-      "Skills are reusable playbooks learned from human demonstrations or authored manually. When an agent hits an unknown workflow it can file a Training Request; you record a demo (Take control) and convert it to a skill.",
-      "Skills differ from the agent 'Skill' text field: page Skills are structured step lists the system can replay and verify; the agent field is free-text capability description for the LLM."
+      "Skills are reusable playbooks from Teach skill, New skill / import, or /learn — not auto-created after runs. When an agent hits an unknown workflow it can file a Training Request; you teach a demo and convert it to a skill."
     ),
     learnMore: "howto-skills",
   },
@@ -1085,7 +1084,7 @@ export const HELP = {
   "chat.trajectorySave": {
     title: "Save trajectory as demo",
     body: helpBody(
-      "After a task finishes, saves the step chain as a Demonstration on Skills — convert to skill, edit triggers, set production."
+      "Explicitly saves the step chain as a Demonstration on Skills — convert to skill, edit triggers, set production. Successful runs no longer auto-create drafts."
     ),
   },
 
@@ -1522,7 +1521,7 @@ export const HELP = {
   "skills.page": {
     title: "Skills page",
     body: helpBody(
-      "Suggested workflows (from completed tasks or Teach skill) each link to one draft skill.",
+      "Create skills only via Teach skill, New skill / import, or /learn in chat — runs do not auto-draft skills.",
       "Promote to production when ready — worker injects playbook on /slash or trigger match. Skill library lists production and manual skills only."
     ),
     learnMore: "howto-skills",
@@ -1536,8 +1535,8 @@ export const HELP = {
   "skills.demos": {
     title: "Suggested workflows",
     body: helpBody(
-      "Step sequences from completed tasks (2+ agent steps) or Teach skill recordings.",
-      "Each row links to one draft skill — Edit draft → set production. Created timestamps show when the workflow was saved."
+      "Step sequences from Teach skill recordings (and demos you convert to a draft).",
+      "Each row can link to one draft skill — Edit draft → set production. Created timestamps show when the workflow was saved."
     ),
   },
   "skills.convertDemo": {
@@ -1785,7 +1784,7 @@ export const HOW_TO_SECTIONS = [
       "Two related concepts:",
       "A) Agent edit → Skill field: free-text capability description for the LLM every run.",
       "B) Skills page: structured workflow library — steps, triggers, demonstrations, training requests.",
-      "Workflow: agent hits unknown UI → training request → Open chat → Take control (demo auto-saves) → Convert to skill → edit triggers → set production → worker injects steps when triggers match goal/URL.",
+      "Workflow: agent hits unknown UI → training request → Open chat → Teach skill (record demo) → convert/edit draft → set production → worker injects steps when triggers match goal/URL. Successful runs do not auto-create skills.",
       "Skills are how institutional knowledge transfers from humans to the workforce without rewriting prompts each time."
     ),
   },

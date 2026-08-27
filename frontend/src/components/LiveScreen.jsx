@@ -78,7 +78,7 @@ export function LiveScreen({
   wallMode = false,
   taskId,
   demoTitle = "Demonstration",
-  recordDemo = true,
+  recordDemo = false,
   chatId,
 }) {
   const [live, setLive] = useState(null);

@@ -24,10 +24,8 @@ import { Approval } from "../models/Approval.js";
 import { pickHighestPriorityTask } from "../utils/priorityArbitrator.js";
 import { unblockDependentTasks } from "../utils/enqueueTask.js";
 import { emitEvent } from "../utils/eventBus.js";
-import { Demonstration } from "../models/Demonstration.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import { Skill } from "../models/Skill.js";
-import { ensureSkillSuggestionFromTask } from "../utils/skillSuggestion.js";
 import { processOutcomeRouting } from "../utils/resultRouter.js";
 import { processCompletionActions } from "../utils/completionActionsRunner.js";
 import { workerEntitiesRouter } from "./workerEntities.js";
@@ -677,28 +675,9 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
           .slice(0, 500);
         await task.save();
       }
-    } else if (success && trajectory.length >= 2) {
-      const existingDraft = await Skill.findOne({ user: req.userId, sourceTask: task._id });
-      if (!existingDraft) {
-        const draft = await ensureSkillSuggestionFromTask(req.userId, {
-          taskId: String(task._id),
-          name: `Suggested: ${String(task.goal || "workflow").slice(0, 48)}`,
-        });
-        if (draft?.skill) {
-          await Message.create({
-            chat: task.chat,
-            role: "system",
-            content: `Skill draft suggested from this run — review “${draft.skill.name}” (/${draft.skill.slug}) on Skills → Suggested workflows.`,
-            meta: {
-              kind: "skill_suggestion",
-              skillId: draft.skill._id,
-              slug: draft.skill.slug,
-              demonstrationId: draft.demonstration?._id || null,
-            },
-          }).catch(() => {});
-        }
-      }
     }
+    // Why: skills are intentional only — Teach skill, New skill / import, or explicit /learn.
+    // Auto-drafts after every successful multi-step run flooded Suggested workflows.
 
     await writeAudit({
       userId: req.userId,

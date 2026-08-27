@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 13:47] Disable auto skill drafts — Teach skill / New skill / import only
+
+- **Prompt Provided:** Stop automatically developing skills after runs; only create when user clicks Teach skill or New skill / import (lots of suggested skills were noise)
+- **Architectural Flow:** Remove ensureSkillSuggestionFromTask from worker task-complete path; keep Teach skill demo finish, convert-demo, New skill, import, and explicit /learn; update Skills UI + help copy; LiveScreen recordDemo default false
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/worker.js`, `backend/src/utils/skillSuggestion.js`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 13:25] Agent Actions reference page
 
 - **Prompt Provided:** User wants a page listing all agent actions with clear explanations and usage examples
