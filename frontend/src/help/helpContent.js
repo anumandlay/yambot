@@ -885,7 +885,7 @@ export const HELP = {
     title: "Goal autonomy",
     body: helpBody(
       "When on, scheduler periodically evaluates KPIs and goal health; may enqueue tasks or emit events without you clicking Run.",
-      "autoRun (default on) allows spawning tasks; interval minimum 15 minutes."
+      "autoRun (default on) allows spawning tasks; interval minimum 1 minute."
     ),
     learnMore: "howto-autonomy",
   },

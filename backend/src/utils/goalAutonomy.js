@@ -26,7 +26,7 @@ export async function tickGoalAutonomy() {
 
   for (const goal of goals) {
     try {
-      const intervalMin = Math.max(15, Number(goal.autonomy?.checkIntervalMinutes) || 60);
+      const intervalMin = Math.max(1, Number(goal.autonomy?.checkIntervalMinutes) || 60);
       const last = goal.autonomy?.lastCheckAt ? new Date(goal.autonomy.lastCheckAt).getTime() : 0;
       if (now - last < intervalMin * 60_000) continue;
 

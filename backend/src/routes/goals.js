@@ -61,7 +61,7 @@ function pickGoalFields(body) {
   if (body.autonomy != null && typeof body.autonomy === "object") {
     out.autonomy = {
       enabled: body.autonomy.enabled === true,
-      checkIntervalMinutes: Math.max(15, Number(body.autonomy.checkIntervalMinutes) || 60),
+      checkIntervalMinutes: Math.max(1, Number(body.autonomy.checkIntervalMinutes) || 60),
       autoRun: body.autonomy.autoRun !== false,
     };
   }

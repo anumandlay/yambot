@@ -80,7 +80,7 @@ const goalSchema = new mongoose.Schema(
     /** Goal-directed autonomy — periodic self-assessment and task spawning. */
     autonomy: {
       enabled: { type: Boolean, default: false },
-      checkIntervalMinutes: { type: Number, default: 60, min: 15 },
+      checkIntervalMinutes: { type: Number, default: 60, min: 1 },
       autoRun: { type: Boolean, default: true },
       lastCheckAt: { type: Date, default: null },
     },

@@ -420,7 +420,7 @@ export function GoalEditPage() {
             <FieldLabel helpId="goal.autonomy.interval">Check interval (minutes)</FieldLabel>
             <input
               type="number"
-              min={15}
+              min={1}
               className="min-h-11 rounded-xl border border-teal-100 px-3"
               value={form.autonomy.checkIntervalMinutes}
               onChange={(e) =>

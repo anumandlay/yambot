@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-27 12:22] Goal autonomy — 1 minute minimum interval
+
+- **Prompt Provided:** Lower goal autonomy check interval minimum from 15 minutes to 1 minute
+- **Architectural Flow:** Align schema, API validation, scheduler tick, UI input min, and help copy on 1-minute floor
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Goal.js`, `backend/src/routes/goals.js`, `backend/src/utils/goalAutonomy.js`, `frontend/src/pages/GoalEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-27 12:00] UX simplification — guided setup + grouped nav
 
 - **Prompt Provided:** User finds the product confusing; wants it easy to do things
