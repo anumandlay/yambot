@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 13:45] Bootstrap — goal URL beats agent Start URL
+
+- **Prompt Provided:** Looking at Google though goal was open vughy.com
+- **Architectural Flow:** inferStartUrlFromGoal prefers goal domain over agent startUrl; bootstrap navigates when current tab differs (leave leftover Google); prompt labels startUrl as default-only fallback
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `backend/src/models/Agent.js`, `frontend/src/help/helpContent.js`
+
+
 ## [2026-08-28 10:50] Bootstrap navigate — skip about:blank LLM turn
 
 - **Prompt Provided:** Skip Looking at about:blank; open URL from goal immediately

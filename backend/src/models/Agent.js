@@ -376,7 +376,9 @@ export function formatAgentPrompt(snapshot) {
       ? `SUCCESS CRITERIA (call finish when met):\n${snapshot.successCriteria}`
       : "",
     domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
-    snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
+    snapshot.startUrl
+      ? `DEFAULT START URL (only if the goal does not name a website): ${snapshot.startUrl}`
+      : "",
     snapshot.email?.configured
       ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email actions for verification codes, outreach, or human-like correspondence.`
       : "",

@@ -602,8 +602,8 @@ export const HELP = {
   "agent.startUrl": {
     title: "Start URL",
     body: helpBody(
-      "Optional URL opened when a new task begins if the agent navigates nowhere else first. Leave empty for about:blank.",
-      "Useful for always starting on your app dashboard or intranet home."
+      "Fallback homepage when a goal does not name a site. If the goal says “open vughy.com”, that site wins — this field is ignored.",
+      "Leave empty for about:blank when the goal has no URL."
     ),
   },
   "agent.allowedDomains": {

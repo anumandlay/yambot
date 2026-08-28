@@ -115,30 +115,32 @@ function goalIncludesLoginCredentials(text) {
 }
 
 /**
- * Picks an initial URL so the worker can navigate before the first LLM turn (skip about:blank think).
- * Prefers agent startUrl, then explicit http(s) / bare domain in the goal, then Sheets heuristic.
- * @param {string} goal
- * @param {string} [preferredStart]
+ * Normalizes a preferred/start URL string to https URL or "".
+ * @param {string} preferredStart
  * @returns {string}
  */
-function inferStartUrlFromGoal(goal, preferredStart = "") {
+function normalizePreferredStart(preferredStart) {
   const pref = String(preferredStart || "").trim();
-  if (pref) {
-    if (/^https?:\/\//i.test(pref)) return pref;
-    if (/^(?:www\.)?[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?$/i.test(pref)) {
-      return `https://${pref.replace(/^\/+/, "")}`;
-    }
+  if (!pref) return "";
+  if (/^https?:\/\//i.test(pref)) return pref;
+  if (/^(?:www\.)?[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?$/i.test(pref)) {
+    return `https://${pref.replace(/^\/+/, "")}`;
   }
+  return "";
+}
 
+/**
+ * Extracts an explicit site from the chat goal (http URL or bare domain).
+ * @param {string} goal
+ * @returns {string}
+ */
+function extractUrlFromGoalText(goal) {
   const text = String(goal || "").trim();
   const g = text.toLowerCase();
-  if (/spreadsheet|google sheet|sheets\.google|excel offline|cell\s*[a-z]?\d+/i.test(g)) {
-    return "https://sheets.google.com/create";
-  }
 
   const full = text.match(/https?:\/\/[^\s<>"'）\]|,]+/i);
   if (full) {
-    return stripTrailingUrlJunk(full[0]);
+    return applySignupPathHint(stripTrailingUrlJunk(full[0]), g);
   }
 
   // Bare domain or domain/path (vughy.com, www.x.com/agency/register) — not email local@domain.
@@ -152,11 +154,49 @@ function inferStartUrlFromGoal(goal, preferredStart = "") {
     if (domainStart > 0 && text[domainStart - 1] === "@") continue;
     if (!/\.[a-z]{2,}(\/|$)/i.test(raw)) continue;
     if (/^(?:e\.g|eg|etc|example\.com)$/i.test(raw)) continue;
-    let url = `https://${raw}`;
-    url = applySignupPathHint(url, g);
-    return url;
+    return applySignupPathHint(`https://${raw}`, g);
   }
   return "";
+}
+
+/**
+ * Whether two URLs are the same site+path for bootstrap skip purposes.
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function urlsRoughlySame(a, b) {
+  try {
+    const ua = new URL(String(a || ""));
+    const ub = new URL(String(b || ""));
+    const pathA = (ua.pathname || "/").replace(/\/+$/, "") || "/";
+    const pathB = (ub.pathname || "/").replace(/\/+$/, "") || "/";
+    return ua.hostname.replace(/^www\./i, "").toLowerCase() === ub.hostname.replace(/^www\./i, "").toLowerCase()
+      && pathA === pathB;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Picks an initial URL so the worker can navigate before the first LLM turn (skip about:blank think).
+ * Why: goal-mentioned sites always win over agent Start URL — otherwise a leftover google.com
+ * startUrl keeps opening Google when the user said “open vughy.com”.
+ * @param {string} goal
+ * @param {string} [preferredStart] Agent startUrl fallback when the goal has no site
+ * @returns {string}
+ */
+function inferStartUrlFromGoal(goal, preferredStart = "") {
+  const fromGoal = extractUrlFromGoalText(goal);
+  if (fromGoal) return fromGoal;
+
+  const text = String(goal || "").trim();
+  const g = text.toLowerCase();
+  if (/spreadsheet|google sheet|sheets\.google|excel offline|cell\s*[a-z]?\d+/i.test(g)) {
+    return "https://sheets.google.com/create";
+  }
+
+  return normalizePreferredStart(preferredStart);
 }
 
 /**
@@ -1140,7 +1180,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         ? `SUCCESS CRITERIA (call finish when met):\n${snapshot.successCriteria}`
         : "",
       domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
-      snapshot.startUrl ? `PREFERRED START URL: ${snapshot.startUrl}` : "",
+      snapshot.startUrl
+        ? `DEFAULT START URL (only if the goal does not name a website): ${snapshot.startUrl}`
+        : "",
       snapshot.email?.configured
         ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email for verification codes or human-like correspondence.`
         : "",
@@ -1359,14 +1401,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       // Why: open start URL before the first LLM turn — avoids ~15–30s "Looking at about:blank".
+      // Goal site beats agent Start URL; also leave a leftover tab (e.g. Google) for a new goal site.
       const preferredStart =
         agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
       const startUrl = inferStartUrlFromGoal(goal, preferredStart);
       const curUrl = safePageUrl(page);
-      if (
-        startUrl &&
-        (!curUrl || curUrl === "about:blank" || curUrl.startsWith("chrome://"))
-      ) {
+      const needBootstrap =
+        Boolean(startUrl) &&
+        (!curUrl ||
+          curUrl === "about:blank" ||
+          curUrl.startsWith("chrome://") ||
+          !urlsRoughlySame(curUrl, startUrl));
+      if (needBootstrap) {
         await safeGoto(startUrl);
         await mirror(taskId, "step", {
           payload: {
