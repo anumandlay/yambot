@@ -297,6 +297,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   };
   /** Last productive URL — used to restore after browser reconnect. */
   let lastKnownPageUrl = "";
+  /** Epoch ms — skip CAPTCHA auto-handoff until then (after user Give control back). */
+  let captchaHandoffCooldownUntil = 0;
   /** Serializes ensure/teardown/recover so screen + poll loops cannot spawn duplicate Chromium windows. */
   let browserGate = Promise.resolve();
 
@@ -1036,7 +1038,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
   /**
    * When a CAPTCHA is visible: try DeathByCaptcha, then ask the user to Take control.
-   * @returns {Promise<{ handled: boolean, obs: object, captchaMeta: object }>}
+   * @returns {Promise<{ handled: boolean, recheck?: boolean, obs: object, captchaMeta: object }>}
    */
   async function handleCaptchaIfPresent(taskId, settings, notes, cachedObs = null) {
     let obs = cachedObs || (await observeNow());
@@ -1051,6 +1053,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
     // Why: invisible reCAPTCHA badges expose sitekeys on many sites — only gate on visible challenge UI.
     const captchaVisible = Boolean(obs.captcha?.present);
     if (!captchaVisible) {
+      return { handled: false, obs, captchaMeta };
+    }
+
+    // Why: after Take control → Give control back, the widget often still looks “present”
+    // (iframe stays). Trust the user for a short window so we do not re-blink Needs you.
+    if (Date.now() < captchaHandoffCooldownUntil) {
+      notes.push("Skipping CAPTCHA gate (recent human handoff — captcha may still show as solved widget).");
       return { handled: false, obs, captchaMeta };
     }
 
@@ -1086,7 +1095,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         captchaMeta = await safeEvaluate(captchaMetaInPage);
         const stillVisible = Boolean(obs.captcha?.present);
         if (!stillVisible) {
-          return { handled: true, obs, captchaMeta };
+          // Why: re-observe once so the LLM sees the post-solve DOM.
+          return { handled: true, recheck: true, obs, captchaMeta };
         }
         notes.push("CAPTCHA still visible after DeathByCaptcha token — handing off to user.");
       } else {
@@ -1109,10 +1119,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
     log(`[${config.workerName}] CAPTCHA handoff (${sig}) — waiting for user`);
     await waitForHumanHandoff(taskId, handoffMsg);
     await resyncActivePageAfterHandoff();
+    // Why: 2 minutes — enough for submit/next steps without looping Needs you on a solved widget.
+    captchaHandoffCooldownUntil = Date.now() + 120_000;
     notes.push(`User continued after CAPTCHA handoff (${sig}).`);
     obs = await observeNow();
     captchaMeta = await safeEvaluate(captchaMetaInPage);
-    return { handled: true, obs, captchaMeta };
+    // Why: do NOT recheck/continue — that immediately re-triggers handoff while the iframe remains.
+    return { handled: false, recheck: false, obs, captchaMeta };
   }
 
   /**
@@ -1766,7 +1779,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           notes,
           reuseObs ? prevObs : null
         );
-        if (captchaGate.handled) continue;
+        // Why: only recheck after DBC auto-solve — human handoff must proceed to the LLM.
+        if (captchaGate.handled && captchaGate.recheck) continue;
         let obs = captchaGate.obs;
         if (obs?.url && /^https?:\/\//i.test(obs.url)) {
           lastKnownPageUrl = obs.url;

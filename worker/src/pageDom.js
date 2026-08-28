@@ -821,6 +821,47 @@ export function observeInPage() {
     return Array.from(document.querySelectorAll(selector)).some(isCaptchaVisible);
   }
 
+  /**
+   * Why: solved reCAPTCHA keeps the iframe/#g-recaptcha-response in the DOM — without this
+   * we re-handoff forever after the user already checked “I'm not a robot”.
+   */
+  function isRecaptchaSolved() {
+    const areas = document.querySelectorAll(
+      "#g-recaptcha-response, textarea[name='g-recaptcha-response'], textarea.g-recaptcha-response"
+    );
+    for (const el of areas) {
+      if (String(el.value || "").trim().length > 20) return true;
+    }
+    try {
+      if (typeof window.grecaptcha?.getResponse === "function") {
+        const token = window.grecaptcha.getResponse();
+        if (String(token || "").trim().length > 20) return true;
+      }
+    } catch {
+      /* cross-origin / not ready */
+    }
+    return false;
+  }
+
+  function isHcaptchaSolved() {
+    const areas = document.querySelectorAll(
+      "textarea[name='h-captcha-response'], textarea[name='g-recaptcha-response'][data-hcaptcha]," +
+        " [name='h-captcha-response']"
+    );
+    for (const el of areas) {
+      if (String(el.value || "").trim().length > 20) return true;
+    }
+    try {
+      if (typeof window.hcaptcha?.getResponse === "function") {
+        const token = window.hcaptcha.getResponse();
+        if (String(token || "").trim().length > 20) return true;
+      }
+    } catch {
+      /* ignore */
+    }
+    return false;
+  }
+
   function detectCaptcha() {
     const signals = [];
     if (
@@ -873,7 +914,25 @@ export function observeInPage() {
     ) {
       signals.push("text_hint");
     }
-    return { present: signals.length > 0, signals: [...new Set(signals)] };
+
+    const unique = [...new Set(signals)];
+    if (unique.includes("recaptcha") && isRecaptchaSolved()) {
+      return { present: false, signals: [], solved: true, solvedKind: "recaptcha" };
+    }
+    if (unique.includes("hcaptcha") && isHcaptchaSolved()) {
+      return { present: false, signals: [], solved: true, solvedKind: "hcaptcha" };
+    }
+    // Why: badge-only / leftover textarea without a visible challenge should not block the agent.
+    if (unique.length === 1 && unique[0] === "recaptcha") {
+      const challengeUi =
+        hasVisibleSelector(".g-recaptcha") ||
+        hasVisibleSelector("iframe[src*='recaptcha/']") ||
+        hasVisibleSelector("iframe[title*='reCAPTCHA']");
+      if (!challengeUi && document.querySelector("#g-recaptcha-response")) {
+        return { present: false, signals: [], solved: false, badgeOnly: true };
+      }
+    }
+    return { present: unique.length > 0, signals: unique };
   }
 
   function pageText(max = 6000) {
@@ -1402,6 +1461,40 @@ export function executeInPage(action) {
     function hasVisibleSelector(selector) {
       return Array.from(document.querySelectorAll(selector)).some(isCaptchaVisible);
     }
+    function isRecaptchaSolved() {
+      const areas = document.querySelectorAll(
+        "#g-recaptcha-response, textarea[name='g-recaptcha-response'], textarea.g-recaptcha-response"
+      );
+      for (const el of areas) {
+        if (String(el.value || "").trim().length > 20) return true;
+      }
+      try {
+        if (typeof window.grecaptcha?.getResponse === "function") {
+          const token = window.grecaptcha.getResponse();
+          if (String(token || "").trim().length > 20) return true;
+        }
+      } catch {
+        /* ignore */
+      }
+      return false;
+    }
+    function isHcaptchaSolved() {
+      const areas = document.querySelectorAll(
+        "textarea[name='h-captcha-response'], [name='h-captcha-response']"
+      );
+      for (const el of areas) {
+        if (String(el.value || "").trim().length > 20) return true;
+      }
+      try {
+        if (typeof window.hcaptcha?.getResponse === "function") {
+          const token = window.hcaptcha.getResponse();
+          if (String(token || "").trim().length > 20) return true;
+        }
+      } catch {
+        /* ignore */
+      }
+      return false;
+    }
     const signals = [];
     if (
       hasVisibleSelector(".g-recaptcha") ||
@@ -1414,7 +1507,14 @@ export function executeInPage(action) {
     if (hasVisibleSelector(".h-captcha") || hasVisibleSelector("iframe[src*='hcaptcha']")) {
       signals.push("hcaptcha");
     }
-    return { present: signals.length > 0, signals };
+    const unique = [...new Set(signals)];
+    if (unique.includes("recaptcha") && isRecaptchaSolved()) {
+      return { present: false, signals: [], solved: true, solvedKind: "recaptcha" };
+    }
+    if (unique.includes("hcaptcha") && isHcaptchaSolved()) {
+      return { present: false, signals: [], solved: true, solvedKind: "hcaptcha" };
+    }
+    return { present: unique.length > 0, signals: unique };
   }
 
   function findRecaptchaSitekey() {

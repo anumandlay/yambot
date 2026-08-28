@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 14:10] CAPTCHA — don't re-handoff after solved widget
+
+- **Prompt Provided:** Solved CAPTCHA + Give control back still shows Needs you
+- **Architectural Flow:** detectCaptcha treats filled reCAPTCHA/hCaptcha tokens as not present; after human handoff skip gate for 2m and proceed to LLM (no continue-loop re-handoff)
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/pageDom.js`, `worker/src/agent.js`
+
+
 ## [2026-08-28 14:05] Clear Needs you after CAPTCHA Give control back
 
 - **Prompt Provided:** After Take control / solve CAPTCHA / Give control back, still shows Needs you
