@@ -2027,8 +2027,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         for (let batchIdx = 0; batchIdx < batchActions.length; batchIdx += 1) {
           const action = batchActions[batchIdx];
           const isLastInBatch = batchIdx === batchActions.length - 1;
-          const obsBefore = await observeNow().catch(() => obs);
-          obs = obsBefore;
+          // Why: skip post-LLM re-observe + CDP precheck — act on the snapshot the model already
+          // planned against. Saves 0.5–3s per step; recovery still re-observes on failure.
+          const obsBefore = obs;
 
         let precondition = checkPreconditions(action, obs, prevObs);
         let actionToRun = precondition.resolvedAction || action;
@@ -2037,16 +2038,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
 
         const locatorTypes = new Set(["click", "type", "select"]);
-        if (locatorTypes.has(actionToRun.type) && precondition.ok) {
-          const precheck = await runPrecheck(actionToRun, obs);
-          if (!precheck.ok) {
-            precondition = {
-              ok: false,
-              issues: [precheck.error || "PRECHECK_FAILED"],
-              precheck,
-            };
-          }
-        }
 
         let result;
         try {
@@ -2055,7 +2046,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               {
                 ok: false,
                 error: precondition.issues?.join("; ") || "Precondition failed",
-                failure_class: precondition.precheck?.error || "PRECONDITION_FAILED",
+                failure_class: "PRECONDITION_FAILED",
               },
               { precondition }
             );

@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 14:40] Speed — skip post-LLM re-observe and precheck
+
+- **Prompt Provided:** Remove re-observe + precheck after Received from LLM to act faster
+- **Architectural Flow:** Act on the observation the model already saw; drop CDP runPrecheck before execute; recovery ladder still re-observes on failure
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`
+
+
 ## [2026-08-28 14:20] LLM traces — show timestamps
 
 - **Prompt Provided:** Put timestamp for llm request and response threads
