@@ -153,7 +153,20 @@ export function SettingsLlmProfilesPage() {
       const preview = data.preview ? ` Reply: “${data.preview}”.` : "";
       setOkMsg(`${data.message || "LLM connected."} Model: ${data.model || form.model}.${preview}`);
     } catch (err) {
-      setError(err);
+      const tried = [
+        form.baseUrl ? `Base URL: ${form.baseUrl}` : null,
+        form.model ? `Model: ${form.model}` : null,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      const detail = [err.detail || err.message || "Could not connect to the LLM.", tried]
+        .filter(Boolean)
+        .join("\n\n");
+      setError({
+        title: err.title || "LLM connection failed",
+        detail,
+        hint: err.hint || "Check API key, base URL (should end with /v1), and model name.",
+      });
     } finally {
       setTesting(false);
     }
@@ -192,9 +205,8 @@ export function SettingsLlmProfilesPage() {
         </Link>
       </p>
 
-      {error ? <ErrorAlert error={error} /> : null}
       {okMsg ? (
-        <p className="rounded-xl border border-teal-100 bg-teal-50 px-3 py-2 text-sm text-teal-900">
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-3 py-2 text-sm text-emerald-900">
           {okMsg}
         </p>
       ) : null}
@@ -290,6 +302,14 @@ export function SettingsLlmProfilesPage() {
               placeholder="gpt-4o"
             />
           </label>
+          {error ? (
+            <ErrorAlert
+              title={error.title || "LLM connection failed"}
+              detail={error.detail || error.message || "Could not connect to the LLM."}
+              hint={error.hint || "Check API key, base URL (should end with /v1), and model name."}
+              onClose={() => setError(null)}
+            />
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <ButtonWithHelp helpId="settings.llmProfiles.save">
               <button

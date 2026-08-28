@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 18:50] LLM profiles — show clear test errors
+
+- **Prompt Provided:** /settings/llms if llm is not connecting, show the clear error
+- **Architectural Flow:** ErrorAlert now accepts error object or title/detail/hint; profiles Test failure shows provider title/detail/hint plus tried base URL/model next to the form
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/ErrorAlert.jsx`, `frontend/src/pages/SettingsLlmProfilesPage.jsx`
+
+
 ## [2026-08-28 18:40] LLM profiles page + agent dropdown
 
 - **Prompt Provided:** Page to save LLM api/base/model + test; agents select saved LLM from dropdown on create
