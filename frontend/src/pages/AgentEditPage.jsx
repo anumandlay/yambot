@@ -57,11 +57,9 @@ const EMPTY = {
     chatId: null,
   },
   llm: {
+    profileId: "",
+    /** True only for pre-profile agents that still have inline credentials. */
     useCustom: false,
-    apiKey: "",
-    baseUrl: "",
-    model: "",
-    hasApiKey: false,
   },
   email: {
     enabled: false,
@@ -104,6 +102,7 @@ export function AgentEditPage() {
   const [memory, setMemory] = useState([]);
   const [allAgents, setAllAgents] = useState([]);
   const [agentGroups, setAgentGroups] = useState([]);
+  const [llmProfiles, setLlmProfiles] = useState([]);
   const [walletInfo, setWalletInfo] = useState({ balanceUsd: 0, agentPriceUsd: 0 });
 
   useEffect(() => {
@@ -127,6 +126,12 @@ export function AgentEditPage() {
         }
         const groupData = await api("/api/groups?type=agent");
         setAgentGroups(groupData.groups || []);
+        try {
+          const llmData = await api("/api/llm-profiles");
+          setLlmProfiles(llmData.profiles || []);
+        } catch {
+          setLlmProfiles([]);
+        }
         if (!isNew) {
           const data = await api(`/api/agents/${agentId}`);
           const a = data.agent;
@@ -172,11 +177,8 @@ export function AgentEditPage() {
               chatId: a.schedule?.chatId || null,
             },
             llm: {
-              useCustom: Boolean(a.llm?.useCustom),
-              apiKey: "",
-              baseUrl: a.llm?.baseUrl || "",
-              model: a.llm?.model || "",
-              hasApiKey: Boolean(a.llm?.hasApiKey),
+              profileId: a.llm?.profileId || "",
+              useCustom: Boolean(a.llm?.useCustom && !a.llm?.profileId),
             },
             email: {
               enabled: Boolean(a.email?.enabled),
@@ -237,6 +239,11 @@ export function AgentEditPage() {
     }));
   }
 
+  /**
+   * @param {number} index
+   * @param {string} field
+   * @param {string} value
+   */
   function updateFact(index, field, value) {
     setForm((prev) => {
       const facts = [...prev.facts];
@@ -346,6 +353,11 @@ export function AgentEditPage() {
       group: form.group || null,
       facts: form.facts.filter((f) => f.key.trim()),
       allowedDomains: form.allowedDomains,
+      llm: {
+        profileId: form.llm?.profileId || "",
+        // Why: preserve pre-profile inline override until the user picks Default or a named profile.
+        useCustom: Boolean(!form.llm?.profileId && form.llm?.useCustom),
+      },
     };
     try {
       if (isNew) {
@@ -365,12 +377,8 @@ export function AgentEditPage() {
           ...prev,
           llm: data?.agent?.llm
             ? {
-                ...prev.llm,
-                useCustom: Boolean(data.agent.llm.useCustom),
-                baseUrl: data.agent.llm.baseUrl || "",
-                model: data.agent.llm.model || "",
-                apiKey: "",
-                hasApiKey: Boolean(data.agent.llm.hasApiKey),
+                profileId: data.agent.llm.profileId || "",
+                useCustom: Boolean(data.agent.llm.useCustom && !data.agent.llm.profileId),
               }
             : prev.llm,
           email: data?.agent?.email
@@ -719,127 +727,116 @@ export function AgentEditPage() {
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">
           <legend className="px-1">
-            <SectionTitle helpId="agent.llm.useCustom" as="div" className="text-sm font-semibold text-teal-900">
-              LLM (optional override)
+            <SectionTitle helpId="agent.llm.profile" as="div" className="text-sm font-semibold text-teal-900">
+              LLM
             </SectionTitle>
           </legend>
           <p className="text-xs text-teal-900/60">
-            Off = this agent uses your Settings LLM (API key or ChatGPT OAuth). On = only this agent’s
-            key / base URL / model for browser tasks. Leave key blank when saving to keep a saved key.
+            Pick a saved LLM for this agent, or use the account default from Settings. Manage profiles
+            under{" "}
+            <Link to="/settings/llms" className="font-semibold text-teal-800 underline">
+              Settings → LLM profiles
+            </Link>
+            .
           </p>
-          <label className="flex min-h-11 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={Boolean(form.llm?.useCustom)}
-              onChange={(e) => updateLlm("useCustom", e.target.checked)}
-            />
-            <FieldLabel helpId="agent.llm.useCustom">Use a different LLM for this agent</FieldLabel>
+          <label className="flex flex-col gap-1 text-sm">
+            <FieldLabel helpId="agent.llm.profile">LLM for this agent</FieldLabel>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+              value={form.llm?.profileId || ""}
+              onChange={(e) => updateLlm("profileId", e.target.value)}
+            >
+              <option value="">Default (Settings API key / OpenAI OAuth)</option>
+              {form.llm?.useCustom && !form.llm?.profileId ? (
+                <option value="" disabled>
+                  Custom inline (legacy — pick a profile below to migrate)
+                </option>
+              ) : null}
+              {llmProfiles.map((p) => {
+                const id = p._id || p.id;
+                return (
+                  <option key={id} value={id}>
+                    {p.name}
+                    {p.model ? ` · ${p.model}` : ""}
+                  </option>
+                );
+              })}
+            </select>
           </label>
-          {form.llm?.useCustom ? (
-            <div className="grid gap-3 sm:grid-cols-2">
-              <label className="flex flex-col gap-1 text-sm sm:col-span-2">
-                <FieldLabel helpId="agent.llm.apiKey">
-                  API key{form.llm?.hasApiKey ? " (saved — leave blank to keep)" : ""}
-                </FieldLabel>
-                <input
-                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-                  type="password"
-                  autoComplete="off"
-                  value={form.llm?.apiKey || ""}
-                  onChange={(e) => updateLlm("apiKey", e.target.value)}
-                  placeholder={form.llm?.hasApiKey ? "••••••••" : "sk-… or provider key"}
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <FieldLabel helpId="agent.llm.baseUrl">Base URL</FieldLabel>
-                <input
-                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-                  value={form.llm?.baseUrl || ""}
-                  onChange={(e) => updateLlm("baseUrl", e.target.value)}
-                  placeholder="https://api.openai.com/v1 (blank = Settings)"
-                />
-              </label>
-              <label className="flex flex-col gap-1 text-sm">
-                <FieldLabel helpId="agent.llm.model">Model</FieldLabel>
-                <input
-                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-                  value={form.llm?.model || ""}
-                  onChange={(e) => updateLlm("model", e.target.value)}
-                  placeholder="gpt-4o (blank = Settings)"
-                />
-              </label>
-              {!isNew ? (
-                <div className="sm:col-span-2">
-                  <ButtonWithHelp helpId="agent.llm.test">
-                    <button
-                      type="button"
-                      disabled={busy || !form.llm?.useCustom}
-                      className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
-                      onClick={async () => {
-                        setBusy(true);
-                        setError(null);
-                        setOkMsg("");
-                        try {
-                          // Why: test reads Mongo — save LLM fields first so key/base/model stick.
-                          const payload = {
-                            ...form,
-                            group: form.group || null,
-                            facts: form.facts.filter((f) => f.key.trim()),
-                            allowedDomains: form.allowedDomains,
-                          };
-                          const saved = await api(`/api/agents/${agentId}`, {
-                            method: "PUT",
-                            body: JSON.stringify(payload),
-                          });
-                          setForm((prev) => ({
-                            ...prev,
-                            llm: saved?.agent?.llm
-                              ? {
-                                  ...prev.llm,
-                                  useCustom: Boolean(saved.agent.llm.useCustom),
-                                  baseUrl: saved.agent.llm.baseUrl || "",
-                                  model: saved.agent.llm.model || "",
-                                  apiKey: "",
-                                  hasApiKey: Boolean(saved.agent.llm.hasApiKey),
-                                }
-                              : prev.llm,
-                            email: saved?.agent?.email
-                              ? {
-                                  ...prev.email,
-                                  ...saved.agent.email,
-                                  smtpPassword: "",
-                                  hasSmtpPassword: Boolean(saved.agent.email.hasSmtpPassword),
-                                }
-                              : prev.email,
-                          }));
-                          const data = await api(`/api/agents/${agentId}/llm/test`, {
-                            method: "POST",
-                            body: JSON.stringify({}),
-                          });
-                          const preview = data.preview ? ` Reply: “${data.preview}”.` : "";
-                          setOkMsg(
-                            `${data.message || "Agent LLM connected."} Model: ${
-                              data.model || form.llm?.model || ""
-                            }.${preview}`
-                          );
-                        } catch (err) {
-                          setError(err);
-                        } finally {
-                          setBusy(false);
-                        }
-                      }}
-                    >
-                      {busy ? "Saving & testing…" : "Save & test LLM"}
-                    </button>
-                  </ButtonWithHelp>
-                </div>
-              ) : (
-                <p className="text-xs text-teal-900/60 sm:col-span-2">
-                  Save the agent first, then you can test this LLM connection.
-                </p>
-              )}
-            </div>
+          {llmProfiles.length === 0 ? (
+            <p className="text-xs text-teal-900/60">
+              No saved LLMs yet.{" "}
+              <Link to="/settings/llms" className="font-semibold text-teal-800 underline">
+                Create an LLM profile
+              </Link>{" "}
+              with API key, base URL, model, and Test.
+            </p>
           ) : null}
+          {!isNew ? (
+            <ButtonWithHelp helpId="agent.llm.test">
+              <button
+                type="button"
+                disabled={busy}
+                className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+                onClick={async () => {
+                  setBusy(true);
+                  setError(null);
+                  setOkMsg("");
+                  try {
+                    const payload = {
+                      ...form,
+                      group: form.group || null,
+                      facts: form.facts.filter((f) => f.key.trim()),
+                      allowedDomains: form.allowedDomains,
+                      llm: {
+                        profileId: form.llm?.profileId || "",
+                        useCustom: Boolean(!form.llm?.profileId && form.llm?.useCustom),
+                      },
+                    };
+                    const saved = await api(`/api/agents/${agentId}`, {
+                      method: "PUT",
+                      body: JSON.stringify(payload),
+                    });
+                    setForm((prev) => ({
+                      ...prev,
+                      llm: {
+                        profileId: saved?.agent?.llm?.profileId || "",
+                        useCustom: Boolean(
+                          saved?.agent?.llm?.useCustom && !saved?.agent?.llm?.profileId
+                        ),
+                      },
+                    }));
+                    const data = await api(`/api/agents/${agentId}/llm/test`, {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                    const preview = data.preview ? ` Reply: “${data.preview}”.` : "";
+                    const src =
+                      data.source === "profile"
+                        ? data.profileName
+                          ? ` (profile: ${data.profileName})`
+                          : " (profile)"
+                        : data.source === "settings"
+                          ? " (Settings default)"
+                          : "";
+                    setOkMsg(
+                      `${data.message || "Agent LLM connected."} Model: ${data.model || ""}${src}.${preview}`
+                    );
+                  } catch (err) {
+                    setError(err);
+                  } finally {
+                    setBusy(false);
+                  }
+                }}
+              >
+                {busy ? "Saving & testing…" : "Save & test LLM"}
+              </button>
+            </ButtonWithHelp>
+          ) : (
+            <p className="text-xs text-teal-900/60">
+              Save the agent first, then you can test the selected LLM.
+            </p>
+          )}
         </fieldset>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">

@@ -1,7 +1,7 @@
 /**
  * @fileoverview Resolves effective LLM bearer credentials (API key or OAuth access token).
  * Purpose: Single path for Settings test-llm and worker runtime-config.
- * Downstream: settings routes, worker runtime-config (incl. optional per-agent override).
+ * Downstream: settings routes, worker runtime-config (incl. optional per-agent profile/override).
  */
 
 import { decryptSecret } from "./crypto.js";
@@ -10,10 +10,10 @@ import { normalizeLlmBaseUrl, normalizeLlmModel } from "./llmDefaults.js";
 import { getValidLlmOAuthAccessToken, isLlmOAuthConnected } from "./llmOAuth.js";
 import {
   OPENAI_CODEX_BASE_URL,
-  OPENAI_CODEX_DEFAULT_MODEL,
   isOpenAiCodexBaseUrl,
   resolveOpenAiOAuthModel,
 } from "./openaiCodex.js";
+import { LlmProfile } from "../models/LlmProfile.js";
 
 /**
  * @param {object} user — Mongoose user document or plain object with settings
@@ -59,19 +59,46 @@ export async function resolveLlmCredentials(user, opts = {}) {
 }
 
 /**
- * Resolves LLM for a cloud agent: optional per-agent override, else user Settings.
- * Why: research agents can use a different model/key without changing the org default.
+ * Resolves LLM for a cloud agent: saved profile, legacy inline override, else Settings.
+ * Why: agents pick a named profile from a dropdown without re-entering keys.
  * @param {object} user
  * @param {object|null|undefined} agent
- * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, source: "agent"|"settings" }>}
+ * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, source: "profile"|"agent"|"settings", profileId?: string, profileName?: string }>}
  */
 export async function resolveLlmCredentialsForAgent(user, agent) {
   const main = await resolveLlmCredentials(user);
   const llm = agent?.llm || {};
+  const userId = user?._id || user?.id;
+
+  const profileId = llm.profile ? String(llm.profile) : "";
+  if (profileId) {
+    const profile = await LlmProfile.findOne({ _id: profileId, user: userId }).lean();
+    if (profile) {
+      const profileKey = decryptSecret(profile.apiKeyEnc || "");
+      const apiKey = profileKey || main.apiKey || "";
+      const baseUrl = String(profile.baseUrl || "").trim()
+        ? normalizeLlmBaseUrl(profile.baseUrl, main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL)
+        : main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL;
+      const model = String(profile.model || "").trim()
+        ? normalizeLlmModel(profile.model, main.llmModel || env.DEFAULT_LLM_MODEL)
+        : main.llmModel || env.DEFAULT_LLM_MODEL;
+      return {
+        apiKey,
+        authMode: "api_key",
+        llmBaseUrl: baseUrl,
+        llmModel: model,
+        source: "profile",
+        profileId: String(profile._id),
+        profileName: profile.name || "",
+      };
+    }
+  }
+
   if (!llm.useCustom) {
     return { ...main, source: "settings" };
   }
 
+  // Why: legacy agents that stored key/base/model inline before named profiles.
   const agentKey = decryptSecret(llm.apiKeyEnc || "");
   const apiKey = agentKey || main.apiKey || "";
   const baseUrl = String(llm.baseUrl || "").trim()
@@ -86,7 +113,6 @@ export async function resolveLlmCredentialsForAgent(user, agent) {
     authMode: "api_key",
     llmBaseUrl: baseUrl,
     llmModel: model,
-    // Why: agent override is always API-key mode (OAuth stays on Settings only).
     source: "agent",
   };
 }

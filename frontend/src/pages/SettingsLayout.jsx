@@ -20,14 +20,17 @@ const tabClass = ({ isActive }) =>
  */
 export function SettingsLayout() {
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-4xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <h1 className="text-2xl font-bold tracking-tight">Settings</h1>
       <HelpToggle />
       <PageGuideBanner helpId="nav.settings" />
 
       <nav className="flex flex-wrap gap-2" aria-label="Settings sections">
         <NavLink to="/settings/llm" className={tabClass} end>
-          API key
+          Default API key
+        </NavLink>
+        <NavLink to="/settings/llms" className={tabClass}>
+          LLM profiles
         </NavLink>
         <NavLink to="/settings/openai" className={tabClass}>
           OpenAI OAuth

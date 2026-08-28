@@ -159,6 +159,7 @@ attachDesktopProxy(server, app);
 app.get("/api/settings/llm/oauth/callback", llmOAuthCallbackHandler);
 
 app.use("/api/settings", authRequired, settingsRouter);
+app.use("/api/llm-profiles", authRequired, (await import("./routes/llmProfiles.js")).llmProfilesRouter);
 app.use("/api/wallet", authRequired, (await import("./routes/wallet.js")).walletRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
 app.use("/api/groups", authRequired, (await import("./routes/groups.js")).groupsRouter);

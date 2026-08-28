@@ -167,11 +167,18 @@ const agentSchema = new mongoose.Schema(
     maxSteps: { type: Number, default: 0, min: 0 },
     startUrl: { type: String, default: "", trim: true },
     /**
-     * Optional per-agent LLM override. When useCustom is false, workers use Settings.
-     * apiKeyEnc is AES-encrypted like User.settings.llmApiKeyEnc.
+     * Optional per-agent LLM: pick a saved LlmProfile, or legacy inline fields.
+     * When neither profile nor useCustom, workers use Settings.
      */
     llm: {
       useCustom: { type: Boolean, default: false },
+      /** Saved profile from Settings → LLM profiles (preferred). */
+      profile: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "LlmProfile",
+        default: null,
+      },
+      /** @deprecated Prefer profile — kept for agents created before profiles existed. */
       apiKeyEnc: { type: String, default: "" },
       baseUrl: { type: String, default: "", trim: true },
       model: { type: String, default: "", trim: true },
@@ -346,9 +353,10 @@ export function toAgentSnapshot(agentDoc) {
     startUrl: a.startUrl || "",
     runner: "cloud",
     llm: {
-      useCustom: Boolean(a.llm?.useCustom),
-      model: a.llm?.useCustom ? String(a.llm?.model || "").trim() : "",
-      baseUrl: a.llm?.useCustom ? String(a.llm?.baseUrl || "").trim() : "",
+      useCustom: Boolean(a.llm?.profile || a.llm?.useCustom),
+      profileId: a.llm?.profile ? String(a.llm.profile) : "",
+      model: a.llm?.useCustom || a.llm?.profile ? String(a.llm?.model || "").trim() : "",
+      baseUrl: a.llm?.useCustom || a.llm?.profile ? String(a.llm?.baseUrl || "").trim() : "",
     },
     email: {
       enabled: Boolean(email.enabled),
@@ -394,8 +402,10 @@ export function formatAgentPrompt(snapshot) {
     snapshot.startUrl
       ? `DEFAULT START URL (only if the goal does not name a website): ${snapshot.startUrl}`
       : "",
-    snapshot.llm?.useCustom && snapshot.llm?.model
-      ? `AGENT LLM OVERRIDE: ${snapshot.llm.model}${snapshot.llm.baseUrl ? ` @ ${snapshot.llm.baseUrl}` : ""}`
+    snapshot.llm?.useCustom && (snapshot.llm?.model || snapshot.llm?.profileId)
+      ? `AGENT LLM OVERRIDE: ${snapshot.llm.model || "saved profile"}${
+          snapshot.llm.baseUrl ? ` @ ${snapshot.llm.baseUrl}` : ""
+        }`
       : "",
     snapshot.email?.configured
       ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email actions for verification codes, outreach, or human-like correspondence.`

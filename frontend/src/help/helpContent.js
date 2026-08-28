@@ -541,32 +541,54 @@ export const HELP = {
   "agent.llm.useCustom": {
     title: "Per-agent LLM",
     body: helpBody(
-      "Off: this agent uses the LLM from Settings (API key or ChatGPT OAuth).",
-      "On: this agent uses only the key, base URL, and model you set here for its cloud browser tasks. Other agents are unchanged. OAuth stays on Settings; agent override is API-key mode."
+      "Prefer Settings → LLM profiles, then pick a profile on the agent. Legacy inline keys still work until you select Default or a named profile."
+    ),
+  },
+  "agent.llm.profile": {
+    title: "LLM for this agent",
+    body: helpBody(
+      "Default uses Settings (API key or OpenAI OAuth).",
+      "Choose a saved LLM profile to run this agent on that key / base URL / model only. Create profiles under Settings → LLM profiles."
     ),
   },
   "agent.llm.apiKey": {
     title: "Agent LLM API key",
     body: helpBody(
-      "Encrypted like Settings. Leave blank when saving to keep a previously saved key. If empty and override is on, the worker falls back to the Settings key for auth only."
+      "Deprecated — create a named LLM profile instead and select it on the agent."
     ),
   },
   "agent.llm.baseUrl": {
     title: "Agent LLM base URL",
-    body: helpBody(
-      "OpenAI-compatible chat completions root (e.g. https://api.openai.com/v1). Blank keeps Settings base URL while still using this agent’s model/key when set."
-    ),
+    body: helpBody("Deprecated — set base URL on an LLM profile."),
   },
   "agent.llm.model": {
     title: "Agent LLM model",
-    body: helpBody(
-      "Model id for this agent only (e.g. gpt-4o, MiniMax-M2.7). Blank keeps the Settings model."
-    ),
+    body: helpBody("Deprecated — set model on an LLM profile."),
   },
   "agent.llm.test": {
     title: "Save & test LLM",
     body: helpBody(
-      "Saves this agent’s LLM fields, then sends a short chat completion to verify key, base URL, and model — same check as Settings → Test LLM, but for this agent only."
+      "Saves the agent’s LLM selection, then probes the resolved credentials (selected profile or Settings default)."
+    ),
+  },
+  "settings.llmProfiles": {
+    title: "LLM profiles",
+    body: helpBody(
+      "Save named API key + base URL + model combinations. Agents pick one from a dropdown so you do not re-enter secrets per agent."
+    ),
+  },
+  "settings.llmProfile.name": {
+    title: "Profile name",
+    body: helpBody("Shown in the agent LLM dropdown (e.g. MiniMax production, GPT-4o research)."),
+  },
+  "settings.llmProfiles.save": {
+    title: "Save LLM profile",
+    body: helpBody("Stores the encrypted API key and connection details for reuse across agents."),
+  },
+  "settings.llmProfiles.test": {
+    title: "Test LLM",
+    body: helpBody(
+      "Sends a short chat completion with the form values (or the saved key if the key field is blank)."
     ),
   },
   "agent.email.fromName": {

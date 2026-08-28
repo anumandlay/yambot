@@ -271,17 +271,33 @@ function pickAgentFields(body, opts = {}) {
   }
   if (body.llm != null && typeof body.llm === "object") {
     const l = body.llm;
+    const profileRaw = l.profileId ?? l.profile ?? null;
+    const profileId =
+      profileRaw && String(profileRaw).trim() && String(profileRaw) !== "settings"
+        ? String(profileRaw).trim()
+        : null;
+
     /** @type {object} */
     const llm = {
-      useCustom: Boolean(l.useCustom),
-      baseUrl: String(l.baseUrl || "").trim().slice(0, 500),
-      model: String(l.model || "").trim().slice(0, 200),
+      profile: profileId,
+      // Why: profile selection is the product path; useCustom stays true when a profile is set.
+      useCustom: Boolean(profileId),
+      baseUrl: "",
+      model: "",
+      apiKeyEnc: "",
     };
-    const key = String(l.apiKey || "").trim();
-    if (key) {
-      llm.apiKeyEnc = encryptSecret(key);
-    } else if (l.clearApiKey) {
-      llm.apiKeyEnc = "";
+
+    // Why: keep legacy inline override if client still sends useCustom without a profile.
+    if (!profileId && l.useCustom) {
+      llm.useCustom = true;
+      llm.baseUrl = String(l.baseUrl || "").trim().slice(0, 500);
+      llm.model = String(l.model || "").trim().slice(0, 200);
+      const key = String(l.apiKey || "").trim();
+      if (key) {
+        llm.apiKeyEnc = encryptSecret(key);
+      } else if (l.clearApiKey) {
+        llm.apiKeyEnc = "";
+      }
     }
     set("llm", llm);
   }
@@ -456,6 +472,19 @@ agentsRouter.post("/", async (req, res, next) => {
     }
     if (fields.mode == null) fields.mode = "browser";
     fields.runner = "cloud";
+
+    if (fields.llm?.profile) {
+      const { LlmProfile } = await import("../models/LlmProfile.js");
+      const ok = await LlmProfile.exists({ _id: fields.llm.profile, user: req.userId });
+      if (!ok) {
+        res.status(400).json({
+          ok: false,
+          title: "Invalid LLM",
+          detail: "That LLM profile was not found. Pick another or create one in Settings.",
+        });
+        return;
+      }
+    }
 
     const settings = await getPlatformSettings();
     const agentPriceCents = Math.max(0, Number(settings.agentPriceCents) || 0);
@@ -758,9 +787,31 @@ agentsRouter.put("/:id", async (req, res, next) => {
       }
     }
     if (fields.llm) {
-      // Why: blank API key in the form means keep the existing encrypted secret.
-      if (!fields.llm.apiKeyEnc) {
-        fields.llm.apiKeyEnc = agent.llm?.apiKeyEnc || "";
+      // Why: validate profile belongs to this user when selecting from dropdown.
+      if (fields.llm.profile) {
+        const { LlmProfile } = await import("../models/LlmProfile.js");
+        const ok = await LlmProfile.exists({ _id: fields.llm.profile, user: req.userId });
+        if (!ok) {
+          res.status(400).json({
+            ok: false,
+            title: "Invalid LLM",
+            detail: "That LLM profile was not found. Pick another or create one in Settings.",
+          });
+          return;
+        }
+        fields.llm.apiKeyEnc = "";
+        fields.llm.baseUrl = "";
+        fields.llm.model = "";
+      } else if (fields.llm.useCustom) {
+        // Why: blank API key in the form means keep the existing encrypted secret (legacy).
+        if (!fields.llm.apiKeyEnc) {
+          fields.llm.apiKeyEnc = agent.llm?.apiKeyEnc || "";
+        }
+      } else {
+        fields.llm.apiKeyEnc = "";
+        fields.llm.baseUrl = "";
+        fields.llm.model = "";
+        fields.llm.profile = null;
       }
       agent.set("llm", fields.llm);
       agent.markModified("llm");
@@ -893,22 +944,13 @@ agentsRouter.delete("/:id/site-profiles/:domain", async (req, res, next) => {
 });
 
 /**
- * POST /api/agents/:id/llm/test — probe this agent's LLM override (or form body overrides).
- * Body: { apiKey?, baseUrl?, model? } — blank key uses the agent's saved secret / Settings fallback.
+ * POST /api/agents/:id/llm/test — probe this agent's resolved LLM (profile or Settings).
  */
 agentsRouter.post("/:id/llm/test", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
     if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
-      return;
-    }
-    if (!agent.llm?.useCustom) {
-      res.status(400).json({
-        ok: false,
-        title: "Override off",
-        detail: "Enable “Use a different LLM for this agent” and save before testing.",
-      });
       return;
     }
 
@@ -918,7 +960,6 @@ agentsRouter.post("/:id/llm/test", async (req, res, next) => {
       return;
     }
 
-    const bodyKey = String(req.body?.apiKey ?? req.body?.llmApiKey ?? "").trim();
     const creds = await resolveLlmCredentialsForAgent(user, agent);
     const baseUrl = normalizeLlmBaseUrl(
       String(req.body?.baseUrl ?? req.body?.llmBaseUrl ?? creds.llmBaseUrl ?? "").trim(),
@@ -928,14 +969,17 @@ agentsRouter.post("/:id/llm/test", async (req, res, next) => {
       String(req.body?.model ?? req.body?.llmModel ?? creds.llmModel ?? "").trim(),
       env.DEFAULT_LLM_MODEL
     );
+    const bodyKey = String(req.body?.apiKey ?? req.body?.llmApiKey ?? "").trim();
     const apiKey = bodyKey || creds.apiKey;
 
     if (!apiKey) {
       res.status(400).json({
         ok: false,
         title: "Missing API key",
-        detail: "Enter an API key for this agent (or save one first).",
-        hint: "Key can be left blank in the form if a saved value already exists.",
+        detail:
+          creds.source === "settings"
+            ? "Configure Settings LLM or assign an LLM profile to this agent."
+            : "This agent’s LLM profile has no API key.",
       });
       return;
     }
@@ -952,14 +996,15 @@ agentsRouter.post("/:id/llm/test", async (req, res, next) => {
         message: "Agent LLM connected",
         model: result.model,
         preview: result.preview,
-        source: creds.source || "agent",
+        source: creds.source || "settings",
+        profileName: creds.profileName || "",
       });
     } catch (err) {
       res.status(502).json({
         ok: false,
         title: err.title || "LLM connection failed",
         detail: String(err?.message || err),
-        hint: err.hint || "Verify this agent’s API key, base URL, and model.",
+        hint: err.hint || "Verify the selected LLM profile or Settings credentials.",
       });
     }
   } catch (err) {
@@ -1043,7 +1088,8 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       runner: "cloud",
       memory: [],
       llm: {
-        useCustom: Boolean(src.llm?.useCustom),
+        useCustom: Boolean(src.llm?.profile || src.llm?.useCustom),
+        profile: src.llm?.profile || null,
         apiKeyEnc: src.llm?.apiKeyEnc || "",
         baseUrl: src.llm?.baseUrl || "",
         model: src.llm?.model || "",

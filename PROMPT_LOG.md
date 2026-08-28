@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 18:40] LLM profiles page + agent dropdown
+
+- **Prompt Provided:** Page to save LLM api/base/model + test; agents select saved LLM from dropdown on create
+- **Architectural Flow:** LlmProfile model + /api/llm-profiles CRUD/test; Settings → LLM profiles UI; Agent.llm.profile ref; resolveLlmCredentialsForAgent prefers profile then legacy inline then Settings; Agent edit dropdown
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/LlmProfile.js`, `backend/src/routes/llmProfiles.js`, `backend/src/index.js`, `backend/src/models/Agent.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/agentEmail.js`, `backend/src/routes/agents.js`, `frontend/src/pages/SettingsLlmProfilesPage.jsx`, `frontend/src/pages/SettingsLayout.jsx`, `frontend/src/App.jsx`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
+
 ## [2026-08-28 15:45] Agent edit — Save & test LLM
 
 - **Prompt Provided:** In agent edit, after LLM credentials, need Test LLM

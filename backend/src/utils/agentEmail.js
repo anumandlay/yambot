@@ -240,14 +240,17 @@ export function publicEmailSummary(agent) {
 
 /**
  * Public/safe LLM override summary for API (no raw key).
- * Why: Agent edit UI needs useCustom/model/baseUrl + whether a key is saved.
+ * Why: Agent edit UI needs profileId / useCustom for the dropdown.
  * @param {object} agent
  */
 export function publicLlmSummary(agent) {
   const llm = agent?.llm || {};
+  const profileId = llm.profile ? String(llm.profile) : "";
   const hasApiKey = Boolean(llm.apiKeyEnc);
+  const useCustom = Boolean(profileId) || Boolean(llm.useCustom);
   return {
-    useCustom: Boolean(llm.useCustom),
+    useCustom,
+    profileId,
     baseUrl: String(llm.baseUrl || "").trim(),
     model: String(llm.model || "").trim(),
     hasApiKey,
