@@ -737,6 +737,9 @@ agentsRouter.put("/:id", async (req, res, next) => {
       if (!fields.email.smtpPasswordEnc) {
         fields.email.smtpPasswordEnc = agent.email?.smtpPasswordEnc || "";
       }
+      agent.set("email", fields.email);
+      agent.markModified("email");
+      delete fields.email;
     }
     Object.assign(agent, fields);
     ensureWorkerCredentials(agent);

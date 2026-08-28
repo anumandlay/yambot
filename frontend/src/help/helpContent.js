@@ -593,9 +593,10 @@ export const HELP = {
     ),
   },
   "agent.email.test": {
-    title: "Send test email",
+    title: "Save & send test email",
     body: helpBody(
-      "Sends a test message to the From address using saved SMTP settings. Save agent first if newly created."
+      "Saves this agent's email settings first, then sends a test to the From address.",
+      "Requires Enable checked, SMTP host/user/password, and From address. On /agents/new, create the agent once before testing."
     ),
   },
   "agent.startUrl": {

@@ -806,11 +806,33 @@ export function AgentEditPage() {
                   setError(null);
                   setOkMsg("");
                   try {
+                    // Why: test reads Mongo, not the open form — save email fields first so Enable/password stick.
+                    const payload = {
+                      ...form,
+                      group: form.group || null,
+                      facts: form.facts.filter((f) => f.key.trim()),
+                      allowedDomains: form.allowedDomains,
+                    };
+                    const saved = await api(`/api/agents/${agentId}`, {
+                      method: "PUT",
+                      body: JSON.stringify(payload),
+                    });
+                    if (saved?.agent?.email) {
+                      setForm((prev) => ({
+                        ...prev,
+                        email: {
+                          ...prev.email,
+                          ...saved.agent.email,
+                          smtpPassword: "",
+                          hasSmtpPassword: Boolean(saved.agent.email.hasSmtpPassword),
+                        },
+                      }));
+                    }
                     await api(`/api/agents/${agentId}/email/test`, {
                       method: "POST",
                       body: JSON.stringify({}),
                     });
-                    setOkMsg("Test email sent to the from address.");
+                    setOkMsg("Saved email settings and sent a test to the from address.");
                   } catch (err) {
                     setError(err);
                   } finally {
@@ -819,7 +841,7 @@ export function AgentEditPage() {
                 }}
                 className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
               >
-                Send test email
+                {busy ? "Saving & testing…" : "Save & send test email"}
               </button>
             </ButtonWithHelp>
           ) : (

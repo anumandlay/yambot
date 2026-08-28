@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 09:15] Agent email test — save before send + persist enabled
+
+- **Prompt Provided:** Test email showed “Email is not enabled” after filling SMTP fields
+- **Architectural Flow:** Test reads DB not form; button now PUT-saves then tests; PUT uses agent.set/markModified("email") so enabled/password stick
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`, `backend/src/routes/agents.js`
+
 ## [2026-08-27 17:26] Skill create — Generate fields from plain-English brief
 
 - **Prompt Provided:** Add Generate with AI on skills page to write skills from plain English
