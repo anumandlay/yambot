@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 13:55] Chat thread — embed LLM request/response
+
+- **Prompt Provided:** Embed sent-to-LLM and received-from-LLM in chat threads
+- **Architectural Flow:** trackedChatCompletion mirrors llm_request/llm_response (truncated, screenshots stripped); LlmTraceMessage collapsible UI in ChatDetailPage + FloatingChatWidget
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `frontend/src/components/LlmTraceMessage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/FloatingChatWidget.jsx`
+
+
 ## [2026-08-28 13:45] Bootstrap — goal URL beats agent Start URL
 
 - **Prompt Provided:** Looking at Google though goal was open vughy.com

@@ -9,6 +9,7 @@ import { api } from "../lib/api.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { skillPickFromMessage } from "../lib/skillPick.js";
 import { SkillPickNotice } from "./SkillPickNotice.jsx";
+import { LlmTraceMessage } from "./LlmTraceMessage.jsx";
 import { HelpTooltip } from "./HelpTooltip.jsx";
 
 /**
@@ -102,6 +103,10 @@ export function FloatingChatWidget({ chatId, className = "" }) {
                 ? m.meta.skillPick
                 : skillPickFromMessage(m);
             const isSkill = m.meta?.kind === "skill_selected";
+            const llmTraceType =
+              m.meta?.type === "llm_request" || m.meta?.type === "llm_response"
+                ? m.meta.type
+                : null;
             return (
               <article
                 key={m._id}
@@ -112,18 +117,31 @@ export function FloatingChatWidget({ chatId, className = "" }) {
                       ? "bg-teal-900/50 text-teal-50"
                       : isSkill
                         ? "border border-violet-400/30 bg-violet-950/60 text-violet-50"
-                        : "bg-white/5 text-white/80"
+                        : llmTraceType
+                          ? "bg-transparent p-0"
+                          : "bg-white/5 text-white/80"
                 }`}
               >
-                <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] uppercase opacity-60">
-                  <span>{isSkill ? "skill" : m.role}</span>
-                  {m.createdAt ? (
-                    <time dateTime={new Date(m.createdAt).toISOString()}>
-                      {formatChatMessageTime(m.createdAt)}
-                    </time>
-                  ) : null}
-                </div>
-                {isSkill && skillPick ? (
+                {!llmTraceType ? (
+                  <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] uppercase opacity-60">
+                    <span>{isSkill ? "skill" : m.role}</span>
+                    {m.createdAt ? (
+                      <time dateTime={new Date(m.createdAt).toISOString()}>
+                        {formatChatMessageTime(m.createdAt)}
+                      </time>
+                    ) : null}
+                  </div>
+                ) : null}
+                {llmTraceType ? (
+                  <div className="[&_details]:border-white/20 [&_details]:bg-white/10 [&_details]:text-white/90 [&_pre]:bg-black/30">
+                    <LlmTraceMessage
+                      type={llmTraceType}
+                      content={m.content}
+                      meta={m.meta}
+                      compact
+                    />
+                  </div>
+                ) : isSkill && skillPick ? (
                   <SkillPickNotice pick={skillPick} className="!border-0 !bg-transparent !p-0 !text-[0.7rem]" />
                 ) : (
                   <>

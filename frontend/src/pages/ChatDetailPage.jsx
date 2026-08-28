@@ -17,6 +17,7 @@ import { LiveScreen } from "../components/LiveScreen.jsx";
 import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
 import { TrajectoryPanel } from "../components/TrajectoryPanel.jsx";
 import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
+import { LlmTraceMessage } from "../components/LlmTraceMessage.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -796,6 +797,10 @@ export function ChatDetailPage() {
                 ? m.meta.skillPick
                 : skillPickFromMessage(m);
             const isSkillPickNotice = m.meta?.kind === "skill_selected" && skillPick;
+            const llmTraceType =
+              m.meta?.type === "llm_request" || m.meta?.type === "llm_response"
+                ? m.meta.type
+                : null;
             return (
             <article
               key={m._id}
@@ -806,26 +811,32 @@ export function ChatDetailPage() {
                     ? "self-start bg-teal-50 text-teal-950"
                     : isSkillPickNotice
                       ? "self-start border border-violet-100 bg-violet-50/50 text-violet-950"
-                      : "self-start bg-slate-50 text-slate-700"
+                      : llmTraceType
+                        ? "self-start max-w-[98%] bg-transparent p-0 shadow-none sm:max-w-[92%]"
+                        : "self-start bg-slate-50 text-slate-700"
               }`}
             >
-              <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
-                <span className="uppercase">
-                  {isSkillPickNotice ? "skill" : m.role}
-                  {agentLabel ? (
-                    <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
+              {!llmTraceType ? (
+                <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
+                  <span className="uppercase">
+                    {isSkillPickNotice ? "skill" : m.role}
+                    {agentLabel ? (
+                      <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
+                    ) : null}
+                  </span>
+                  {m.createdAt ? (
+                    <time
+                      dateTime={new Date(m.createdAt).toISOString()}
+                      className="shrink-0 normal-case tabular-nums"
+                    >
+                      {formatChatMessageTime(m.createdAt)}
+                    </time>
                   ) : null}
-                </span>
-                {m.createdAt ? (
-                  <time
-                    dateTime={new Date(m.createdAt).toISOString()}
-                    className="shrink-0 normal-case tabular-nums"
-                  >
-                    {formatChatMessageTime(m.createdAt)}
-                  </time>
-                ) : null}
-              </div>
-              {isSkillPickNotice ? (
+                </div>
+              ) : null}
+              {llmTraceType ? (
+                <LlmTraceMessage type={llmTraceType} content={m.content} meta={m.meta} />
+              ) : isSkillPickNotice ? (
                 <SkillPickNotice pick={skillPick} />
               ) : (
                 <>

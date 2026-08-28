@@ -230,6 +230,47 @@ function applySignupPathHint(url, goalLower) {
 }
 
 /**
+ * Flattens chat-completion messages into readable text for the chat thread.
+ * Why: vision payloads include huge base64 images — replace those; truncate long DOM dumps.
+ * @param {object[]} messages
+ * @param {number} [maxChars]
+ * @returns {{ text: string, truncated: boolean, roles: string[] }}
+ */
+function formatLlmMessagesForChat(messages, maxChars = 14000) {
+  const roles = [];
+  const parts = [];
+  for (const m of messages || []) {
+    const role = String(m?.role || "unknown");
+    roles.push(role);
+    let text = "";
+    const content = m?.content;
+    if (typeof content === "string") {
+      text = content;
+    } else if (Array.isArray(content)) {
+      text = content
+        .map((p) => {
+          if (typeof p === "string") return p;
+          if (p?.type === "text") return String(p.text || "");
+          if (p?.type === "image_url" || p?.image_url) return "[viewport screenshot attached]";
+          return "";
+        })
+        .filter(Boolean)
+        .join("\n");
+    } else if (content != null) {
+      text = String(content);
+    }
+    parts.push(`### ${role}\n${text}`);
+  }
+  let out = parts.join("\n\n");
+  let truncated = false;
+  if (out.length > maxChars) {
+    truncated = true;
+    out = `${out.slice(0, maxChars)}\n\n…(truncated ${out.length - maxChars} more characters)`;
+  }
+  return { text: out, truncated, roles };
+}
+
+/**
  * @param {{ api: Function, config: import('./config.js').WorkerConfig, log?: Function }} deps
  */
 export function createCloudAgent({ api, config, log = console.log }) {
@@ -1369,13 +1410,66 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const llmUsage = createLlmUsageTracker();
 
     /**
-     * Wraps chatCompletion and records token usage for governance.
+     * Wraps chatCompletion, records token usage, and mirrors request/response into the chat thread.
      * @param {object} opts
+     * @param {string} [opts.traceLabel] Shown in chat (e.g. step / plan)
+     * @param {number} [opts.traceStep]
      */
     async function trackedChatCompletion(opts) {
-      const result = await chatCompletion(opts);
-      addLlmUsage(llmUsage, result.usage);
-      return result;
+      const { traceLabel, traceStep, ...llmOpts } = opts || {};
+      const model = String(llmOpts.model || "llm");
+      const formatted = formatLlmMessagesForChat(llmOpts.messages || []);
+      const labelBits = [
+        traceLabel || "call",
+        traceStep != null ? `step ${traceStep}` : "",
+        model,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+      await mirror(taskId, "llm_request", {
+        payload: {
+          label: traceLabel || "call",
+          step: traceStep ?? null,
+          model,
+          roles: formatted.roles,
+          truncated: formatted.truncated,
+          chars: formatted.text.length,
+        },
+        appendMessage: `→ Sent to LLM (${labelBits})\n\n${formatted.text}`,
+      }).catch((err) => log(`[${config.workerName}] llm_request mirror failed:`, err?.message || err));
+
+      try {
+        const result = await chatCompletion(llmOpts);
+        addLlmUsage(llmUsage, result.usage);
+        const reply = String(result.content || "").slice(0, 12000);
+        const replyTruncated = String(result.content || "").length > 12000;
+        await mirror(taskId, "llm_response", {
+          payload: {
+            label: traceLabel || "call",
+            step: traceStep ?? null,
+            model: result.model || model,
+            usage: result.usage || null,
+            truncated: replyTruncated,
+            chars: reply.length,
+          },
+          appendMessage: `← Received from LLM (${labelBits})\n\n${reply}${
+            replyTruncated ? "\n\n…(truncated)" : ""
+          }`,
+        }).catch((err) => log(`[${config.workerName}] llm_response mirror failed:`, err?.message || err));
+        return result;
+      } catch (err) {
+        const detail = String(err?.detail || err?.message || err);
+        await mirror(taskId, "llm_response", {
+          payload: {
+            label: traceLabel || "call",
+            step: traceStep ?? null,
+            model,
+            error: detail.slice(0, 500),
+          },
+          appendMessage: `← LLM error (${labelBits})\n\n${detail.slice(0, 2000)}`,
+        }).catch(() => {});
+        throw err;
+      }
     }
 
     try {
@@ -1540,7 +1634,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           ? defaultPlan(goal)
           : await createGoalPlan({
               goal,
-              chatCompletion: trackedChatCompletion,
+              chatCompletion: (o) =>
+                trackedChatCompletion({ ...o, traceLabel: "plan" }),
               apiKey: settings.llmApiKey,
               baseUrl: settings.llmBaseUrl,
               model: settings.llmModel,
@@ -1850,6 +1945,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
             model: llmCreds.model,
             messages,
             openAiAccountId: settings.openAiAccountId,
+            traceLabel: "step",
+            traceStep: step,
           });
           content = llm.content;
         } catch (err) {
