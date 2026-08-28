@@ -1,7 +1,7 @@
 /**
  * @fileoverview Resolves effective LLM bearer credentials (API key or OAuth access token).
  * Purpose: Single path for Settings test-llm and worker runtime-config.
- * Downstream: settings routes, worker runtime-config.
+ * Downstream: settings routes, worker runtime-config (incl. optional per-agent override).
  */
 
 import { decryptSecret } from "./crypto.js";
@@ -55,6 +55,39 @@ export async function resolveLlmCredentials(user, opts = {}) {
     authMode: "api_key",
     llmBaseUrl: normalizeLlmBaseUrl(s.llmBaseUrl, env.DEFAULT_LLM_BASE_URL),
     llmModel: normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL),
+  };
+}
+
+/**
+ * Resolves LLM for a cloud agent: optional per-agent override, else user Settings.
+ * Why: research agents can use a different model/key without changing the org default.
+ * @param {object} user
+ * @param {object|null|undefined} agent
+ * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, source: "agent"|"settings" }>}
+ */
+export async function resolveLlmCredentialsForAgent(user, agent) {
+  const main = await resolveLlmCredentials(user);
+  const llm = agent?.llm || {};
+  if (!llm.useCustom) {
+    return { ...main, source: "settings" };
+  }
+
+  const agentKey = decryptSecret(llm.apiKeyEnc || "");
+  const apiKey = agentKey || main.apiKey || "";
+  const baseUrl = String(llm.baseUrl || "").trim()
+    ? normalizeLlmBaseUrl(llm.baseUrl, main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL)
+    : main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL;
+  const model = String(llm.model || "").trim()
+    ? normalizeLlmModel(llm.model, main.llmModel || env.DEFAULT_LLM_MODEL)
+    : main.llmModel || env.DEFAULT_LLM_MODEL;
+
+  return {
+    apiKey,
+    authMode: "api_key",
+    llmBaseUrl: baseUrl,
+    llmModel: model,
+    // Why: agent override is always API-key mode (OAuth stays on Settings only).
+    source: "agent",
   };
 }
 

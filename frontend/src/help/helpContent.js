@@ -538,6 +538,31 @@ export const HELP = {
       "Credentials encrypted at rest. Prefer app passwords for Gmail/Outlook."
     ),
   },
+  "agent.llm.useCustom": {
+    title: "Per-agent LLM",
+    body: helpBody(
+      "Off: this agent uses the LLM from Settings (API key or ChatGPT OAuth).",
+      "On: this agent uses only the key, base URL, and model you set here for its cloud browser tasks. Other agents are unchanged. OAuth stays on Settings; agent override is API-key mode."
+    ),
+  },
+  "agent.llm.apiKey": {
+    title: "Agent LLM API key",
+    body: helpBody(
+      "Encrypted like Settings. Leave blank when saving to keep a previously saved key. If empty and override is on, the worker falls back to the Settings key for auth only."
+    ),
+  },
+  "agent.llm.baseUrl": {
+    title: "Agent LLM base URL",
+    body: helpBody(
+      "OpenAI-compatible chat completions root (e.g. https://api.openai.com/v1). Blank keeps Settings base URL while still using this agent’s model/key when set."
+    ),
+  },
+  "agent.llm.model": {
+    title: "Agent LLM model",
+    body: helpBody(
+      "Model id for this agent only (e.g. gpt-4o, MiniMax-M2.7). Blank keeps the Settings model."
+    ),
+  },
   "agent.email.fromName": {
     title: "From name",
     body: helpBody(

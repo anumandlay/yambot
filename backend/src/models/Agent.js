@@ -166,6 +166,16 @@ const agentSchema = new mongoose.Schema(
     allowedDomains: { type: [String], default: [] },
     maxSteps: { type: Number, default: 0, min: 0 },
     startUrl: { type: String, default: "", trim: true },
+    /**
+     * Optional per-agent LLM override. When useCustom is false, workers use Settings.
+     * apiKeyEnc is AES-encrypted like User.settings.llmApiKeyEnc.
+     */
+    llm: {
+      useCustom: { type: Boolean, default: false },
+      apiKeyEnc: { type: String, default: "" },
+      baseUrl: { type: String, default: "", trim: true },
+      model: { type: String, default: "", trim: true },
+    },
     schedule: { type: scheduleSchema, default: () => ({}) },
     /**
      * SMTP/IMAP identity so the agent can send/read email like a human.
@@ -335,6 +345,11 @@ export function toAgentSnapshot(agentDoc) {
     maxSteps: a.maxSteps ?? 0,
     startUrl: a.startUrl || "",
     runner: "cloud",
+    llm: {
+      useCustom: Boolean(a.llm?.useCustom),
+      model: a.llm?.useCustom ? String(a.llm?.model || "").trim() : "",
+      baseUrl: a.llm?.useCustom ? String(a.llm?.baseUrl || "").trim() : "",
+    },
     email: {
       enabled: Boolean(email.enabled),
       configured: hasMail,
@@ -378,6 +393,9 @@ export function formatAgentPrompt(snapshot) {
     domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
     snapshot.startUrl
       ? `DEFAULT START URL (only if the goal does not name a website): ${snapshot.startUrl}`
+      : "",
+    snapshot.llm?.useCustom && snapshot.llm?.model
+      ? `AGENT LLM OVERRIDE: ${snapshot.llm.model}${snapshot.llm.baseUrl ? ` @ ${snapshot.llm.baseUrl}` : ""}`
       : "",
     snapshot.email?.configured
       ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email actions for verification codes, outreach, or human-like correspondence.`

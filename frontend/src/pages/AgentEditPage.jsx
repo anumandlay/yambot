@@ -56,6 +56,13 @@ const EMPTY = {
     nextRunAt: null,
     chatId: null,
   },
+  llm: {
+    useCustom: false,
+    apiKey: "",
+    baseUrl: "",
+    model: "",
+    hasApiKey: false,
+  },
   email: {
     enabled: false,
     fromName: "",
@@ -164,6 +171,13 @@ export function AgentEditPage() {
               nextRunAt: a.schedule?.nextRunAt || null,
               chatId: a.schedule?.chatId || null,
             },
+            llm: {
+              useCustom: Boolean(a.llm?.useCustom),
+              apiKey: "",
+              baseUrl: a.llm?.baseUrl || "",
+              model: a.llm?.model || "",
+              hasApiKey: Boolean(a.llm?.hasApiKey),
+            },
             email: {
               enabled: Boolean(a.email?.enabled),
               fromName: a.email?.fromName || "",
@@ -209,6 +223,17 @@ export function AgentEditPage() {
     setForm((prev) => ({
       ...prev,
       email: { ...prev.email, [key]: value },
+    }));
+  }
+
+  /**
+   * @param {string} key
+   * @param {unknown} value
+   */
+  function updateLlm(key, value) {
+    setForm((prev) => ({
+      ...prev,
+      llm: { ...prev.llm, [key]: value },
     }));
   }
 
@@ -336,17 +361,27 @@ export function AgentEditPage() {
           body: JSON.stringify(payload),
         });
         setOkMsg("Agent saved");
-        if (data?.agent?.email) {
-          setForm((prev) => ({
-            ...prev,
-            email: {
-              ...prev.email,
-              ...data.agent.email,
-              smtpPassword: "",
-              hasSmtpPassword: Boolean(data.agent.email.hasSmtpPassword),
-            },
-          }));
-        }
+        setForm((prev) => ({
+          ...prev,
+          llm: data?.agent?.llm
+            ? {
+                ...prev.llm,
+                useCustom: Boolean(data.agent.llm.useCustom),
+                baseUrl: data.agent.llm.baseUrl || "",
+                model: data.agent.llm.model || "",
+                apiKey: "",
+                hasApiKey: Boolean(data.agent.llm.hasApiKey),
+              }
+            : prev.llm,
+          email: data?.agent?.email
+            ? {
+                ...prev.email,
+                ...data.agent.email,
+                smtpPassword: "",
+                hasSmtpPassword: Boolean(data.agent.email.hasSmtpPassword),
+              }
+            : prev.email,
+        }));
       }
     } catch (err) {
       setError(err);
@@ -680,6 +715,61 @@ export function AgentEditPage() {
             Scheduled runs appear in a chat titled “Schedule · {form.name || "agent"}”. Skips a tick
             if this agent already has a pending/running task.
           </p>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">
+          <legend className="px-1">
+            <SectionTitle helpId="agent.llm.useCustom" as="div" className="text-sm font-semibold text-teal-900">
+              LLM (optional override)
+            </SectionTitle>
+          </legend>
+          <p className="text-xs text-teal-900/60">
+            Off = this agent uses your Settings LLM (API key or ChatGPT OAuth). On = only this agent’s
+            key / base URL / model for browser tasks. Leave key blank when saving to keep a saved key.
+          </p>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(form.llm?.useCustom)}
+              onChange={(e) => updateLlm("useCustom", e.target.checked)}
+            />
+            <FieldLabel helpId="agent.llm.useCustom">Use a different LLM for this agent</FieldLabel>
+          </label>
+          {form.llm?.useCustom ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              <label className="flex flex-col gap-1 text-sm sm:col-span-2">
+                <FieldLabel helpId="agent.llm.apiKey">
+                  API key{form.llm?.hasApiKey ? " (saved — leave blank to keep)" : ""}
+                </FieldLabel>
+                <input
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  type="password"
+                  autoComplete="off"
+                  value={form.llm?.apiKey || ""}
+                  onChange={(e) => updateLlm("apiKey", e.target.value)}
+                  placeholder={form.llm?.hasApiKey ? "••••••••" : "sk-… or provider key"}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="agent.llm.baseUrl">Base URL</FieldLabel>
+                <input
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  value={form.llm?.baseUrl || ""}
+                  onChange={(e) => updateLlm("baseUrl", e.target.value)}
+                  placeholder="https://api.openai.com/v1 (blank = Settings)"
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="agent.llm.model">Model</FieldLabel>
+                <input
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  value={form.llm?.model || ""}
+                  onChange={(e) => updateLlm("model", e.target.value)}
+                  placeholder="gpt-4o (blank = Settings)"
+                />
+              </label>
+            </div>
+          ) : null}
         </fieldset>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">

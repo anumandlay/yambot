@@ -16,6 +16,7 @@ import {
 import { encryptSecret } from "../utils/crypto.js";
 import {
   publicEmailSummary,
+  publicLlmSummary,
   sendAgentEmail,
   checkAgentInbox,
 } from "../utils/agentEmail.js";
@@ -92,6 +93,7 @@ function publicAgent(agent) {
     ),
   };
   a.email = publicEmailSummary(a);
+  a.llm = publicLlmSummary(a);
   return a;
 }
 
@@ -261,6 +263,22 @@ function pickAgentFields(body, opts = {}) {
       schedule.nextRunAt = null;
     }
     set("schedule", schedule);
+  }
+  if (body.llm != null && typeof body.llm === "object") {
+    const l = body.llm;
+    /** @type {object} */
+    const llm = {
+      useCustom: Boolean(l.useCustom),
+      baseUrl: String(l.baseUrl || "").trim().slice(0, 500),
+      model: String(l.model || "").trim().slice(0, 200),
+    };
+    const key = String(l.apiKey || "").trim();
+    if (key) {
+      llm.apiKeyEnc = encryptSecret(key);
+    } else if (l.clearApiKey) {
+      llm.apiKeyEnc = "";
+    }
+    set("llm", llm);
   }
   if (body.email != null && typeof body.email === "object") {
     const e = body.email;
@@ -734,6 +752,15 @@ agentsRouter.put("/:id", async (req, res, next) => {
         fields.schedule.nextRunAt = agent.schedule.nextRunAt;
       }
     }
+    if (fields.llm) {
+      // Why: blank API key in the form means keep the existing encrypted secret.
+      if (!fields.llm.apiKeyEnc) {
+        fields.llm.apiKeyEnc = agent.llm?.apiKeyEnc || "";
+      }
+      agent.set("llm", fields.llm);
+      agent.markModified("llm");
+      delete fields.llm;
+    }
     if (fields.email) {
       // Why: blank password in the form means keep the existing encrypted secret.
       if (!fields.email.smtpPasswordEnc) {
@@ -935,6 +962,12 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       group: src.group || null,
       runner: "cloud",
       memory: [],
+      llm: {
+        useCustom: Boolean(src.llm?.useCustom),
+        apiKeyEnc: src.llm?.apiKeyEnc || "",
+        baseUrl: src.llm?.baseUrl || "",
+        model: src.llm?.model || "",
+      },
       email: {
         enabled: Boolean(src.email?.enabled),
         fromName: src.email?.fromName || "",

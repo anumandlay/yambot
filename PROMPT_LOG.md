@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 15:15] Per-agent optional LLM override
+
+- **Prompt Provided:** Yes, build per-agent LLM — if agent has its own LLM use only that; else Settings LLM
+- **Architectural Flow:** Agent.llm {useCustom, apiKeyEnc, baseUrl, model}; encrypt like email SMTP; publicLlmSummary strips secrets; worker GET runtime-config uses resolveLlmCredentialsForAgent(user, agent); Agent edit UI checkbox + fields; copy clones override
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/Agent.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/agentEmail.js`, `backend/src/routes/agents.js`, `backend/src/routes/worker.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
+
 ## [2026-08-28 14:55] Chat steps — announce before act (fix lag)
 
 - **Prompt Provided:** Chat step messages appear after the live action (e.g. wait_for after login already done)

@@ -237,3 +237,20 @@ export function publicEmailSummary(agent) {
     ),
   };
 }
+
+/**
+ * Public/safe LLM override summary for API (no raw key).
+ * Why: Agent edit UI needs useCustom/model/baseUrl + whether a key is saved.
+ * @param {object} agent
+ */
+export function publicLlmSummary(agent) {
+  const llm = agent?.llm || {};
+  const hasApiKey = Boolean(llm.apiKeyEnc);
+  return {
+    useCustom: Boolean(llm.useCustom),
+    baseUrl: String(llm.baseUrl || "").trim(),
+    model: String(llm.model || "").trim(),
+    hasApiKey,
+    apiKeyMasked: hasApiKey ? "••••••••" : "",
+  };
+}
