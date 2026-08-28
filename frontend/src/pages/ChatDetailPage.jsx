@@ -835,7 +835,12 @@ export function ChatDetailPage() {
                 </div>
               ) : null}
               {llmTraceType ? (
-                <LlmTraceMessage type={llmTraceType} content={m.content} meta={m.meta} />
+                <LlmTraceMessage
+                  type={llmTraceType}
+                  content={m.content}
+                  meta={m.meta}
+                  createdAt={m.createdAt}
+                />
               ) : isSkillPickNotice ? (
                 <SkillPickNotice pick={skillPick} />
               ) : (

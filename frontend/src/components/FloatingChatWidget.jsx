@@ -138,6 +138,7 @@ export function FloatingChatWidget({ chatId, className = "" }) {
                       type={llmTraceType}
                       content={m.content}
                       meta={m.meta}
+                      createdAt={m.createdAt}
                       compact
                     />
                   </div>

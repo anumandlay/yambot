@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 14:20] LLM traces — show timestamps
+
+- **Prompt Provided:** Put timestamp for llm request and response threads
+- **Architectural Flow:** LlmTraceMessage summary row shows formatChatMessageTime(createdAt) like other chat bubbles
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/LlmTraceMessage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/FloatingChatWidget.jsx`
+
+
 ## [2026-08-28 14:10] CAPTCHA — don't re-handoff after solved widget
 
 - **Prompt Provided:** Solved CAPTCHA + Give control back still shows Needs you
