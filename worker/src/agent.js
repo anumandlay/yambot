@@ -1343,6 +1343,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       if (hadHumanControl) {
         await resyncActivePageAfterHandoff();
+        await mirror(taskId, "human_handoff_done", {
+          appendMessage: "▶ Control returned — continuing after handoff.",
+          payload: { via: "give_control_back" },
+        }).catch(() => {});
         return "continue";
       }
       await sleep(stepTiming.waitingUserPollMs);

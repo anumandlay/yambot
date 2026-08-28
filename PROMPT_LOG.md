@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 14:05] Clear Needs you after CAPTCHA Give control back
+
+- **Prompt Provided:** After Take control / solve CAPTCHA / Give control back, still shows Needs you
+- **Architectural Flow:** CAPTCHA uses human_handoff (not waiting_user); Give control now always clearAgentNeedsAttention; worker emits human_handoff_done to clear again after resume
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/agents.js`, `backend/src/routes/worker.js`, `worker/src/agent.js`
+
+
 ## [2026-08-28 13:55] Chat thread — embed LLM request/response
 
 - **Prompt Provided:** Embed sent-to-LLM and received-from-LLM in chat threads

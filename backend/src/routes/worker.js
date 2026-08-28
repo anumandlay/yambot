@@ -399,6 +399,12 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
       }
     }
 
+    if (type === "human_handoff_done") {
+      if (task.agent) {
+        await clearAgentNeedsAttention(task.agent);
+      }
+    }
+
     if (type === "user_answer") {
       task.status = "running";
       if (task.agent) {

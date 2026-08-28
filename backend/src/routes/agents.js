@@ -626,6 +626,8 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       } else {
         await agent.save();
         demonstration = await finishActiveDemoForAgent(agent);
+        // Why: CAPTCHA uses human_handoff (not waiting_user ask_user) — must clear blink here.
+        await clearAgentNeedsAttention(agent._id);
         await resumeHandoffWaitingTask(agent._id);
         res.json({
           ok: true,
