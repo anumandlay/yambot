@@ -18,7 +18,7 @@ import { chatCompletion } from "./llm.js";
 import { stepTiming } from "./stepTiming.js";
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
-import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse } from "./actions.js";
+import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse, BATCH_STOP_TYPES, LIGHT_SETTLE_TYPES } from "./actions.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
@@ -1778,8 +1778,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
           await sleep(stepTiming.parseRetryMs);
           continue;
         }
-        const action = parsed.action;
-        const obsBefore = obs;
+        const batchActions = Array.isArray(parsed.actions) && parsed.actions.length
+          ? parsed.actions.slice(0, stepTiming.maxActionsPerTurn)
+          : [parsed.action];
+        const batchThought = parsed.thought || "";
+        let finishedTask = false;
+
+        for (let batchIdx = 0; batchIdx < batchActions.length; batchIdx += 1) {
+          const action = batchActions[batchIdx];
+          const isLastInBatch = batchIdx === batchActions.length - 1;
+          const obsBefore = await observeNow().catch(() => obs);
+          obs = obsBefore;
 
         let precondition = checkPreconditions(action, obs, prevObs);
         let actionToRun = precondition.resolvedAction || action;
@@ -1825,20 +1834,26 @@ export function createCloudAgent({ api, config, log = console.log }) {
           const skipSettle =
             ["finish", "ask_user", "wait"].includes(actionToRun.type) ||
             (result?.ok === false && !result?.navigated && !result?.finished);
+          const lightSettle = LIGHT_SETTLE_TYPES.has(actionToRun.type) && !actionToRun.submit;
           if (!skipSettle) {
             if (actionToRun.type !== "wait_for") {
               await waitForSemantic(page, observeInPage, waitForConditionInPage, {
-                timeoutMs: stepTiming.postActionSettleMs,
+                timeoutMs: lightSettle
+                  ? stepTiming.postFillSettleMs
+                  : stepTiming.postActionSettleMs,
                 networkIdle: false,
-                loadingGone: true,
+                loadingGone: !lightSettle,
                 domStable: true,
-                stableMs: stepTiming.domStableMs,
+                stableMs: lightSettle
+                  ? Math.min(stepTiming.domStableMs, 120)
+                  : stepTiming.domStableMs,
               });
             }
             const obsAfter = await observeNow();
             result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
             prevObs = obsAfter;
             prevUrl = String(obsAfter.url || "");
+            obs = obsAfter;
           } else {
             prevObs = obsBefore;
             prevUrl = String(obsBefore.url || "");
@@ -1893,6 +1908,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               if (recovery.obs) {
                 prevObs = recovery.obs;
                 prevUrl = String(recovery.obs.url || "");
+                obs = recovery.obs;
               }
               notes.push(`Recovery succeeded after ${recovery.attempts.length} attempt(s).`);
             } else if (recovery.attempts?.length) {
@@ -1927,7 +1943,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           try {
             await recoverBrowser(restoreUrl);
             notes.push("Browser reconnected — continuing.");
-            continue;
+            break;
           } catch (recoverErr) {
             result = attachFailureClass(
               {
@@ -1950,29 +1966,61 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
       }
 
-        history.push({ step, thought: parsed.thought, action: actionToRun, result });
+        history.push({
+          step,
+          thought: batchThought,
+          action: actionToRun,
+          result,
+          batchIndex: batchIdx,
+          batchSize: batchActions.length,
+        });
+        const batchLabel =
+          batchActions.length > 1 ? ` (${batchIdx + 1}/${batchActions.length})` : "";
         await mirror(taskId, "step", {
           payload: {
             step,
             action: actionToRun,
-            thought: parsed.thought,
+            thought: batchThought,
             result,
             verification: result.verification,
             stateDiff: result.diff,
+            batchIndex: batchIdx,
+            batchSize: batchActions.length,
           },
-          appendMessage: parsed.thought
-            ? `Step ${step}: ${actionToRun?.type} — ${parsed.thought}`
-            : `Step ${step}: ${actionToRun?.type}`,
+          appendMessage: batchThought
+            ? `Step ${step}${batchLabel}: ${actionToRun?.type} — ${batchThought}`
+            : `Step ${step}${batchLabel}: ${actionToRun?.type}`,
         });
+
+        // Why: skip JPEG during mid-batch fills; one screen push after the last action.
+        await pushLiveScreen({
+          taskId,
+          screenshot: isLastInBatch || BATCH_STOP_TYPES.has(actionToRun.type),
+        }).catch(() => {});
 
         if (actionToRun.type === "finish" || result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
           await complete(taskId, { success, summary, history, siteDomain, llmUsage });
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
-          return;
+          finishedTask = true;
+          break;
         }
-      }
+
+        const failedHard =
+          result?.ok === false ||
+          result?.success === false ||
+          result?.verification?.passed === false;
+        if (failedHard || BATCH_STOP_TYPES.has(actionToRun.type)) {
+          break;
+        }
+        if (!isLastInBatch) {
+          step += 1;
+        }
+        } // end batch
+
+        if (finishedTask) return;
+      } // end for (;;) agent loop
     } catch (err) {
       if (err?.cancelled || /stopped by user/i.test(String(err?.message || ""))) {
         try {
@@ -2551,6 +2599,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
         );
         return { ok: true, http: result };
       }
+      case "type": {
+        const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+        // Why: Phase 1 speed — set value via DOM (instant). Optional human_type for anti-bot sites.
+        if (action.human_type === true && !inChildFrame) {
+          const meta = await frame.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
+          await page.mouse.click(meta.x, meta.y, { delay: 20 });
+          if (meta.contentEditable) {
+            await page.keyboard.press("Control+a");
+            await sleep(40);
+            await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
+            return { ok: true, contentEditable: true, typed: true, human_type: true, name: meta.name };
+          }
+          await page.keyboard.press("Control+a");
+          await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
+          return { ok: true, typed: true, human_type: true, name: meta.name };
+        }
+        return frame.evaluate(executeInPage, enriched);
+      }
       case "click": {
         const isSubmitLike = looksLikeSubmit(obs, action.ref);
         const policy = settings.policy || {};
@@ -2580,7 +2646,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
             }
           }
         }
-        // Why: Playwright real mouse hits React/custom dropdowns & calendars more reliably than el.click().
         const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
         if (inChildFrame) {
           await frame.locator(`[data-ba-ref="${enriched.ref}"]`).click({ timeout: 10000 });
@@ -2590,25 +2655,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           ...enriched,
           type: "resolve_point",
         });
-        await page.mouse.click(point.x, point.y, { delay: 40 });
+        await page.mouse.click(point.x, point.y, { delay: 0 });
         return { ok: true, clicked: point.name, x: point.x, y: point.y };
-      }
-      case "type": {
-        const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
-        if (inChildFrame) {
-          const result = await frame.evaluate(executeInPage, enriched);
-          return result;
-        }
-        const meta = await frame.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
-        await page.mouse.click(meta.x, meta.y, { delay: 40 });
-        // Why: Gmail compose body is contenteditable — real keyboard input is most reliable.
-        if (meta.contentEditable) {
-          await page.keyboard.press("Control+a");
-          await sleep(40);
-          await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
-          return { ok: true, contentEditable: true, typed: true, name: meta.name };
-        }
-        return page.evaluate(executeInPage, enriched);
       }
       case "select":
       case "press_key":
@@ -2617,7 +2665,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await frame.evaluate(executeInPage, enriched);
         // Why: custom select returns a click point — finish with a real mouse click too.
         if (action.type === "select" && result?.custom && result.x != null && result.y != null) {
-          await page.mouse.click(result.x, result.y, { delay: 40 });
+          await page.mouse.click(result.x, result.y, { delay: 0 });
         }
         return result;
       }

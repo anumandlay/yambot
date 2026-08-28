@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 10:31] Phase 1 agent speed — multi-action + instant fill
+
+- **Prompt Provided:** Implement Phase 1 speedups like browser-use (batch actions, fast fill)
+- **Architectural Flow:** parse actions[]; batch execute with light settle; instant DOM type; defer mid-batch screenshots; prompt prefers fill_form + batches
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/actions.js`, `worker/src/agent.js`, `worker/src/stepTiming.js`
+
+
 ## [2026-08-28 09:37] Remove suggested workflows / trajectory Demo
 
 - **Prompt Provided:** No suggested workflows after every run; create skills manually only

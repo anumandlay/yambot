@@ -1,13 +1,15 @@
 /**
  * @fileoverview Tunable delays between agent steps and after browser actions.
- * Purpose: Balance speed vs reliability — post-action settle prevents clicking before SPAs update.
+ * Purpose: Tunable delays — short settle for fill bursts, longer after navigate/submit.
  * Inputs: env YAMBOT_* overrides; Downstream: worker agent loop, semanticWait.
  */
 
-/** @type {{ postActionSettleMs: number, recoverySettleMs: number, domStableMs: number, llmRetryMs: number, parseRetryMs: number, waitingUserPollMs: number, defaultWaitActionMs: number }} */
+/** @type {{ postActionSettleMs: number, postFillSettleMs: number, recoverySettleMs: number, domStableMs: number, llmRetryMs: number, parseRetryMs: number, waitingUserPollMs: number, defaultWaitActionMs: number, maxActionsPerTurn: number }} */
 export const stepTiming = {
-  /** Max time to wait for DOM/loading to settle after click/type/navigate. */
+  /** Max time to wait for DOM/loading after navigate/submit/heavy clicks. */
   postActionSettleMs: Math.max(400, Number(process.env.YAMBOT_STEP_SETTLE_MS) || 1000),
+  /** Short settle after type/fill_form/select in a multi-action burst. */
+  postFillSettleMs: Math.max(50, Number(process.env.YAMBOT_FILL_SETTLE_MS) || 280),
   /** Longer settle during error-recovery retries. */
   recoverySettleMs: Math.max(800, Number(process.env.YAMBOT_RECOVERY_SETTLE_MS) || 2200),
   /** How long interactive count must stay unchanged to count as stable. */
@@ -20,4 +22,6 @@ export const stepTiming = {
   waitingUserPollMs: Math.max(400, Number(process.env.YAMBOT_WAITING_USER_POLL_MS) || 1000),
   /** Default for model-emitted wait actions when ms is omitted. */
   defaultWaitActionMs: Math.max(200, Number(process.env.YAMBOT_DEFAULT_WAIT_MS) || 750),
+  /** Cap LLM multi-action batches so one turn cannot run forever. */
+  maxActionsPerTurn: Math.max(1, Math.min(12, Number(process.env.YAMBOT_MAX_ACTIONS_PER_TURN) || 8)),
 };

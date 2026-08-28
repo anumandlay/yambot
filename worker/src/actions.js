@@ -55,17 +55,22 @@ export const ACTION_SCHEMA_FOR_PROMPT = `
 You control a real Chromium browser (cloud computer for this agent). Reply with ONE JSON object only (no markdown), shape:
 {
   "thought": "brief reason",
-  "action": {
-    "type": "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>",
-    ...fields depending on type
-  }
+  "action": { "type": "...", ... },
+  "actions": [ { "type":"..." }, { "type":"..." } ]
 }
+
+SPEED (important): Prefer "actions" array to batch 2–8 steps in ONE reply (e.g. click email → type → type password → click submit). Prefer fill_form when many fields share one form. Avoid one-field-per-turn for registration/login.
+
+You may send either "action" (single) or "actions" (batch). If both exist, "actions" wins. Max ~8 actions per turn. Stop the batch before finish/ask_user/solve_captcha (put those last or alone).
+
+"type" for action.type:
+"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>"
 
 Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
 - click: { "type":"click", "ref":"e12", "role":"button", "name":"Sign in", "css":"#login", "xpath":"//button[@id='login']" }
 - type: { "type":"type", "ref":"e5", "text":"...", "submit": false, "role":"textbox", "name":"Email", "css":"input[name=email]", "xpath":"//input[@name='email']" }
-  Also works on contenteditable compose bodies (Gmail message body) — use role textbox, name like "Message body".
+  Instant fill (not keystroke-by-keystroke). Also works on contenteditable compose bodies.
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 } — scrolls the menu/sidebar under the pointer (Vughy nav), not just the whole page; optional ref to scroll a specific panel
@@ -75,7 +80,7 @@ Action fields:
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }
 - open_tab: { "type":"open_tab", "url":"https://..." } — navigates the same window (no new tabs)
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
-- fill_form: { "type":"fill_form", "form":"login", "fields": { "Email": "x@y.com", "Password": "secret" }, "submit": false } — form by name/id/index; set submit true to click primary submit
+- fill_form: { "type":"fill_form", "form":"login", "fields": { "Email": "x@y.com", "Password": "secret" }, "submit": false } — BEST for multi-field forms; form by name/id/index; set submit true to click primary submit
 - dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" } — closes modal via cancel/close/Escape
 - choose_menu_item: { "type":"choose_menu_item", "path": ["File", "Export", "PDF"] } — clicks open menu items in order (menu must already be open)
 - extract: { "type":"extract", "focus":"what to pull from the page" }
@@ -231,15 +236,22 @@ export function parseAgentResponse(raw) {
         lastErr = new Error("Model JSON was not an object");
         continue;
       }
-      if (!parsed.action || !parsed.action.type) {
+      const list = normalizeActionList(parsed);
+      if (!list.length) {
         lastErr = new Error("Missing action.type in model response");
         continue;
       }
-      if (!ACTION_TYPES.includes(parsed.action.type)) {
-        lastErr = new Error(`Unknown action type: ${parsed.action.type}`);
-        continue;
+      for (const act of list) {
+        if (!ACTION_TYPES.includes(act.type)) {
+          lastErr = new Error(`Unknown action type: ${act.type}`);
+          throw lastErr;
+        }
       }
-      return parsed;
+      return {
+        thought: String(parsed.thought || "").trim(),
+        action: list[0],
+        actions: list,
+      };
     } catch (err) {
       lastErr = err;
     }
@@ -249,3 +261,41 @@ export function parseAgentResponse(raw) {
     `Could not parse agent JSON (${lastErr?.message || "invalid"}). Preview: ${hint || "(empty)"}`
   );
 }
+
+/**
+ * Accepts single `action` or batched `actions` from the model.
+ * @param {object} parsed
+ * @returns {object[]}
+ */
+export function normalizeActionList(parsed) {
+  const max = Math.max(1, Math.min(12, Number(process.env.YAMBOT_MAX_ACTIONS_PER_TURN) || 8));
+  if (Array.isArray(parsed?.actions) && parsed.actions.length) {
+    return parsed.actions
+      .filter((a) => a && typeof a === "object" && a.type)
+      .slice(0, max);
+  }
+  if (parsed?.action && typeof parsed.action === "object" && parsed.action.type) {
+    return [parsed.action];
+  }
+  return [];
+}
+
+/** Actions that should end a multi-action batch (re-observe / wait for human). */
+export const BATCH_STOP_TYPES = new Set([
+  "finish",
+  "ask_user",
+  "solve_captcha",
+  "navigate",
+  "open_tab",
+  "wait_for",
+]);
+
+/** Light settle types — short pause, no full DOM wait every field. */
+export const LIGHT_SETTLE_TYPES = new Set([
+  "type",
+  "fill_form",
+  "select",
+  "press_key",
+  "scroll",
+  "wait",
+]);
