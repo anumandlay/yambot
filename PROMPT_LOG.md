@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 14:55] Chat steps — announce before act (fix lag)
+
+- **Prompt Provided:** Chat step messages appear after the live action (e.g. wait_for after login already done)
+- **Architectural Flow:** Mirror Step N before executeAction; repeat LLM thought only on first batch item; post again only on failure; poll chat every 900ms while task active
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `frontend/src/pages/ChatDetailPage.jsx`
+
+
 ## [2026-08-28 14:40] Speed — skip post-LLM re-observe and precheck
 
 - **Prompt Provided:** Remove re-observe + precheck after Received from LLM to act faster

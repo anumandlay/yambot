@@ -2039,6 +2039,26 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const locatorTypes = new Set(["click", "type", "select"]);
 
+        const batchLabel =
+          batchActions.length > 1 ? ` (${batchIdx + 1}/${batchActions.length})` : "";
+        // Why: announce before execute so the chat stays ahead of (or with) the live screen,
+        // not seconds behind after fill/settle. Repeat the LLM thought only on the first batch item.
+        const announceMsg =
+          batchIdx === 0 && batchThought
+            ? `Step ${step}${batchLabel}: ${actionToRun?.type} — ${batchThought}`
+            : `Step ${step}${batchLabel}: ${actionToRun?.type}`;
+        await mirror(taskId, "step", {
+          payload: {
+            step,
+            action: actionToRun,
+            thought: batchIdx === 0 ? batchThought : "",
+            phase: "start",
+            batchIndex: batchIdx,
+            batchSize: batchActions.length,
+          },
+          appendMessage: announceMsg,
+        }).catch(() => {});
+
         let result;
         try {
           if (!precondition.ok && locatorTypes.has(actionToRun.type)) {
@@ -2205,23 +2225,28 @@ export function createCloudAgent({ api, config, log = console.log }) {
           batchIndex: batchIdx,
           batchSize: batchActions.length,
         });
-        const batchLabel =
-          batchActions.length > 1 ? ` (${batchIdx + 1}/${batchActions.length})` : "";
-        await mirror(taskId, "step", {
-          payload: {
-            step,
-            action: actionToRun,
-            thought: batchThought,
-            result,
-            verification: result.verification,
-            stateDiff: result.diff,
-            batchIndex: batchIdx,
-            batchSize: batchActions.length,
-          },
-          appendMessage: batchThought
-            ? `Step ${step}${batchLabel}: ${actionToRun?.type} — ${batchThought}`
-            : `Step ${step}${batchLabel}: ${actionToRun?.type}`,
-        });
+        const failedHard =
+          result?.ok === false ||
+          result?.success === false ||
+          result?.verification?.passed === false;
+        // Why: success already announced before act; only post again on failure so chat isn't duplicated/laggy.
+        if (failedHard) {
+          const errText = String(result?.error || result?.failure_class || "failed").slice(0, 160);
+          await mirror(taskId, "step", {
+            payload: {
+              step,
+              action: actionToRun,
+              thought: batchThought,
+              result,
+              verification: result.verification,
+              stateDiff: result.diff,
+              phase: "result",
+              batchIndex: batchIdx,
+              batchSize: batchActions.length,
+            },
+            appendMessage: `Step ${step}${batchLabel}: ${actionToRun?.type} failed — ${errText}`,
+          }).catch(() => {});
+        }
 
         // Why: skip JPEG during mid-batch fills; one screen push after the last action.
         await pushLiveScreen({
@@ -2238,10 +2263,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
           break;
         }
 
-        const failedHard =
-          result?.ok === false ||
-          result?.success === false ||
-          result?.verification?.passed === false;
         if (failedHard || BATCH_STOP_TYPES.has(actionToRun.type)) {
           break;
         }

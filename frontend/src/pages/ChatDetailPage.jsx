@@ -100,9 +100,13 @@ export function ChatDetailPage() {
 
   useEffect(() => {
     load();
-    const id = setInterval(load, 2500);
+    // Why: while a task runs, poll faster so step announcements keep up with the live screen.
+    const active = (tasks || []).some((t) =>
+      ["running", "waiting_user", "queued"].includes(String(t.status || ""))
+    );
+    const id = setInterval(load, active ? 900 : 2500);
     return () => clearInterval(id);
-  }, [load]);
+  }, [load, tasks]);
 
   /**
    * Keeps the left thread pinned to the newest messages while the agent streams.
