@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 10:50] Bootstrap navigate — skip about:blank LLM turn
+
+- **Prompt Provided:** Skip Looking at about:blank; open URL from goal immediately
+- **Architectural Flow:** inferStartUrlFromGoal extracts domain/URL (+ vughy signup hint); safeGoto before first LLM; mirror Opening…; note tells model page is ready
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`
+
+
 ## [2026-08-28 10:31] Phase 1 agent speed — multi-action + instant fill
 
 - **Prompt Provided:** Implement Phase 1 speedups like browser-use (batch actions, fast fill)

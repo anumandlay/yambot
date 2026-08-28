@@ -115,18 +115,78 @@ function goalIncludesLoginCredentials(text) {
 }
 
 /**
+ * Picks an initial URL so the worker can navigate before the first LLM turn (skip about:blank think).
+ * Prefers agent startUrl, then explicit http(s) / bare domain in the goal, then Sheets heuristic.
  * @param {string} goal
  * @param {string} [preferredStart]
  * @returns {string}
  */
 function inferStartUrlFromGoal(goal, preferredStart = "") {
   const pref = String(preferredStart || "").trim();
-  if (pref && /^https?:\/\//i.test(pref)) return pref;
-  const g = String(goal || "").toLowerCase();
-  if (/spreadsheet|google sheet|sheets\.google|excel|a1|b1|c1|cell[s]?/i.test(g)) {
+  if (pref) {
+    if (/^https?:\/\//i.test(pref)) return pref;
+    if (/^(?:www\.)?[a-z0-9][a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?$/i.test(pref)) {
+      return `https://${pref.replace(/^\/+/, "")}`;
+    }
+  }
+
+  const text = String(goal || "").trim();
+  const g = text.toLowerCase();
+  if (/spreadsheet|google sheet|sheets\.google|excel offline|cell\s*[a-z]?\d+/i.test(g)) {
     return "https://sheets.google.com/create";
   }
+
+  const full = text.match(/https?:\/\/[^\s<>"'）\]|,]+/i);
+  if (full) {
+    return stripTrailingUrlJunk(full[0]);
+  }
+
+  // Bare domain or domain/path (vughy.com, www.x.com/agency/register) — not email local@domain.
+  const bareRe =
+    /(?:^|[\s("'`])((?:www\.)?[a-z0-9](?:[a-z0-9-]*[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]*[a-z0-9])?)+(?:\/[^\s<>"'）\]|,]*)?)/gi;
+  let m;
+  while ((m = bareRe.exec(text))) {
+    const raw = stripTrailingUrlJunk(m[1]);
+    const domainStart = text.indexOf(m[1], m.index);
+    // Why: "bots@vughy.com" must not open https://vughy.com as start URL.
+    if (domainStart > 0 && text[domainStart - 1] === "@") continue;
+    if (!/\.[a-z]{2,}(\/|$)/i.test(raw)) continue;
+    if (/^(?:e\.g|eg|etc|example\.com)$/i.test(raw)) continue;
+    let url = `https://${raw}`;
+    url = applySignupPathHint(url, g);
+    return url;
+  }
   return "";
+}
+
+/**
+ * @param {string} url
+ * @returns {string}
+ */
+function stripTrailingUrlJunk(url) {
+  return String(url || "").replace(/[.,;:!?)}\]]+$/g, "");
+}
+
+/**
+ * Optional deep-link when the goal is clearly signup on a known host (saves a homepage hop).
+ * @param {string} url
+ * @param {string} goalLower
+ * @returns {string}
+ */
+function applySignupPathHint(url, goalLower) {
+  try {
+    const u = new URL(url);
+    if (u.pathname && u.pathname !== "/") return url;
+    const wantsSignup = /sign\s*up|register|create\s+account|onboard/i.test(goalLower);
+    if (!wantsSignup) return url;
+    if (/vughy\.com$/i.test(u.hostname) && /agency|travel/i.test(goalLower)) {
+      u.pathname = "/agency/register";
+      return u.toString();
+    }
+  } catch {
+    /* ignore */
+  }
+  return url;
 }
 
 /**
@@ -1298,7 +1358,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
       }
 
-      // Why: open start URL from agent config or infer Sheets from spreadsheet goals.
+      // Why: open start URL before the first LLM turn — avoids ~15–30s "Looking at about:blank".
       const preferredStart =
         agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
       const startUrl = inferStartUrlFromGoal(goal, preferredStart);
@@ -1308,12 +1368,31 @@ export function createCloudAgent({ api, config, log = console.log }) {
         (!curUrl || curUrl === "about:blank" || curUrl.startsWith("chrome://"))
       ) {
         await safeGoto(startUrl);
+        await mirror(taskId, "step", {
+          payload: {
+            step: 0,
+            action: { type: "navigate", url: startUrl },
+            thought: "Bootstrap navigate from goal (skip blank-page planning)",
+            result: { ok: true, navigated: startUrl, bootstrap: true },
+          },
+          appendMessage: `Opening ${startUrl}…`,
+        }).catch(() => {});
+        history.push({
+          step: 0,
+          thought: "bootstrap",
+          action: { type: "navigate", url: startUrl },
+          result: { ok: true, navigated: startUrl, bootstrap: true },
+        });
+        lastKnownPageUrl = startUrl;
+        notes.push(
+          `BOOTSTRAP: Already opened ${startUrl} before planning. Current page is ready — continue from here (do not navigate to about:blank).`
+        );
       }
 
       await pushLiveScreen({ taskId });
       await mirror(taskId, "started", {
         status: "running",
-        payload: { goal, worker: config.workerName },
+        payload: { goal, worker: config.workerName, startUrl: startUrl || null },
         appendMessage: `Cloud computer “${config.workerName}” started…\nGoal: ${goal}`,
       });
 
