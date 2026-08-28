@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 09:37] Remove suggested workflows / trajectory Demo
+
+- **Prompt Provided:** No suggested workflows after every run; create skills manually only
+- **Architectural Flow:** Remove Trajectory → Demo button; remove Skills Suggested workflows section; trajectory is debug-only
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/TrajectoryPanel.jsx`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/help/helpContent.js`
+
+
 ## [2026-08-28 09:15] Agent email test — save before send + persist enabled
 
 - **Prompt Provided:** Test email showed “Email is not enabled” after filling SMTP fields

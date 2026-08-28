@@ -1,26 +1,15 @@
 /**
- * @fileoverview Skills dashboard — Teach-skill demos, skill library, training requests.
- * Purpose: One draft + demonstration per completed task; production skills in library list.
- * Downstream: `/api/skills`, `/api/worker/demos/*`, LiveScreen Teach skill.
+ * @fileoverview Skills dashboard — manual skill library and training requests.
+ * Purpose: Create/edit skills yourself (New skill, Generate with AI, /learn). No auto suggested workflows.
+ * Downstream: `/api/skills`, LiveScreen Teach skill (optional), SkillEditPage.
  */
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
-
-/**
- * Skills authored manually or promoted — hides auto-suggested drafts (shown under workflows).
- * @param {object} skill
- * @returns {boolean}
- */
-function isLibrarySkill(skill) {
-  if (!skill) return false;
-  if (skill.status === "production" || skill.status === "deprecated") return true;
-  return skill.status === "draft" && !skill.sourceTask;
-}
 
 /**
  * @param {string|undefined} value
@@ -34,38 +23,23 @@ function formatCreated(value) {
 export function SkillsPage() {
   const navigate = useNavigate();
   const [skills, setSkills] = useState([]);
-  const [demos, setDemos] = useState([]);
   const [training, setTraining] = useState([]);
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [skillName, setSkillName] = useState("");
   const [showAllTraining, setShowAllTraining] = useState(false);
-  const [expandedDemoId, setExpandedDemoId] = useState(null);
   const [deletingId, setDeletingId] = useState("");
-  const [deletingDemoId, setDeletingDemoId] = useState("");
 
   const load = useCallback(async () => {
     const trainingPath = showAllTraining ? "/api/skills/training" : "/api/skills/training?status=pending";
-    const [sk, dm, tr] = await Promise.all([
-      api("/api/skills"),
-      api("/api/skills/demos"),
-      api(trainingPath),
-    ]);
+    const [sk, tr] = await Promise.all([api("/api/skills"), api(trainingPath)]);
     setSkills(sk.skills || []);
-    setDemos(dm.demonstrations || []);
     setTraining(tr.requests || []);
   }, [showAllTraining]);
 
   useEffect(() => {
     load().catch((err) => setError(err));
   }, [load]);
-
-  const librarySkills = useMemo(() => skills.filter(isLibrarySkill), [skills]);
-  const skillById = useMemo(() => {
-    const map = new Map();
-    for (const s of skills) map.set(String(s._id), s);
-    return map;
-  }, [skills]);
 
   async function createSkill(e) {
     e.preventDefault();
@@ -81,53 +55,6 @@ export function SkillsPage() {
       navigate(`/skills/${created.skill._id}`);
     } catch (err) {
       setError(err);
-    }
-  }
-
-  async function openDraftForDemo(demo) {
-    setError(null);
-    setOkMsg("");
-    if (demo.convertedSkill) {
-      navigate(`/skills/${demo.convertedSkill}`);
-      return;
-    }
-    try {
-      const created = await api(`/api/skills/from-demo/${demo._id}`, {
-        method: "POST",
-        body: JSON.stringify({}),
-      });
-      setOkMsg("Draft skill ready — edit and set production when ready.");
-      await load();
-      navigate(`/skills/${created.skill._id}`);
-    } catch (err) {
-      setError(err);
-    }
-  }
-
-  /**
-   * @param {object} demo
-   */
-  async function deleteDemo(demo) {
-    const label = demo.title || "this workflow";
-    if (
-      !window.confirm(
-        `Delete suggested workflow “${label}”?${demo.convertedSkill ? " The linked draft skill is kept in your library until you delete it." : ""}`
-      )
-    ) {
-      return;
-    }
-    setDeletingDemoId(demo._id);
-    setError(null);
-    setOkMsg("");
-    try {
-      await api(`/api/skills/demos/${demo._id}`, { method: "DELETE" });
-      if (expandedDemoId === demo._id) setExpandedDemoId(null);
-      setOkMsg(`Deleted workflow “${label}”.`);
-      await load();
-    } catch (err) {
-      setError(err);
-    } finally {
-      setDeletingDemoId("");
     }
   }
 
@@ -177,9 +104,9 @@ export function SkillsPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Skills</h1>
           <p className="text-sm text-teal-900/70">
-            Skills are created only when you choose: <strong>Teach skill</strong> on the live screen,{" "}
-            <strong>New skill</strong> / import, or <strong>/learn</strong> in chat. Promote a draft to{" "}
-            <strong>production</strong> so matching runs can use it.
+            Create skills manually with <strong>New skill</strong>, <strong>Generate with AI</strong>, or{" "}
+            <strong>/learn</strong> in chat. Runs do not create suggested workflows. Promote a draft to{" "}
+            <strong>production</strong> when ready.
           </p>
         </div>
         <Link
@@ -201,112 +128,6 @@ export function SkillsPage() {
         />
       ) : null}
       {okMsg ? <p className="text-sm font-semibold text-teal-800">{okMsg}</p> : null}
-
-      <section className="flex flex-col gap-2">
-        <div className="flex flex-wrap items-center justify-between gap-2">
-          <SectionTitle helpId="skills.demos" className="text-teal-900/80">
-            Suggested workflows
-          </SectionTitle>
-          <button
-            type="button"
-            onClick={() => load().catch((err) => setError(err))}
-            className="min-h-9 rounded-lg border border-teal-100 bg-white px-3 text-xs font-semibold text-teal-800"
-          >
-            Refresh
-          </button>
-        </div>
-        <p className="text-xs text-teal-900/50">
-          Recordings from <strong>Teach skill</strong> (and demos you convert). Each row can link to one{" "}
-          <strong>draft</strong> skill — edit triggers and playbook, then set <strong>production</strong>.
-        </p>
-        <ul className="flex flex-col gap-2">
-          {demos.map((d) => (
-            <li key={d._id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
-              <div className="flex flex-wrap items-start justify-between gap-2">
-                <div className="min-w-0">
-                  <div className="font-semibold">{d.title || "Workflow"}</div>
-                  <div className="text-teal-900/70">
-                    {d.steps?.length || 0} steps
-                    {d.convertedSkill ? (
-                      <span className="ml-2 rounded bg-violet-50 px-1.5 py-0.5 text-xs font-semibold text-violet-800">
-                        draft linked
-                      </span>
-                    ) : null}
-                  </div>
-                  {formatCreated(d.createdAt) ? (
-                    <time
-                      className="mt-0.5 block text-xs text-teal-900/45"
-                      dateTime={d.createdAt ? new Date(d.createdAt).toISOString() : undefined}
-                    >
-                      {formatCreated(d.createdAt)}
-                    </time>
-                  ) : d.convertedSkill && skillById.get(String(d.convertedSkill))?.createdAt ? (
-                    <time
-                      className="mt-0.5 block text-xs text-teal-900/45"
-                      dateTime={new Date(
-                        skillById.get(String(d.convertedSkill)).createdAt
-                      ).toISOString()}
-                    >
-                      {formatCreated(skillById.get(String(d.convertedSkill)).createdAt)}
-                    </time>
-                  ) : null}
-                </div>
-                <div className="flex shrink-0 gap-2">
-                  <button
-                    type="button"
-                    onClick={() =>
-                      setExpandedDemoId((prev) => (prev === d._id ? null : d._id))
-                    }
-                    className="min-h-9 rounded-lg border border-teal-200 px-3 text-xs font-semibold text-teal-800"
-                  >
-                    {expandedDemoId === d._id ? "Hide" : "Steps"}
-                  </button>
-                  <ButtonWithHelp helpId="skills.convertDemo">
-                    <button
-                      type="button"
-                      onClick={() => openDraftForDemo(d)}
-                      className="min-h-9 rounded-lg border border-teal-200 px-3 text-xs font-semibold text-teal-800"
-                    >
-                      {d.convertedSkill ? "Edit draft" : "Create draft"}
-                    </button>
-                  </ButtonWithHelp>
-                  <ButtonWithHelp helpId="skills.deleteDemo">
-                    <button
-                      type="button"
-                      disabled={Boolean(deletingDemoId)}
-                      onClick={() => deleteDemo(d)}
-                      className="min-h-9 rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 disabled:opacity-50"
-                    >
-                      {deletingDemoId === d._id ? "Deleting…" : "Delete"}
-                    </button>
-                  </ButtonWithHelp>
-                </div>
-              </div>
-              {expandedDemoId === d._id && d.steps?.length ? (
-                <ol className="mt-2 list-decimal space-y-1 border-t border-teal-50 pt-2 pl-5 text-xs text-teal-900/70">
-                  {d.steps.map((step, idx) => (
-                    <li key={idx}>
-                      {step.action?.type ? (
-                        <span className="font-mono">{step.action.type}</span>
-                      ) : null}
-                      {step.action?.text ? ` "${step.action.text}"` : ""}
-                      {step.action?.key ? ` key:${step.action.key}` : ""}
-                      {step.observation ? (
-                        <span className="block text-teal-900/40">{step.observation}</span>
-                      ) : null}
-                    </li>
-                  ))}
-                </ol>
-              ) : null}
-            </li>
-          ))}
-          {!demos.length ? (
-            <p className="text-sm text-teal-900/60">
-              No workflows yet. Use Teach skill during a live run, or create a skill with New skill / import.
-            </p>
-          ) : null}
-        </ul>
-      </section>
 
       <section className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">
@@ -340,7 +161,7 @@ export function SkillsPage() {
                     to={`/chats/${r.task.chat._id}`}
                     className="min-h-9 inline-flex items-center rounded-lg border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800"
                   >
-                    Open chat · demo
+                    Open chat
                   </Link>
                 ) : null}
                 <button
@@ -380,8 +201,7 @@ export function SkillsPage() {
           Skill library
         </SectionTitle>
         <p className="text-xs text-teal-900/50">
-          Production skills and skills you created manually. Teach-skill drafts appear under{" "}
-          <strong>Suggested workflows</strong> above until you promote them.
+          Your skills — create with New skill / Generate with AI, then set status to production when ready.
         </p>
         <form onSubmit={createSkill} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
@@ -400,7 +220,7 @@ export function SkillsPage() {
           </ButtonWithHelp>
         </form>
         <ul className="flex flex-col gap-2">
-          {librarySkills.map((s) => (
+          {skills.map((s) => (
             <li
               key={s._id}
               className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm"
@@ -409,19 +229,11 @@ export function SkillsPage() {
                 <div className="font-semibold">
                   {s.name}
                   {s.slug ? (
-                    <span className="ml-2 font-mono text-xs font-normal text-violet-800">
-                      /{s.slug}
-                    </span>
+                    <span className="ml-2 font-mono text-xs font-normal text-violet-800">/{s.slug}</span>
                   ) : null}
                 </div>
                 <div className="text-teal-900/70">
-                  <span
-                    className={
-                      s.status === "production"
-                        ? "font-semibold text-emerald-700"
-                        : ""
-                    }
-                  >
+                  <span className={s.status === "production" ? "font-semibold text-emerald-700" : ""}>
                     {s.status}
                   </span>
                   {" · "}
@@ -458,10 +270,8 @@ export function SkillsPage() {
               </div>
             </li>
           ))}
-          {!librarySkills.length ? (
-            <p className="text-sm text-teal-900/60">
-              No library skills yet. Create one above or promote a draft from Suggested workflows.
-            </p>
+          {!skills.length ? (
+            <p className="text-sm text-teal-900/60">No skills yet. Use New skill or Generate with AI.</p>
           ) : null}
         </ul>
       </section>

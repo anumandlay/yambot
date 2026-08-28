@@ -1133,13 +1133,14 @@ export const HELP = {
   "chat.trajectory": {
     title: "Trajectory",
     body: helpBody(
-      "Step-by-step record of actions on the current/recent task — replay what the agent did for audits and skill authoring."
+      "Step-by-step actions the agent took this run. For debugging only — it does not create skills or suggested workflows.",
+      "Create skills manually on the Skills page (New skill / Generate with AI) when you want a reusable playbook."
     ),
   },
   "chat.trajectorySave": {
-    title: "Save trajectory as demo",
+    title: "Save trajectory as skill",
     body: helpBody(
-      "Explicitly saves the step chain as a Demonstration on Skills — convert to skill, edit triggers, set production. Successful runs no longer auto-create drafts."
+      "Removed — runs no longer create suggested workflows. Use Skills → New skill or Generate with AI instead."
     ),
   },
 
@@ -1598,10 +1599,10 @@ export const HELP = {
 
   // ─── Skills page ─────────────────────────────────────────────────────
   "skills.page": {
-    title: "Skills page",
+    title: "Skills",
     body: helpBody(
-      "Create skills only via Teach skill, New skill / import, or /learn in chat — runs do not auto-draft skills.",
-      "Promote to production when ready — worker injects playbook on /slash or trigger match. Skill library lists production and manual skills only."
+      "Reusable playbooks you create yourself (New skill, Generate with AI, or /learn in chat).",
+      "Runs do not create suggested workflows. Set status to production when triggers and playbook are ready."
     ),
     learnMore: "howto-skills",
   },
@@ -1614,8 +1615,7 @@ export const HELP = {
   "skills.demos": {
     title: "Suggested workflows",
     body: helpBody(
-      "Step sequences from Teach skill recordings (and demos you convert to a draft).",
-      "Each row can link to one draft skill — Edit draft → set production. Created timestamps show when the workflow was saved."
+      "Removed from the Skills page. Create skills manually instead of converting run trajectories."
     ),
   },
   "skills.convertDemo": {
