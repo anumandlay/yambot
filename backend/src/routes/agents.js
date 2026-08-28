@@ -33,6 +33,11 @@ import { Demonstration } from "../models/Demonstration.js";
 import { copyNameWithTimestamp } from "../utils/copyName.js";
 import { EntityGroup } from "../models/EntityGroup.js";
 import { draftAgentFromBrief } from "../utils/agentDraftFromBrief.js";
+import { User } from "../models/User.js";
+import { env } from "../utils/env.js";
+import { normalizeLlmBaseUrl, normalizeLlmModel } from "../utils/llmDefaults.js";
+import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
+import { probeLlmConnection } from "../utils/llmTest.js";
 
 export const agentsRouter = Router();
 
@@ -882,6 +887,81 @@ agentsRouter.delete("/:id/site-profiles/:domain", async (req, res, next) => {
       .toLowerCase();
     await SiteProfile.deleteOne({ agent: agent._id, user: req.userId, domain });
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/llm/test — probe this agent's LLM override (or form body overrides).
+ * Body: { apiKey?, baseUrl?, model? } — blank key uses the agent's saved secret / Settings fallback.
+ */
+agentsRouter.post("/:id/llm/test", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!agent.llm?.useCustom) {
+      res.status(400).json({
+        ok: false,
+        title: "Override off",
+        detail: "Enable “Use a different LLM for this agent” and save before testing.",
+      });
+      return;
+    }
+
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+
+    const bodyKey = String(req.body?.apiKey ?? req.body?.llmApiKey ?? "").trim();
+    const creds = await resolveLlmCredentialsForAgent(user, agent);
+    const baseUrl = normalizeLlmBaseUrl(
+      String(req.body?.baseUrl ?? req.body?.llmBaseUrl ?? creds.llmBaseUrl ?? "").trim(),
+      env.DEFAULT_LLM_BASE_URL
+    );
+    const model = normalizeLlmModel(
+      String(req.body?.model ?? req.body?.llmModel ?? creds.llmModel ?? "").trim(),
+      env.DEFAULT_LLM_MODEL
+    );
+    const apiKey = bodyKey || creds.apiKey;
+
+    if (!apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "Missing API key",
+        detail: "Enter an API key for this agent (or save one first).",
+        hint: "Key can be left blank in the form if a saved value already exists.",
+      });
+      return;
+    }
+
+    try {
+      const result = await probeLlmConnection({
+        apiKey,
+        baseUrl,
+        model,
+        openAiAccountId: creds.openAiAccountId || "",
+      });
+      res.json({
+        ok: true,
+        message: "Agent LLM connected",
+        model: result.model,
+        preview: result.preview,
+        source: creds.source || "agent",
+      });
+    } catch (err) {
+      res.status(502).json({
+        ok: false,
+        title: err.title || "LLM connection failed",
+        detail: String(err?.message || err),
+        hint: err.hint || "Verify this agent’s API key, base URL, and model.",
+      });
+    }
   } catch (err) {
     next(err);
   }

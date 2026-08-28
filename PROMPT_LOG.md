@@ -1,5 +1,12 @@
 # PROMPT_LOG.md
 
+## [2026-08-28 15:45] Agent edit — Save & test LLM
+
+- **Prompt Provided:** In agent edit, after LLM credentials, need Test LLM
+- **Architectural Flow:** POST /api/agents/:id/llm/test probes override via resolveLlmCredentialsForAgent + probeLlmConnection; UI Save & test (like email) then shows preview
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/agents.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
+
 ## [2026-08-28 15:15] Per-agent optional LLM override
 
 - **Prompt Provided:** Yes, build per-agent LLM — if agent has its own LLM use only that; else Settings LLM

@@ -768,6 +768,76 @@ export function AgentEditPage() {
                   placeholder="gpt-4o (blank = Settings)"
                 />
               </label>
+              {!isNew ? (
+                <div className="sm:col-span-2">
+                  <ButtonWithHelp helpId="agent.llm.test">
+                    <button
+                      type="button"
+                      disabled={busy || !form.llm?.useCustom}
+                      className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50 sm:w-auto"
+                      onClick={async () => {
+                        setBusy(true);
+                        setError(null);
+                        setOkMsg("");
+                        try {
+                          // Why: test reads Mongo — save LLM fields first so key/base/model stick.
+                          const payload = {
+                            ...form,
+                            group: form.group || null,
+                            facts: form.facts.filter((f) => f.key.trim()),
+                            allowedDomains: form.allowedDomains,
+                          };
+                          const saved = await api(`/api/agents/${agentId}`, {
+                            method: "PUT",
+                            body: JSON.stringify(payload),
+                          });
+                          setForm((prev) => ({
+                            ...prev,
+                            llm: saved?.agent?.llm
+                              ? {
+                                  ...prev.llm,
+                                  useCustom: Boolean(saved.agent.llm.useCustom),
+                                  baseUrl: saved.agent.llm.baseUrl || "",
+                                  model: saved.agent.llm.model || "",
+                                  apiKey: "",
+                                  hasApiKey: Boolean(saved.agent.llm.hasApiKey),
+                                }
+                              : prev.llm,
+                            email: saved?.agent?.email
+                              ? {
+                                  ...prev.email,
+                                  ...saved.agent.email,
+                                  smtpPassword: "",
+                                  hasSmtpPassword: Boolean(saved.agent.email.hasSmtpPassword),
+                                }
+                              : prev.email,
+                          }));
+                          const data = await api(`/api/agents/${agentId}/llm/test`, {
+                            method: "POST",
+                            body: JSON.stringify({}),
+                          });
+                          const preview = data.preview ? ` Reply: “${data.preview}”.` : "";
+                          setOkMsg(
+                            `${data.message || "Agent LLM connected."} Model: ${
+                              data.model || form.llm?.model || ""
+                            }.${preview}`
+                          );
+                        } catch (err) {
+                          setError(err);
+                        } finally {
+                          setBusy(false);
+                        }
+                      }}
+                    >
+                      {busy ? "Saving & testing…" : "Save & test LLM"}
+                    </button>
+                  </ButtonWithHelp>
+                </div>
+              ) : (
+                <p className="text-xs text-teal-900/60 sm:col-span-2">
+                  Save the agent first, then you can test this LLM connection.
+                </p>
+              )}
             </div>
           ) : null}
         </fieldset>

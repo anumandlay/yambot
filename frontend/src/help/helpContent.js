@@ -563,6 +563,12 @@ export const HELP = {
       "Model id for this agent only (e.g. gpt-4o, MiniMax-M2.7). Blank keeps the Settings model."
     ),
   },
+  "agent.llm.test": {
+    title: "Save & test LLM",
+    body: helpBody(
+      "Saves this agent’s LLM fields, then sends a short chat completion to verify key, base URL, and model — same check as Settings → Test LLM, but for this agent only."
+    ),
+  },
   "agent.email.fromName": {
     title: "From name",
     body: helpBody(
