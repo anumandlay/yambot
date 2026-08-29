@@ -31,50 +31,53 @@ export function getPlaywrightFrame(page, frameId) {
 }
 
 /**
- * Full page observation: main DOM, child frames, and a11y snapshot.
+ * Full page observation: main DOM, optional child frames, optional a11y snapshot.
  * @param {import('playwright').Page} page
  * @param {Function} observeFn - Serialized observeInPage.
+ * @param {{ skipFrames?: boolean, skipA11y?: boolean }} [opts]
  * @returns {Promise<object>}
  */
-export async function observePageFull(page, observeFn) {
+export async function observePageFull(page, observeFn, opts = {}) {
   const main = attachFingerprints(await page.evaluate(observeFn));
   main.frameId = "main";
 
   const frames = [];
   const frameInteractives = [...(main.interactives || [])];
 
-  for (const frame of page.frames()) {
-    if (frame === page.mainFrame()) continue;
-    const frameUrl = safeFrameUrl(frame);
-    let frameId = `frame_${frames.length + 1}`;
-    try {
-      const partial = attachFingerprints(await frame.evaluate(observeFn));
-      frameId = partial.frameId || frameId;
-      const prefixed = (partial.interactives || []).map((item, i) => ({
-        ...item,
-        ref: `${frameId}_${item.ref}`,
-        frameId,
-        frameUrl,
-      }));
-      frameInteractives.push(...prefixed);
-      frames.push({
-        frameId,
-        url: frameUrl,
-        title: partial.title,
-        interactive_count: prefixed.length,
-        cross_origin: false,
-      });
-    } catch {
-      frames.push({
-        frameId,
-        url: frameUrl,
-        cross_origin: true,
-        note: "Cannot access DOM — use frame selector if payment iframe",
-      });
+  if (!opts.skipFrames) {
+    for (const frame of page.frames()) {
+      if (frame === page.mainFrame()) continue;
+      const frameUrl = safeFrameUrl(frame);
+      let frameId = `frame_${frames.length + 1}`;
+      try {
+        const partial = attachFingerprints(await frame.evaluate(observeFn));
+        frameId = partial.frameId || frameId;
+        const prefixed = (partial.interactives || []).map((item) => ({
+          ...item,
+          ref: `${frameId}_${item.ref}`,
+          frameId,
+          frameUrl,
+        }));
+        frameInteractives.push(...prefixed);
+        frames.push({
+          frameId,
+          url: frameUrl,
+          title: partial.title,
+          interactive_count: prefixed.length,
+          cross_origin: false,
+        });
+      } catch {
+        frames.push({
+          frameId,
+          url: frameUrl,
+          cross_origin: true,
+          note: "Cannot access DOM — use frame selector if payment iframe",
+        });
+      }
     }
   }
 
-  const a11y = await captureA11ySnapshot(page);
+  const a11y = opts.skipA11y ? null : await captureA11ySnapshot(page);
 
   return {
     ...main,

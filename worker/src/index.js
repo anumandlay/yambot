@@ -11,6 +11,7 @@
 import { loadConfig } from "./config.js";
 import { createApiClient } from "./api.js";
 import { createCloudAgent } from "./agent.js";
+import { getFastModeProfile } from "./fastMode.js";
 
 /**
  * @param {unknown} err
@@ -28,12 +29,13 @@ function isBrowserDeadError(err) {
 
 async function main() {
   const config = loadConfig();
-  const screenMs = Math.max(2000, Number(process.env.YAMBOT_SCREEN_MS) || 4000);
+  const speed = getFastModeProfile();
+  const screenMs = speed.screenMsIdle;
   const client = createApiClient(config);
   const agent = createCloudAgent({ api: client.api, config });
 
   console.log(
-    `[${config.workerName}] starting cloud computer for agent ${config.agentId} → ${config.apiBaseUrl}`
+    `[${config.workerName}] starting cloud computer for agent ${config.agentId} → ${config.apiBaseUrl}${speed.fast ? " [FAST_MODE]" : ""}`
   );
 
   await client.login();
@@ -109,15 +111,18 @@ async function main() {
     void pollOnce();
   }, config.pollMs);
 
-  // Why: faster screenshots while the user drives the mouse/keyboard remotely.
+  // Why: faster screenshots while the user drives; slower / thinner while the agent runs (less CPU fight).
   let screenLoopStopped = false;
+  let runningScreenTick = 0;
   async function screenLoop() {
     while (!screenLoopStopped) {
       let human = false;
+      const busy = agent.isRunning();
       try {
-        // Why: keep streaming while a task is running so the chat live box updates
-        // during LLM think / long steps (pushLiveScreen still skips Take control + navigate).
-        const r = await agent.pushLiveScreen();
+        runningScreenTick = busy ? runningScreenTick + 1 : 0;
+        // Why: keep presence heartbeats every tick; full JPEG only every Nth tick while LLM/act runs.
+        const takeJpeg = !busy || runningScreenTick % speed.screenEveryNthWhileRunning === 0;
+        const r = await agent.pushLiveScreen({ screenshot: takeJpeg });
         human = Boolean(r?.humanControl);
       } catch (err) {
         console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);
@@ -125,7 +130,8 @@ async function main() {
           await recoverBrowserOnce();
         }
       }
-      await new Promise((r) => setTimeout(r, human ? 1100 : screenMs));
+      const delay = human ? 1100 : busy ? speed.screenMsRunning : screenMs;
+      await new Promise((r) => setTimeout(r, delay));
     }
   }
   void screenLoop();

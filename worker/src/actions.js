@@ -59,7 +59,7 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
   "actions": [ { "type":"..." }, { "type":"..." } ]
 }
 
-SPEED (important): Prefer "actions" array to batch 2–8 steps in ONE reply (e.g. click email → type → type password → click submit). Prefer fill_form when many fields share one form. Avoid one-field-per-turn for registration/login.
+SPEED (important): Prefer "actions" array to batch 3–8 steps in ONE reply (e.g. click email → type → type password → click submit). Prefer fill_form when many fields share one form. Avoid one-field-per-turn for registration/login. Single-action replies are slower — only use one action when the next step depends on unknown page content after navigate/submit.
 
 You may send either "action" (single) or "actions" (batch). If both exist, "actions" wins. Max ~8 actions per turn. Stop the batch before finish/ask_user/solve_captcha (put those last or alone).
 

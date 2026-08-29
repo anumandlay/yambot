@@ -16,6 +16,8 @@ import { promisify } from "node:util";
 import { chromium } from "playwright";
 import { chatCompletion } from "./llm.js";
 import { stepTiming } from "./stepTiming.js";
+import { getFastModeProfile } from "./fastMode.js";
+import { createStepMetrics } from "./stepMetrics.js";
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse, BATCH_STOP_TYPES, LIGHT_SETTLE_TYPES } from "./actions.js";
@@ -731,8 +733,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
    */
   async function observeNow() {
     await ensureBrowser();
+    const profile = getFastModeProfile();
     return withPageRetry(async () => {
-      const obs = await observePageFull(page, observeInPage);
+      const obs = await observePageFull(page, observeInPage, {
+        skipFrames: profile.skipFrames,
+        skipA11y: profile.skipA11y,
+      });
       telemetry?.setActivePage(page);
       if (obs?.url && /^https?:\/\//i.test(obs.url)) {
         lastKnownPageUrl = obs.url;
@@ -1161,6 +1167,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
    */
   function formatObservation(obs, pageState, stateDiff, goal, extras = {}) {
     if (pageState) {
+      const profile = getFastModeProfile();
       return formatStateProjection({
         obs,
         pageState,
@@ -1170,6 +1177,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         progress: extras.progress,
         currentSubgoal: extras.currentSubgoal,
         telemetry: extras.telemetry,
+        maxInteractives: profile.maxInteractives,
+        maxText: profile.maxText,
       });
     }
     const lines = [
@@ -1429,6 +1438,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const history = [];
     let siteDomain = "";
     const llmUsage = createLlmUsageTracker();
+    const metrics = createStepMetrics();
+    const speedProfile = getFastModeProfile();
+    if (speedProfile.fast) {
+      log(
+        `[${config.workerName}] FAST_MODE on (observe≤${speedProfile.maxInteractives}, batch≤${speedProfile.maxActionsPerTurn}, skipFrames=${speedProfile.skipFrames})`
+      );
+    }
 
     /**
      * Wraps chatCompletion, records token usage, and mirrors request/response into the chat thread.
@@ -1460,7 +1476,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }).catch((err) => log(`[${config.workerName}] llm_request mirror failed:`, err?.message || err));
 
       try {
-        const result = await chatCompletion(llmOpts);
+        const profile = getFastModeProfile();
+        const result = await chatCompletion({
+          ...llmOpts,
+          timeoutMs: llmOpts.timeoutMs ?? profile.llmTimeoutMs,
+        });
         addLlmUsage(llmUsage, result.usage);
         const reply = String(result.content || "").slice(0, 12000);
         const replyTruncated = String(result.content || "").length > 12000;
@@ -1718,6 +1738,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       let siteProfile = null;
       for (;;) {
         step += 1;
+        const stepClock = metrics.beginStep();
         if (
           effectiveMaxMinutes > 0 &&
           Date.now() - runStartedAt > effectiveMaxMinutes * 60_000
@@ -1950,6 +1971,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         let content;
         try {
+          metrics.mark(stepClock, "llm");
           const llmCreds = visionAttached
             ? {
                 apiKey: settings.visionLlmApiKey,
@@ -1971,6 +1993,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             traceStep: step,
           });
           content = llm.content;
+          metrics.mark(stepClock, "action");
         } catch (err) {
           const detail = String(err?.detail || err?.message || err);
           log(`[${config.workerName}] LLM retry:`, detail);
@@ -2090,25 +2113,38 @@ export function createCloudAgent({ api, config, log = console.log }) {
             ["finish", "ask_user", "wait"].includes(actionToRun.type) ||
             (result?.ok === false && !result?.navigated && !result?.finished);
           const lightSettle = LIGHT_SETTLE_TYPES.has(actionToRun.type) && !actionToRun.submit;
+          // Why: mid-batch re-observe is the biggest local CPU cost after LLM; fast mode
+          // settles lightly and only full-observes on the last batch item (or stop types).
+          const skipMidBatchReobserve =
+            speedProfile.skipMidBatchReobserve &&
+            !isLastInBatch &&
+            !BATCH_STOP_TYPES.has(actionToRun.type) &&
+            lightSettle;
           if (!skipSettle) {
+            metrics.mark(stepClock, "settle");
             if (actionToRun.type !== "wait_for") {
               await waitForSemantic(page, observeInPage, waitForConditionInPage, {
                 timeoutMs: lightSettle
                   ? stepTiming.postFillSettleMs
                   : stepTiming.postActionSettleMs,
                 networkIdle: false,
-                loadingGone: !lightSettle,
-                domStable: true,
+                loadingGone: !lightSettle && !skipMidBatchReobserve,
+                domStable: !skipMidBatchReobserve,
                 stableMs: lightSettle
                   ? Math.min(stepTiming.domStableMs, 120)
                   : stepTiming.domStableMs,
               });
             }
-            const obsAfter = await observeNow();
-            result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
-            prevObs = obsAfter;
-            prevUrl = String(obsAfter.url || "");
-            obs = obsAfter;
+            if (!skipMidBatchReobserve) {
+              const obsAfter = await observeNow();
+              result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
+              prevObs = obsAfter;
+              prevUrl = String(obsAfter.url || "");
+              obs = obsAfter;
+            } else {
+              prevObs = obsBefore;
+              prevUrl = String(obsBefore.url || "");
+            }
           } else {
             prevObs = obsBefore;
             prevUrl = String(obsBefore.url || "");
@@ -2275,7 +2311,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
         } // end batch
 
-        if (finishedTask) return;
+        metrics.endStep(step, stepClock);
+
+        if (finishedTask) {
+          const avg = metrics.summary();
+          if (avg) log(`[${config.workerName}] task metrics avg=${JSON.stringify(avg)}`);
+          return;
+        }
       } // end for (;;) agent loop
     } catch (err) {
       if (err?.cancelled || /stopped by user/i.test(String(err?.message || ""))) {
@@ -2856,22 +2898,37 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, http: result };
       }
       case "type": {
-        const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
-        // Why: Phase 1 speed — set value via DOM (instant). Optional human_type for anti-bot sites.
-        if (action.human_type === true && !inChildFrame) {
-          const meta = await frame.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
-          await page.mouse.click(meta.x, meta.y, { delay: 20 });
-          if (meta.contentEditable) {
+        const runType = async () => {
+          const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+          // Why: Phase 1 speed — set value via DOM (instant). Optional human_type for anti-bot sites.
+          if (action.human_type === true && !inChildFrame) {
+            const meta = await frame.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
+            await page.mouse.click(meta.x, meta.y, { delay: 20 });
+            if (meta.contentEditable) {
+              await page.keyboard.press("Control+a");
+              await sleep(40);
+              await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
+              return { ok: true, contentEditable: true, typed: true, human_type: true, name: meta.name };
+            }
             await page.keyboard.press("Control+a");
-            await sleep(40);
             await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
-            return { ok: true, contentEditable: true, typed: true, human_type: true, name: meta.name };
+            return { ok: true, typed: true, human_type: true, name: meta.name };
           }
-          await page.keyboard.press("Control+a");
-          await page.keyboard.type(String(action.text ?? ""), { delay: 12 });
-          return { ok: true, typed: true, human_type: true, name: meta.name };
+          return frame.evaluate(executeInPage, enriched);
+        };
+        try {
+          return await runType();
+        } catch (err) {
+          // Why: form redirects / SPA navigations destroy the evaluate context mid-type.
+          if (!isTransientNavigationError(err)) throw err;
+          await sleep(350);
+          try {
+            await page.waitForLoadState("domcontentloaded", { timeout: 5000 });
+          } catch {
+            /* continue retry */
+          }
+          return await runType();
         }
-        return frame.evaluate(executeInPage, enriched);
       }
       case "click": {
         const isSubmitLike = looksLikeSubmit(obs, action.ref);

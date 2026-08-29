@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 13:25] Experiment branch — curated speed optimizations
+
+- **Prompt Provided:** Review other LLM’s browser-speed guide; if worth implementing, create `experiment` branch and implement
+- **Architectural Flow:** Created branch `experiment`. Implemented safe subset: YAMBOT_FAST_MODE profile (settle/observe/batch/screen), skip frames+a11y in fast observe, skip mid-batch re-observe, thinner screenshots while running, step metrics logs, type retry on navigation context destroy. Rejected speculative no-LLM acts, LLM cache, stream early-exit, fake MutationObserver, predictive scaling. Documented in `worker/EXPERIMENT.md`. No production deploy from this branch.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/EXPERIMENT.md`, `worker/src/fastMode.js`, `worker/src/stepMetrics.js`, `worker/src/stepTiming.js`, `worker/src/browserState/observe.js`, `worker/src/actions.js`, `worker/src/agent.js`, `worker/src/index.js`, `computer-manager/src/index.js`
+
 ## [2026-08-29 13:10] Chats list — remove deleted thread immediately
 
 - **Prompt Provided:** After delete on /chats the thread stays until full page refresh; should update immediately. Also do not wait ~10 minutes on shell.

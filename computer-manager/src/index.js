@@ -180,6 +180,13 @@ async function ensureRunning(agent) {
       "DISPLAY=:99",
       "YAMBOT_NOVNC_PORT=6080",
       "YAMBOT_VNC_PORT=5900",
+      // Why: experiment branch — set YAMBOT_FAST_MODE=1 on the manager to speed agent boxes.
+      ...(process.env.YAMBOT_FAST_MODE
+        ? [`YAMBOT_FAST_MODE=${process.env.YAMBOT_FAST_MODE}`]
+        : []),
+      ...(process.env.YAMBOT_OBSERVE_LIMIT
+        ? [`YAMBOT_OBSERVE_LIMIT=${process.env.YAMBOT_OBSERVE_LIMIT}`]
+        : []),
     ],
     HostConfig: {
       NetworkMode: DOCKER_NETWORK,
