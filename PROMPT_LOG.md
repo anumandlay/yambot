@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 13:35] Deploy experiment branch to production for speed test
+
+- **Prompt Provided:** deploy to production with experiment branch so that i will test
+- **Architectural Flow:** Pack/deploy current `experiment` tree via remote-deploy.py; enable YAMBOT_FAST_MODE=1 on server deploy/.env so computer-manager injects it into agent boxes; recreate agent container after rebuild.
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/.env.example`
+
 ## [2026-08-29 13:30] Experiment — triage advanced speed ideas #2
 
 - **Prompt Provided:** Another LLM’s “advanced” speed list (pattern library, prefetch, parallel acts, WASM, resource block, specialized models)
