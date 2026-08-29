@@ -28,11 +28,13 @@ RUN npm install --omit=dev \
   && npx playwright install chrome
 
 COPY worker/src ./src
+COPY worker/extension /app/extension
 COPY worker/entrypoint.sh /app/entrypoint.sh
 
 # Why: Windows checkouts often ship CRLF; Linux then fails with
 # `exec /app/entrypoint.sh: no such file or directory` (shebang becomes /bin/bash\r).
 RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+ENV YAMBOT_TEACH_EXTENSION_DIR=/app/extension
 
 ENV NODE_ENV=production \
     DISPLAY=:99 \

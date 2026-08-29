@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 14:25] Agent Chrome extension for Teach skill
+
+- **Prompt Provided:** Implement Agent Chrome extension so Teach skill tracks real page clicks/labels instead of screenshot coordinates
+- **Architectural Flow:** MV3 extension + init-script recorder in agent Chrome; on Teach (activeDemoId) worker starts recorder and drains locator steps (role/name/css/xpath) into /api/worker/demos/step; Done teaching waits ~1.1s for flush; skill replay prefers locators then falls back to xNorm/yNorm. Extension copied into worker Docker image.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/extension/*`, `worker/src/teachBridge.js`, `worker/src/agent.js`, `worker/src/browserState/skillReplay.js`, `backend/src/utils/skillSuggestion.js`, `deploy/Dockerfile.worker`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/help/helpContent.js`, `worker/EXPERIMENT.md`
+
 ## [2026-08-29 13:35] Deploy experiment branch to production for speed test
 
 - **Prompt Provided:** deploy to production with experiment branch so that i will test

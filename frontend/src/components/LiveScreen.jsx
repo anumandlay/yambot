@@ -195,9 +195,21 @@ export function LiveScreen({
   async function releaseHumanControl(opts = {}) {
     if (!controlOnRef.current && !controlOn) return;
     setBusySession(true);
-    setStatus(opts.fromModalClose ? "Closing control…" : "Giving control back…");
+    const wasTeaching = teachModeRef.current || teachMode;
+    setStatus(
+      wasTeaching
+        ? "Saving taught steps…"
+        : opts.fromModalClose
+          ? "Closing control…"
+          : "Giving control back…"
+    );
     setDesktopError("");
     try {
+      // Why: agent extension debounces typing (~450ms) and worker drains on heartbeat —
+      // wait so the last click/type is flushed into the demonstration before finish.
+      if (wasTeaching) {
+        await new Promise((r) => setTimeout(r, 1100));
+      }
       const data = await api(`/api/agents/${agentId}/control`, {
         method: "POST",
         body: JSON.stringify(sessionControlBody(false)),
@@ -413,7 +425,7 @@ export function LiveScreen({
         setDesktopSrc(path);
         setStatus(
           teaching
-            ? "Teaching skill — click inside the screen, perform the workflow, then Done teaching."
+            ? "Teaching skill — use the remote desktop; the agent Chrome extension records buttons/fields by label. Then Done teaching."
             : "Remote desktop connected — click inside the screen once, then use your mouse and keyboard."
         );
       } catch (deskErr) {
@@ -523,11 +535,15 @@ export function LiveScreen({
         method: "POST",
         body: JSON.stringify({ type: "click", xNorm, yNorm }),
       });
-      await recordDemoStep({
-        observation: live?.pageUrl || "",
-        action: { type: "click", xNorm, yNorm },
-        result: "sent",
-      });
+      // Why: Teach skill uses the agent Chrome extension for locator-rich steps;
+      // coordinate demo rows are a fallback only when not teaching.
+      if (!teachModeRef.current) {
+        await recordDemoStep({
+          observation: live?.pageUrl || "",
+          action: { type: "click", xNorm, yNorm },
+          result: "sent",
+        });
+      }
       setStatus("Click sent");
       stageRef.current?.focus({ preventScroll: true });
     } catch (err) {
@@ -555,11 +571,13 @@ export function LiveScreen({
           yNorm: (pt || lastPointerRef.current).yNorm,
         }),
       });
-      await recordDemoStep({
-        observation: live?.pageUrl || "",
-        action: { type: "scroll", dy, ...(pt || lastPointerRef.current) },
-        result: "sent",
-      });
+      if (!teachModeRef.current) {
+        await recordDemoStep({
+          observation: live?.pageUrl || "",
+          action: { type: "scroll", dy, ...(pt || lastPointerRef.current) },
+          result: "sent",
+        });
+      }
     } catch {
       /* ignore */
     }
@@ -577,11 +595,13 @@ export function LiveScreen({
         method: "POST",
         body: JSON.stringify({ type: "type", text: typeBuf }),
       });
-      await recordDemoStep({
-        observation: live?.pageUrl || "",
-        action: { type: "type", text: typeBuf },
-        result: "sent",
-      });
+      if (!teachModeRef.current) {
+        await recordDemoStep({
+          observation: live?.pageUrl || "",
+          action: { type: "type", text: typeBuf },
+          result: "sent",
+        });
+      }
       setTypeBuf("");
       setStatus("Text sent");
       stageRef.current?.focus({ preventScroll: true });
@@ -600,11 +620,13 @@ export function LiveScreen({
         method: "POST",
         body: JSON.stringify({ type: "key", key }),
       });
-      await recordDemoStep({
-        observation: live?.pageUrl || "",
-        action: { type: "key", key },
-        result: "sent",
-      });
+      if (!teachModeRef.current) {
+        await recordDemoStep({
+          observation: live?.pageUrl || "",
+          action: { type: "key", key },
+          result: "sent",
+        });
+      }
       setStatus(`Key ${key}`);
     } catch (err) {
       setStatus(err.detail || err.message || "Key failed");

@@ -18,6 +18,14 @@ import { chatCompletion } from "./llm.js";
 import { stepTiming } from "./stepTiming.js";
 import { getFastModeProfile } from "./fastMode.js";
 import { createStepMetrics } from "./stepMetrics.js";
+import {
+  drainTeachRecorderSteps,
+  extensionLaunchArgs,
+  extensionStepToDemoAction,
+  resolveExtensionDir,
+  syncTeachRecorderOnPage,
+  TEACH_RECORDER_INIT_SCRIPT,
+} from "./teachBridge.js";
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse, BATCH_STOP_TYPES, LIGHT_SETTLE_TYPES } from "./actions.js";
@@ -553,6 +561,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
       "--disable-restore-session-state",
       ...(config.headed ? ["--test-type"] : []),
     ];
+    const extensionDir = resolveExtensionDir();
+    const extArgs = config.headed ? extensionLaunchArgs(extensionDir) : [];
+    if (extArgs.length) {
+      log(`[${config.workerName}] loading Teach extension from ${extensionDir}`);
+    } else {
+      log(`[${config.workerName}] Teach extension missing at ${extensionDir} — using init-script recorder only`);
+    }
 
     /** @type {import('playwright').LaunchPersistentContextOptions} */
     const launchOptions = {
@@ -563,6 +578,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       ignoreDefaultArgs: ["--enable-automation"],
       args: [
         ...args,
+        ...extArgs,
         "--disable-blink-features=AutomationControlled",
         ...(config.headed
           ? [`--window-size=${config.viewportWidth || 1280},${config.viewportHeight || 800}`]
@@ -589,6 +605,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
     context = await chromium.launchPersistentContext(config.profileDir, launchOptions);
     attachSingleWindowHandlers();
+    try {
+      await context.addInitScript(TEACH_RECORDER_INIT_SCRIPT);
+    } catch (err) {
+      log(`[${config.workerName}] teach init script failed:`, err?.message || err);
+    }
     try {
       const { installAnalyticsBlocker } = await import("./resourceBlock.js");
       await installAnalyticsBlocker(context, {
@@ -841,11 +862,37 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const commands = Array.isArray(data?.commands) ? data.commands : [];
     const wasHuman = remoteHumanControl;
     remoteHumanControl = Boolean(data?.humanControl);
+    const activeDemoId = data?.activeDemoId ? String(data.activeDemoId) : "";
     if (remoteHumanControl) {
       trackHumanBrowsingSession();
     }
     if (remoteHumanControl && !wasHuman) {
       await focusBrowserForHuman();
+    }
+    // Why: Teach skill — start DOM recorder + flush locator steps into the active demonstration.
+    try {
+      const teaching = Boolean(activeDemoId);
+      await syncTeachRecorderOnPage(page, teaching);
+      if (teaching) {
+        const rawSteps = await drainTeachRecorderSteps(page);
+        for (const raw of rawSteps) {
+          const action = extensionStepToDemoAction(raw);
+          if (!action) continue;
+          await api("/api/worker/demos/step", {
+            method: "POST",
+            body: JSON.stringify({
+              demoId: activeDemoId,
+              observation: String(raw.url || pageUrl || "").slice(0, 500),
+              action,
+              result: "extension",
+            }),
+          }).catch((err) => {
+            log(`[${config.workerName}] teach step flush failed:`, err?.message || err);
+          });
+        }
+      }
+    } catch (err) {
+      log(`[${config.workerName}] teach recorder sync failed:`, err?.message || err);
     }
     for (const cmd of commands) {
       try {
@@ -856,6 +903,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     }
     return {
       humanControl: remoteHumanControl,
+      activeDemoId: activeDemoId || null,
       commands,
     };
   }

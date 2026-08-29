@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "YamBot Teach Recorder",
+  "version": "1.0.0",
+  "description": "Records DOM clicks/typing while Teach skill is active in the cloud agent Chrome.",
+  "permissions": ["storage"],
+  "host_permissions": ["http://*/*", "https://*/*"],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["http://*/*", "https://*/*"],
+      "js": ["content.js"],
+      "run_at": "document_start",
+      "all_frames": true
+    }
+  ]
+}

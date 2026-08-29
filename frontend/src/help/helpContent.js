@@ -1154,8 +1154,8 @@ export const HELP = {
   "chat.teachSkill": {
     title: "Teach skill",
     body: helpBody(
-      "Pauses the agent and records your clicks, typing, and navigation as a draft skill.",
-      "Perform the workflow once, click Done teaching — the skill appears under Skills (no auto-suggested drafts from runs)."
+      "Pauses the agent and records your clicks/typing via a Chrome extension inside the cloud browser (labels, css, xpath — not just screen %).",
+      "Perform the workflow in the remote desktop, click Done teaching — a draft skill is saved. Promote to production + replay to reuse."
     ),
   },
   "chat.zoomChat": {

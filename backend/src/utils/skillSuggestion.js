@@ -81,7 +81,11 @@ function demoHasHumanReplaySteps(demoSteps) {
   return (demoSteps || []).some((s) => {
     const a = s?.action;
     if (!a || typeof a !== "object") return false;
-    return a.type === "type" || a.xNorm != null || a.yNorm != null;
+    if (a.type === "type" || a.type === "select" || a.type === "key") return true;
+    if (a.xNorm != null || a.yNorm != null) return true;
+    // Why: Teach extension stores locator fields without coordinates.
+    if (a.css || a.xpath || a.role || a.name || a.id) return true;
+    return false;
   });
 }
 

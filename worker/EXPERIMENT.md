@@ -19,6 +19,7 @@ Branch: `experiment` (from `feature/playwright-chrome`)
 | Manager passthrough | manager forwards `YAMBOT_FAST_MODE` / `YAMBOT_OBSERVE_LIMIT` into agent boxes |
 | Tracker/analytics blocking | `resourceBlock.js` aborts GA/GTM/FB/Hotjar/etc. (not first-party) when fast / `YAMBOT_BLOCK_ANALYTICS=1` |
 | Shorter LLM completions | `max_tokens≈600` in fast mode via `chatCompletion` |
+| **Teach Chrome extension** | `worker/extension` loaded into agent Chrome; records role/name/css/xpath; replay uses locators |
 
 ### Rejected from “advanced” reply #2
 
