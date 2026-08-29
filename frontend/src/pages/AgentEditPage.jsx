@@ -661,7 +661,7 @@ export function AgentEditPage() {
             placeholder="When to finish, e.g. summarize top 5 links with URLs"
           />
         </label>
-        <div className="rounded-xl border border-teal-100 bg-teal-50/50 p-3 text-sm text-teal-900/80">
+        <div className="rounded-xl border-2 border-amber-200 bg-amber-50/70 p-4 text-sm text-teal-900/80">
           <SectionTitle helpId="agent.cloudComputer" className="font-semibold text-teal-900/90">
             Cloud computer
           </SectionTitle>
@@ -673,23 +673,34 @@ export function AgentEditPage() {
                 {" "}
                 Agent ID: <code className="break-all rounded bg-white px-1">{agentId}</code>
               </>
-            ) : null}
+            ) : (
+              <span className="mt-1 block text-amber-900/80">
+                Save the agent first — then you can clear cookies, cache, and downloads here.
+              </span>
+            )}
           </p>
           {!isNew ? (
-            <div className="mt-3 flex flex-col gap-2">
+            <div className="mt-3 flex flex-col gap-2 border-t border-amber-200/80 pt-3">
+              <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">
+                Browser data
+              </p>
               <ButtonWithHelp helpId="agent.clearBrowserData">
                 <button
                   type="button"
                   disabled={busy || clearBusy}
                   onClick={() => void onClearBrowserData()}
-                  className="min-h-11 rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
+                  className="min-h-11 w-full rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 shadow-sm disabled:opacity-50 sm:w-auto"
                 >
                   {clearBusy ? "Clearing…" : "Clear cookies, cache & downloads"}
                 </button>
               </ButtonWithHelp>
               {clearNotice ? (
                 <p className="text-xs text-teal-800">{clearNotice}</p>
-              ) : null}
+              ) : (
+                <p className="text-xs text-amber-900/70">
+                  Logs you out of sites in this box. Uploads are kept. Chromium restarts briefly.
+                </p>
+              )}
             </div>
           ) : null}
         </div>
@@ -1060,6 +1071,21 @@ export function AgentEditPage() {
           <div className="flex flex-col gap-2">
             <SectionTitle helpId="agent.liveScreen">Live cloud screen</SectionTitle>
             <LiveScreen agentId={agentId} compact />
+            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              <ButtonWithHelp helpId="agent.clearBrowserData">
+                <button
+                  type="button"
+                  disabled={busy || clearBusy}
+                  onClick={() => void onClearBrowserData()}
+                  className="min-h-11 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
+                >
+                  {clearBusy ? "Clearing…" : "Clear cookies, cache & downloads"}
+                </button>
+              </ButtonWithHelp>
+              {clearNotice ? (
+                <p className="text-xs text-teal-800">{clearNotice}</p>
+              ) : null}
+            </div>
           </div>
         ) : null}
 

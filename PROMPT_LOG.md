@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 16:10] Make Clear cookies button more visible
+
+- **Prompt Provided:** cannot see clear cookies button in edit agent → cloud computer
+- **Architectural Flow:** Button was already in production build (existing agents only). Made Cloud computer section amber + full-width button; duplicate control under Live cloud screen; note on New agent that save is required first.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/AgentEditPage.jsx`
+
 ## [2026-08-29 16:00] Clear cookies / cache / downloads button
 
 - **Prompt Provided:** can we have a button to clear cookies, cache, download
