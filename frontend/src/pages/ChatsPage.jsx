@@ -68,6 +68,8 @@ export function ChatsPage() {
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(false);
   const chatsRef = useRef([]);
+  /** Why: 5s poll merge must not resurrect chats the user just deleted. */
+  const deletedIdsRef = useRef(new Set());
   const navigate = useNavigate();
   const { complete: setupComplete, refresh: refreshSetup } = useSetupStatus();
 
@@ -94,7 +96,9 @@ export function ChatsPage() {
   function mergeChats(prev, incoming) {
     const map = new Map();
     for (const c of [...(incoming || []), ...(prev || [])]) {
-      map.set(String(c._id), c);
+      const id = String(c._id);
+      if (deletedIdsRef.current.has(id)) continue;
+      map.set(id, c);
     }
     return [...map.values()].sort((a, b) => {
       const ta = new Date(a.updatedAt).getTime();
@@ -111,7 +115,17 @@ export function ChatsPage() {
         api("/api/agents"),
       ]);
       const page = chatData.chats || [];
-      setChats((prev) => (prev.length ? mergeChats(prev, page) : page));
+      // Why: clear tombstones once the API no longer returns those ids on the newest page.
+      for (const id of [...deletedIdsRef.current]) {
+        if (!page.some((c) => String(c._id) === id) && chatsRef.current.length <= CHAT_PAGE) {
+          deletedIdsRef.current.delete(id);
+        }
+      }
+      setChats((prev) =>
+        prev.length
+          ? mergeChats(prev, page)
+          : page.filter((c) => !deletedIdsRef.current.has(String(c._id)))
+      );
       setHasMoreChats((had) =>
         chatsRef.current.length > CHAT_PAGE ? had : Boolean(chatData.hasMore)
       );
@@ -248,6 +262,7 @@ export function ChatsPage() {
    */
   async function deleteChat(chat) {
     const label = chat.title || "this chat";
+    const id = String(chat._id);
     if (
       !window.confirm(
         `Delete “${label}”? Messages and queued goals for this thread will be removed. Running work from this thread will be stopped.`
@@ -257,11 +272,15 @@ export function ChatsPage() {
     }
     setDeletingId(chat._id);
     setError(null);
+    // Why: remove immediately so the row vanishes before the 5s poll / merge can flash it back.
+    deletedIdsRef.current.add(id);
+    setChats((prev) => prev.filter((c) => String(c._id) !== id));
     try {
       await api(`/api/chats/${chat._id}`, { method: "DELETE" });
-      await load();
     } catch (err) {
+      deletedIdsRef.current.delete(id);
       setError(err);
+      await load();
     } finally {
       setDeletingId("");
     }

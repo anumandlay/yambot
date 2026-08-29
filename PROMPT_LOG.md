@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 13:10] Chats list — remove deleted thread immediately
+
+- **Prompt Provided:** After delete on /chats the thread stays until full page refresh; should update immediately. Also do not wait ~10 minutes on shell.
+- **Architectural Flow:** Delete was calling load() which mergeChats(prev, page) resurrected the deleted id from local state. Now tombstone deleted ids, filter them out of merge/poll, and remove the row from state right away (rollback + reload only on API failure).
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/ChatsPage.jsx`
+
 ## [2026-08-29 13:00] Skills page — drop suggested drafts; Teach skill only
 
 - **Prompt Provided:** /skills shows lots of suggested; do not save suggested — only skills from Teach skill
