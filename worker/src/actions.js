@@ -57,13 +57,13 @@ export const ACTION_TYPES = [
 /** Field docs + locator/business rules appended after the batch header. */
 const ACTION_FIELDS_AND_RULES = `
 "type" for action.type:
-"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>"
+"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>"
 
 Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
 - click: { "type":"click", "ref":"e12", "role":"button", "name":"Sign in", "css":"#login", "xpath":"//button[@id='login']" }
 - type: { "type":"type", "ref":"e5", "text":"...", "submit": false, "role":"textbox", "name":"Email", "css":"input[name=email]", "xpath":"//input[@name='email']" }
-  Instant fill (not keystroke-by-keystroke). Also works on contenteditable compose bodies.
+  Instant fill (not keystroke-by-keystroke). Also works on contenteditable compose bodies. For multi-field forms, batch several type actions + one click submit — do not use fill_form.
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 } — scrolls the menu/sidebar under the pointer (Vughy nav), not just the whole page; optional ref to scroll a specific panel
@@ -73,7 +73,6 @@ Action fields:
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }
 - open_tab: { "type":"open_tab", "url":"https://..." } — navigates the same window (no new tabs)
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
-- fill_form: { "type":"fill_form", "form":"login", "fields": { "Email": "x@y.com", "Password": "secret" }, "submit": false } — BEST for multi-field forms; form by name/id/index; set submit true to click primary submit
 - dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" } — closes modal via cancel/close/Escape
 - choose_menu_item: { "type":"choose_menu_item", "path": ["File", "Export", "PDF"] } — clicks open menu items in order (menu must already be open)
 - extract: { "type":"extract", "focus":"what to pull from the page" }
@@ -116,7 +115,8 @@ Locator rules (click/type/select):
 - Resolution order: ref → xpath → role+name → label/name → css.
 - Custom dropdowns (not native <select>): open the control, then click/select the option by exact name (e.g. name:"Passport", role:"option"). You may use select with value:"Passport".
 - Date pickers / calendars: click the day number or quick chip (Today, Tomorrow) by name (e.g. name:"21" or name:"Today"). Do not use type into the date field unless it accepts typed dates.
-- Prefer fill_form when multiple fields in one form are visible; dismiss_dialog for cookie/promo modals; choose_menu_item for nested menus.
+- Prefer a batch of type/click for multi-field forms; dismiss_dialog for cookie/promo modals; choose_menu_item for nested menus.
+- Never emit fill_form (removed — use type batches).
 - Refs in iframes are prefixed frame_N_eM — use as-is; the runtime resolves the frame automatically.
 - A viewport screenshot may be attached when verification fails — correlate refs with visible UI.
 
@@ -149,8 +149,8 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
 
 MULTI-ACTION BATCHES (default — this is how you go fast):
 - ALWAYS prefer "actions": [ ... ] with every click/type/select you can safely do on THIS page before navigate/submit changes the DOM in an unknown way.
-- Target 3–${max} actions per reply when the snapshot already shows the controls (search: focus → type → Enter; login: email → password → submit; forms: fill every visible field then submit).
-- Prefer fill_form when many fields share one form (counts as one action but fills many fields).
+- Target 3–${max} actions per reply when the snapshot already shows the controls (search: focus → type → Enter; login: email → password → submit; forms: type every visible field then click submit).
+- Do NOT use fill_form — it often fails (FORM_NOT_FOUND). Use a batch of type + click instead.
 - Single-action "action": { ... } is slower — use ONLY when the next step depends on unknown page content after navigate/submit/open_tab, or for finish/ask_user/solve_captcha alone.
 - If both "action" and "actions" exist, "actions" wins. Hard max ${max} actions per turn.
 - Stop the batch before finish/ask_user/solve_captcha (put those last or alone). Do not put navigate in the middle of a fill burst — navigate/open_tab ends the batch.
@@ -297,21 +297,56 @@ export function parseAgentResponse(raw) {
 }
 
 /**
+ * Expands deprecated fill_form into type (+ optional submit click) so we never hit FORM_NOT_FOUND.
+ * @param {object} action
+ * @returns {object[]}
+ */
+function expandFillFormAction(action) {
+  const fields = action?.fields && typeof action.fields === "object" ? action.fields : {};
+  /** @type {object[]} */
+  const out = [];
+  for (const [name, text] of Object.entries(fields)) {
+    out.push({
+      type: "type",
+      name: String(name),
+      text: String(text ?? ""),
+      submit: false,
+    });
+  }
+  if (action?.submit) {
+    out.push({
+      type: "click",
+      name: String(action.submit_name || action.submitName || "Sign in"),
+    });
+  }
+  return out.length ? out : [{ type: "wait", ms: 100 }];
+}
+
+/**
  * Accepts single `action` or batched `actions` from the model.
  * @param {object} parsed
  * @returns {object[]}
  */
 export function normalizeActionList(parsed) {
   const max = getMaxActionsPerTurn();
+  /** @type {object[]} */
+  let raw = [];
   if (Array.isArray(parsed?.actions) && parsed.actions.length) {
-    return parsed.actions
-      .filter((a) => a && typeof a === "object" && a.type)
-      .slice(0, max);
+    raw = parsed.actions.filter((a) => a && typeof a === "object" && a.type);
+  } else if (parsed?.action && typeof parsed.action === "object" && parsed.action.type) {
+    raw = [parsed.action];
   }
-  if (parsed?.action && typeof parsed.action === "object" && parsed.action.type) {
-    return [parsed.action];
+  /** @type {object[]} */
+  const expanded = [];
+  for (const act of raw) {
+    if (act.type === "fill_form") {
+      // Why: fill_form often fails with FORM_NOT_FOUND on SPAs; rewrite to type/click batch.
+      expanded.push(...expandFillFormAction(act));
+    } else {
+      expanded.push(act);
+    }
   }
-  return [];
+  return expanded.slice(0, max);
 }
 
 /** Actions that should end a multi-action batch (re-observe / wait for human). */

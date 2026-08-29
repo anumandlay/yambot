@@ -16,12 +16,12 @@ export const SKILL_TEMPLATES = [
     triggers: [/log\s*in|sign\s*in|authenticate|sso|password/i, /\/login|\/signin|\/auth/i],
     steps: [
       "Navigate to login page if not already there",
-      "fill_form with email/username and password fields",
+      "Batch type email/username then password (do not use fill_form)",
       "Click Sign in / Continue (ask_user if askBeforeLogin)",
       "wait_for authenticated state or dashboard URL",
     ],
     hints: [
-      "Prefer fill_form over individual type actions when both fields are visible.",
+      "Use one actions batch: type email → type password → click Sign in.",
       "If MFA appears, use ask_user or check_email for the code.",
       "Do not loop re-entering credentials after a failed attempt — read errors first.",
     ],
@@ -33,7 +33,7 @@ export const SKILL_TEMPLATES = [
     steps: [
       "Open cart/basket from header icon or /cart URL on same host",
       "Review items; proceed to checkout",
-      "fill_form for shipping/payment only when autonomy allows",
+      "Type shipping/payment fields in one batch only when autonomy allows",
       "ask_user before final purchase/submit",
     ],
     hints: [
@@ -48,7 +48,7 @@ export const SKILL_TEMPLATES = [
     triggers: [/gmail|outlook|compose|inbox|send email|reply/i],
     steps: [
       "Open compose or reply",
-      "fill_form To/Subject/Body or type into contenteditable body",
+      "Batch type To/Subject/Body (contenteditable body uses type)",
       "ask_user before Send if askBeforeSubmit",
     ],
     hints: [

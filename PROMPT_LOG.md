@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 15:35] Drop fill_form preferred path (avoid FORM_NOT_FOUND)
+
+- **Prompt Provided:** yes — remove fill_form failed FORM_NOT_FOUND path; use type/click batches
+- **Architectural Flow:** Prompt/skills no longer prefer fill_form; multi-field fills use batched type+click. If the model still emits fill_form, normalizeActionList rewrites it to type/click so FORM_NOT_FOUND never wastes a turn.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/actions.js`, `worker/src/browserState/skills.js`
+
 ## [2026-08-29 15:17] Navigate trusts domcontentloaded only
 
 - **Prompt Provided:** Skip spinner/stable after navigate; trust only domcontentloaded
