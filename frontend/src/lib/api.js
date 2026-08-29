@@ -28,7 +28,7 @@ export function setToken(token) {
 /**
  * Low-level JSON fetch with auth header.
  * @param {string} path
- * @param {RequestInit & { auth?: boolean }} [options]
+ * @param {RequestInit & { auth?: boolean, timeoutMs?: number }} [options]
  * @returns {Promise<any>}
  */
 export async function api(path, options = {}) {
@@ -53,6 +53,7 @@ export async function api(path, options = {}) {
       const timeoutErr = new Error("Request timed out — check your connection and try again.");
       timeoutErr.title = "Request timed out";
       timeoutErr.detail = timeoutErr.message;
+      timeoutErr.isTimeout = true;
       throw timeoutErr;
     }
     throw err;
@@ -76,6 +77,20 @@ export async function api(path, options = {}) {
     throw err;
   }
   return data;
+}
+
+/**
+ * True when a background poll aborted on the client timeout (not a user-facing hard failure).
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+export function isTimeoutError(err) {
+  return Boolean(
+    err &&
+      (err.isTimeout === true ||
+        err.title === "Request timed out" ||
+        /timed out/i.test(String(err.message || err.detail || "")))
+  );
 }
 
 export { API_BASE };

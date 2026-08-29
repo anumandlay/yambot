@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { api } from "../lib/api.js";
+import { api, isTimeoutError } from "../lib/api.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { skillPickFromMessage } from "../lib/skillPick.js";
 import { SkillPickNotice } from "./SkillPickNotice.jsx";
@@ -25,16 +25,20 @@ export function FloatingChatWidget({ chatId, className = "" }) {
   const [error, setError] = useState(null);
   const listRef = useRef(null);
   const stickRef = useRef(true);
+  const inFlightRef = useRef(false);
 
   const load = useCallback(async () => {
-    if (!chatId) return;
+    if (!chatId || inFlightRef.current) return;
+    inFlightRef.current = true;
     try {
-      const data = await api(`/api/chats/${chatId}`);
+      const data = await api(`/api/chats/${chatId}?limit=100`);
       setMessages(data.messages || []);
       setChatTitle(data.chat?.title || "Chat");
       setError(null);
     } catch (err) {
-      setError(err);
+      if (!isTimeoutError(err)) setError(err);
+    } finally {
+      inFlightRef.current = false;
     }
   }, [chatId]);
 

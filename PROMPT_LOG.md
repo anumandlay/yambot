@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 15:50] Idle chat poll — stop Request timed out toast
+
+- **Prompt Provided:** if doing nothing on a chat page, after sometime getting Request timed out Dismiss
+- **Architectural Flow:** Background chat/live polls were stacking and calling setError on the 20s client abort. Skip overlapping polls; silent timeout on background refresh (ChatDetailPage, LiveScreen, FloatingChatWidget); isTimeoutError helper in api.js.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/lib/api.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/components/FloatingChatWidget.jsx`
+
 ## [2026-08-29 15:40] Prefer DCL snapshot over wait_for guesses
 
 - **Prompt Provided:** not all sites have Added to cart /checkout / Sign in; send DOM snapshot after domcontentloaded

@@ -7,7 +7,7 @@
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api.js";
+import { api, isTimeoutError } from "../lib/api.js";
 import { ButtonWithHelp } from "./FieldLabel.jsx";
 import { FloatingChatWidget } from "./FloatingChatWidget.jsx";
 
@@ -241,8 +241,11 @@ export function LiveScreen({
   useEffect(() => {
     if (!agentId) return undefined;
     let cancelled = false;
+    let inFlight = false;
 
     async function tick() {
+      if (inFlight) return;
+      inFlight = true;
       try {
         const data = await api(`/api/agents/${agentId}/live`);
         if (!cancelled) {
@@ -253,7 +256,10 @@ export function LiveScreen({
           }
         }
       } catch (err) {
-        if (!cancelled) setError(err);
+        // Why: idle live polls must not flash timeout banners over a still-valid last frame.
+        if (!cancelled && !isTimeoutError(err)) setError(err);
+      } finally {
+        inFlight = false;
       }
     }
 

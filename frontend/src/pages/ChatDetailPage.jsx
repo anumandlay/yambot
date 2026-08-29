@@ -8,7 +8,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /** Newest messages shown on first paint; scroll-up loads the previous page. */
 const MESSAGE_PAGE = 100;
 import { Link, useParams } from "react-router-dom";
-import { api } from "../lib/api.js";
+import { api, isTimeoutError } from "../lib/api.js";
 import { resolveAgentMention } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
 import { skillPickFromMessage, skillPickFromTask } from "../lib/skillPick.js";
@@ -53,6 +53,8 @@ export function ChatDetailPage() {
   const messagesRef = useRef([]);
   const loadingOlderRef = useRef(false);
   const hasOlderRef = useRef(false);
+  /** Why: overlapping 2.5s polls stack and hit the 20s client abort → false "Request timed out" toasts. */
+  const loadInFlightRef = useRef(false);
 
   /**
    * Merges message pages by id, oldest → newest.
@@ -71,7 +73,13 @@ export function ChatDetailPage() {
     });
   }
 
-  const load = useCallback(async () => {
+  /**
+   * @param {{ silent?: boolean }} [opts] — silent=true for background poll (no toast on timeout).
+   */
+  const load = useCallback(async (opts = {}) => {
+    const silent = Boolean(opts.silent);
+    if (loadInFlightRef.current) return;
+    loadInFlightRef.current = true;
     try {
       const existing = messagesRef.current;
       const newestId = existing.length ? existing[existing.length - 1]._id : "";
@@ -102,8 +110,13 @@ export function ChatDetailPage() {
           return prev;
         });
       }
+      if (silent) setError(null);
     } catch (err) {
-      setError(err);
+      // Why: idle chat polls must not spam "Request timed out" when the API is briefly slow.
+      if (silent && isTimeoutError(err)) return;
+      if (!silent || !isTimeoutError(err)) setError(err);
+    } finally {
+      loadInFlightRef.current = false;
     }
   }, [chatId]);
 
@@ -132,7 +145,7 @@ export function ChatDetailPage() {
         el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
       });
     } catch (err) {
-      setError(err);
+      if (!isTimeoutError(err)) setError(err);
     } finally {
       loadingOlderRef.current = false;
       setLoadingOlder(false);
@@ -181,12 +194,12 @@ export function ChatDetailPage() {
   }, [chatId, dispatchAgentId, isCommon]);
 
   useEffect(() => {
-    load();
+    void load({ silent: false });
     // Why: while a task runs, poll faster so step announcements keep up with the live screen.
     const active = (tasks || []).some((t) =>
       ["running", "waiting_user", "queued"].includes(String(t.status || ""))
     );
-    const id = setInterval(load, active ? 900 : 2500);
+    const id = setInterval(() => void load({ silent: true }), active ? 900 : 2500);
     return () => clearInterval(id);
   }, [load, tasks]);
 
