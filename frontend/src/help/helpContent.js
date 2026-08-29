@@ -506,6 +506,13 @@ export const HELP = {
       "Take control in chat streams your mouse/keyboard to that browser. One agent = one box — tasks for the same agent never run in parallel on different machines."
     ),
   },
+  "agent.clearBrowserData": {
+    title: "Clear cookies, cache & downloads",
+    body: helpBody(
+      "Queues a command on the agent's cloud box: Chromium restarts after wiping site cookies, HTTP caches, and files in the downloads folder.",
+      "Use when you need a fresh login session or the profile grew large. Uploads are kept. Local Storage / extensions settings are not fully wiped (use only when you want a soft reset)."
+    ),
+  },
   "agent.schedule.enabled": {
     title: "Scheduled runs",
     body: helpBody(

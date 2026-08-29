@@ -632,11 +632,11 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       return;
     }
     const type = String(req.body?.type || "").trim();
-    if (!["click", "type", "key", "scroll", "session"].includes(type)) {
+    if (!["click", "type", "key", "scroll", "session", "clear_browser_data"].includes(type)) {
       res.status(400).json({
         ok: false,
         title: "Invalid control",
-        detail: "type must be click, type, key, scroll, or session",
+        detail: "type must be click, type, key, scroll, session, or clear_browser_data",
       });
       return;
     }
@@ -707,6 +707,28 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
               stepCount: demonstration.steps?.length || 0,
             }
           : null,
+      });
+      return;
+    }
+
+    // Why: dedicated path — no click coords; worker closes Chromium, wipes cookies/cache/downloads, relaunches.
+    if (type === "clear_browser_data") {
+      const clearCmd = {
+        id: crypto.randomBytes(8).toString("hex"),
+        type: "clear_browser_data",
+        at: new Date(),
+      };
+      agent.controlQueue = agent.controlQueue || [];
+      agent.controlQueue.push(clearCmd);
+      if (agent.controlQueue.length > 80) {
+        agent.controlQueue = agent.controlQueue.slice(-80);
+      }
+      await agent.save();
+      res.json({
+        ok: true,
+        command: clearCmd,
+        queued: agent.controlQueue.length,
+        detail: "Queued — the cloud computer will clear cookies, cache, and downloads shortly.",
       });
       return;
     }

@@ -120,6 +120,81 @@ export function repairChromiumProfile(profileDir, opts = {}) {
 }
 
 /**
+ * Clears cookies, HTTP caches, and agent downloads without wiping the whole profile
+ * (keeps extensions settings, bookmarks if any, and uploads/).
+ * Why: Must run while Chromium is stopped — SQLite cookie DBs are locked when open.
+ * @param {string} profileDir
+ * @returns {{ removed: string[] }}
+ */
+export function clearCookiesCacheDownloads(profileDir) {
+  const removed = [];
+  const defaultDir = path.join(profileDir, "Default");
+  const fileTargets = [
+    path.join(defaultDir, "Cookies"),
+    path.join(defaultDir, "Cookies-journal"),
+    path.join(defaultDir, "Network", "Cookies"),
+    path.join(defaultDir, "Network", "Cookies-journal"),
+    path.join(defaultDir, "Network Action Predictor"),
+    path.join(defaultDir, "Network Persistent State"),
+    path.join(defaultDir, "History"),
+    path.join(defaultDir, "History-journal"),
+    path.join(defaultDir, "Visited Links"),
+  ];
+  const dirTargets = [
+    path.join(defaultDir, "Cache"),
+    path.join(defaultDir, "Code Cache"),
+    path.join(defaultDir, "GPUCache"),
+    path.join(defaultDir, "Service Worker"),
+    path.join(defaultDir, "DawnCache"),
+    path.join(profileDir, "ShaderCache"),
+    path.join(profileDir, "GrShaderCache"),
+    path.join(profileDir, "Component Extension Crx Cache"),
+  ];
+
+  for (const p of fileTargets) {
+    try {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { force: true });
+        removed.push(path.basename(p));
+      }
+    } catch {
+      /* ignore locked/missing */
+    }
+  }
+  for (const p of dirTargets) {
+    try {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { recursive: true, force: true });
+        removed.push(path.basename(p));
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  const downloadsDir = path.join(profileDir, "downloads");
+  try {
+    if (fs.existsSync(downloadsDir)) {
+      for (const entry of fs.readdirSync(downloadsDir)) {
+        try {
+          fs.rmSync(path.join(downloadsDir, entry), { recursive: true, force: true });
+          removed.push(`downloads/${entry}`);
+        } catch {
+          /* ignore */
+        }
+      }
+    } else {
+      fs.mkdirSync(downloadsDir, { recursive: true });
+    }
+  } catch {
+    /* ignore */
+  }
+
+  clearChromiumLocks(profileDir);
+  return { removed };
+}
+
+/**
  * Boot-time profile prep: fresh user-data dir (no pkill — nothing is running yet).
  * @param {string} profileDir
  */

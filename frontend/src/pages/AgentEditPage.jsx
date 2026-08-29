@@ -97,6 +97,8 @@ export function AgentEditPage() {
   ]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [clearBusy, setClearBusy] = useState(false);
+  const [clearNotice, setClearNotice] = useState("");
   const [okMsg, setOkMsg] = useState("");
   const [memoryNote, setMemoryNote] = useState("");
   const [memory, setMemory] = useState([]);
@@ -417,6 +419,37 @@ export function AgentEditPage() {
     }
   }
 
+  /**
+   * Queues a worker command to wipe cookies, HTTP caches, and downloads on this agent's box.
+   */
+  async function onClearBrowserData() {
+    if (isNew || !agentId) return;
+    if (
+      !window.confirm(
+        "Clear cookies, cache, and downloads for this agent's cloud browser?\n\nYou will be logged out of sites in this box. Uploads folder is kept. Chromium restarts briefly."
+      )
+    ) {
+      return;
+    }
+    setClearBusy(true);
+    setClearNotice("");
+    setError(null);
+    try {
+      const data = await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({ type: "clear_browser_data" }),
+      });
+      setClearNotice(
+        data.detail ||
+          "Queued — cookies, cache, and downloads will clear within a few seconds."
+      );
+    } catch (err) {
+      setError(err);
+    } finally {
+      setClearBusy(false);
+    }
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-wrap items-center gap-2">
@@ -642,6 +675,23 @@ export function AgentEditPage() {
               </>
             ) : null}
           </p>
+          {!isNew ? (
+            <div className="mt-3 flex flex-col gap-2">
+              <ButtonWithHelp helpId="agent.clearBrowserData">
+                <button
+                  type="button"
+                  disabled={busy || clearBusy}
+                  onClick={() => void onClearBrowserData()}
+                  className="min-h-11 rounded-xl border border-amber-200 bg-amber-50 px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
+                >
+                  {clearBusy ? "Clearing…" : "Clear cookies, cache & downloads"}
+                </button>
+              </ButtonWithHelp>
+              {clearNotice ? (
+                <p className="text-xs text-teal-800">{clearNotice}</p>
+              ) : null}
+            </div>
+          ) : null}
         </div>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">

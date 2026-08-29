@@ -6,6 +6,7 @@
 
 import {
   clearChromiumLocks,
+  clearCookiesCacheDownloads,
   killChromiumForProfile,
   repairChromiumProfile,
 } from "./browserProfile.js";
@@ -934,6 +935,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @param {object} cmd
    */
   async function applyControlCommand(cmd) {
+    // Why: clear must close Chromium first — cookie SQLite DBs are locked while the browser runs.
+    if (cmd.type === "clear_browser_data") {
+      log(`[${config.workerName}] clearing cookies / cache / downloads…`);
+      try {
+        if (context) {
+          await context.clearCookies().catch(() => {});
+        }
+      } catch {
+        /* ignore */
+      }
+      await teardownBrowser();
+      const cleared = clearCookiesCacheDownloads(config.profileDir);
+      await launchBrowser(false);
+      refreshActivePage();
+      log(
+        `[${config.workerName}] browser data cleared (${cleared.removed.length} items) — Chromium relaunched`
+      );
+      return;
+    }
     if (!page || page.isClosed()) return;
     const vw = config.viewportWidth || 1280;
     const vh = config.viewportHeight || 800;

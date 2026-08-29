@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 16:00] Clear cookies / cache / downloads button
+
+- **Prompt Provided:** can we have a button to clear cookies, cache, download
+- **Architectural Flow:** Agent edit → Clear cookies, cache & downloads → POST /api/agents/:id/control type=clear_browser_data → worker closes Chromium, clearCookiesCacheDownloads(profile), relaunches. Uploads kept.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserProfile.js`, `worker/src/agent.js`, `backend/src/routes/agents.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-29 15:50] Idle chat poll — stop Request timed out toast
 
 - **Prompt Provided:** if doing nothing on a chat page, after sometime getting Request timed out Dismiss
