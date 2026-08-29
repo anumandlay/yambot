@@ -4,6 +4,9 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+
+/** Newest messages shown on first paint; scroll-up loads the previous page. */
+const MESSAGE_PAGE = 100;
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { resolveAgentMention } from "../lib/mentionAgent.js";
@@ -33,6 +36,8 @@ export function ChatDetailPage() {
   const [pendingRoute, setPendingRoute] = useState(null);
   const [watchAgentId, setWatchAgentId] = useState("");
   const [messages, setMessages] = useState([]);
+  const [hasOlderMessages, setHasOlderMessages] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [tasks, setTasks] = useState([]);
   const [agentQueue, setAgentQueue] = useState({ pending: [], active: null });
   const [input, setInput] = useState("");
@@ -45,13 +50,43 @@ export function ChatDetailPage() {
   const bottomRef = useRef(null);
   /** Why: follow live agent text unless the user scrolls the thread up to read history. */
   const stickToBottomRef = useRef(true);
+  const messagesRef = useRef([]);
+  const loadingOlderRef = useRef(false);
+  const hasOlderRef = useRef(false);
+
+  /**
+   * Merges message pages by id, oldest → newest.
+   * @param {object[]} prev
+   * @param {object[]} incoming
+   * @returns {object[]}
+   */
+  function mergeMessages(prev, incoming) {
+    const map = new Map();
+    for (const m of prev || []) map.set(String(m._id), m);
+    for (const m of incoming || []) map.set(String(m._id), m);
+    return [...map.values()].sort((a, b) => {
+      const idA = String(a._id);
+      const idB = String(b._id);
+      return idA < idB ? -1 : idA > idB ? 1 : 0;
+    });
+  }
 
   const load = useCallback(async () => {
     try {
-      const data = await api(`/api/chats/${chatId}`);
+      const existing = messagesRef.current;
+      const newestId = existing.length ? existing[existing.length - 1]._id : "";
+      const qs = newestId
+        ? `?limit=${MESSAGE_PAGE}&after=${encodeURIComponent(newestId)}`
+        : `?limit=${MESSAGE_PAGE}`;
+      const data = await api(`/api/chats/${chatId}${qs}`);
       setChat(data.chat);
       setIsCommon(Boolean(data.isCommon));
-      setMessages(data.messages || []);
+      if (newestId) {
+        setMessages((prev) => mergeMessages(prev, data.messages || []));
+      } else {
+        setMessages(data.messages || []);
+        setHasOlderMessages(Boolean(data.messagesHasMore));
+      }
       setTasks(data.tasks || []);
       setAgentQueue(data.agentQueue || { pending: [], active: null });
       const loadedChat = data.chat;
@@ -70,6 +105,53 @@ export function ChatDetailPage() {
     } catch (err) {
       setError(err);
     }
+  }, [chatId]);
+
+  /**
+   * Prepends the previous 100 messages when the user scrolls to the top of the thread.
+   */
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasOlderRef.current) return;
+    const oldest = messagesRef.current[0];
+    if (!oldest?._id) return;
+    loadingOlderRef.current = true;
+    setLoadingOlder(true);
+    stickToBottomRef.current = false;
+    const el = threadRef.current;
+    const prevHeight = el?.scrollHeight || 0;
+    const prevTop = el?.scrollTop || 0;
+    try {
+      const data = await api(
+        `/api/chats/${chatId}?limit=${MESSAGE_PAGE}&before=${encodeURIComponent(oldest._id)}`
+      );
+      const older = data.messages || [];
+      setHasOlderMessages(Boolean(data.messagesHasMore));
+      setMessages((prev) => mergeMessages(prev, older));
+      requestAnimationFrame(() => {
+        if (!el) return;
+        el.scrollTop = prevTop + (el.scrollHeight - prevHeight);
+      });
+    } catch (err) {
+      setError(err);
+    } finally {
+      loadingOlderRef.current = false;
+      setLoadingOlder(false);
+    }
+  }, [chatId]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
+
+  useEffect(() => {
+    hasOlderRef.current = hasOlderMessages;
+  }, [hasOlderMessages]);
+
+  useEffect(() => {
+    messagesRef.current = [];
+    setMessages([]);
+    setHasOlderMessages(false);
+    stickToBottomRef.current = true;
   }, [chatId]);
 
   useEffect(() => {
@@ -133,6 +215,9 @@ export function ChatDetailPage() {
     if (!el) return;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
     stickToBottomRef.current = gap < 96;
+    if (el.scrollTop < 80) {
+      void loadOlder();
+    }
   }
 
   const waitingTask =
@@ -196,7 +281,7 @@ export function ChatDetailPage() {
       setOpsTriggerChats([]);
       return;
     }
-    api("/api/chats")
+    api("/api/chats?limit=0")
       .then((data) => {
         const ops = (data.chats || []).filter(
           (c) =>
@@ -791,7 +876,14 @@ export function ChatDetailPage() {
           onScroll={onThreadScroll}
           className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
         >
-          {messages.length === 0 ? (
+          {loadingOlder ? (
+            <p className="text-center text-xs text-teal-900/60">Loading earlier messages…</p>
+          ) : hasOlderMessages ? (
+            <p className="text-center text-xs text-teal-900/50">Scroll up for earlier messages</p>
+          ) : messages.length > 0 ? (
+            <p className="text-center text-xs text-teal-900/40">Beginning of this chat</p>
+          ) : null}
+          {messages.length === 0 && !loadingOlder ? (
             <p className="text-sm text-teal-900/60">No messages yet. Send a goal on the right.</p>
           ) : null}
           {messages.map((m) => {

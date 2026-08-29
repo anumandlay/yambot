@@ -4,7 +4,10 @@
  * Downstream: GET /api/chats includes `live` activity for threads with pending/running tasks.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+
+/** Newest threads on first paint; scroll loads the previous page. */
+const CHAT_PAGE = 100;
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
@@ -54,12 +57,17 @@ function liveBadge(live) {
 
 export function ChatsPage() {
   const [chats, setChats] = useState([]);
+  const [hasMoreChats, setHasMoreChats] = useState(false);
+  const [loadingMore, setLoadingMore] = useState(false);
   const [agents, setAgents] = useState([]);
   const [agentId, setAgentId] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [busyCommon, setBusyCommon] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const loadingMoreRef = useRef(false);
+  const hasMoreRef = useRef(false);
+  const chatsRef = useRef([]);
   const navigate = useNavigate();
   const { complete: setupComplete, refresh: refreshSetup } = useSetupStatus();
 
@@ -78,13 +86,35 @@ export function ChatsPage() {
     [chats]
   );
 
+  /**
+   * @param {object[]} prev
+   * @param {object[]} incoming
+   * @returns {object[]}
+   */
+  function mergeChats(prev, incoming) {
+    const map = new Map();
+    for (const c of [...(incoming || []), ...(prev || [])]) {
+      map.set(String(c._id), c);
+    }
+    return [...map.values()].sort((a, b) => {
+      const ta = new Date(a.updatedAt).getTime();
+      const tb = new Date(b.updatedAt).getTime();
+      if (tb !== ta) return tb - ta;
+      return String(b._id).localeCompare(String(a._id));
+    });
+  }
+
   async function load() {
     try {
       const [chatData, agentData] = await Promise.all([
-        api("/api/chats"),
+        api(`/api/chats?limit=${CHAT_PAGE}`),
         api("/api/agents"),
       ]);
-      setChats(chatData.chats || []);
+      const page = chatData.chats || [];
+      setChats((prev) => (prev.length ? mergeChats(prev, page) : page));
+      setHasMoreChats((had) =>
+        chatsRef.current.length > CHAT_PAGE ? had : Boolean(chatData.hasMore)
+      );
       const list = agentData.agents || [];
       setAgents(list);
       if (!agentId && list[0]?._id) setAgentId(list[0]._id);
@@ -93,9 +123,55 @@ export function ChatsPage() {
     }
   }
 
+  /**
+   * Appends the next 100 older threads when the user reaches the top/end of history.
+   */
+  async function loadOlderChats() {
+    if (loadingMoreRef.current || !hasMoreRef.current) return;
+    const oldest = chatsRef.current[chatsRef.current.length - 1];
+    if (!oldest?._id) return;
+    loadingMoreRef.current = true;
+    setLoadingMore(true);
+    try {
+      const data = await api(
+        `/api/chats?limit=${CHAT_PAGE}&before=${encodeURIComponent(oldest._id)}`
+      );
+      const older = data.chats || [];
+      setHasMoreChats(Boolean(data.hasMore));
+      setChats((prev) => mergeChats(prev, older));
+    } catch (err) {
+      setError(err);
+    } finally {
+      loadingMoreRef.current = false;
+      setLoadingMore(false);
+    }
+  }
+
+  useEffect(() => {
+    chatsRef.current = chats;
+  }, [chats]);
+
+  useEffect(() => {
+    hasMoreRef.current = hasMoreChats;
+  }, [hasMoreChats]);
+
   useEffect(() => {
     load();
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  useEffect(() => {
+    /**
+     * Why: newest threads sit at the top; reaching the bottom (or the top after reading)
+     * loads the previous 100. Also fire when the user scrolls up near the top with more pages.
+     */
+    function onWindowScroll() {
+      const nearBottom =
+        window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 240;
+      if (nearBottom) void loadOlderChats();
+    }
+    window.addEventListener("scroll", onWindowScroll, { passive: true });
+    return () => window.removeEventListener("scroll", onWindowScroll);
   }, []);
 
   /** Why: keep Live / Queued badges in sync while agents work without requiring a reload. */
@@ -398,6 +474,19 @@ export function ChatsPage() {
             <ul className="flex flex-col gap-2">
               {renderChatList(agentChats, "No agent chats yet. Pick an agent and start a chat.")}
             </ul>
+            {loadingMore ? (
+              <p className="py-2 text-center text-xs text-teal-900/60">Loading earlier threads…</p>
+            ) : hasMoreChats ? (
+              <button
+                type="button"
+                onClick={() => void loadOlderChats()}
+                className="min-h-11 rounded-xl border border-teal-100 bg-white text-sm font-semibold text-teal-900"
+              >
+                Load earlier threads
+              </button>
+            ) : chats.length > 0 ? (
+              <p className="py-2 text-center text-xs text-teal-900/40">All threads loaded</p>
+            ) : null}
           </section>
         </>
       ) : null}

@@ -5,6 +5,7 @@
  */
 
 import { Router } from "express";
+import mongoose from "mongoose";
 import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { Skill } from "../models/Skill.js";
@@ -128,17 +129,78 @@ function taskMatchesChat(chat, task) {
   return String(task.agent) === String(chat.agent);
 }
 
+/** Default page size for chat lists and in-thread messages. */
+const CHAT_PAGE_SIZE = 100;
+
 /**
- * GET /api/chats — list current user's chats (newest first).
+ * @param {unknown} raw
+ * @param {number} [fallback]
+ * @returns {number}
+ */
+function parseChatPageLimit(raw, fallback = CHAT_PAGE_SIZE) {
+  if (raw === "0" || raw === "all") return 0;
+  const n = Number(raw);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(200, Math.max(1, Math.floor(n)));
+}
+
+/**
+ * Loads one page of messages (newest page by default).
+ * Why: long LLM-trace threads must not send thousands of rows on every poll.
+ * @param {import("mongoose").Types.ObjectId|string} chatId
+ * @param {{ limit?: number, before?: string, after?: string }} [opts]
+ * @returns {Promise<{ messages: object[], hasMore: boolean }>}
+ */
+async function loadMessagePage(chatId, opts = {}) {
+  const limit = opts.limit != null ? opts.limit : CHAT_PAGE_SIZE;
+  const filter = { chat: chatId };
+  if (opts.after && mongoose.isValidObjectId(opts.after)) {
+    filter._id = { $gt: opts.after };
+    const messages = await Message.find(filter).sort({ _id: 1 }).limit(limit).lean();
+    return { messages, hasMore: false };
+  }
+  if (opts.before && mongoose.isValidObjectId(opts.before)) {
+    filter._id = { $lt: opts.before };
+  }
+  const batch = await Message.find(filter)
+    .sort({ _id: -1 })
+    .limit(limit + 1)
+    .lean();
+  const hasMore = batch.length > limit;
+  const messages = batch.slice(0, limit).reverse();
+  return { messages, hasMore };
+}
+
+/**
+ * GET /api/chats — list current user's chats (newest first, paged).
+ * Query: limit (default 100, 0/all = no cap), before (chat id).
  * Why: attach live activity so the list shows which threads have a running/queued browser job.
  */
 chatsRouter.get("/", async (req, res, next) => {
   try {
-    const chats = await Chat.find({ user: req.userId })
-      .sort({ updatedAt: -1 })
+    const limit = parseChatPageLimit(req.query.limit);
+    const before = String(req.query.before || "").trim();
+    const filter = { user: req.userId };
+    if (before && mongoose.isValidObjectId(before)) {
+      const pivot = await Chat.findOne({ _id: before, user: req.userId })
+        .select("updatedAt")
+        .lean();
+      if (pivot) {
+        filter.$or = [
+          { updatedAt: { $lt: pivot.updatedAt } },
+          { updatedAt: pivot.updatedAt, _id: { $lt: before } },
+        ];
+      }
+    }
+
+    let query = Chat.find(filter)
+      .sort({ updatedAt: -1, _id: -1 })
       .select("title agent kind createdAt updatedAt")
-      .populate("agent", "name skill")
-      .lean();
+      .populate("agent", "name skill");
+    if (limit > 0) query = query.limit(limit + 1);
+    const found = await query.lean();
+    const hasMore = limit > 0 && found.length > limit;
+    const chats = hasMore ? found.slice(0, limit) : found;
 
     const liveTasks = await Task.find({
       user: req.userId,
@@ -170,7 +232,7 @@ chatsRouter.get("/", async (req, res, next) => {
       live: liveByChat.get(String(c._id)) || null,
     }));
 
-    res.json({ ok: true, chats: enriched });
+    res.json({ ok: true, chats: enriched, hasMore });
   } catch (err) {
     next(err);
   }
@@ -229,7 +291,8 @@ chatsRouter.post("/", async (req, res, next) => {
 });
 
 /**
- * GET /api/chats/:id — chat + messages + related tasks (+ agent queue).
+ * GET /api/chats/:id — chat + one page of messages + related tasks (+ agent queue).
+ * Query: limit (default 100), before (older than message id), after (newer than message id).
  */
 chatsRouter.get("/:id", async (req, res, next) => {
   try {
@@ -243,14 +306,29 @@ chatsRouter.get("/:id", async (req, res, next) => {
       return;
     }
     const common = isCommonChat(chat);
-    const [messages, tasks, agentQueue] = await Promise.all([
-      Message.find({ chat: chat._id }).sort({ createdAt: 1 }).lean(),
+    const limit = parseChatPageLimit(req.query.limit);
+    const before = String(req.query.before || "").trim();
+    const after = String(req.query.after || "").trim();
+    const [page, tasks, agentQueue] = await Promise.all([
+      loadMessagePage(chat._id, {
+        limit: limit || CHAT_PAGE_SIZE,
+        before: before || undefined,
+        after: after || undefined,
+      }),
       Task.find({ chat: chat._id }).sort({ createdAt: -1 }).lean(),
       common
         ? loadChatScopedQueue(req.userId, chat._id)
         : loadAgentQueue(req.userId, chat.agent),
     ]);
-    res.json({ ok: true, chat, messages, tasks, agentQueue, isCommon: common });
+    res.json({
+      ok: true,
+      chat,
+      messages: page.messages,
+      messagesHasMore: page.hasMore,
+      tasks,
+      agentQueue,
+      isCommon: common,
+    });
   } catch (err) {
     next(err);
   }

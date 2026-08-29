@@ -1,5 +1,17 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 12:15] Paginate chat thread — last 100, scroll up for older
+
+- **Prompt Provided:** Show only last 100 chat threads; scroll up auto-loads previous 100
+- **Architectural Flow:** GET /api/chats/:id pages messages (limit/before/after, default 100); ChatDetailPage loads newest page then prepends older on scroll-near-top while keeping scroll position; poll merges newer messages only. GET /api/chats also pages the thread list (100 + before) for the Chats page.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/chats.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/pages/ChatsPage.jsx`
+
+## [2026-08-29 12:10] Chat live screen empty during a run
+
+- **Prompt Provided:** /chats/6a92474ba630660dc2f78b52 live screen box not receiving screenshots
+- **Architectural Flow:** Worker skipped JPEGs whenever `running` was true (idle screenLoop forced screenshot:false; pushLiveScreen also required !running). Chat poll then had no dataBase64. Now capture during tasks except Take control and mid-navigation.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/src/index.js`
+
 ## [2026-08-28 18:50] LLM profiles — show clear test errors
 
 - **Prompt Provided:** /settings/llms if llm is not connecting, show the clear error

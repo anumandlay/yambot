@@ -115,9 +115,9 @@ async function main() {
     while (!screenLoopStopped) {
       let human = false;
       try {
-        const r = await agent.pushLiveScreen(
-          agent.isRunning() ? { screenshot: false } : undefined
-        );
+        // Why: keep streaming while a task is running so the chat live box updates
+        // during LLM think / long steps (pushLiveScreen still skips Take control + navigate).
+        const r = await agent.pushLiveScreen();
         human = Boolean(r?.humanControl);
       } catch (err) {
         console.error(`[${config.workerName}] screen heartbeat failed`, err?.message || err);

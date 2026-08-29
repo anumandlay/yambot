@@ -768,6 +768,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
   /**
    * Posts heartbeat (optional viewport JPEG) and applies dashboard takeover commands.
+   * Screenshots stay on during an active task so chat Live screen updates; they pause
+   * only for Take control and while `navigating` is set.
    * @param {{ taskId?: string|null, screenshot?: boolean }} [opts]
    */
   async function pushLiveScreen(opts = {}) {
@@ -784,8 +786,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const vh = config.viewportHeight || 800;
     let shotW = vw;
     let shotH = vh;
-    const wantScreenshot = opts.screenshot !== false && !remoteHumanControl && !running;
-    // Why: Playwright screenshots during Take control steal X focus and fight noVNC input.
+    // Why: chat Live screen needs JPEGs while a goal is running. Skip only Take control
+    // (Playwright shots steal X focus from noVNC) and mid-goto (transient/blank frames).
+    const wantScreenshot =
+      opts.screenshot !== false && !remoteHumanControl && !navigating;
     if (wantScreenshot) {
       try {
         const buf = await page.screenshot({ type: "jpeg", quality: 32, fullPage: false });
