@@ -127,7 +127,7 @@ export async function waitForSemantic(page, observeFn, conditionFn, opts = {}) {
  * @returns {Promise<object>}
  */
 export async function executeWaitFor(page, observeFn, conditionFn, action) {
-  const timeoutMs = Math.min(Number(action.timeout_ms ?? action.timeoutMs ?? 10000), 30000);
+  const timeoutMs = Math.min(Number(action.timeout_ms ?? action.timeoutMs ?? 3000), 8000);
   const condition = {
     url: action.url || action.url_contains || undefined,
     url_matches: action.url_matches || undefined,
@@ -142,22 +142,40 @@ export async function executeWaitFor(page, observeFn, conditionFn, action) {
     condition.url || condition.url_matches || condition.text || condition.role || condition.name || condition.ref
   );
 
+  // Why: LLM often emits wait_for with no real target (or invented site phrases). Page readiness
+  // is already handled by domcontentloaded + immediate snapshot — do not burn time failing UNKNOWN.
+  if (!hasExplicitCondition) {
+    return {
+      ok: true,
+      wait_for: true,
+      skipped: true,
+      reason: "no_explicit_condition",
+      note: "Skipped wait_for — use CURRENT PAGE SNAPSHOT (already post-domcontentloaded).",
+    };
+  }
+
   const semantic = await waitForSemantic(page, observeFn, conditionFn, {
     timeoutMs,
     networkIdle: Boolean(action.network_idle),
-    loadingGone: condition.loading_gone,
-    domStable: Boolean(action.dom_stable !== false),
-    condition: hasExplicitCondition ? condition : undefined,
+    loadingGone: false,
+    domStable: false,
+    condition,
   });
 
-  const explicitMet = hasExplicitCondition ? semantic.condition?.matched === true : true;
-  const ok = explicitMet && !semantic.condition?.timedOut;
+  const matched = semantic.condition?.matched === true;
+  const timedOut = semantic.condition?.timedOut === true;
 
+  // Why: treat timeout as soft success so the next turn observes reality instead of FORM-style fail spam.
   return {
-    ok,
+    ok: true,
     wait_for: true,
     condition,
     semantic,
-    timedOut: semantic.condition?.timedOut === true,
+    timedOut,
+    matched,
+    failure_class: timedOut && !matched ? "WAIT_TIMEOUT" : undefined,
+    note: matched
+      ? "Condition met"
+      : "Condition not met in time — continue from CURRENT PAGE SNAPSHOT (do not invent wait text).",
   };
 }

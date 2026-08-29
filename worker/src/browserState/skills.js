@@ -18,7 +18,7 @@ export const SKILL_TEMPLATES = [
       "Navigate to login page if not already there",
       "Batch type email/username then password (do not use fill_form)",
       "Click Sign in / Continue (ask_user if askBeforeLogin)",
-      "wait_for authenticated state or dashboard URL",
+      "Act on the next snapshot after submit (do not invent wait_for text)",
     ],
     hints: [
       "Use one actions batch: type email → type password → click Sign in.",
@@ -40,6 +40,7 @@ export const SKILL_TEMPLATES = [
       "Open Cart/Basket FIRST — do not browse unrelated products.",
       "Use dismiss_dialog for cookie banners and promo modals.",
       "Stop at payment boundary unless user explicitly authorized purchase.",
+      "Do not wait_for invented phrases like Added to cart — use the live snapshot.",
     ],
   },
   {

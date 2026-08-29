@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 15:40] Prefer DCL snapshot over wait_for guesses
+
+- **Prompt Provided:** not all sites have Added to cart /checkout / Sign in; send DOM snapshot after domcontentloaded
+- **Architectural Flow:** Prompt/skills tell the model not to use wait_for for page-ready or invented phrases. Navigate already DCL→snapshot. wait_for with no condition is skipped; timeout is soft (ok) so chat does not show wait_for failed UNKNOWN; classify WAIT_TIMEOUT when timed out.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/actions.js`, `worker/src/agent.js`, `worker/src/browserState/semanticWait.js`, `worker/src/browserState/skills.js`, `worker/src/browserState/failureClass.js`
+
 ## [2026-08-29 15:35] Drop fill_form preferred path (avoid FORM_NOT_FOUND)
 
 - **Prompt Provided:** yes — remove fill_form failed FORM_NOT_FOUND path; use type/click batches

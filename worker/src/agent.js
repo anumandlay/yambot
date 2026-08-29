@@ -1885,7 +1885,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
         const currentSubgoal = getCurrentSubgoalTitle(goalPlan);
         if (goalProgress.stalled) {
-          notes.push("NO PROGRESS DETECTED — change strategy, use wait_for, ask_user, or finish.");
+          notes.push("NO PROGRESS DETECTED — change strategy, ask_user, or finish.");
         }
 
         const stopEval = evaluateStopConditions(pageState, obs, goal, agentSnapshot);
@@ -1990,7 +1990,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   ? "A screenshot may attach after failed verification steps."
                   : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
-              "Prefer wait_for over blind wait when waiting for UI, URL, or text.",
+              "PAGE READY: navigate already waits for domcontentloaded then snapshots — do not wait_for invented site phrases. Act on CURRENT PAGE SNAPSHOT.",
               formatAgentSnapshot(agentSnapshot, goal),
             ]
               .filter(Boolean)

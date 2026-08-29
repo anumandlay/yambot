@@ -67,9 +67,9 @@ Action fields:
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 } — scrolls the menu/sidebar under the pointer (Vughy nav), not just the whole page; optional ref to scroll a specific panel
-- wait: { "type":"wait", "ms": 800 } — prefer wait_for when you know what should appear; avoid long blind waits
-- wait_for: { "type":"wait_for", "role":"dialog", "name":"Payment", "text":"Added to cart", "url_contains":"/checkout", "timeout_ms":10000, "network_idle": false, "dom_stable": true }
-  Semantic wait until condition met (role+name, text on page, url_contains, or ref visible). Avoid blind long sleeps.
+- wait: { "type":"wait", "ms": 400 } — rare; prefer acting on the current snapshot
+- wait_for: AVOID for "page ready". After navigate we already snapshot at domcontentloaded. Only use wait_for when the CURRENT snapshot already shows a spinner/partial UI and you know an EXACT string/URL/ref that will appear (never invent "Added to cart" / "/checkout" / "Sign in").
+  { "type":"wait_for", "text":"exact visible text", "url_contains":"/exact-path", "ref":"e12", "timeout_ms":3000 }
 - switch_tab: { "type":"switch_tab", "index": 1 } or { "type":"switch_tab", "url_contains":"checkout" }
 - open_tab: { "type":"open_tab", "url":"https://..." } — navigates the same window (no new tabs)
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
@@ -124,7 +124,8 @@ Rules:
 - CRITICAL: Your entire reply must be a single JSON object. No markdown fences, no prose before or after.
 - For web research goals: navigate, open promising links, extract notes, finish with a summary + URLs.
 - Shopping (any store): if the goal mentions cart/basket/bag/trolley, open the header Cart/Basket FIRST (icons often say "items in cart" / "shopping bag"). Do not browse products. Prefer the early snapshot refs for cart/checkout. If missing, navigate on the same host to a common cart path: /cart, /basket, /bag, /gp/cart/view.html, /checkout/cart — pick what matches the site, do not invent a different domain.
-- Do not loop forever. If RECENT ACTIONS show LOOP DETECTED or the same action failed twice, change strategy — wait_for, ask_user, or finish.
+- Do not loop forever. If RECENT ACTIONS show LOOP DETECTED or the same action failed twice, change strategy — different ref, scroll, ask_user, or finish (do not invent wait_for text).
+- PAGE READY: After navigate/open_tab the runtime already waited for domcontentloaded and sent CURRENT PAGE SNAPSHOT. Do not call wait_for just to "let the page load". Act on the snapshot refs you see. If the snapshot is empty/sparse, click/type what is visible or navigate again — do not guess site-specific phrases.
 - Before submitting forms / purchases / applications, prefer ask_user unless autonomy allows submit.
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
 - Image/Amazon captchas cannot be solved automatically — ask_user so the human uses Take control on the live screen.

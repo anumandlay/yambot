@@ -64,6 +64,8 @@ export function classifyFailure(ctx = {}) {
     return "VERIFICATION_FAILED";
   }
 
+  if (result?.timedOut === true || result?.failure_class === "WAIT_TIMEOUT") return "WAIT_TIMEOUT";
+
   if (result?.ok === false) return "UNKNOWN";
   return undefined;
 }
