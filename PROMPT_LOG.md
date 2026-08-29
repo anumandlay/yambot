@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 15:05] Multi-action batches per LLM turn (aggressive default)
+
+- **Prompt Provided:** Implement multi-action batches per turn (user: "lets do it")
+- **Architectural Flow:** Raise default batch cap to 12 (16 with FAST_MODE); strengthen system/user prompts + examples so LLM returns `actions[]` by default; skip mid-batch re-observe on by default; raise fast `max_tokens` to 1200 so large batches don't truncate; shared `getMaxActionsPerTurn()` for prompt/parse/agent loop.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/fastMode.js`, `worker/src/actions.js`, `worker/src/agent.js`, `worker/EXPERIMENT.md`
+
 ## [2026-08-29 14:25] Agent Chrome extension for Teach skill
 
 - **Prompt Provided:** Implement Agent Chrome extension so Teach skill tracks real page clicks/labels instead of screenshot coordinates

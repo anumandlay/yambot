@@ -28,7 +28,7 @@ import {
 } from "./teachBridge.js";
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
-import { ACTION_SCHEMA_FOR_PROMPT, parseAgentResponse, BATCH_STOP_TYPES, LIGHT_SETTLE_TYPES } from "./actions.js";
+import { buildActionSchemaForPrompt, parseAgentResponse, BATCH_STOP_TYPES, LIGHT_SETTLE_TYPES } from "./actions.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
@@ -1928,6 +1928,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             ? "LOGIN: User supplied credentials in GOAL — proceed with login; do not call ask_user for confirmation."
             : "",
           `STEP: ${step}`,
+          `BATCH: Reply with "actions":[…] — pack up to ${stepTiming.maxActionsPerTurn} clicks/types visible on THIS page in ONE JSON (search/login/forms). Re-ask only after navigate/submit changes the page. Single action only when the next UI is unknown.`,
           loopNote,
           stopEval.hints.length ? formatStopHints(stopEval) : "",
           notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
@@ -1974,10 +1975,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
           {
             role: "system",
             content: [
-              ACTION_SCHEMA_FOR_PROMPT,
+              buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
+              "SPEED: default to multi-action batches (actions array). One LLM turn should clear as much of the current page as possible.",
               skillBlock,
               skillsCatalogBlock,
               skillProgressBlock,

@@ -1,7 +1,10 @@
 /**
  * @fileoverview Shared agent action schema for the cloud worker.
  * Purpose: LLM action contract for the cloud worker agent loop.
+ * Downstream: agent.js system prompt + parseAgentResponse for multi-action batches.
  */
+
+import { getMaxActionsPerTurn } from "./fastMode.js";
 
 export const ACTION_TYPES = [
   "navigate",
@@ -51,18 +54,8 @@ export const ACTION_TYPES = [
   "finish",
 ];
 
-export const ACTION_SCHEMA_FOR_PROMPT = `
-You control a real Chromium browser (cloud computer for this agent). Reply with ONE JSON object only (no markdown), shape:
-{
-  "thought": "brief reason",
-  "action": { "type": "...", ... },
-  "actions": [ { "type":"..." }, { "type":"..." } ]
-}
-
-SPEED (important): Prefer "actions" array to batch 3–8 steps in ONE reply (e.g. click email → type → type password → click submit). Prefer fill_form when many fields share one form. Avoid one-field-per-turn for registration/login. Single-action replies are slower — only use one action when the next step depends on unknown page content after navigate/submit.
-
-You may send either "action" (single) or "actions" (batch). If both exist, "actions" wins. Max ~8 actions per turn. Stop the batch before finish/ask_user/solve_captcha (put those last or alone).
-
+/** Field docs + locator/business rules appended after the batch header. */
+const ACTION_FIELDS_AND_RULES = `
 "type" for action.type:
 "<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|fill_form|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>"
 
@@ -139,6 +132,47 @@ Rules:
 - COMPANY DATABASE: use search_entities / get_entity to find records in THIS agent's territory group; update_entity and add_entity_observation to persist CRM state; create_entity for new rows (name required; leads default status "new"). Types: lead|customer|vendor|product|process|document|ticket|custom. Use kind for segments (airlines) or custom tables (weather) with fields in attributes. Filter by status "new" for unworked leads. Threaded replies: pass inReplyTo from prior outbound messageId when replying.
 - TICKETS & STATE: use update_ticket for support queue; set_entity_status / assign_entity for CRM; update_enrollment after confirmed send_email; update_kpi to record goal progress (or include "KPI: name +1" in finish summary).
 `.trim();
+
+/**
+ * Builds the system action contract. Max batch size follows YAMBOT_MAX_ACTIONS_PER_TURN / fast mode.
+ * @param {number} [maxActions]
+ * @returns {string}
+ */
+export function buildActionSchemaForPrompt(maxActions) {
+  const max = Math.max(1, Math.min(16, Number(maxActions) || getMaxActionsPerTurn()));
+  const header = `
+You control a real Chromium browser (cloud computer for this agent). Reply with ONE JSON object only (no markdown), shape:
+{
+  "thought": "brief reason",
+  "actions": [ { "type":"..." }, { "type":"..." } ]
+}
+
+MULTI-ACTION BATCHES (default — this is how you go fast):
+- ALWAYS prefer "actions": [ ... ] with every click/type/select you can safely do on THIS page before navigate/submit changes the DOM in an unknown way.
+- Target 3–${max} actions per reply when the snapshot already shows the controls (search: focus → type → Enter; login: email → password → submit; forms: fill every visible field then submit).
+- Prefer fill_form when many fields share one form (counts as one action but fills many fields).
+- Single-action "action": { ... } is slower — use ONLY when the next step depends on unknown page content after navigate/submit/open_tab, or for finish/ask_user/solve_captcha alone.
+- If both "action" and "actions" exist, "actions" wins. Hard max ${max} actions per turn.
+- Stop the batch before finish/ask_user/solve_captcha (put those last or alone). Do not put navigate in the middle of a fill burst — navigate/open_tab ends the batch.
+
+Example (Google search in ONE turn):
+{"thought":"search hello","actions":[
+  {"type":"click","ref":"e3","name":"Search"},
+  {"type":"type","ref":"e3","text":"hello","submit":true}
+]}
+
+Example (login in ONE turn):
+{"thought":"sign in","actions":[
+  {"type":"type","ref":"e1","text":"user@x.com"},
+  {"type":"type","ref":"e2","text":"secret"},
+  {"type":"click","ref":"e9","name":"Sign in"}
+]}
+`.trim();
+  return `${header}\n\n${ACTION_FIELDS_AND_RULES}`;
+}
+
+/** Default schema for imports that do not pass a dynamic max (agent prefers buildActionSchemaForPrompt). */
+export const ACTION_SCHEMA_FOR_PROMPT = buildActionSchemaForPrompt();
 
 /**
  * Pulls the first balanced `{ ... }` object from mixed model output.
@@ -268,7 +302,7 @@ export function parseAgentResponse(raw) {
  * @returns {object[]}
  */
 export function normalizeActionList(parsed) {
-  const max = Math.max(1, Math.min(12, Number(process.env.YAMBOT_MAX_ACTIONS_PER_TURN) || 8));
+  const max = getMaxActionsPerTurn();
   if (Array.isArray(parsed?.actions) && parsed.actions.length) {
     return parsed.actions
       .filter((a) => a && typeof a === "object" && a.type)

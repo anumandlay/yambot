@@ -10,7 +10,7 @@ Branch: `experiment` (from `feature/playwright-chrome`)
 |------|-----|
 | Fast mode env preset | `YAMBOT_FAST_MODE=1` via `worker/src/fastMode.js` |
 | Shorter settles | `stepTiming.js` lowers settle/fill/recovery when fast |
-| Bigger batches | max actions 12; stronger SPEED wording in `actions.js` |
+| Bigger batches | **Default** max 12 (16 in FAST_MODE); prompt + per-step BATCH reminder; skip mid-batch re-observe **on by default** |
 | Cheaper observe | skip frames + a11y in fast; smaller prompt projection (30 / 1000) |
 | Skip mid-batch re-observe | light fill actions in a batch only settle; full observe on last item |
 | Decouple screenshots | while running: longer interval + JPEG only every Nth heartbeat |
@@ -18,7 +18,7 @@ Branch: `experiment` (from `feature/playwright-chrome`)
 | Type nav race retry | one retry after `domcontentloaded` on “execution context destroyed” |
 | Manager passthrough | manager forwards `YAMBOT_FAST_MODE` / `YAMBOT_OBSERVE_LIMIT` into agent boxes |
 | Tracker/analytics blocking | `resourceBlock.js` aborts GA/GTM/FB/Hotjar/etc. (not first-party) when fast / `YAMBOT_BLOCK_ANALYTICS=1` |
-| Shorter LLM completions | `max_tokens≈600` in fast mode via `chatCompletion` |
+| Shorter LLM completions | `max_tokens≈1200` in fast mode (raised from 600 so large batches don’t truncate) |
 | **Teach Chrome extension** | `worker/extension` loaded into agent Chrome; records role/name/css/xpath; replay uses locators |
 
 ### Rejected from “advanced” reply #2
