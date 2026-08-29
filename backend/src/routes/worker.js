@@ -284,6 +284,18 @@ workerRouter.post("/computer/heartbeat", async (req, res, next) => {
     if (req.body?.fullPage != null) {
       agent.computer.fullPageScreen = Boolean(req.body.fullPage);
     }
+    // Why: agent edit shows cookies/cache/downloads sizes without a separate measure RPC.
+    if (req.body?.browserData && typeof req.body.browserData === "object") {
+      const bd = req.body.browserData;
+      agent.computer.browserData = {
+        cookiesBytes: Math.max(0, Number(bd.cookiesBytes) || 0),
+        cacheBytes: Math.max(0, Number(bd.cacheBytes) || 0),
+        downloadsBytes: Math.max(0, Number(bd.downloadsBytes) || 0),
+        otherBytes: Math.max(0, Number(bd.otherBytes) || 0),
+        totalBytes: Math.max(0, Number(bd.totalBytes) || 0),
+        measuredAt: bd.measuredAt ? new Date(bd.measuredAt) : new Date(),
+      };
+    }
 
     const rawB64 = String(req.body?.screenshotBase64 || "");
     // Why: full-page JPEGs are larger than viewport shots — allow ~2MB base64.

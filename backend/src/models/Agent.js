@@ -263,6 +263,18 @@ const agentSchema = new mongoose.Schema(
         ref: "Demonstration",
         default: null,
       },
+      /**
+       * Disk usage of cookies / cache / downloads from the worker profile (heartbeat).
+       * Why: agent edit shows footprint next to Clear without SSHing the VPS.
+       */
+      browserData: {
+        cookiesBytes: { type: Number, default: 0 },
+        cacheBytes: { type: Number, default: 0 },
+        downloadsBytes: { type: Number, default: 0 },
+        otherBytes: { type: Number, default: 0 },
+        totalBytes: { type: Number, default: 0 },
+        measuredAt: { type: Date, default: null },
+      },
     },
     /**
      * Latest JPEG screenshot from the cloud computer (base64, no data: prefix).
@@ -282,7 +294,7 @@ const agentSchema = new mongoose.Schema(
           id: { type: String, required: true },
           type: {
             type: String,
-            enum: ["click", "type", "key", "scroll", "session"],
+            enum: ["click", "type", "key", "scroll", "session", "clear_browser_data"],
             required: true,
           },
           /** Normalized 0–1 coords relative to the live screenshot / viewport. */

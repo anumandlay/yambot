@@ -612,6 +612,7 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
         needsAttention,
         attentionReason,
         attentionAt: agent.computer?.attentionAt || null,
+        browserData: agent.computer?.browserData || null,
       },
     });
   } catch (err) {
@@ -621,7 +622,7 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
 
 /**
  * POST /api/agents/:id/control — queue a remote input for the cloud worker (takeover).
- * Body: { type: click|type|key|scroll|session, xNorm?, yNorm?, text?, key?, dy?, active? }
+ * Body: { type: click|type|key|scroll|session|clear_browser_data, xNorm?, yNorm?, text?, key?, dy?, active? }
  * Why `session`: toggles humanControl so the worker pauses/resumes the LLM agent loop.
  */
 agentsRouter.post("/:id/control", async (req, res, next) => {

@@ -77,6 +77,19 @@ const EMPTY = {
   },
 };
 
+/**
+ * Human-readable byte size for agent browser data.
+ * @param {number|null|undefined} n
+ * @returns {string}
+ */
+function formatBytes(n) {
+  const v = Math.max(0, Number(n) || 0);
+  if (v < 1024) return `${Math.round(v)} B`;
+  if (v < 1024 * 1024) return `${(v / 1024).toFixed(1)} KB`;
+  if (v < 1024 * 1024 * 1024) return `${(v / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+}
+
 export function AgentEditPage() {
   const { agentId } = useParams();
   const isNew = !agentId || agentId === "new";
@@ -99,6 +112,8 @@ export function AgentEditPage() {
   const [busy, setBusy] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearNotice, setClearNotice] = useState("");
+  /** @type {[null|{cookiesBytes:number,cacheBytes:number,downloadsBytes:number,otherBytes:number,totalBytes:number,measuredAt?:string}, Function]} */
+  const [browserData, setBrowserData] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [memoryNote, setMemoryNote] = useState("");
   const [memory, setMemory] = useState([]);
@@ -198,11 +213,37 @@ export function AgentEditPage() {
             },
           });
           setMemory(a.memory || []);
+          if (a.computer?.browserData) {
+            setBrowserData(a.computer.browserData);
+          }
         }
       } catch (err) {
         setError(err);
       }
     })();
+  }, [agentId, isNew]);
+
+  // Why: worker reports sizes on heartbeat — poll live so the Clear section stays current.
+  useEffect(() => {
+    if (isNew || !agentId) return undefined;
+    let cancelled = false;
+    async function refreshBrowserData() {
+      try {
+        const data = await api(`/api/agents/${agentId}/live`);
+        if (cancelled) return;
+        if (data?.live?.browserData) {
+          setBrowserData(data.live.browserData);
+        }
+      } catch {
+        /* silent — edit page should not toast on background size refresh */
+      }
+    }
+    void refreshBrowserData();
+    const t = setInterval(() => void refreshBrowserData(), 15_000);
+    return () => {
+      cancelled = true;
+      clearInterval(t);
+    };
   }, [agentId, isNew]);
 
   function update(key, value) {
@@ -443,6 +484,19 @@ export function AgentEditPage() {
         data.detail ||
           "Queued — cookies, cache, and downloads will clear within a few seconds."
       );
+      // Why: sizes drop after the worker finishes; poll a few times so the UI updates soon.
+      const pollUntil = Date.now() + 25_000;
+      const poll = setInterval(() => {
+        if (Date.now() > pollUntil) {
+          clearInterval(poll);
+          return;
+        }
+        api(`/api/agents/${agentId}/live`)
+          .then((d) => {
+            if (d?.live?.browserData) setBrowserData(d.live.browserData);
+          })
+          .catch(() => {});
+      }, 2_500);
     } catch (err) {
       setError(err);
     } finally {
@@ -684,6 +738,30 @@ export function AgentEditPage() {
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">
                 Browser data
               </p>
+              {browserData ? (
+                <ul className="grid grid-cols-2 gap-x-3 gap-y-1 text-xs text-teal-900/80 sm:grid-cols-4">
+                  <li>
+                    Cookies: <strong className="font-semibold text-teal-950">{formatBytes(browserData.cookiesBytes)}</strong>
+                  </li>
+                  <li>
+                    Cache: <strong className="font-semibold text-teal-950">{formatBytes(browserData.cacheBytes)}</strong>
+                  </li>
+                  <li>
+                    Downloads:{" "}
+                    <strong className="font-semibold text-teal-950">
+                      {formatBytes(browserData.downloadsBytes)}
+                    </strong>
+                  </li>
+                  <li>
+                    Profile total:{" "}
+                    <strong className="font-semibold text-teal-950">{formatBytes(browserData.totalBytes)}</strong>
+                  </li>
+                </ul>
+              ) : (
+                <p className="text-xs text-amber-900/70">
+                  Size appears once the cloud computer heartbeats (usually within ~20s while online).
+                </p>
+              )}
               <ButtonWithHelp helpId="agent.clearBrowserData">
                 <button
                   type="button"
@@ -1071,20 +1149,30 @@ export function AgentEditPage() {
           <div className="flex flex-col gap-2">
             <SectionTitle helpId="agent.liveScreen">Live cloud screen</SectionTitle>
             <LiveScreen agentId={agentId} compact />
-            <div className="flex flex-wrap items-center gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
-              <ButtonWithHelp helpId="agent.clearBrowserData">
-                <button
-                  type="button"
-                  disabled={busy || clearBusy}
-                  onClick={() => void onClearBrowserData()}
-                  className="min-h-11 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
-                >
-                  {clearBusy ? "Clearing…" : "Clear cookies, cache & downloads"}
-                </button>
-              </ButtonWithHelp>
-              {clearNotice ? (
-                <p className="text-xs text-teal-800">{clearNotice}</p>
+            <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50/60 p-3">
+              {browserData ? (
+                <p className="text-xs text-teal-900/80">
+                  Cookies {formatBytes(browserData.cookiesBytes)} · Cache{" "}
+                  {formatBytes(browserData.cacheBytes)} · Downloads{" "}
+                  {formatBytes(browserData.downloadsBytes)} · Profile{" "}
+                  {formatBytes(browserData.totalBytes)}
+                </p>
               ) : null}
+              <div className="flex flex-wrap items-center gap-2">
+                <ButtonWithHelp helpId="agent.clearBrowserData">
+                  <button
+                    type="button"
+                    disabled={busy || clearBusy}
+                    onClick={() => void onClearBrowserData()}
+                    className="min-h-11 rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
+                  >
+                    {clearBusy ? "Clearing…" : "Clear cookies, cache & downloads"}
+                  </button>
+                </ButtonWithHelp>
+                {clearNotice ? (
+                  <p className="text-xs text-teal-800">{clearNotice}</p>
+                ) : null}
+              </div>
             </div>
           </div>
         ) : null}

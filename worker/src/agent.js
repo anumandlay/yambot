@@ -7,6 +7,7 @@
 import {
   clearChromiumLocks,
   clearCookiesCacheDownloads,
+  measureBrowserDataUsage,
   killChromiumForProfile,
   repairChromiumProfile,
 } from "./browserProfile.js";
@@ -312,6 +313,30 @@ export function createCloudAgent({ api, config, log = console.log }) {
   let captchaHandoffCooldownUntil = 0;
   /** Serializes ensure/teardown/recover so screen + poll loops cannot spawn duplicate Chromium windows. */
   let browserGate = Promise.resolve();
+  /** Cached cookies/cache/downloads sizes for heartbeat (throttled — full tree walk is costly). */
+  /** @type {ReturnType<typeof measureBrowserDataUsage>|null} */
+  let lastBrowserData = null;
+  let lastBrowserDataAt = 0;
+
+  /**
+   * Throttled disk usage for cookies / cache / downloads (agent edit UI).
+   * @param {boolean} [force]
+   * @returns {ReturnType<typeof measureBrowserDataUsage>|null}
+   */
+  function browserDataSnapshot(force = false) {
+    const now = Date.now();
+    if (!force && lastBrowserData && now - lastBrowserDataAt < 20_000) {
+      return lastBrowserData;
+    }
+    try {
+      lastBrowserData = measureBrowserDataUsage(config.profileDir);
+      lastBrowserDataAt = now;
+      return lastBrowserData;
+    } catch (err) {
+      log(`[${config.workerName}] browser data measure failed:`, err?.message || err);
+      return lastBrowserData;
+    }
+  }
 
   /**
    * @template T
@@ -844,6 +869,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
       }
     }
+    const browserData = browserDataSnapshot(Boolean(opts.forceBrowserData));
     const data = await api("/api/worker/computer/heartbeat", {
       method: "POST",
       body: JSON.stringify({
@@ -858,6 +884,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         screenshotWidth: shotW,
         screenshotHeight: shotH,
         fullPage: false,
+        browserData: browserData || undefined,
       }),
     });
     const commands = Array.isArray(data?.commands) ? data.commands : [];
@@ -947,8 +974,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       await teardownBrowser();
       const cleared = clearCookiesCacheDownloads(config.profileDir);
+      browserDataSnapshot(true);
       await launchBrowser(false);
       refreshActivePage();
+      // Why: push fresh zeros so the edit page updates without waiting for the 20s throttle.
+      await pushLiveScreen({ screenshot: false, forceBrowserData: true }).catch(() => {});
       log(
         `[${config.workerName}] browser data cleared (${cleared.removed.length} items) — Chromium relaunched`
       );

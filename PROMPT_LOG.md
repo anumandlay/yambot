@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 16:15] Show cookies / cache / downloads disk usage
+
+- **Prompt Provided:** also show how much space the cookies, cache & downloads are taking
+- **Architectural Flow:** Worker measureBrowserDataUsage(profile) on throttled heartbeats → stored on Agent.computer.browserData → returned by GET /agents/:id/live → Agent edit Cloud computer + Live screen show Cookies/Cache/Downloads/Profile total. Remeasure after clear_browser_data. Also fixed controlQueue enum to allow clear_browser_data.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/browserProfile.js`, `worker/src/agent.js`, `backend/src/models/Agent.js`, `backend/src/routes/worker.js`, `backend/src/routes/agents.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-29 16:10] Make Clear cookies button more visible
 
 - **Prompt Provided:** cannot see clear cookies button in edit agent → cloud computer

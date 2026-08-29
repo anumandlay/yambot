@@ -120,6 +120,79 @@ export function repairChromiumProfile(profileDir, opts = {}) {
 }
 
 /**
+ * Recursively sums file sizes under a path (missing paths → 0).
+ * @param {string} target
+ * @returns {number}
+ */
+function dirSizeBytes(target) {
+  try {
+    if (!fs.existsSync(target)) return 0;
+    const st = fs.statSync(target);
+    if (st.isFile()) return st.size;
+    if (!st.isDirectory()) return 0;
+    let total = 0;
+    for (const entry of fs.readdirSync(target)) {
+      total += dirSizeBytes(path.join(target, entry));
+    }
+    return total;
+  } catch {
+    return 0;
+  }
+}
+
+/**
+ * Measures cookies / cache / downloads footprint for the agent UI.
+ * @param {string} profileDir
+ * @returns {{
+ *   cookiesBytes: number,
+ *   cacheBytes: number,
+ *   downloadsBytes: number,
+ *   otherBytes: number,
+ *   totalBytes: number,
+ *   measuredAt: string,
+ * }}
+ */
+export function measureBrowserDataUsage(profileDir) {
+  const defaultDir = path.join(profileDir, "Default");
+  const cookiePaths = [
+    path.join(defaultDir, "Cookies"),
+    path.join(defaultDir, "Cookies-journal"),
+    path.join(defaultDir, "Network", "Cookies"),
+    path.join(defaultDir, "Network", "Cookies-journal"),
+    path.join(defaultDir, "Network Action Predictor"),
+    path.join(defaultDir, "Network Persistent State"),
+  ];
+  const cachePaths = [
+    path.join(defaultDir, "Cache"),
+    path.join(defaultDir, "Code Cache"),
+    path.join(defaultDir, "GPUCache"),
+    path.join(defaultDir, "Service Worker"),
+    path.join(defaultDir, "DawnCache"),
+    path.join(profileDir, "ShaderCache"),
+    path.join(profileDir, "GrShaderCache"),
+    path.join(profileDir, "Component Extension Crx Cache"),
+  ];
+  const downloadsDir = path.join(profileDir, "downloads");
+
+  let cookiesBytes = 0;
+  for (const p of cookiePaths) cookiesBytes += dirSizeBytes(p);
+  let cacheBytes = 0;
+  for (const p of cachePaths) cacheBytes += dirSizeBytes(p);
+  const downloadsBytes = dirSizeBytes(downloadsDir);
+  const totalBytes = dirSizeBytes(profileDir);
+  const otherBytes = Math.max(0, totalBytes - cookiesBytes - cacheBytes - downloadsBytes);
+
+  return {
+    cookiesBytes,
+    cacheBytes,
+    downloadsBytes,
+    otherBytes,
+    totalBytes,
+    measuredAt: new Date().toISOString(),
+  };
+}
+
+/**
  * Clears cookies, HTTP caches, and agent downloads without wiping the whole profile
  * (keeps extensions settings, bookmarks if any, and uploads/).
  * Why: Must run while Chromium is stopped — SQLite cookie DBs are locked when open.

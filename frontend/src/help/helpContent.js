@@ -509,7 +509,7 @@ export const HELP = {
   "agent.clearBrowserData": {
     title: "Clear cookies, cache & downloads",
     body: helpBody(
-      "Queues a command on the agent's cloud box: Chromium restarts after wiping site cookies, HTTP caches, and files in the downloads folder.",
+      "Shows how much disk the agent's cloud profile uses for cookies, HTTP caches, and downloads (updated from worker heartbeats). Clear queues a wipe: Chromium restarts after removing those areas.",
       "Use when you need a fresh login session or the profile grew large. Uploads are kept. Local Storage / extensions settings are not fully wiped (use only when you want a soft reset)."
     ),
   },
