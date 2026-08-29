@@ -11,6 +11,7 @@ Branch: `experiment` (from `feature/playwright-chrome`)
 | Fast mode env preset | `YAMBOT_FAST_MODE=1` via `worker/src/fastMode.js` |
 | Shorter settles | `stepTiming.js` lowers settle/fill/recovery when fast |
 | Bigger batches | **Default** max 12 (16 in FAST_MODE); prompt + per-step BATCH reminder; skip mid-batch re-observe **on by default** |
+| Navigate settle | After navigate/open_tab: **trust domcontentloaded only** — no spinner / interactive-count wait; snapshot immediately |
 | Cheaper observe | skip frames + a11y in fast; smaller prompt projection (30 / 1000) |
 | Skip mid-batch re-observe | light fill actions in a batch only settle; full observe on last item |
 | Decouple screenshots | while running: longer interval + JPEG only every Nth heartbeat |

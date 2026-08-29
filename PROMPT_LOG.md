@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 15:17] Navigate trusts domcontentloaded only
+
+- **Prompt Provided:** Skip spinner/stable after navigate; trust only domcontentloaded
+- **Architectural Flow:** After navigate/open_tab (safeGoto already waited for DCL), skip waitForSemantic spinner + interactive-count settle; observe immediately and send snapshot to LLM. Click/type still use short settle.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/src/agent.js`, `worker/EXPERIMENT.md`
+
 ## [2026-08-29 15:05] Multi-action batches per LLM turn (aggressive default)
 
 - **Prompt Provided:** Implement multi-action batches per turn (user: "lets do it")

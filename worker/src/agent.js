@@ -2168,8 +2168,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
             });
           }
 
+          const isNavigateLike =
+            actionToRun.type === "navigate" ||
+            actionToRun.type === "open_tab" ||
+            Boolean(result?.navigated);
+          // Why: after navigate, safeGoto already waited for domcontentloaded — skip spinner/stable.
           const skipSettle =
             ["finish", "ask_user", "wait"].includes(actionToRun.type) ||
+            isNavigateLike ||
             (result?.ok === false && !result?.navigated && !result?.finished);
           const lightSettle = LIGHT_SETTLE_TYPES.has(actionToRun.type) && !actionToRun.submit;
           // Why: mid-batch re-observe is the biggest local CPU cost after LLM; fast mode
@@ -2204,6 +2210,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
               prevObs = obsBefore;
               prevUrl = String(obsBefore.url || "");
             }
+          } else if (isNavigateLike) {
+            // Snapshot immediately after DCL — no spinner / interactive-count settle.
+            metrics.mark(stepClock, "settle");
+            const obsAfter = await observeNow();
+            result = enrichActionResult(actionToRun, result, obsBefore, obsAfter, precondition);
+            prevObs = obsAfter;
+            prevUrl = String(obsAfter.url || "");
+            obs = obsAfter;
           } else {
             prevObs = obsBefore;
             prevUrl = String(obsBefore.url || "");
