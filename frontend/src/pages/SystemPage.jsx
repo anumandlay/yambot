@@ -1,10 +1,11 @@
 /**
  * @fileoverview System page — Docker container inventory + live CPU charts.
  * Purpose: Ops view of VPS boxes (compose stack + agent computers) and processor load.
- * Downstream: `/api/system/overview` → computer-manager Docker stats.
+ * Downstream: `/api/system/overview` → computer-manager Docker stats; clear via agents control.
  */
 
 import { useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { useAuth } from "../context/AuthContext.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
@@ -110,6 +111,9 @@ export function SystemPage() {
   /** @type {[Record<string, number[]>, Function]} */
   const [boxHistory, setBoxHistory] = useState({});
   const [busyStop, setBusyStop] = useState("");
+  /** Agent id currently clearing browser data. */
+  const [busyClear, setBusyClear] = useState("");
+  const [clearNotice, setClearNotice] = useState("");
 
   useEffect(() => {
     let cancelled = false;
@@ -176,6 +180,40 @@ export function SystemPage() {
     }
   }
 
+  /**
+   * Queues wipe of cookies / cache / downloads on an agent cloud box.
+   * @param {{ agentId?: string|null, agentName?: string|null }} row
+   */
+  async function clearBrowserData(row) {
+    const agentId = String(row?.agentId || "").trim();
+    if (!agentId) return;
+    const label = row.agentName || agentId;
+    if (
+      !window.confirm(
+        `Clear cookies, cache, and downloads for “${label}”?\n\nYou will be logged out of sites in this box. Uploads are kept. Chromium restarts briefly.`
+      )
+    ) {
+      return;
+    }
+    setBusyClear(agentId);
+    setClearNotice("");
+    setError(null);
+    try {
+      const data = await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({ type: "clear_browser_data" }),
+      });
+      setClearNotice(
+        data.detail ||
+          `Queued clear for ${label} — sizes update after the next worker heartbeat.`
+      );
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusyClear("");
+    }
+  }
+
   const host = overview?.host;
 
   return (
@@ -197,6 +235,12 @@ export function SystemPage() {
       </div>
 
       <PageGuideBanner helpId="system.page" />
+
+      {clearNotice ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
+          {clearNotice}
+        </p>
+      ) : null}
 
       {error ? (
         <ErrorAlert
@@ -278,6 +322,7 @@ export function SystemPage() {
                 <th className="px-3 py-2 font-semibold">State</th>
                 <th className="px-3 py-2 font-semibold">CPU</th>
                 <th className="px-3 py-2 font-semibold">Memory</th>
+                <th className="px-3 py-2 font-semibold">Browser data</th>
                 <th className="px-3 py-2 font-semibold">Image</th>
                 <th className="px-3 py-2 font-semibold">Actions</th>
               </tr>
@@ -285,7 +330,7 @@ export function SystemPage() {
             <tbody>
               {(overview?.containers || []).length === 0 ? (
                 <tr>
-                  <td colSpan={6} className="px-3 py-6 text-teal-900/60">
+                  <td colSpan={7} className="px-3 py-6 text-teal-900/60">
                     {overview?.scope === "user"
                       ? "No cloud computers running for your agents yet. Create an agent to provision one."
                       : "No containers reported yet."}
@@ -295,12 +340,29 @@ export function SystemPage() {
                 (overview?.containers || []).map((c) => {
                   const canStop = /^yambot-agent-/i.test(c.name || "");
                   const kind = containerKind(c.name);
+                  const bd = c.browserData;
+                  const agentId = c.agentId ? String(c.agentId) : "";
                   return (
                     <tr key={c.id} className="border-t border-teal-50 align-top">
                       <td className="px-3 py-2">
                         <div className="font-semibold text-teal-950">{c.name || c.id}</div>
                         <div className="font-mono text-[0.7rem] text-teal-800/50">{c.id}</div>
-                        {c.labels?.["yambot.agentId"] ? (
+                        {agentId ? (
+                          <div className="mt-0.5 text-[0.7rem] text-teal-800/70">
+                            {c.agentName ? (
+                              <Link
+                                to={`/agents/${agentId}`}
+                                className="font-semibold text-teal-800 underline-offset-2 hover:underline"
+                              >
+                                {c.agentName}
+                              </Link>
+                            ) : null}
+                            <span className="text-teal-800/50">
+                              {c.agentName ? " · " : ""}
+                              {agentId}
+                            </span>
+                          </div>
+                        ) : c.labels?.["yambot.agentId"] ? (
                           <div className="text-[0.7rem] text-teal-800/60">
                             agent {c.labels["yambot.agentId"]}
                           </div>
@@ -333,22 +395,52 @@ export function SystemPage() {
                           ? `${fmtBytes(c.memUsage)}${c.memLimit ? ` / ${fmtBytes(c.memLimit)}` : ""}`
                           : "—"}
                       </td>
+                      <td className="px-3 py-2 text-xs text-teal-900/80">
+                        {canStop && bd ? (
+                          <ul className="space-y-0.5 font-mono">
+                            <li>Cookies {fmtBytes(bd.cookiesBytes)}</li>
+                            <li>Cache {fmtBytes(bd.cacheBytes)}</li>
+                            <li>Downloads {fmtBytes(bd.downloadsBytes)}</li>
+                            <li className="font-semibold text-teal-950">
+                              Profile {fmtBytes(bd.totalBytes)}
+                            </li>
+                          </ul>
+                        ) : canStop ? (
+                          <span className="text-teal-800/50">Waiting for heartbeat…</span>
+                        ) : (
+                          <span className="text-teal-800/40">—</span>
+                        )}
+                      </td>
                       <td className="max-w-[10rem] truncate px-3 py-2 text-xs text-teal-900/70">
                         {c.image}
                       </td>
                       <td className="px-3 py-2">
-                        {canStop && c.state === "running" ? (
-                          <button
-                            type="button"
-                            disabled={busyStop === c.name}
-                            onClick={() => stopContainer(c.name)}
-                            className="inline-flex min-h-11 items-center rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 disabled:opacity-50"
-                          >
-                            {busyStop === c.name ? "Stopping…" : "Stop"}
-                          </button>
-                        ) : (
-                          <span className="text-xs text-teal-800/40">—</span>
-                        )}
+                        <div className="flex flex-col gap-2">
+                          {canStop && agentId ? (
+                            <button
+                              type="button"
+                              disabled={busyClear === agentId}
+                              onClick={() => void clearBrowserData(c)}
+                              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-950 disabled:opacity-50"
+                            >
+                              {busyClear === agentId
+                                ? "Clearing…"
+                                : "Clear cookies, cache & downloads"}
+                            </button>
+                          ) : null}
+                          {canStop && c.state === "running" ? (
+                            <button
+                              type="button"
+                              disabled={busyStop === c.name}
+                              onClick={() => stopContainer(c.name)}
+                              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 disabled:opacity-50"
+                            >
+                              {busyStop === c.name ? "Stopping…" : "Stop"}
+                            </button>
+                          ) : !canStop ? (
+                            <span className="text-xs text-teal-800/40">—</span>
+                          ) : null}
+                        </div>
                       </td>
                     </tr>
                   );

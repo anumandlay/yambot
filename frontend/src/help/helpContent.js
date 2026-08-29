@@ -1821,7 +1821,7 @@ export const HELP = {
   "system.page": {
     title: "System page",
     body: helpBody(
-      "Cloud computer inventory and CPU charts. Regular users see only containers for agents they own.",
+      "Cloud computer inventory and CPU charts. Regular users see only containers for agents they own. Agent rows show cookies/cache/downloads sizes and a Clear button (same as agent edit).",
       "Super admins see every agent and platform container on the VPS."
     ),
     learnMore: "howto-system",

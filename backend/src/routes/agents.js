@@ -34,6 +34,7 @@ import { copyNameWithTimestamp } from "../utils/copyName.js";
 import { EntityGroup } from "../models/EntityGroup.js";
 import { draftAgentFromBrief } from "../utils/agentDraftFromBrief.js";
 import { User } from "../models/User.js";
+import { isSuperAdmin } from "../utils/superAdmin.js";
 import { env } from "../utils/env.js";
 import { normalizeLlmBaseUrl, normalizeLlmModel } from "../utils/llmDefaults.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
@@ -627,11 +628,6 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
  */
 agentsRouter.post("/:id/control", async (req, res, next) => {
   try {
-    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
-    if (!agent) {
-      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
-      return;
-    }
     const type = String(req.body?.type || "").trim();
     if (!["click", "type", "key", "scroll", "session", "clear_browser_data"].includes(type)) {
       res.status(400).json({
@@ -642,6 +638,20 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
       return;
     }
 
+    // Why: System page superadmin can clear any agent's cookies/cache; other controls stay owner-scoped.
+    let agent = null;
+    if (type === "clear_browser_data") {
+      const me = await User.findById(req.userId).select("email role").lean();
+      agent = isSuperAdmin(me)
+        ? await Agent.findById(req.params.id)
+        : await Agent.findOne({ _id: req.params.id, user: req.userId });
+    } else {
+      agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    }
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
     // Why: session is persisted as a flag, not a Playwright command.
     if (type === "session") {
       agent.computer = agent.computer || {};

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 16:25] System page — browser data sizes + Clear
+
+- **Prompt Provided:** also in page /system, show the same button and size
+- **Architectural Flow:** `/api/system/overview` enriches agent containers with Agent.computer.browserData + agentId/name. System table adds Browser data column and Clear cookies/cache/downloads (POST agents control). Superadmin may clear any agent.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/system.js`, `backend/src/routes/agents.js`, `frontend/src/pages/SystemPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-29 16:15] Show cookies / cache / downloads disk usage
 
 - **Prompt Provided:** also show how much space the cookies, cache & downloads are taking

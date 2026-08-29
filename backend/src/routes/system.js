@@ -57,29 +57,70 @@ async function managerFetch(path, init = {}) {
 
 /**
  * Tenant users see only cloud boxes for agents they own; superadmin sees the full VPS inventory.
+ * Attaches Agent.computer.browserData so /system can show cookies/cache/downloads sizes.
  * @param {object} snapshot
  * @param {string} userId
  * @param {boolean} superAdmin
  * @returns {Promise<object>}
  */
 async function scopeSystemOverview(snapshot, userId, superAdmin) {
-  if (superAdmin) {
-    return { ...snapshot, scope: "all" };
+  const agentQuery = superAdmin ? {} : { user: userId };
+  const owned = await Agent.find(agentQuery)
+    .select("_id name computer.containerName computer.browserData")
+    .lean();
+  const byId = new Map(owned.map((a) => [String(a._id), a]));
+  const byName = new Map(
+    owned
+      .map((a) => [String(a.computer?.containerName || "").trim(), a])
+      .filter(([name]) => Boolean(name))
+  );
+
+  /**
+   * @param {object} c
+   * @returns {object}
+   */
+  function enrichContainer(c) {
+    const labelId = c.labels?.["yambot.agentId"] ? String(c.labels["yambot.agentId"]) : "";
+    const agent =
+      (labelId && byId.get(labelId)) || byName.get(String(c.name || "").trim()) || null;
+    if (!agent) {
+      return {
+        ...c,
+        agentId: labelId || null,
+        agentName: null,
+        browserData: null,
+      };
+    }
+    return {
+      ...c,
+      agentId: String(agent._id),
+      agentName: agent.name || "",
+      browserData: agent.computer?.browserData || null,
+    };
   }
 
-  const owned = await Agent.find({ user: userId }).select("_id computer.containerName").lean();
+  if (superAdmin) {
+    return {
+      ...snapshot,
+      scope: "all",
+      containers: (snapshot.containers || []).map(enrichContainer),
+    };
+  }
+
   const ownedIds = new Set(owned.map((a) => String(a._id)));
   const ownedNames = new Set(
     owned.map((a) => String(a.computer?.containerName || "").trim()).filter(Boolean)
   );
 
-  const containers = (snapshot.containers || []).filter((c) => {
-    const name = String(c.name || "");
-    if (!isAgentContainerName(name)) return false;
-    const labelId = c.labels?.["yambot.agentId"];
-    if (labelId && ownedIds.has(String(labelId))) return true;
-    return ownedNames.has(name);
-  });
+  const containers = (snapshot.containers || [])
+    .filter((c) => {
+      const name = String(c.name || "");
+      if (!isAgentContainerName(name)) return false;
+      const labelId = c.labels?.["yambot.agentId"];
+      if (labelId && ownedIds.has(String(labelId))) return true;
+      return ownedNames.has(name);
+    })
+    .map(enrichContainer);
 
   const running = containers.filter((c) => c.state === "running").length;
   const host = snapshot.host
