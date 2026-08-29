@@ -1,0 +1,4 @@
+# Why: shell scripts must use LF so Linux containers/VPS can exec them
+# (CRLF shebangs fail as `no such file or directory`).
+*.sh text eol=lf
+*.bash text eol=lf

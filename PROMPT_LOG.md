@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 12:35] Chat live screen stuck on STARTING…
+
+- **Prompt Provided:** in chat page, the live screen showing STARTING…
+- **Architectural Flow:** After deploy, agent box crash-looped (exit 255) because `worker/entrypoint.sh` had Windows CRLF; kernel looked for `/bin/bash\r`. Convert scripts to LF, add `.gitattributes` `*.sh eol=lf`, and strip CR in `Dockerfile.worker` so rebuilds stay bootable. Computer-manager can then keep the agent online and heartbeats clear STARTING….
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/entrypoint.sh`, `deploy/patch-caddy-body.sh`, `deploy/Dockerfile.worker`, `.gitattributes`
+
 ## [2026-08-29 12:15] Paginate chat thread — last 100, scroll up for older
 
 - **Prompt Provided:** Show only last 100 chat threads; scroll up auto-loads previous 100

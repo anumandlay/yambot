@@ -30,7 +30,9 @@ RUN npm install --omit=dev \
 COPY worker/src ./src
 COPY worker/entrypoint.sh /app/entrypoint.sh
 
-RUN chmod +x /app/entrypoint.sh
+# Why: Windows checkouts often ship CRLF; Linux then fails with
+# `exec /app/entrypoint.sh: no such file or directory` (shebang becomes /bin/bash\r).
+RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
 
 ENV NODE_ENV=production \
     DISPLAY=:99 \
