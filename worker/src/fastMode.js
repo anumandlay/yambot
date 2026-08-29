@@ -71,5 +71,10 @@ export function getFastModeProfile() {
       15_000,
       Number(process.env.YAMBOT_LLM_TIMEOUT_MS) || (fast ? 45_000 : 120_000)
     ),
+    /** Cap completion size in fast mode so the model stops sooner on action JSON. */
+    llmMaxTokens: Math.max(
+      0,
+      Number(process.env.YAMBOT_LLM_MAX_TOKENS) || (fast ? 600 : 0)
+    ),
   };
 }

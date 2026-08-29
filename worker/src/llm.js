@@ -131,7 +131,7 @@ function normalizeBaseUrl(baseUrl) {
 }
 
 /**
- * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number, openAiAccountId?: string }} opts
+ * @param {{ apiKey: string, baseUrl?: string, model?: string, messages: object[], temperature?: number, timeoutMs?: number, maxTokens?: number, openAiAccountId?: string }} opts
  */
 export async function chatCompletion({
   apiKey,
@@ -140,6 +140,7 @@ export async function chatCompletion({
   messages,
   temperature = 0.2,
   timeoutMs = 120_000,
+  maxTokens,
   openAiAccountId,
 }) {
   if (!apiKey?.trim()) {
@@ -181,6 +182,11 @@ export async function chatCompletion({
 
   const url = `${root}/chat/completions`;
   const usedModel = model || "MiniMax-M2.7";
+  const body = { model: usedModel, temperature, messages };
+  const tokenCap = Number(maxTokens);
+  if (Number.isFinite(tokenCap) && tokenCap > 0) {
+    body.max_tokens = Math.floor(tokenCap);
+  }
 
   let res;
   const controller = new AbortController();
@@ -192,7 +198,7 @@ export async function chatCompletion({
         "Content-Type": "application/json",
         Authorization: `Bearer ${apiKey}`,
       },
-      body: JSON.stringify({ model: usedModel, temperature, messages }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
   } catch (err) {

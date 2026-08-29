@@ -589,6 +589,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
     context = await chromium.launchPersistentContext(config.profileDir, launchOptions);
     attachSingleWindowHandlers();
+    try {
+      const { installAnalyticsBlocker } = await import("./resourceBlock.js");
+      await installAnalyticsBlocker(context, {
+        log: (msg) => log(`[${config.workerName}] ${msg}`),
+      });
+    } catch (err) {
+      log(`[${config.workerName}] resource blocker skipped:`, err?.message || err);
+    }
     page = context.pages()[0] || (await context.newPage());
     page = (await enforceSinglePage(context, page)) || page;
     fs.mkdirSync(path.join(config.profileDir, "uploads"), { recursive: true });
@@ -1480,6 +1488,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await chatCompletion({
           ...llmOpts,
           timeoutMs: llmOpts.timeoutMs ?? profile.llmTimeoutMs,
+          maxTokens: llmOpts.maxTokens ?? (profile.llmMaxTokens || undefined),
         });
         addLlmUsage(llmUsage, result.usage);
         const reply = String(result.content || "").slice(0, 12000);

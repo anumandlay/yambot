@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 13:30] Experiment — triage advanced speed ideas #2
+
+- **Prompt Provided:** Another LLM’s “advanced” speed list (pattern library, prefetch, parallel acts, WASM, resource block, specialized models)
+- **Architectural Flow:** Keep Skills as the real pattern library (no duplicate selector DSL). Add tracker/analytics route blocking + optional max_tokens in FAST_MODE. Reject parallel actions, prefetch tabs, WASM observe, hardcoded gpt-3.5 router. Document in EXPERIMENT.md. Stay on experiment branch; no prod deploy.
+- **Impacted Files:** `PROMPT_LOG.md`, `worker/EXPERIMENT.md`, `worker/src/resourceBlock.js`, `worker/src/agent.js`, `worker/src/llm.js`, `worker/src/fastMode.js`
+
 ## [2026-08-29 13:25] Experiment branch — curated speed optimizations
 
 - **Prompt Provided:** Review other LLM’s browser-speed guide; if worth implementing, create `experiment` branch and implement
