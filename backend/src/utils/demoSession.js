@@ -7,7 +7,10 @@
 import { Agent } from "../models/Agent.js";
 import { Demonstration } from "../models/Demonstration.js";
 import { emitEvent } from "./eventBus.js";
-import { linkDemonstrationToTaskDraft } from "./skillSuggestion.js";
+import {
+  createDraftSkillFromTeachDemo,
+  linkDemonstrationToTaskDraft,
+} from "./skillSuggestion.js";
 
 /**
  * Starts a new demonstration capture on an agent.
@@ -77,6 +80,8 @@ export async function finishDemoSession(userId, opts) {
     await agent.save();
   }
   await demo.save();
+  // Why: Teach skill → draft skill immediately; do not leave orphan demos or rely on Suggested: drafts.
+  await createDraftSkillFromTeachDemo(userId, demo).catch(() => {});
   await linkDemonstrationToTaskDraft(userId, demo).catch(() => {});
   if (wasActive && opts.emitBusEvent !== false) {
     await emitEvent({

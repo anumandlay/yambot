@@ -26,6 +26,7 @@ import { allocateSkillSlug, createLearnedSkillDraft } from "../utils/skillLearn.
 import {
   demoStepsToSkillSteps,
   ensureSkillSuggestionFromTask,
+  purgeAutoSuggestedSkills,
 } from "../utils/skillSuggestion.js";
 import { draftSkillFromBrief } from "../utils/skillDraftFromBrief.js";
 
@@ -106,6 +107,8 @@ skillsRouter.get("/", async (req, res, next) => {
       { user: req.userId, status: "training" },
       { $set: { status: "draft" } }
     );
+    // Why: drop leftover Suggested:* drafts from the old auto-from-task pipeline.
+    await purgeAutoSuggestedSkills(req.userId);
     const skills = await Skill.find({ user: req.userId }).sort({ updatedAt: -1 }).lean();
     res.json({ ok: true, skills: skills.map(normalizeSkillStatus) });
   } catch (err) {
@@ -250,24 +253,15 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
         return;
       }
     }
-    if (demo.task) {
-      const linked = await ensureSkillSuggestionFromTask(req.userId, {
-        taskId: String(demo.task),
-        minSteps: 1,
-      });
-      if (linked?.skill) {
-        demo.convertedSkill = linked.skill._id;
-        await demo.save();
-        res.json({ ok: true, skill: normalizeSkillStatus(linked.skill.toObject()), linked: true });
-        return;
-      }
-    }
+    // Why: always build from the human demonstration — never revive Suggested: task drafts.
     const { steps, executionMode } = demoStepsToSkillSteps(demo.steps);
     const skill = await Skill.create({
       user: req.userId,
       agent: demo.agent,
-      name: String(req.body?.name || demo.title || "Learned skill").trim(),
-      description: `Learned from demonstration: ${String(demo.title || "").slice(0, 160)}`,
+      name: String(req.body?.name || demo.title || "Learned skill")
+        .replace(/^Skill:\s*/i, "")
+        .trim(),
+      description: `Taught from demonstration: ${String(demo.title || "").slice(0, 160)}`,
       status: "draft",
       steps,
       executionMode,
@@ -337,6 +331,7 @@ skillsRouter.post("/demos/finish", async (req, res, next) => {
 
 skillsRouter.post("/demos/from-task/:taskId", async (req, res, next) => {
   try {
+    // Why: explicit /learn only — do not recreate Suggested: drafts from the trajectory panel.
     const task = await Task.findOne({ _id: req.params.taskId, user: req.userId });
     if (!task) {
       res.status(404).json({ ok: false, detail: "Task missing" });
@@ -344,7 +339,7 @@ skillsRouter.post("/demos/from-task/:taskId", async (req, res, next) => {
     }
     const result = await ensureSkillSuggestionFromTask(req.userId, {
       taskId: String(task._id),
-      name: String(req.body?.title || task.goal || "Task run").trim().slice(0, 120),
+      name: String(req.body?.title || task.goal || "Learned workflow").trim().slice(0, 120),
       minSteps: 1,
     });
     if (!result) {

@@ -159,7 +159,7 @@ export function LiveScreen({
       setDemoNotice({
         tone: "success",
         text: wasTeaching
-          ? `Skill demonstration saved (${demonstration.stepCount ?? "?"} steps) — convert it to a skill on Skills.`
+          ? `Skill draft saved (${demonstration.stepCount ?? "?"} steps) — edit it on Skills.`
           : `Demonstration saved (${demonstration.stepCount ?? "?"} steps) — convert it to a skill on Skills.`,
         href: "/skills",
       });
@@ -170,7 +170,7 @@ export function LiveScreen({
     if (wasTeaching) {
       setDemoNotice({
         tone: "warn",
-        text: "Teaching ended, but no demonstration was saved. Try Teach skill again while the agent is online.",
+        text: "Teaching ended, but no skill was saved. Try Teach skill again and perform at least one click or type.",
         href: "/skills",
       });
     } else if (recordDemo) {

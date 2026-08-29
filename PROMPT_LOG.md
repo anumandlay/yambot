@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-29 13:00] Skills page — drop suggested drafts; Teach skill only
+
+- **Prompt Provided:** /skills shows lots of suggested; do not save suggested — only skills from Teach skill
+- **Architectural Flow:** GET /api/skills purges draft/training skills named Suggested:* or description Learned from task:. Done teaching now creates a draft skill from the demo. Convert-from-demo no longer revives task suggestions. /learn keeps intentional drafts without Suggested: prefix.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/skillSuggestion.js`, `backend/src/utils/demoSession.js`, `backend/src/routes/skills.js`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/components/LiveScreen.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-29 12:35] Chat live screen stuck on STARTING…
 
 - **Prompt Provided:** in chat page, the live screen showing STARTING…

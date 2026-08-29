@@ -1154,8 +1154,8 @@ export const HELP = {
   "chat.teachSkill": {
     title: "Teach skill",
     body: helpBody(
-      "Pauses the agent and records your clicks, typing, and navigation as a Demonstration.",
-      "Perform the workflow once, click Done teaching, then convert the demo to a skill on the Skills page."
+      "Pauses the agent and records your clicks, typing, and navigation as a draft skill.",
+      "Perform the workflow once, click Done teaching — the skill appears under Skills (no auto-suggested drafts from runs)."
     ),
   },
   "chat.zoomChat": {
@@ -1655,8 +1655,8 @@ export const HELP = {
   "skills.page": {
     title: "Skills",
     body: helpBody(
-      "Reusable playbooks you create yourself (New skill, Generate with AI, or /learn in chat).",
-      "Runs do not create suggested workflows. Set status to production when triggers and playbook are ready."
+      "Reusable playbooks from Teach skill, New skill, Generate with AI, or /learn in chat.",
+      "Auto-suggested drafts from old runs are removed. Set status to production when triggers and playbook are ready."
     ),
     learnMore: "howto-skills",
   },

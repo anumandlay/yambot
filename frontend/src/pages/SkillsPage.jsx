@@ -1,7 +1,8 @@
 /**
- * @fileoverview Skills dashboard — manual skill library and training requests.
- * Purpose: Create/edit skills yourself (New skill, Generate with AI, /learn). No auto suggested workflows.
- * Downstream: `/api/skills`, LiveScreen Teach skill (optional), SkillEditPage.
+ * @fileoverview Skills dashboard — Teach skill drafts, manual library, training requests.
+ * Purpose: Show skills you authored (Teach skill, New skill, Generate with AI, /learn).
+ * Auto Suggested:* drafts from old task runs are purged on load.
+ * Downstream: `/api/skills`, LiveScreen Teach skill, SkillEditPage.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -104,9 +105,10 @@ export function SkillsPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Skills</h1>
           <p className="text-sm text-teal-900/70">
-            Create skills manually with <strong>New skill</strong>, <strong>Generate with AI</strong>, or{" "}
-            <strong>/learn</strong> in chat. Runs do not create suggested workflows. Promote a draft to{" "}
-            <strong>production</strong> when ready.
+            Skills come from <strong>Teach skill</strong> on the live screen, or{" "}
+            <strong>New skill</strong> / <strong>Generate with AI</strong> / <strong>/learn</strong>.
+            Old auto-suggested drafts are removed. Promote a draft to <strong>production</strong> when
+            ready.
           </p>
         </div>
         <Link
@@ -201,7 +203,7 @@ export function SkillsPage() {
           Skill library
         </SectionTitle>
         <p className="text-xs text-teal-900/50">
-          Your skills — create with New skill / Generate with AI, then set status to production when ready.
+          Your skills — Teach skill saves a draft automatically; set status to production when ready.
         </p>
         <form onSubmit={createSkill} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">

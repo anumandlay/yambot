@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unified skill draft helper — one draft + demonstration when user opts in.
+ * @fileoverview Unified skill draft helper — Teach skill drafts + explicit /learn.
  * Purpose: Teach skill finish, convert-demo, and explicit /learn (not auto on task complete).
  * Downstream: skills routes, demoSession finish, skillLearn /learn.
  */
@@ -86,7 +86,92 @@ function demoHasHumanReplaySteps(demoSteps) {
 }
 
 /**
- * Links a Teach-skill demonstration to an existing task draft (or enriches steps).
+ * True when a skill was auto-drafted from a task run (not Teach skill / New skill / /learn name).
+ * Why: Suggested:* drafts flooded /skills; only intentional teaches should remain.
+ * @param {{ name?: string, description?: string, status?: string }|null|undefined} skill
+ * @returns {boolean}
+ */
+export function isAutoSuggestedSkill(skill) {
+  if (!skill) return false;
+  const status = String(skill.status || "draft");
+  if (status === "production" || status === "deprecated") return false;
+  const name = String(skill.name || "");
+  const description = String(skill.description || "");
+  if (/^Suggested:\s*/i.test(name)) return true;
+  if (/^Learned from task:/i.test(description)) return true;
+  return false;
+}
+
+/**
+ * Deletes draft/training auto-suggested skills for a user.
+ * @param {string} userId
+ * @returns {Promise<number>} deleted count
+ */
+export async function purgeAutoSuggestedSkills(userId) {
+  const rows = await Skill.find({
+    user: userId,
+    status: { $in: ["draft", "training"] },
+  })
+    .select("_id name description status sourceDemonstration")
+    .lean();
+  const ids = rows.filter(isAutoSuggestedSkill).map((s) => s._id);
+  if (!ids.length) return 0;
+  await Demonstration.updateMany(
+    { user: userId, convertedSkill: { $in: ids } },
+    { $unset: { convertedSkill: "" } }
+  );
+  const result = await Skill.deleteMany({ _id: { $in: ids }, user: userId });
+  return result.deletedCount || 0;
+}
+
+/**
+ * Creates (or returns) a draft skill from a Teach-skill demonstration.
+ * Why: Done teaching should persist a skill; task auto-suggestions must not.
+ * @param {string} userId
+ * @param {import('mongoose').Document} demo
+ * @returns {Promise<import('mongoose').Document|null>}
+ */
+export async function createDraftSkillFromTeachDemo(userId, demo) {
+  if (!demo) return null;
+  if (demo.convertedSkill) {
+    const existing = await Skill.findOne({ _id: demo.convertedSkill, user: userId });
+    if (existing && !isAutoSuggestedSkill(existing)) return existing;
+  }
+
+  const actionable = (demo.steps || []).filter((s) => {
+    const t = s?.action?.type;
+    return t && t !== "session";
+  });
+  if (!actionable.length) return null;
+
+  const { steps, executionMode } = demoStepsToSkillSteps(demo.steps);
+  if (!steps.length) return null;
+
+  const name = String(demo.title || "Taught skill")
+    .replace(/^Skill:\s*/i, "")
+    .trim()
+    .slice(0, 120) || "Taught skill";
+  const slug = await allocateSkillSlug(userId, name, "");
+  const skill = await Skill.create({
+    user: userId,
+    agent: demo.agent || null,
+    name,
+    slug,
+    description: `Taught from demonstration: ${String(demo.title || "").slice(0, 160)}`,
+    status: "draft",
+    steps,
+    executionMode,
+    verificationRules: ["Replay steps without error", "Match success criteria"],
+    sourceDemonstration: demo._id,
+    sourceTask: demo.task || null,
+  });
+  demo.convertedSkill = skill._id;
+  await demo.save();
+  return skill;
+}
+
+/**
+ * Links a Teach-skill demonstration to an existing intentional draft (or enriches steps).
  * @param {string} userId
  * @param {import('mongoose').Document} demo
  */
@@ -97,7 +182,7 @@ export async function linkDemonstrationToTaskDraft(userId, demo) {
     sourceTask: demo.task,
     status: { $in: ["draft", "training"] },
   });
-  if (!skill) return null;
+  if (!skill || isAutoSuggestedSkill(skill)) return null;
 
   if (skill.status === "training") {
     skill.status = "draft";
@@ -171,9 +256,8 @@ export async function ensureSkillSuggestionFromTask(userId, opts = {}) {
   let created = false;
 
   if (!skill) {
-    const name = String(
-      opts.name || `Suggested: ${String(task.goal || "workflow").slice(0, 48)}`
-    )
+    // Why: never prefix Suggested: — /learn and explicit convert are intentional drafts.
+    const name = String(opts.name || task.goal || "Learned workflow")
       .trim()
       .slice(0, 120);
     const slug = await allocateSkillSlug(userId, name, opts.slug || "");
@@ -191,7 +275,7 @@ export async function ensureSkillSuggestionFromTask(userId, opts = {}) {
       agent: task.agent || null,
       name,
       slug,
-      description: `Learned from task: ${String(task.goal || "").slice(0, 160)}`,
+      description: `Learned via /learn: ${String(task.goal || "").slice(0, 160)}`,
       playbookMd: trajectoryToPlaybookMd(task),
       status: "draft",
       steps,
