@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 15:50] Architect saved businesses show createdAt
+
+- **Prompt Provided:** /architect saved business section need date and time when those businesses are created
+- **Architectural Flow:** GET /api/architect includes createdAt; Saved businesses list shows locale date/time next to status.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/architect.js`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-30 15:40] Architect Approve fix + Agent runs pages
 
 - **Prompt Provided:** Architecture message but no Approve button / draft stuck; need status page per agent (when ran + final reply) and filtered all-agents runs page.

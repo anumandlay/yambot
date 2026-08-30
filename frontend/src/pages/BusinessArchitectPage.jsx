@@ -765,15 +765,18 @@ export function BusinessArchitectPage() {
       {savedList.length ? (
         <div className="rounded-xl border border-teal-100 bg-teal-50/40 p-3 text-xs">
           <p className="font-bold uppercase tracking-wide text-teal-900/60">Saved businesses</p>
-          <ul className="mt-2 flex flex-col gap-1">
+          <ul className="mt-2 flex flex-col gap-2">
             {savedList.slice(0, 8).map((b) => (
-              <li key={b._id}>
+              <li key={b._id} className="flex flex-col gap-0.5 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-2">
                 <Link className="font-semibold text-teal-800 underline" to={`/architect?id=${b._id}`}>
                   {b.title || b.objective || b._id}
-                </Link>{" "}
+                </Link>
                 <span className="text-teal-800/50">
                   {b.status}
                   {b.agentCount ? ` · ${b.agentCount} agents` : ""}
+                  {b.createdAt
+                    ? ` · created ${new Date(b.createdAt).toLocaleString()}`
+                    : ""}
                 </span>
               </li>
             ))}

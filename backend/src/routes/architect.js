@@ -123,7 +123,7 @@ architectRouter.get("/", async (req, res, next) => {
     const rows = await BusinessBlueprint.find({ user: req.userId })
       .sort({ updatedAt: -1 })
       .limit(50)
-      .select("title status stage builtAt updatedAt understanding.objective createdAgentIds")
+      .select("title status stage builtAt createdAt updatedAt understanding.objective createdAgentIds")
       .lean();
     res.json({
       ok: true,
@@ -133,6 +133,7 @@ architectRouter.get("/", async (req, res, next) => {
         status: r.status,
         stage: r.stage,
         objective: r.understanding?.objective || "",
+        createdAt: r.createdAt,
         builtAt: r.builtAt,
         updatedAt: r.updatedAt,
         agentCount: (r.createdAgentIds || []).length,
