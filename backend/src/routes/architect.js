@@ -61,14 +61,47 @@ function publicDoc(doc) {
 
 architectRouter.post("/chat", async (req, res, next) => {
   try {
-    const result = await chatArchitect(req.userId, {
+    const body = {
       messages: req.body?.messages,
       profileId: req.body?.profileId,
       answers: req.body?.answers,
       understandingConfirmed: req.body?.understandingConfirmed,
       understandingRejected: req.body?.understandingRejected,
       blueprintId: req.body?.blueprintId,
-    });
+    };
+
+    // Why: NDJSON stream lets the UI show live steps (LLM send/recv) during long design.
+    const stream = req.body?.stream === true || req.query?.stream === "1";
+    if (stream) {
+      res.status(200);
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+      const writeLine = (obj) => {
+        if (res.writableEnded) return;
+        res.write(`${JSON.stringify(obj)}\n`);
+        if (typeof res.flush === "function") res.flush();
+      };
+
+      const result = await chatArchitect(req.userId, body, {
+        onProgress: (step) => {
+          writeLine({ type: "progress", ...step });
+        },
+      });
+
+      if (!result.ok) {
+        writeLine({ type: "error", ...result });
+        res.end();
+        return;
+      }
+      writeLine({ type: "result", ...result });
+      res.end();
+      return;
+    }
+
+    const result = await chatArchitect(req.userId, body);
     if (!result.ok) {
       res.status(400).json(result);
       return;

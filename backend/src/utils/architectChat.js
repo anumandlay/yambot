@@ -333,7 +333,24 @@ async function loadExistingAgentsSummary(userId) {
  * @param {{ understanding: object, transcript: string, answers: object, existingAgents: object[] }} ctx
  * @returns {Promise<object|null>}
  */
+/**
+ * Emit a progress step for streaming clients (no-op if callback missing).
+ * @param {((step: { id: string, label: string, pct: number }) => void)|undefined} onProgress
+ * @param {string} id
+ * @param {string} label
+ * @param {number} pct
+ */
+function emitProgress(onProgress, id, label, pct) {
+  if (typeof onProgress !== "function") return;
+  try {
+    onProgress({ id, label, pct: Math.max(0, Math.min(100, Math.round(pct))) });
+  } catch {
+    /* ignore client write failures mid-stream */
+  }
+}
+
 async function generateDesignBlueprint(creds, ctx) {
+  const onProgress = ctx.onProgress;
   const system = [
     "You are YamBot's Business Architect designer.",
     "The user already confirmed the business understanding. Output JSON ONLY:",
@@ -344,6 +361,7 @@ async function generateDesignBlueprint(creds, ctx) {
   ].join("\n");
 
   try {
+    emitProgress(onProgress, "design_send", "Sending design request to LLM…", 62);
     const raw = await llmChatCompletion({
       apiKey: creds.apiKey,
       baseUrl: creds.llmBaseUrl,
@@ -374,6 +392,8 @@ async function generateDesignBlueprint(creds, ctx) {
         },
       ],
     });
+    emitProgress(onProgress, "design_recv", "Received design response from LLM", 78);
+    emitProgress(onProgress, "design_parse", "Parsing agents, workflow graph, and checklist…", 85);
     const parsed = parseJsonObject(raw);
     if (!parsed?.blueprint) return null;
     const bp = normalizeArchitectBlueprint(parsed.blueprint, ctx.answers);
@@ -393,8 +413,10 @@ async function generateDesignBlueprint(creds, ctx) {
  * One Architect turn.
  * @param {string} userId
  * @param {object} body
+ * @param {{ onProgress?: (step: { id: string, label: string, pct: number }) => void }} [opts]
  */
-export async function chatArchitect(userId, body = {}) {
+export async function chatArchitect(userId, body = {}, opts = {}) {
+  const onProgress = opts.onProgress;
   const messages = normalizeMessages(body.messages);
   if (!messages.length) {
     return {
@@ -404,15 +426,26 @@ export async function chatArchitect(userId, body = {}) {
     };
   }
 
+  emitProgress(
+    onProgress,
+    "prepare",
+    body.understandingConfirmed
+      ? "Preparing full blueprint…"
+      : "Preparing Architect reply…",
+    5
+  );
+
   const user = await User.findById(userId);
   if (!user) {
     return { ok: false, title: "User missing", detail: "Could not load your account." };
   }
 
+  emitProgress(onProgress, "creds", "Loading LLM profile and credentials…", 12);
   const resolved = await resolvePlannerCreds(user, body.profileId);
   if (resolved.error) return resolved.error;
   const { creds } = resolved;
 
+  emitProgress(onProgress, "agents", "Loading your existing agents for reuse checks…", 18);
   const existingAgents = await loadExistingAgentsSummary(userId);
   const understandingConfirmed = body.understandingConfirmed === true;
   const understandingRejected = body.understandingRejected === true;
@@ -420,6 +453,7 @@ export async function chatArchitect(userId, body = {}) {
   /** @type {import('mongoose').Document|null} */
   let doc = null;
   if (body.blueprintId) {
+    emitProgress(onProgress, "draft", "Loading saved blueprint draft…", 22);
     doc = await BusinessBlueprint.findOne({ _id: body.blueprintId, user: userId });
   }
 
@@ -467,6 +501,14 @@ export async function chatArchitect(userId, body = {}) {
 
   let raw;
   try {
+    emitProgress(
+      onProgress,
+      "llm_send",
+      understandingConfirmed
+        ? "Sent blueprint request to LLM — waiting for response…"
+        : "Sent request to LLM — waiting for response…",
+      30
+    );
     raw = await llmChatCompletion({
       apiKey: creds.apiKey,
       baseUrl: creds.llmBaseUrl,
@@ -499,6 +541,7 @@ export async function chatArchitect(userId, body = {}) {
         },
       ],
     });
+    emitProgress(onProgress, "llm_recv", "Received response from LLM", 55);
   } catch (err) {
     return {
       ok: false,
@@ -508,6 +551,7 @@ export async function chatArchitect(userId, body = {}) {
     };
   }
 
+  emitProgress(onProgress, "parse", "Parsing Architect reply…", 58);
   const parsed = parseJsonObject(raw);
   if (!parsed) {
     return {
@@ -564,6 +608,12 @@ export async function chatArchitect(userId, body = {}) {
   // Why: user clicked "Yes, correct — design it" but many models stay on understanding.
   // Run a dedicated design pass so the UI always advances to the blueprint panel.
   if (understandingConfirmed && stage !== "ready") {
+    emitProgress(
+      onProgress,
+      "design_retry",
+      "First reply incomplete — running dedicated design pass…",
+      60
+    );
     const designed = await generateDesignBlueprint(creds, {
       understanding:
         understanding.objective
@@ -572,6 +622,7 @@ export async function chatArchitect(userId, body = {}) {
       transcript,
       answers: body.answers,
       existingAgents,
+      onProgress,
     });
     if (designed?.blueprint) {
       stage = "ready";
@@ -588,6 +639,7 @@ export async function chatArchitect(userId, body = {}) {
     }
   }
 
+  emitProgress(onProgress, "save", "Saving blueprint draft…", 92);
   // Persist draft blueprint document
   const title =
     understanding.objective.slice(0, 120) ||
@@ -629,6 +681,13 @@ export async function chatArchitect(userId, body = {}) {
     if (stage !== "ready") doc.status = "draft";
   }
   await doc.save();
+
+  emitProgress(
+    onProgress,
+    "done",
+    stage === "ready" ? "Blueprint ready" : "Reply ready",
+    100
+  );
 
   return {
     ok: true,

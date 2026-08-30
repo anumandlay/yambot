@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 03:20] Architect live design progress bar
+
+- **Prompt Provided:** no progress on page — need progress bar (preparing blueprint, sent to LLM, received response, etc.)
+- **Architectural Flow:** `/api/architect/chat` with `stream:true` emits NDJSON progress events from chatArchitect; frontend `apiNdjson` + ArchitectProgressPanel shows bar + step checklist during design/chat.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/architectChat.js`, `backend/src/routes/architect.js`, `frontend/src/lib/api.js`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-30 03:10] Architect confirm → design stuck fix
 
 - **Prompt Provided:** click Yes correct design it — stayed on same page

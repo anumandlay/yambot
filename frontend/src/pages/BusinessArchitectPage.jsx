@@ -6,7 +6,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
-import { api } from "../lib/api.js";
+import { api, apiNdjson } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { PageGuideBanner } from "../components/FieldLabel.jsx";
 import { ArchitectOpsHub } from "../components/ArchitectOpsHub.jsx";
@@ -15,6 +15,69 @@ const PROFILE_KEY = "yambot.architect.llmProfileId";
 
 const WELCOME =
   "Describe the business outcome you want in plain English. I’ll ask only what’s necessary, confirm my understanding, then show a full architecture — nothing is created until you Approve & Build.";
+
+/**
+ * Live design / chat progress with bar + step checklist from NDJSON stream.
+ * @param {{ steps: { id: string, label: string, pct: number }[], pct: number, title?: string }} props
+ */
+function ArchitectProgressPanel({ steps, pct, title = "Working…" }) {
+  const latest = steps[steps.length - 1];
+  return (
+    <section
+      className="rounded-2xl border border-teal-200 bg-teal-50/90 p-4 text-sm text-teal-950 shadow-sm"
+      aria-live="polite"
+      aria-busy="true"
+    >
+      <div className="flex items-center justify-between gap-3">
+        <p className="font-semibold">{title}</p>
+        <span className="tabular-nums text-xs font-semibold text-teal-800/80">{pct}%</span>
+      </div>
+      <div
+        className="mt-3 h-2.5 w-full overflow-hidden rounded-full bg-teal-900/10"
+        role="progressbar"
+        aria-valuemin={0}
+        aria-valuemax={100}
+        aria-valuenow={pct}
+        aria-label={latest?.label || title}
+      >
+        <div
+          className="h-full rounded-full bg-teal-700 transition-[width] duration-500 ease-out"
+          style={{ width: `${Math.max(4, Math.min(100, pct))}%` }}
+        />
+      </div>
+      {latest ? (
+        <p className="mt-2 text-xs font-medium text-teal-900/85">{latest.label}</p>
+      ) : (
+        <p className="mt-2 text-xs text-teal-900/70">Starting…</p>
+      )}
+      {steps.length ? (
+        <ol className="mt-3 max-h-40 space-y-1.5 overflow-y-auto border-t border-teal-200/80 pt-3 text-xs text-teal-900/75">
+          {steps.map((s, i) => {
+            const done = i < steps.length - 1 || pct >= 100;
+            const active = i === steps.length - 1 && pct < 100;
+            return (
+              <li key={`${s.id}-${i}`} className="flex gap-2">
+                <span
+                  className={`mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-bold ${
+                    done
+                      ? "bg-teal-700 text-white"
+                      : active
+                        ? "border border-teal-600 text-teal-800"
+                        : "border border-teal-300 text-teal-400"
+                  }`}
+                  aria-hidden
+                >
+                  {done ? "✓" : active ? "…" : "·"}
+                </span>
+                <span className={active ? "font-semibold text-teal-950" : ""}>{s.label}</span>
+              </li>
+            );
+          })}
+        </ol>
+      ) : null}
+    </section>
+  );
+}
 
 /**
  * Simple top-down SVG flowchart from graph nodes/edges.
@@ -370,9 +433,32 @@ export function BusinessArchitectPage() {
   const [busy, setBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
   const [simBusy, setSimBusy] = useState(false);
+  /** @type {[ { id: string, label: string, pct: number }[], Function ]} */
+  const [progressSteps, setProgressSteps] = useState([]);
+  const [progressPct, setProgressPct] = useState(0);
   const bottomRef = useRef(null);
 
   const showOps = Boolean(blueprintId && (created || searchParams.get("id")));
+
+  /**
+   * Append a streamed progress step (dedupe same id label spam).
+   * @param {{ id: string, label: string, pct: number }} step
+   */
+  function pushProgress(step) {
+    setProgressPct(step.pct);
+    setProgressSteps((prev) => {
+      const last = prev[prev.length - 1];
+      if (last && last.id === step.id && last.label === step.label) {
+        return prev.map((s, i) => (i === prev.length - 1 ? { ...s, pct: step.pct } : s));
+      }
+      return [...prev, { id: step.id, label: step.label, pct: step.pct }];
+    });
+  }
+
+  function clearProgress() {
+    setProgressSteps([]);
+    setProgressPct(0);
+  }
 
   useEffect(() => {
     document.title = "Business Architect · YamBot";
@@ -418,7 +504,7 @@ export function BusinessArchitectPage() {
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages, pendingRequirements, understanding, blueprint, busy]);
+  }, [messages, pendingRequirements, understanding, blueprint, busy, progressSteps]);
 
   /**
    * @param {object[]} nextMessages
@@ -427,18 +513,20 @@ export function BusinessArchitectPage() {
   async function runChat(nextMessages, opts = {}) {
     setBusy(true);
     setError(null);
+    clearProgress();
+    pushProgress({ id: "start", label: "Preparing Architect reply…", pct: 3 });
     try {
-      const data = await api("/api/architect/chat", {
-        method: "POST",
-        body: JSON.stringify({
+      const data = await apiNdjson("/api/architect/chat", {
+        body: {
           messages: nextMessages.filter((m) => m.role === "user" || m.role === "assistant"),
           profileId: profileId || undefined,
           answers: opts.answers ?? answers,
           understandingConfirmed: opts.understandingConfirmed === true,
           understandingRejected: opts.understandingRejected === true,
           blueprintId: blueprintId || undefined,
-        }),
+        },
         timeoutMs: 120_000,
+        onProgress: pushProgress,
       });
       const reply = String(data.assistantMessage || "").trim() || "…";
       setMessages([...nextMessages, { role: "assistant", content: reply }]);
@@ -452,6 +540,7 @@ export function BusinessArchitectPage() {
       setError(err);
     } finally {
       setBusy(false);
+      clearProgress();
     }
   }
 
@@ -505,17 +594,19 @@ export function BusinessArchitectPage() {
     setStage("designing");
     setBusy(true);
     setError(null);
+    clearProgress();
+    pushProgress({ id: "start", label: "Preparing full blueprint…", pct: 2 });
     try {
-      const data = await api("/api/architect/chat", {
-        method: "POST",
-        body: JSON.stringify({
+      const data = await apiNdjson("/api/architect/chat", {
+        body: {
           messages: next.filter((m) => m.role === "user" || m.role === "assistant"),
           profileId: profileId || undefined,
           answers,
           understandingConfirmed: true,
           blueprintId: blueprintId || undefined,
-        }),
+        },
         timeoutMs: 180_000,
+        onProgress: pushProgress,
       });
       const reply = String(data.assistantMessage || "").trim() || "…";
       setMessages([...next, { role: "assistant", content: reply }]);
@@ -526,7 +617,6 @@ export function BusinessArchitectPage() {
       setBlueprint(data.blueprint || null);
       if (data.blueprintId) setBlueprintId(data.blueprintId);
       if (data.stage === "ready" && data.blueprint) {
-        // scroll into view of blueprint after paint
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
       }
     } catch (err) {
@@ -534,6 +624,7 @@ export function BusinessArchitectPage() {
       setStage("understanding");
     } finally {
       setBusy(false);
+      clearProgress();
     }
   }
 
@@ -840,13 +931,16 @@ export function BusinessArchitectPage() {
             </section>
           ) : null}
 
-          {stage === "designing" || (busy && !blueprint && !understanding && !pendingRequirements.length) ? (
-            <section className="rounded-2xl border border-teal-200 bg-teal-50/80 p-4 text-sm text-teal-950">
-              <p className="font-semibold">Designing your architecture…</p>
-              <p className="mt-1 text-xs text-teal-900/70">
-                Building the workflow diagram, agents, triggers, and checklist. This can take up to a minute.
-              </p>
-            </section>
+          {stage === "designing" ||
+          (busy && progressSteps.length > 0) ||
+          (busy && !blueprint && !understanding && !pendingRequirements.length) ? (
+            <ArchitectProgressPanel
+              steps={progressSteps}
+              pct={progressPct}
+              title={
+                stage === "designing" ? "Designing your architecture…" : "Architect is working…"
+              }
+            />
           ) : null}
 
           {stage === "understanding" && understanding ? (
