@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 01:20] Business setup — English brief → plan → create
+
+- **Prompt Provided:** Big text box for plain-English business idea; AI explains agents/triggers/schedules/APIs before building; multi-agent handoffs (promo → reply → agent 2); daily schedules; API GET/POST patterns.
+- **Architectural Flow:** `/business` → POST `/api/business/plan` (LLM structured plan, no side effects) → user reviews explanation/agents/triggers/apis → POST `/api/business/apply` creates Agents (schedules, httpAllowHosts) + Triggers. Sidebar + Start page entry.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/businessPlanFromBrief.js`, `backend/src/utils/applyBusinessPlan.js`, `backend/src/routes/business.js`, `backend/src/index.js`, `frontend/src/pages/BusinessSetupPage.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/pages/StartPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-29 16:25] System page — browser data sizes + Clear
 
 - **Prompt Provided:** also in page /system, show the same button and size

@@ -28,6 +28,20 @@ export const HELP = {
     ),
     learnMore: "getting-started",
   },
+  "nav.business": {
+    title: "Business setup",
+    body: helpBody(
+      "Describe your whole workflow in plain English. The AI proposes agents, schedules, triggers, and API steps — you review before anything is created.",
+      "Use this when you need multi-agent handoffs (e.g. promo email → reply → follow-up agent) or daily schedules without filling forms by hand."
+    ),
+  },
+  "business.page": {
+    title: "Business setup",
+    body: helpBody(
+      "1) Write your business idea. 2) Show me the plan — AI explains agents, triggers, and schedules. 3) Looks good — build it creates them.",
+      "Secrets (SMTP, API keys) are listed under “You still need to provide” — add those on each agent after create. Triggers appear under Operations."
+    ),
+  },
   "nav.agentActions": {
     title: "Agent actions",
     body: helpBody(

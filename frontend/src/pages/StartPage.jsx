@@ -34,6 +34,20 @@ export function StartPage() {
 
       <GettingStartedCard />
 
+      <section className="rounded-2xl border border-amber-200 bg-amber-50/50 p-4 text-sm text-teal-900/80">
+        <h2 className="font-bold text-teal-950">Have a whole business workflow?</h2>
+        <p className="mt-1 leading-relaxed">
+          Describe it in plain English — agents, daily schedules, “when they reply” handoffs, and APIs.
+          The AI shows the plan first; you confirm before anything is built.
+        </p>
+        <Link
+          to="/business"
+          className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-teal-800 px-4 text-sm font-semibold text-white"
+        >
+          Open Business setup
+        </Link>
+      </section>
+
       <section className="rounded-2xl border border-teal-100 bg-white p-4 text-sm text-teal-900/75">
         <h2 className="font-bold text-teal-950">How it works</h2>
         <ol className="mt-2 list-decimal space-y-1 pl-5">
