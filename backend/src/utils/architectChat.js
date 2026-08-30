@@ -327,6 +327,69 @@ async function loadExistingAgentsSummary(userId) {
 }
 
 /**
+ * Dedicated design pass — used when the user confirmed understanding but the chat
+ * turn did not return a usable blueprint (models often stay on "understanding").
+ * @param {object} creds
+ * @param {{ understanding: object, transcript: string, answers: object, existingAgents: object[] }} ctx
+ * @returns {Promise<object|null>}
+ */
+async function generateDesignBlueprint(creds, ctx) {
+  const system = [
+    "You are YamBot's Business Architect designer.",
+    "The user already confirmed the business understanding. Output JSON ONLY:",
+    '{ "assistantMessage": "...", "blueprint": { summary, graph, components, checklist, branches, failureHandling, humanApprovals, reuse, uiMap, plan } }',
+    "plan MUST include agents[] (1–4) with key,name,skill,profile,instructions,successCriteria,schedule,policy.httpAllowHosts,needsEmail;",
+    "and triggers[] / apis[] as needed. Fill graph nodes/edges and uiMap.",
+    "Do not ask questions. Do not return stage gathering/understanding.",
+  ].join("\n");
+
+  try {
+    const raw = await llmChatCompletion({
+      apiKey: creds.apiKey,
+      baseUrl: creds.llmBaseUrl,
+      model: creds.llmModel,
+      openAiAccountId: creds.openAiAccountId || creds.oauthAccount || "",
+      temperature: 0.2,
+      maxTokens: 6000,
+      timeoutMs: 100_000,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            "CONFIRMED_UNDERSTANDING:",
+            JSON.stringify(ctx.understanding || {}),
+            "",
+            "ANSWERS:",
+            summarizeAnswersForPrompt(ctx.answers),
+            "",
+            "EXISTING_AGENTS:",
+            JSON.stringify(ctx.existingAgents || []).slice(0, 4000),
+            "",
+            "CONVERSATION:",
+            String(ctx.transcript || "").slice(0, 12_000),
+            "",
+            "Design the full executable blueprint now.",
+          ].join("\n"),
+        },
+      ],
+    });
+    const parsed = parseJsonObject(raw);
+    if (!parsed?.blueprint) return null;
+    const bp = normalizeArchitectBlueprint(parsed.blueprint, ctx.answers);
+    if (!bp?.plan?.agents?.length) return null;
+    return {
+      blueprint: bp,
+      assistantMessage:
+        String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
+        "Here is the full architecture. Review it, then Approve & Build.",
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
  * One Architect turn.
  * @param {string} userId
  * @param {object} body
@@ -466,26 +529,64 @@ export async function chatArchitect(userId, body = {}) {
     }
   }
 
-  const understanding = normalizeUnderstanding(parsed.understanding);
-  const pendingRequirements =
+  let understanding = normalizeUnderstanding(parsed.understanding);
+  // Why: after confirm, keep prior understanding if the model returns an empty one.
+  if (
+    understandingConfirmed &&
+    !understanding.objective &&
+    doc?.understanding?.objective
+  ) {
+    understanding = normalizeUnderstanding(doc.understanding);
+  }
+
+  let pendingRequirements =
     stage === "ready" ? [] : normalizePendingRequirements(parsed);
 
   let blueprint = null;
-  if (stage === "ready" && parsed.blueprint) {
+  if ((stage === "ready" || understandingConfirmed) && parsed.blueprint) {
     blueprint = normalizeArchitectBlueprint(parsed.blueprint, body.answers);
-    if (!blueprint?.plan?.agents?.length) {
-      stage = "gathering";
+    if (blueprint?.plan?.agents?.length) {
+      stage = "ready";
+      pendingRequirements = [];
+    } else {
       blueprint = null;
     }
   }
 
-  const assistantMessage =
+  let assistantMessage =
     String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
     (stage === "understanding"
       ? "Here’s what I understand — please confirm or correct me."
       : stage === "ready"
         ? "Here is the full architecture. Review it, then Approve & Build."
         : "Tell me a bit more so I can design this correctly.");
+
+  // Why: user clicked "Yes, correct — design it" but many models stay on understanding.
+  // Run a dedicated design pass so the UI always advances to the blueprint panel.
+  if (understandingConfirmed && stage !== "ready") {
+    const designed = await generateDesignBlueprint(creds, {
+      understanding:
+        understanding.objective
+          ? understanding
+          : normalizeUnderstanding(doc?.understanding) || understanding,
+      transcript,
+      answers: body.answers,
+      existingAgents,
+    });
+    if (designed?.blueprint) {
+      stage = "ready";
+      blueprint = designed.blueprint;
+      pendingRequirements = [];
+      assistantMessage = designed.assistantMessage;
+      if (!understanding.objective && doc?.understanding) {
+        understanding = normalizeUnderstanding(doc.understanding);
+      }
+    } else if (!pendingRequirements.length) {
+      assistantMessage =
+        "I confirmed your understanding but could not finish the architecture design. Click “Yes, correct — design it” again, or add one more detail in chat.";
+      stage = "understanding";
+    }
+  }
 
   // Persist draft blueprint document
   const title =
@@ -500,7 +601,10 @@ export async function chatArchitect(userId, body = {}) {
       status: "draft",
       stage,
       profileId: creds.profileId || "",
-      messages: messages.map((m) => ({ ...m, at: new Date() })),
+      messages: [
+        ...messages.map((m) => ({ ...m, at: new Date() })),
+        { role: "assistant", content: assistantMessage, at: new Date() },
+      ].slice(-50),
       understanding: {
         ...understanding,
         confirmed: understandingConfirmed && stage === "ready",
@@ -531,7 +635,8 @@ export async function chatArchitect(userId, body = {}) {
     stage,
     assistantMessage,
     pendingRequirements,
-    understanding: stage === "understanding" || stage === "ready" ? understanding : null,
+    // Why: hide understanding card once we have a ready blueprint.
+    understanding: stage === "understanding" ? understanding : null,
     blueprint: publicArchitectBlueprint(blueprint),
     blueprintId: String(doc._id),
     profileId: creds.profileId || "",

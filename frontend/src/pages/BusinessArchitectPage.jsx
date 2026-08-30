@@ -499,7 +499,42 @@ export function BusinessArchitectPage() {
       { role: "user", content: "Yes — your understanding is correct. Please design the full architecture." },
     ];
     setMessages(next);
-    await runChat(next, { understandingConfirmed: true });
+    // Why: hide the confirm card immediately so it doesn't look like nothing happened.
+    setUnderstanding(null);
+    setBlueprint(null);
+    setStage("designing");
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api("/api/architect/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          messages: next.filter((m) => m.role === "user" || m.role === "assistant"),
+          profileId: profileId || undefined,
+          answers,
+          understandingConfirmed: true,
+          blueprintId: blueprintId || undefined,
+        }),
+        timeoutMs: 180_000,
+      });
+      const reply = String(data.assistantMessage || "").trim() || "…";
+      setMessages([...next, { role: "assistant", content: reply }]);
+      setStage(data.stage || "gathering");
+      setPendingRequirements(Array.isArray(data.pendingRequirements) ? data.pendingRequirements : []);
+      setReqDraft({});
+      setUnderstanding(data.understanding || null);
+      setBlueprint(data.blueprint || null);
+      if (data.blueprintId) setBlueprintId(data.blueprintId);
+      if (data.stage === "ready" && data.blueprint) {
+        // scroll into view of blueprint after paint
+        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
+      }
+    } catch (err) {
+      setError(err);
+      setStage("understanding");
+    } finally {
+      setBusy(false);
+    }
   }
 
   async function onRejectUnderstanding() {
@@ -805,6 +840,15 @@ export function BusinessArchitectPage() {
             </section>
           ) : null}
 
+          {stage === "designing" || (busy && !blueprint && !understanding && !pendingRequirements.length) ? (
+            <section className="rounded-2xl border border-teal-200 bg-teal-50/80 p-4 text-sm text-teal-950">
+              <p className="font-semibold">Designing your architecture…</p>
+              <p className="mt-1 text-xs text-teal-900/70">
+                Building the workflow diagram, agents, triggers, and checklist. This can take up to a minute.
+              </p>
+            </section>
+          ) : null}
+
           {stage === "understanding" && understanding ? (
             <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-950">
               <h2 className="font-bold">Here’s what I understand</h2>
@@ -864,7 +908,7 @@ export function BusinessArchitectPage() {
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={applyBusy}
+                  disabled={applyBusy || simBusy}
                   onClick={() => void onApply()}
                   className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
                 >
@@ -882,6 +926,13 @@ export function BusinessArchitectPage() {
                 </button>
               </div>
             </section>
+          ) : null}
+
+          {stage === "understanding" && !busy && !blueprint ? (
+            <p className="text-xs text-amber-900/80">
+              Still on understanding — if you already confirmed, click{" "}
+              <strong>Yes, correct — design it</strong> again.
+            </p>
           ) : null}
 
           <button

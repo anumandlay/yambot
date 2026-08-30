@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 03:10] Architect confirm → design stuck fix
+
+- **Prompt Provided:** click Yes correct design it — stayed on same page
+- **Architectural Flow:** After understandingConfirmed, if LLM does not return ready blueprint, run dedicated generateDesignBlueprint second pass. UI shows Designing… state, hides confirm card immediately, longer timeout.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/architectChat.js`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-30 03:00] Architect amber form layout fix
 
 - **Prompt Provided:** /architect amber form makes design bad
