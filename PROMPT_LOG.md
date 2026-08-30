@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 03:00] Architect amber form layout fix
+
+- **Prompt Provided:** /architect amber form makes design bad
+- **Architectural Flow:** Moved pendingRequirements form out of the fixed-height chat card into its own scrollable section below; chat composer disabled while form is open; fields in responsive 2-col grid.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-30 02:15] Business Architect Phase 2+ complete
 
 - **Prompt Provided:** do all the phases and complete it

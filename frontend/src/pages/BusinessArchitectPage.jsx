@@ -696,12 +696,12 @@ export function BusinessArchitectPage() {
             Stage: {stage}
           </p>
 
-          <section className="flex max-h-[min(26rem,50vh)] flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
-            <div className="flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
+          <section className="flex min-h-[16rem] max-h-[min(22rem,45vh)] flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
               {messages.map((m, i) => (
                 <div
                   key={`${m.role}-${i}`}
-                  className={`max-w-[95%] rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
+                  className={`max-w-[95%] break-words rounded-2xl px-3 py-2 text-sm leading-relaxed whitespace-pre-wrap ${
                     m.role === "user"
                       ? "ml-auto bg-teal-800 text-white"
                       : "bg-teal-50 text-teal-950"
@@ -716,53 +716,17 @@ export function BusinessArchitectPage() {
               <div ref={bottomRef} />
             </div>
 
-            {pendingRequirements.length ? (
-              <div className="border-t border-amber-200 bg-amber-50/80 p-3">
-                <p className="text-xs font-bold uppercase tracking-wide text-amber-950">
-                  Details needed
-                </p>
-                {pendingRequirements.map((req) => (
-                  <div key={req.id} className="mt-3 space-y-2">
-                    <div className="text-sm font-semibold text-amber-950">{req.title}</div>
-                    {req.detail ? <p className="text-xs text-amber-900/80">{req.detail}</p> : null}
-                    {(req.fields || []).map((f) => (
-                      <label key={f.key} className="flex flex-col gap-1 text-xs">
-                        <span className="font-semibold text-teal-950">{f.label}</span>
-                        <input
-                          type={f.type === "password" || f.secret ? "password" : "text"}
-                          className="min-h-11 rounded-xl border border-amber-200 bg-white px-3 text-sm"
-                          placeholder={f.placeholder || ""}
-                          value={reqDraft[`${req.id}.${f.key}`] || ""}
-                          onChange={(e) =>
-                            setReqDraft((prev) => ({
-                              ...prev,
-                              [`${req.id}.${f.key}`]: e.target.value,
-                            }))
-                          }
-                          autoComplete={f.secret ? "new-password" : "off"}
-                        />
-                      </label>
-                    ))}
-                  </div>
-                ))}
-                <button
-                  type="button"
-                  disabled={busy}
-                  onClick={() => void onSubmitRequirements()}
-                  className="mt-3 inline-flex min-h-11 items-center rounded-xl bg-amber-900 px-4 text-sm font-semibold text-white disabled:opacity-50"
-                >
-                  Submit details
-                </button>
-              </div>
-            ) : null}
-
-            <div className="flex gap-2 border-t border-teal-100 p-3">
+            <div className="flex shrink-0 gap-2 border-t border-teal-100 p-3">
               <textarea
-                className="min-h-11 flex-1 resize-y rounded-xl border border-teal-100 px-3 py-2 text-sm outline-none focus:border-teal-300"
+                className="min-h-11 min-w-0 flex-1 resize-y rounded-xl border border-teal-100 px-3 py-2 text-sm outline-none focus:border-teal-300"
                 rows={2}
                 value={draft}
-                disabled={busy}
-                placeholder="e.g. Contact travel agencies with promo emails and process interested replies…"
+                disabled={busy || pendingRequirements.length > 0}
+                placeholder={
+                  pendingRequirements.length
+                    ? "Fill the details form below first…"
+                    : "e.g. Contact travel agencies with promo emails and process interested replies…"
+                }
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
                   if (e.key === "Enter" && !e.shiftKey) {
@@ -773,7 +737,7 @@ export function BusinessArchitectPage() {
               />
               <button
                 type="button"
-                disabled={busy || !draft.trim()}
+                disabled={busy || !draft.trim() || pendingRequirements.length > 0}
                 onClick={() => void onSend()}
                 className="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-teal-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
@@ -781,6 +745,65 @@ export function BusinessArchitectPage() {
               </button>
             </div>
           </section>
+
+          {pendingRequirements.length ? (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
+              <p className="text-xs font-bold uppercase tracking-wide text-amber-950">
+                Details needed
+              </p>
+              <p className="mt-1 text-xs text-amber-900/75">
+                Answer these so the plan can continue — chat stays above.
+              </p>
+              <div className="mt-3 flex max-h-[min(20rem,40vh)] flex-col gap-4 overflow-y-auto">
+                {pendingRequirements.map((req) => (
+                  <div
+                    key={req.id}
+                    className="rounded-xl border border-amber-200/80 bg-white/90 p-3"
+                  >
+                    <div className="text-sm font-semibold text-amber-950">{req.title}</div>
+                    {req.detail ? (
+                      <p className="mt-1 text-xs leading-relaxed text-amber-900/80">{req.detail}</p>
+                    ) : null}
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
+                      {(req.fields || []).map((f) => (
+                        <label
+                          key={f.key}
+                          className={`flex min-w-0 flex-col gap-1 text-xs ${
+                            f.type === "password" || f.secret || /password|secret|token|key/i.test(f.key)
+                              ? "sm:col-span-2"
+                              : ""
+                          }`}
+                        >
+                          <span className="font-semibold text-teal-950">{f.label}</span>
+                          <input
+                            type={f.type === "password" || f.secret ? "password" : "text"}
+                            className="min-h-11 w-full min-w-0 rounded-xl border border-amber-200 bg-white px-3 text-sm"
+                            placeholder={f.placeholder || ""}
+                            value={reqDraft[`${req.id}.${f.key}`] || ""}
+                            onChange={(e) =>
+                              setReqDraft((prev) => ({
+                                ...prev,
+                                [`${req.id}.${f.key}`]: e.target.value,
+                              }))
+                            }
+                            autoComplete={f.secret ? "new-password" : "off"}
+                          />
+                        </label>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void onSubmitRequirements()}
+                className="mt-4 inline-flex min-h-11 w-full items-center justify-center rounded-xl bg-amber-900 px-4 text-sm font-semibold text-white disabled:opacity-50 sm:w-auto"
+              >
+                Submit details
+              </button>
+            </section>
+          ) : null}
 
           {stage === "understanding" && understanding ? (
             <section className="rounded-2xl border border-amber-200 bg-amber-50/70 p-4 text-sm text-amber-950">
