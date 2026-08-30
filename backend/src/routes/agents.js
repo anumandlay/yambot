@@ -545,6 +545,70 @@ agentsRouter.post("/", async (req, res, next) => {
   }
 });
 
+agentsRouter.get("/:id/runs", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("name skill computer schedule")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const status = String(req.query.status || "").trim();
+    /** @type {Record<string, unknown>} */
+    const filter = { user: req.userId, agent: agent._id };
+    if (status && status !== "all") {
+      filter.status = status.includes(",")
+        ? { $in: status.split(",").map((s) => s.trim()).filter(Boolean) }
+        : status;
+    }
+    const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
+    const skip = Math.max(Number(req.query.skip) || 0, 0);
+    const [runs, total] = await Promise.all([
+      Task.find(filter)
+        .sort({ createdAt: -1 })
+        .skip(skip)
+        .limit(limit)
+        .select(
+          "status goal resultSummary lastError startedAt claimedAt completedAt createdAt updatedAt chat priority evaluation events"
+        )
+        .lean(),
+      Task.countDocuments(filter),
+    ]);
+    res.json({
+      ok: true,
+      agent: {
+        _id: String(agent._id),
+        name: agent.name,
+        skill: agent.skill || "",
+        online: Boolean(agent.computer?.online),
+        lastSeenAt: agent.computer?.lastSeenAt || null,
+        schedule: agent.schedule || null,
+      },
+      total,
+      limit,
+      skip,
+      runs: runs.map((t) => ({
+        _id: String(t._id),
+        status: t.status,
+        goal: String(t.goal || "").slice(0, 500),
+        resultSummary: String(t.resultSummary || "").slice(0, 4000),
+        lastError: String(t.lastError || "").slice(0, 2000),
+        startedAt: t.startedAt || t.claimedAt || t.createdAt || null,
+        completedAt: t.completedAt || null,
+        createdAt: t.createdAt || null,
+        chatId: t.chat ? String(t.chat) : null,
+        agentId: String(agent._id),
+        agentName: agent.name,
+        priority: t.priority || "normal",
+        eventCount: Array.isArray(t.events) ? t.events.length : 0,
+      })),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 agentsRouter.get("/:id", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })

@@ -173,6 +173,7 @@ app.use("/api/events", authRequired, (await import("./routes/events.js")).events
 app.use("/api/triggers", authRequired, (await import("./routes/triggers.js")).triggersRouter);
   app.use("/api/business", authRequired, (await import("./routes/business.js")).businessRouter);
   app.use("/api/architect", authRequired, (await import("./routes/architect.js")).architectRouter);
+  app.use("/api/runs", authRequired, (await import("./routes/runs.js")).runsRouter);
   app.use("/api/watchers", authRequired, (await import("./routes/watchers.js")).watchersRouter);
 app.use("/api/entities", authRequired, (await import("./routes/entities.js")).entitiesRouter);
 app.use("/api/processes", authRequired, (await import("./routes/processes.js")).processesRouter);

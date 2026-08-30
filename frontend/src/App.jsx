@@ -44,6 +44,7 @@ import { StartPage } from "./pages/StartPage.jsx";
 import { BusinessSetupPage } from "./pages/BusinessSetupPage.jsx";
 import { BusinessArchitectPage } from "./pages/BusinessArchitectPage.jsx";
 import { AgentActionsPage } from "./pages/AgentActionsPage.jsx";
+import { AgentRunsPage } from "./pages/AgentRunsPage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
 
@@ -170,7 +171,9 @@ export default function App() {
           <Route path="/" element={<ChatsPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agents/new" element={<AgentEditPage />} />
+          <Route path="/agents/:agentId/runs" element={<AgentRunsPage />} />
           <Route path="/agents/:agentId" element={<AgentEditPage />} />
+          <Route path="/runs" element={<AgentRunsPage />} />
           <Route path="/goals" element={<GoalsPage />} />
           <Route path="/goals/new" element={<GoalEditPage />} />
           <Route path="/goals/:goalId" element={<GoalEditPage />} />

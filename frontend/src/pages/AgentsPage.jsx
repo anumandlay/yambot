@@ -87,6 +87,12 @@ function AgentRow({
               Edit
             </Link>
           </ButtonWithHelp>
+          <Link
+            to={`/agents/${agent._id}/runs`}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-950 sm:w-auto"
+          >
+            Runs
+          </Link>
           <ButtonWithHelp helpId="agents.copy">
             <button
               type="button"

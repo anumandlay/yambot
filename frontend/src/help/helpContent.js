@@ -42,11 +42,32 @@ export const HELP = {
       "Does not require you to think in agents or triggers. Reuses checks against your existing agents before creating duplicates."
     ),
   },
+  "nav.runs": {
+    title: "Agent runs",
+    body: helpBody(
+      "History of every agent execution: when it ran and the final reply (result summary).",
+      "Filter by agent, status, date range, or search text. Open a single agent’s Runs page for a focused status view."
+    ),
+  },
+  "runs.page": {
+    title: "All agent runs",
+    body: helpBody(
+      "Pick an agent (or leave All), choose status/date filters, then scan Final reply for each run.",
+      "Open chat jumps to the thread that spawned the task."
+    ),
+  },
+  "agent.runs": {
+    title: "This agent’s runs",
+    body: helpBody(
+      "Status for one agent: schedule tick, online state, and every past run with its final reply.",
+      "Use All agent runs in the sidebar to compare across agents."
+    ),
+  },
   "architect.page": {
     title: "Business Architect",
     body: helpBody(
-      "1) Chat in plain English. 2) Confirm understanding. 3) Review blueprint. 4) Approve & Build (runs simulation first). 5) Ops hub: tests, English changes, history, templates, export, data maps.",
-      "Saved businesses appear at the top. Templates let you clone a workflow for another region. Change-in-English updates the blueprint with impact analysis — live agents are not silently rewritten."
+      "1) Chat in plain English. 2) Confirm understanding. 3) Review blueprint (amber panel + sticky Approve & Build). 4) Approve & Build (runs simulation first). 5) Ops hub after build.",
+      "Drafts stay listed until you build. Open a draft from Saved businesses if the button is not visible after chat."
     ),
   },
   "business.page": {

@@ -42,6 +42,11 @@ function publicDoc(doc) {
     businessRules: lean.businessRules || [],
     blueprint: lean.blueprint,
     dataMaps: lean.dataMaps || [],
+    messages: (lean.messages || []).slice(-40).map((m) => ({
+      role: m.role,
+      content: m.content,
+      at: m.at,
+    })),
     createdAgentIds: (lean.createdAgentIds || []).map(String),
     createdTriggerIds: (lean.createdTriggerIds || []).map(String),
     lastSimulation: lean.lastSimulation,

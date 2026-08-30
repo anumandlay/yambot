@@ -479,8 +479,19 @@ export function BusinessArchitectPage() {
         const d = data.blueprintDoc;
         if (d?.blueprint) {
           setBlueprint(d.blueprint);
-          setStage(d.stage || "ready");
-          setUnderstanding(d.understanding || null);
+          const ready =
+            d.stage === "ready" ||
+            Boolean(d.blueprint?.plan?.agents?.length) ||
+            d.status === "built";
+          setStage(ready ? "ready" : d.stage || "gathering");
+          setUnderstanding(ready ? null : d.understanding || null);
+          if (Array.isArray(d.messages) && d.messages.length) {
+            setMessages(
+              d.messages
+                .filter((m) => m.role === "user" || m.role === "assistant")
+                .map((m) => ({ role: m.role, content: m.content }))
+            );
+          }
         }
         if (d?.status === "built") {
           setCreated({
@@ -507,6 +518,47 @@ export function BusinessArchitectPage() {
   }, [messages, pendingRequirements, understanding, blueprint, busy, progressSteps]);
 
   /**
+   * Apply chat/stream payload to UI state; refetch draft if message says ready but blueprint missing.
+   * @param {object} data
+   * @param {object[]} nextMessages
+   */
+  async function applyChatResult(data, nextMessages) {
+    const reply = String(data.assistantMessage || "").trim() || "…";
+    setMessages([...nextMessages, { role: "assistant", content: reply }]);
+    let nextStage = data.stage || "gathering";
+    let nextBp = data.blueprint || null;
+    if (data.blueprintId) setBlueprintId(data.blueprintId);
+
+    // Why: model often narrates "Approve & Build" without returning blueprint JSON — load draft.
+    const hasAgents = Boolean(nextBp?.plan?.agents?.length);
+    if ((!hasAgents || nextStage !== "ready") && data.blueprintId) {
+      try {
+        const docRes = await api(`/api/architect/${data.blueprintId}`);
+        const d = docRes.blueprintDoc;
+        if (d?.blueprint?.plan?.agents?.length) {
+          nextBp = d.blueprint;
+          nextStage = "ready";
+        } else if (d?.blueprint && (d.stage === "ready" || d.status === "draft")) {
+          nextBp = d.blueprint;
+          if (d.stage === "ready") nextStage = "ready";
+        }
+      } catch {
+        /* keep stream payload */
+      }
+    }
+
+    if (nextBp?.plan?.agents?.length) nextStage = "ready";
+    setStage(nextStage);
+    setPendingRequirements(Array.isArray(data.pendingRequirements) ? data.pendingRequirements : []);
+    setReqDraft({});
+    setUnderstanding(nextStage === "understanding" ? data.understanding || null : null);
+    setBlueprint(nextBp);
+    if (nextStage === "ready" && nextBp) {
+      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 120);
+    }
+  }
+
+  /**
    * @param {object[]} nextMessages
    * @param {object} [opts]
    */
@@ -528,14 +580,7 @@ export function BusinessArchitectPage() {
         timeoutMs: 120_000,
         onProgress: pushProgress,
       });
-      const reply = String(data.assistantMessage || "").trim() || "…";
-      setMessages([...nextMessages, { role: "assistant", content: reply }]);
-      setStage(data.stage || "gathering");
-      setPendingRequirements(Array.isArray(data.pendingRequirements) ? data.pendingRequirements : []);
-      setReqDraft({});
-      setUnderstanding(data.understanding || null);
-      setBlueprint(data.blueprint || null);
-      if (data.blueprintId) setBlueprintId(data.blueprintId);
+      await applyChatResult(data, nextMessages);
     } catch (err) {
       setError(err);
     } finally {
@@ -608,17 +653,7 @@ export function BusinessArchitectPage() {
         timeoutMs: 180_000,
         onProgress: pushProgress,
       });
-      const reply = String(data.assistantMessage || "").trim() || "…";
-      setMessages([...next, { role: "assistant", content: reply }]);
-      setStage(data.stage || "gathering");
-      setPendingRequirements(Array.isArray(data.pendingRequirements) ? data.pendingRequirements : []);
-      setReqDraft({});
-      setUnderstanding(data.understanding || null);
-      setBlueprint(data.blueprint || null);
-      if (data.blueprintId) setBlueprintId(data.blueprintId);
-      if (data.stage === "ready" && data.blueprint) {
-        setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 100);
-      }
+      await applyChatResult(data, next);
     } catch (err) {
       setError(err);
       setStage("understanding");
@@ -644,6 +679,14 @@ export function BusinessArchitectPage() {
 
   async function onApply() {
     if (!blueprint) return;
+    const id = blueprintId;
+    if (!id) {
+      setError({
+        title: "Blueprint id required",
+        detail: "Finish the Architect chat so a draft is saved, then Approve & Build.",
+      });
+      return;
+    }
     if (
       !window.confirm(
         "Approve & Build this architecture?\n\nRuns simulation approval then creates agents (may charge wallet) and triggers."
@@ -654,15 +697,6 @@ export function BusinessArchitectPage() {
     setApplyBusy(true);
     setError(null);
     try {
-      // Why: chat already persists a draft id — require simulation gate before create.
-      if (!id) {
-        res.status(400).json({
-          ok: false,
-          title: "Blueprint id required",
-          detail: "Finish the Architect chat so a draft is saved, then Approve & Build.",
-        });
-        return;
-      }
       setSimBusy(true);
       await api(`/api/architect/${id}/simulate`, {
         method: "POST",
@@ -993,18 +1027,21 @@ export function BusinessArchitectPage() {
             </section>
           ) : null}
 
-          {stage === "ready" && blueprint ? (
-            <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-teal-900/70">
-                Architecture blueprint
+          {(stage === "ready" || Boolean(blueprint?.plan?.agents?.length)) && blueprint ? (
+            <section
+              id="architect-blueprint"
+              className="rounded-2xl border-2 border-amber-300 bg-white p-4 shadow-sm"
+            >
+              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-amber-950">
+                Architecture blueprint — review then build
               </h2>
               <BlueprintPanel blueprint={blueprint} />
               <div className="mt-4 flex flex-wrap gap-2">
                 <button
                   type="button"
-                  disabled={applyBusy || simBusy}
+                  disabled={applyBusy || simBusy || !blueprintId}
                   onClick={() => void onApply()}
-                  className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
+                  className="inline-flex min-h-12 items-center rounded-xl bg-amber-600 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
                 >
                   {applyBusy || simBusy ? "Simulating & building…" : "Approve & Build"}
                 </button>
@@ -1019,6 +1056,11 @@ export function BusinessArchitectPage() {
                   Keep chatting
                 </button>
               </div>
+              {!blueprintId ? (
+                <p className="mt-2 text-xs text-amber-900/80">
+                  Draft id missing — send one more chat message so the blueprint can be saved, then build.
+                </p>
+              ) : null}
             </section>
           ) : null}
 
@@ -1037,6 +1079,26 @@ export function BusinessArchitectPage() {
             Reset
           </button>
         </>
+      ) : null}
+
+      {(stage === "ready" || Boolean(blueprint?.plan?.agents?.length)) &&
+      blueprint &&
+      !created ? (
+        <div className="sticky bottom-3 z-20 rounded-2xl border border-amber-400 bg-amber-50/95 p-3 shadow-lg backdrop-blur sm:bottom-4">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-sm font-semibold text-amber-950">
+              Blueprint ready (still draft until you build)
+            </p>
+            <button
+              type="button"
+              disabled={applyBusy || simBusy || !blueprintId}
+              onClick={() => void onApply()}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl bg-amber-600 px-4 text-sm font-bold text-white disabled:opacity-50"
+            >
+              {applyBusy || simBusy ? "Building…" : "Approve & Build"}
+            </button>
+          </div>
+        </div>
       ) : null}
     </div>
   );

@@ -513,6 +513,14 @@ export function AgentEditPage() {
         >
           ← Agents
         </Link>
+        {!isNew && agentId ? (
+          <Link
+            to={`/agents/${agentId}/runs`}
+            className="inline-flex min-h-11 items-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-950"
+          >
+            Runs & replies
+          </Link>
+        ) : null}
         <h1 className="text-xl font-bold tracking-tight">
           {isNew ? "New agent" : "Edit agent"}
         </h1>

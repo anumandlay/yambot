@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 15:40] Architect Approve fix + Agent runs pages
+
+- **Prompt Provided:** Architecture message but no Approve button / draft stuck; need status page per agent (when ran + final reply) and filtered all-agents runs page.
+- **Architectural Flow:** Fixed Approve & Build (`blueprintId` bug, refetch draft, sticky amber CTA). New `GET /api/runs` + `GET /api/agents/:id/runs`. UI `/runs` and `/agents/:id/runs` with agent/status/date/search filters showing resultSummary.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/BusinessArchitectPage.jsx`, `backend/src/routes/architect.js`, `backend/src/routes/runs.js`, `backend/src/routes/agents.js`, `backend/src/index.js`, `frontend/src/pages/AgentRunsPage.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/pages/AgentsPage.jsx`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-30 03:20] Architect live design progress bar
 
 - **Prompt Provided:** no progress on page — need progress bar (preparing blueprint, sent to LLM, received response, etc.)
