@@ -32,7 +32,21 @@ export const HELP = {
     title: "Business setup",
     body: helpBody(
       "Chat with a planning LLM about your whole workflow. It asks for missing details (email, passwords, API URLs), then shows agents, triggers, schedules, and which YamBot pages/fields it will use — you confirm before create.",
-      "Pick a dedicated LLM profile for planning. Use this for multi-agent handoffs and daily schedules without filling forms by hand."
+      "Pick a dedicated LLM profile for planning. Use this when you want a lighter planner; for outcome-first design use Business Architect."
+    ),
+  },
+  "nav.architect": {
+    title: "Business Architect",
+    body: helpBody(
+      "AI Business Operating System Designer: you describe outcomes; it confirms understanding, designs the workflow diagram, explains why each piece exists, then builds only after Approve.",
+      "Does not require you to think in agents or triggers. Reuses checks against your existing agents before creating duplicates."
+    ),
+  },
+  "architect.page": {
+    title: "Business Architect",
+    body: helpBody(
+      "1) Chat in plain English. 2) Answer only the questions asked. 3) Confirm “Here’s what I understand”. 4) Review diagram, why, checklist, manual map. 5) Approve & Build.",
+      "Phase 1 creates Agents + Triggers (+ schedules/email). Simulation, change-in-English, and execution history come later."
     ),
   },
   "business.page": {

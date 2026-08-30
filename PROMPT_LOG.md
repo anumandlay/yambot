@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 01:50] Business Architect (`/architect`) Phase 1
+
+- **Prompt Provided:** New page like /business implementing Business Architect: understanding stage, progressive questions, diagram, why, checklist, manual map, reuse existing agents, approve before create. Keep /business.
+- **Architectural Flow:** `/architect` → POST `/api/architect/chat` (stages gathering→understanding→ready) → BusinessBlueprint draft → Approve → applyBusinessPlan + blueprint status built. UI: SVG workflow, why components, checklist, uiMap, reuse. Phase 2+: simulation, impact analysis, templates, execution history.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/models/BusinessBlueprint.js`, `backend/src/utils/architectChat.js`, `backend/src/routes/architect.js`, `backend/src/index.js`, `frontend/src/pages/BusinessArchitectPage.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-30 01:40] Business setup — interactive chat + LLM profile + UI map
 
 - **Prompt Provided:** Interactive /business chat; ask for email/password when needed; pick LLM profile for planning; show which page/fields are used so user can learn manual setup.
