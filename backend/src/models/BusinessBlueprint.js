@@ -1,12 +1,24 @@
 /**
- * @fileoverview BusinessBlueprint — persisted Architect plan / business memory seed.
- * Purpose: Store understanding, workflow graph, checklist, and links after Approve & Build.
- * Downstream: architect routes/chat, BusinessArchitectPage, future change-in-English.
+ * @fileoverview BusinessBlueprint — Architect business memory + Phase 2 runtime fields.
+ * Purpose: Persist understanding, blueprint versions, simulation, tests, changes, data maps.
+ * Downstream: architect routes, BusinessArchitectPage hub.
  */
 
 import mongoose from "mongoose";
 
 export const BLUEPRINT_STATUSES = ["draft", "approved", "built"];
+
+const changeEntrySchema = new mongoose.Schema(
+  {
+    at: { type: Date, default: Date.now },
+    request: { type: String, default: "" },
+    summary: { type: String, default: "" },
+    impact: { type: mongoose.Schema.Types.Mixed, default: {} },
+    approved: { type: Boolean, default: false },
+    applied: { type: Boolean, default: false },
+  },
+  { _id: true }
+);
 
 const businessBlueprintSchema = new mongoose.Schema(
   {
@@ -23,10 +35,8 @@ const businessBlueprintSchema = new mongoose.Schema(
       default: "draft",
       index: true,
     },
-    /** gathering | understanding | ready */
     stage: { type: String, default: "gathering", trim: true },
     profileId: { type: String, default: "", trim: true },
-    /** Chat transcript (secrets redacted). */
     messages: {
       type: [
         {
@@ -43,9 +53,30 @@ const businessBlueprintSchema = new mongoose.Schema(
       assumptions: { type: [String], default: [] },
       confirmed: { type: Boolean, default: false },
     },
-    /** Full architect blueprint JSON (graph, components, checklist, plan, uiMap, …). */
+    /** Business rules remembered across change-in-English sessions. */
+    businessRules: { type: [String], default: [] },
     blueprint: { type: mongoose.Schema.Types.Mixed, default: null },
-    /** Non-secret answer snapshot for resume (passwords not stored here). */
+    /** Prior blueprint snapshots for change-impact diffs. */
+    versions: {
+      type: [
+        {
+          at: { type: Date, default: Date.now },
+          label: { type: String, default: "" },
+          blueprint: { type: mongoose.Schema.Types.Mixed, default: null },
+        },
+      ],
+      default: [],
+    },
+    dataMaps: {
+      type: [
+        {
+          source: { type: String, default: "" },
+          target: { type: String, default: "" },
+          note: { type: String, default: "" },
+        },
+      ],
+      default: [],
+    },
     answersMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
     createdAgentIds: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Agent" }],
@@ -55,11 +86,27 @@ const businessBlueprintSchema = new mongoose.Schema(
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Trigger" }],
       default: [],
     },
+    lastSimulation: { type: mongoose.Schema.Types.Mixed, default: null },
+    simulationApprovedAt: { type: Date, default: null },
+    lastTestRun: { type: mongoose.Schema.Types.Mixed, default: null },
+    changeHistory: { type: [changeEntrySchema], default: [] },
+    /** Pending change proposal awaiting approval. */
+    pendingChange: { type: mongoose.Schema.Types.Mixed, default: null },
+    incidentPolicy: {
+      type: mongoose.Schema.Types.Mixed,
+      default: () => ({
+        apiRetries: 3,
+        emailRetries: 3,
+        onExhausted: "create_incident_notify_admin",
+        notifyEmail: "",
+      }),
+    },
     builtAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
 
 businessBlueprintSchema.index({ user: 1, updatedAt: -1 });
+businessBlueprintSchema.index({ user: 1, status: 1 });
 
 export const BusinessBlueprint = mongoose.model("BusinessBlueprint", businessBlueprintSchema);

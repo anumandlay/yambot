@@ -45,8 +45,8 @@ export const HELP = {
   "architect.page": {
     title: "Business Architect",
     body: helpBody(
-      "1) Chat in plain English. 2) Answer only the questions asked. 3) Confirm “Here’s what I understand”. 4) Review diagram, why, checklist, manual map. 5) Approve & Build.",
-      "Phase 1 creates Agents + Triggers (+ schedules/email). Simulation, change-in-English, and execution history come later."
+      "1) Chat in plain English. 2) Confirm understanding. 3) Review blueprint. 4) Approve & Build (runs simulation first). 5) Ops hub: tests, English changes, history, templates, export, data maps.",
+      "Saved businesses appear at the top. Templates let you clone a workflow for another region. Change-in-English updates the blueprint with impact analysis — live agents are not silently rewritten."
     ),
   },
   "business.page": {

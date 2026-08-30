@@ -5,10 +5,11 @@
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { PageGuideBanner } from "../components/FieldLabel.jsx";
+import { ArchitectOpsHub } from "../components/ArchitectOpsHub.jsx";
 
 const PROFILE_KEY = "yambot.architect.llmProfileId";
 
@@ -325,11 +326,27 @@ function BlueprintPanel({ blueprint }) {
           </ul>
         </section>
       ) : null}
+
+      {(blueprint.dataMaps || []).length ? (
+        <section>
+          <h3 className="text-xs font-bold uppercase tracking-wide text-teal-900/60">
+            Data mapping
+          </h3>
+          <ul className="mt-2 space-y-1 font-mono text-xs text-teal-900/80">
+            {blueprint.dataMaps.map((m, i) => (
+              <li key={i}>
+                {m.source} → {m.target}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
     </div>
   );
 }
 
 export function BusinessArchitectPage() {
+  const [searchParams] = useSearchParams();
   const [llmProfiles, setLlmProfiles] = useState([]);
   const [profileId, setProfileId] = useState(() => {
     try {
@@ -346,19 +363,49 @@ export function BusinessArchitectPage() {
   const [stage, setStage] = useState("gathering");
   const [understanding, setUnderstanding] = useState(null);
   const [blueprint, setBlueprint] = useState(null);
-  const [blueprintId, setBlueprintId] = useState(null);
+  const [blueprintId, setBlueprintId] = useState(searchParams.get("id") || null);
   const [created, setCreated] = useState(null);
+  const [savedList, setSavedList] = useState([]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [applyBusy, setApplyBusy] = useState(false);
+  const [simBusy, setSimBusy] = useState(false);
   const bottomRef = useRef(null);
+
+  const showOps = Boolean(blueprintId && (created || searchParams.get("id")));
 
   useEffect(() => {
     document.title = "Business Architect · YamBot";
     api("/api/llm-profiles")
       .then((data) => setLlmProfiles(data.profiles || []))
       .catch(() => setLlmProfiles([]));
+    api("/api/architect")
+      .then((data) => setSavedList(data.blueprints || []))
+      .catch(() => {});
   }, []);
+
+  useEffect(() => {
+    const id = searchParams.get("id");
+    if (!id) return;
+    setBlueprintId(id);
+    api(`/api/architect/${id}`)
+      .then((data) => {
+        const d = data.blueprintDoc;
+        if (d?.blueprint) {
+          setBlueprint(d.blueprint);
+          setStage(d.stage || "ready");
+          setUnderstanding(d.understanding || null);
+        }
+        if (d?.status === "built") {
+          setCreated({
+            summary: d.title || d.understanding?.objective,
+            agents: (d.createdAgentIds || []).map((aid) => ({ _id: aid, name: aid.slice(-6) })),
+            triggers: (d.createdTriggerIds || []).map((tid) => ({ _id: tid })),
+          });
+        }
+      })
+      .catch((err) => setError(err));
+  }, [searchParams]);
 
   useEffect(() => {
     try {
@@ -473,7 +520,7 @@ export function BusinessArchitectPage() {
     if (!blueprint) return;
     if (
       !window.confirm(
-        "Approve & Build this architecture?\n\nThis creates agents (may charge wallet) and Operations triggers."
+        "Approve & Build this architecture?\n\nRuns simulation approval then creates agents (may charge wallet) and triggers."
       )
     ) {
       return;
@@ -481,20 +528,43 @@ export function BusinessArchitectPage() {
     setApplyBusy(true);
     setError(null);
     try {
+      // Why: chat already persists a draft id — require simulation gate before create.
+      if (!id) {
+        res.status(400).json({
+          ok: false,
+          title: "Blueprint id required",
+          detail: "Finish the Architect chat so a draft is saved, then Approve & Build.",
+        });
+        return;
+      }
+      setSimBusy(true);
+      await api(`/api/architect/${id}/simulate`, {
+        method: "POST",
+        body: JSON.stringify({ customerCount: 100 }),
+      });
+      await api(`/api/architect/${id}/approve-simulation`, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      setSimBusy(false);
       const data = await api("/api/architect/apply", {
         method: "POST",
         body: JSON.stringify({
-          blueprintId: blueprintId || undefined,
+          blueprintId: id,
           blueprint,
           answers,
+          forceBuild: true,
         }),
         timeoutMs: 120_000,
       });
       setCreated(data.created);
       if (data.blueprintId) setBlueprintId(data.blueprintId);
+      const list = await api("/api/architect");
+      setSavedList(list.blueprints || []);
     } catch (err) {
       setError(err);
     } finally {
+      setSimBusy(false);
       setApplyBusy(false);
     }
   }
@@ -532,6 +602,24 @@ export function BusinessArchitectPage() {
 
       <PageGuideBanner helpId="architect.page" />
 
+      {savedList.length ? (
+        <div className="rounded-xl border border-teal-100 bg-teal-50/40 p-3 text-xs">
+          <p className="font-bold uppercase tracking-wide text-teal-900/60">Saved businesses</p>
+          <ul className="mt-2 flex flex-col gap-1">
+            {savedList.slice(0, 8).map((b) => (
+              <li key={b._id}>
+                <Link className="font-semibold text-teal-800 underline" to={`/architect?id=${b._id}`}>
+                  {b.title || b.objective || b._id}
+                </Link>{" "}
+                <span className="text-teal-800/50">
+                  {b.status}
+                  {b.agentCount ? ` · ${b.agentCount} agents` : ""}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </div>
+      ) : null}
       <label className="flex flex-col gap-1 text-sm sm:max-w-md">
         <span className="font-semibold text-teal-950">Planning LLM</span>
         <select
@@ -592,6 +680,14 @@ export function BusinessArchitectPage() {
             Design another business
           </button>
         </section>
+      ) : null}
+
+      {blueprintId && (created || showOps) ? (
+        <ArchitectOpsHub
+          blueprintId={blueprintId}
+          profileId={profileId}
+          onError={(err) => setError(err)}
+        />
       ) : null}
 
       {!created ? (
@@ -749,7 +845,7 @@ export function BusinessArchitectPage() {
                   onClick={() => void onApply()}
                   className="inline-flex min-h-11 items-center rounded-xl border border-amber-300 bg-amber-50 px-4 text-sm font-semibold text-amber-950 disabled:opacity-50"
                 >
-                  {applyBusy ? "Building…" : "Approve & Build"}
+                  {applyBusy || simBusy ? "Simulating & building…" : "Approve & Build"}
                 </button>
                 <button
                   type="button"
