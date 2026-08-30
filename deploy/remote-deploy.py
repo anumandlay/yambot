@@ -65,7 +65,7 @@ def main() -> int:
     }
 
     tgz = Path(tempfile.gettempdir()) / "yambot-deploy.tgz"
-    print(f"Packing {ROOT} → {tgz}")
+    print(f"Packing {ROOT} -> {tgz}")
     with tarfile.open(tgz, "w:gz") as tar:
         for path in ROOT.rglob("*"):
             if not path.is_file():
