@@ -9,7 +9,9 @@ import { Trigger, TRIGGER_TYPES, TRIGGER_ACTIONS, normalizeTriggerEventType } fr
 import { getPlatformSettings } from "../models/PlatformSettings.js";
 import { debitWallet, creditWallet } from "./wallet.js";
 import { issueWorkerToken, containerNameForAgent } from "./workerAuth.js";
+import { encryptSecret } from "./crypto.js";
 import { normalizeBusinessPlan } from "./businessPlanFromBrief.js";
+import { mergeAnswersIntoPlan } from "./businessChat.js";
 
 /**
  * Creates one cloud agent from a plan agent row (wallet debit when priced).
@@ -68,6 +70,25 @@ async function createAgentFromPlanRow(userId, row, agentPriceCents) {
     },
   });
 
+  if (row.email && (row.email.fromAddress || row.email.smtpHost || row.email.smtpPassword)) {
+    agent.email = {
+      enabled: row.email.enabled !== false,
+      fromName: String(row.email.fromName || row.name || "").trim().slice(0, 120),
+      fromAddress: String(row.email.fromAddress || "").trim().slice(0, 200),
+      smtpHost: String(row.email.smtpHost || "").trim().slice(0, 200),
+      smtpPort: Number(row.email.smtpPort) || 587,
+      smtpSecure: Boolean(row.email.smtpSecure),
+      smtpUser: String(row.email.smtpUser || row.email.fromAddress || "").trim().slice(0, 200),
+      imapHost: String(row.email.imapHost || row.email.smtpHost || "").trim().slice(0, 200),
+      imapPort: Number(row.email.imapPort) || 993,
+      imapSecure: row.email.imapSecure !== false,
+    };
+    const pass = String(row.email.smtpPassword || "").trim();
+    if (pass) {
+      agent.email.smtpPasswordEnc = encryptSecret(pass);
+    }
+  }
+
   /** @type {{ transaction?: { _id: unknown } } | null} */
   let debitResult = null;
   if (agentPriceCents > 0) {
@@ -112,8 +133,10 @@ async function createAgentFromPlanRow(userId, row, agentPriceCents) {
  * @param {object} rawPlan
  * @returns {Promise<{ ok: true, created: object } | { ok: false, title: string, detail: string, hint?: string }>}
  */
-export async function applyBusinessPlan(userId, rawPlan) {
-  const plan = normalizeBusinessPlan(rawPlan || {});
+export async function applyBusinessPlan(userId, rawPlan, answers = null) {
+  const plan = answers
+    ? mergeAnswersIntoPlan(rawPlan || {}, answers)
+    : normalizeBusinessPlan(rawPlan || {});
   if (!plan.agents.length) {
     return {
       ok: false,

@@ -45,6 +45,132 @@ function slugKey(value) {
 }
 
 /**
+ * Builds a teaching map: which YamBot page/fields the plan touches.
+ * @param {{ agents: object[], triggers: object[], apis: object[] }} plan
+ * @param {object[]} [extra]
+ * @returns {object[]}
+ */
+function buildUiMap(plan, extra = []) {
+  /** @type {object[]} */
+  const rows = [];
+  for (const a of plan.agents || []) {
+    rows.push({
+      page: "Agents → Create / Edit agent",
+      routeHint: "/agents/new (after create: /agents/{id})",
+      purpose: `Defines agent “${a.name}” (${a.key})`,
+      relatedAgentKey: a.key,
+      fields: [
+        { label: "Name", value: a.name },
+        { label: "Skill", value: a.skill || "—" },
+        { label: "Role", value: a.role || "worker" },
+        { label: "Standing instructions", value: (a.instructions || "").slice(0, 180) + (a.instructions?.length > 180 ? "…" : "") },
+        { label: "Success criteria", value: a.successCriteria || "—" },
+      ],
+    });
+    if (a.schedule?.enabled) {
+      rows.push({
+        page: "Agents → Edit → Scheduler",
+        routeHint: "/agents/{id} (Scheduler section)",
+        purpose: `Recurring run for “${a.name}”`,
+        relatedAgentKey: a.key,
+        fields: [
+          { label: "Scheduled runs", value: "On" },
+          { label: "Interval", value: a.schedule.interval },
+          {
+            label: "Daily at (UTC)",
+            value: a.schedule.interval === "daily" ? a.schedule.dailyAt : "—",
+          },
+          { label: "Scheduled goal", value: a.schedule.goal || "—" },
+        ],
+      });
+    }
+    if (a.needsEmail || a.email?.fromAddress) {
+      rows.push({
+        page: "Agents → Edit → Email",
+        routeHint: "/agents/{id} (Email section)",
+        purpose: `Mailbox for “${a.name}” (send/check email)`,
+        relatedAgentKey: a.key,
+        fields: [
+          { label: "Email enabled", value: "On" },
+          { label: "From address", value: a.email?.fromAddress || "(from answers / fill later)" },
+          { label: "SMTP host", value: a.email?.smtpHost || "(from answers / fill later)" },
+          { label: "IMAP host", value: a.email?.imapHost || "(from answers / fill later)" },
+          { label: "Password", value: a.email?.smtpPassword ? "(provided)" : "(needed)" },
+        ],
+      });
+    }
+    if ((a.policy?.httpAllowHosts || []).length) {
+      rows.push({
+        page: "Agents → Edit → Policy (HTTP allow hosts) / Policies",
+        routeHint: "/agents/{id} or /policies",
+        purpose: `Allow http_request to hosts for “${a.name}”`,
+        relatedAgentKey: a.key,
+        fields: [{ label: "HTTP allow hosts", value: a.policy.httpAllowHosts.join(", ") }],
+      });
+    }
+  }
+  for (const t of plan.triggers || []) {
+    rows.push({
+      page: "Operations → Triggers",
+      routeHint: "/operations",
+      purpose: t.purpose || t.name,
+      relatedAgentKey: t.agentKey,
+      fields: [
+        { label: "Name", value: t.name },
+        { label: "Type", value: t.type },
+        { label: "Event", value: t.config?.eventType || "—" },
+        { label: "Agent", value: t.agentKey },
+        { label: "Action", value: t.action },
+        {
+          label: "Instructions when fired",
+          value: String(t.actionConfig?.instructions || "").slice(0, 160) || "—",
+        },
+      ],
+    });
+  }
+  for (const api of plan.apis || []) {
+    rows.push({
+      page: "Agents → Standing instructions (+ HTTP allow hosts)",
+      routeHint: "/agents/{id}",
+      purpose: api.purpose,
+      relatedAgentKey: api.usedByAgentKey,
+      fields: [
+        { label: "Method", value: api.method },
+        { label: "Host / path", value: `${api.hostHint || ""}${api.pathHint || ""}` },
+        { label: "Notes", value: api.notes || "—" },
+      ],
+    });
+  }
+
+  const fromLlm = (Array.isArray(extra) ? extra : [])
+    .slice(0, 20)
+    .map((u) => ({
+      page: String(u?.page || "").trim().slice(0, 160),
+      routeHint: String(u?.routeHint || u?.route || "").trim().slice(0, 160),
+      purpose: String(u?.purpose || "").trim().slice(0, 400),
+      relatedAgentKey: String(u?.relatedAgentKey || "").trim().slice(0, 40),
+      fields: (Array.isArray(u?.fields) ? u.fields : [])
+        .slice(0, 20)
+        .map((f) => ({
+          label: String(f?.label || "").trim().slice(0, 120),
+          value: String(f?.value || "").trim().slice(0, 400),
+        }))
+        .filter((f) => f.label),
+    }))
+    .filter((u) => u.page && u.fields.length);
+
+  // Why: deterministic map first; LLM extras only if they add a new page+purpose pair.
+  const seen = new Set(rows.map((r) => `${r.page}|${r.purpose}`));
+  for (const u of fromLlm) {
+    const k = `${u.page}|${u.purpose}`;
+    if (seen.has(k)) continue;
+    seen.add(k);
+    rows.push(u);
+  }
+  return rows.slice(0, 40);
+}
+
+/**
  * @param {object} parsed
  * @returns {object}
  */
@@ -61,6 +187,23 @@ export function normalizeBusinessPlan(parsed) {
     const hosts = Array.isArray(a?.policy?.httpAllowHosts)
       ? a.policy.httpAllowHosts.map((h) => String(h || "").trim().toLowerCase()).filter(Boolean).slice(0, 20)
       : [];
+    /** @type {object|null} */
+    let email = null;
+    if (a?.email && typeof a.email === "object") {
+      email = {
+        enabled: a.email.enabled !== false,
+        fromName: String(a.email.fromName || "").trim().slice(0, 120),
+        fromAddress: String(a.email.fromAddress || "").trim().slice(0, 200),
+        smtpHost: String(a.email.smtpHost || "").trim().slice(0, 200),
+        smtpPort: Number(a.email.smtpPort) || 587,
+        smtpSecure: Boolean(a.email.smtpSecure),
+        smtpUser: String(a.email.smtpUser || "").trim().slice(0, 200),
+        smtpPassword: String(a.email.smtpPassword || "").trim().slice(0, 500),
+        imapHost: String(a.email.imapHost || "").trim().slice(0, 200),
+        imapPort: Number(a.email.imapPort) || 993,
+        imapSecure: a.email.imapSecure !== false,
+      };
+    }
     return {
       key,
       name: String(a?.name || `Agent ${i + 1}`).trim().slice(0, 80) || `Agent ${i + 1}`,
@@ -80,7 +223,8 @@ export function normalizeBusinessPlan(parsed) {
         goal: String(a?.schedule?.goal || "").trim().slice(0, 4000),
       },
       policy: { httpAllowHosts: hosts },
-      needsEmail: Boolean(a?.needsEmail),
+      needsEmail: Boolean(a?.needsEmail) || Boolean(email?.fromAddress),
+      email,
       notes: String(a?.notes || "").trim().slice(0, 500),
     };
   });
@@ -177,9 +321,9 @@ export function normalizeBusinessPlan(parsed) {
     .slice(0, 20);
 
   for (const a of agents) {
-    if (a.needsEmail) {
+    if (a.needsEmail && !a.email?.smtpPassword) {
       setupRequired.push(
-        `Configure SMTP/IMAP on agent “${a.name}” (Agent edit → Email) before outreach runs.`
+        `Mailbox details for “${a.name}” — Agents → Email (or answer the planner’s form).`
       );
     }
     if (a.schedule.enabled && !a.schedule.goal) {
@@ -189,12 +333,12 @@ export function normalizeBusinessPlan(parsed) {
   for (const api of apis) {
     if (api.hostHint) {
       setupRequired.push(
-        `Provide API credentials/base URL for ${api.method} ${api.hostHint}${api.pathHint || ""} (${api.purpose}).`
+        `API auth for ${api.method} ${api.hostHint}${api.pathHint || ""} (${api.purpose}).`
       );
     }
   }
 
-  return {
+  const draft = {
     summary: String(parsed?.summary || "").trim().slice(0, 2000),
     explanation,
     agents,
@@ -202,6 +346,8 @@ export function normalizeBusinessPlan(parsed) {
     apis,
     setupRequired: [...new Set(setupRequired)].slice(0, 25),
   };
+  draft.uiMap = buildUiMap(draft, parsed?.uiMap);
+  return draft;
 }
 
 /**

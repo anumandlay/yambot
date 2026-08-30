@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-30 01:40] Business setup — interactive chat + LLM profile + UI map
+
+- **Prompt Provided:** Interactive /business chat; ask for email/password when needed; pick LLM profile for planning; show which page/fields are used so user can learn manual setup.
+- **Architectural Flow:** POST `/api/business/chat` (messages + profileId + answers) → asking with pendingRequirements forms OR ready plan with uiMap. Apply merges answers (email encrypted onto agents). Frontend chat UI + Planning LLM dropdown.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/businessChat.js`, `backend/src/utils/businessPlanFromBrief.js`, `backend/src/utils/applyBusinessPlan.js`, `backend/src/routes/business.js`, `frontend/src/pages/BusinessSetupPage.jsx`, `frontend/src/help/helpContent.js`
+
 ## [2026-08-30 01:20] Business setup — English brief → plan → create
 
 - **Prompt Provided:** Big text box for plain-English business idea; AI explains agents/triggers/schedules/APIs before building; multi-agent handoffs (promo → reply → agent 2); daily schedules; API GET/POST patterns.

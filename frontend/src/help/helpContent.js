@@ -31,15 +31,15 @@ export const HELP = {
   "nav.business": {
     title: "Business setup",
     body: helpBody(
-      "Describe your whole workflow in plain English. The AI proposes agents, schedules, triggers, and API steps — you review before anything is created.",
-      "Use this when you need multi-agent handoffs (e.g. promo email → reply → follow-up agent) or daily schedules without filling forms by hand."
+      "Chat with a planning LLM about your whole workflow. It asks for missing details (email, passwords, API URLs), then shows agents, triggers, schedules, and which YamBot pages/fields it will use — you confirm before create.",
+      "Pick a dedicated LLM profile for planning. Use this for multi-agent handoffs and daily schedules without filling forms by hand."
     ),
   },
   "business.page": {
     title: "Business setup",
     body: helpBody(
-      "1) Write your business idea. 2) Show me the plan — AI explains agents, triggers, and schedules. 3) Looks good — build it creates them.",
-      "Secrets (SMTP, API keys) are listed under “You still need to provide” — add those on each agent after create. Triggers appear under Operations."
+      "1) Choose planning LLM. 2) Chat in plain English. 3) Fill any forms it asks for (mailbox, API). 4) Review the plan + UI field map. 5) Build it.",
+      "Secrets stay in the answers bag for apply. After create, open each agent or Operations to tweak — the UI map teaches you where."
     ),
   },
   "nav.agentActions": {
