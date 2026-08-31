@@ -6,7 +6,7 @@
 
 import { useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../lib/api.js";
+import { api, apiNdjson } from "../lib/api.js";
 
 /**
  * @param {{
@@ -16,6 +16,10 @@ import { api } from "../lib/api.js";
  *   onDocLoaded?: (doc: object) => void,
  *   onBuild?: () => void | Promise<void>,
  *   buildBusy?: boolean,
+ *   profileId?: string,
+ *   answers?: object,
+ *   onDesigned?: (result: object) => void,
+ *   onDesignError?: (err: object) => void,
  * }} props
  */
 export function ArchitectOpsHub({
@@ -25,9 +29,14 @@ export function ArchitectOpsHub({
   onDocLoaded,
   onBuild,
   buildBusy = false,
+  answers = {},
+  onDesigned,
+  onDesignError,
 }) {
   const [doc, setDoc] = useState(null);
   const [busy, setBusy] = useState("");
+  const [designPct, setDesignPct] = useState(0);
+  const [designStep, setDesignStep] = useState("");
   const [sim, setSim] = useState(null);
   const [tests, setTests] = useState(null);
   const [history, setHistory] = useState(null);
@@ -128,9 +137,53 @@ export function ArchitectOpsHub({
           </button>
         </section>
       ) : doc.status === "draft" && !doc.blueprint?.plan?.agents?.length ? (
-        <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-950">
-          Blueprint has no agents yet — finish the Architect chat and confirm understanding to
-          design the architecture, then return here to build.
+        <section className="rounded-xl border-2 border-amber-300 bg-amber-50/90 p-4">
+          <h3 className="text-sm font-bold text-amber-950">Architecture not generated yet</h3>
+          <p className="mt-1 text-xs text-amber-950/85">
+            This draft has your business understanding saved, but the LLM never returned executable
+            agents. Click below to generate the architecture (same as “Yes, correct — design it”).
+          </p>
+          {doc.understanding?.objective ? (
+            <p className="mt-2 text-xs text-amber-900/80">
+              <span className="font-semibold">Objective:</span> {doc.understanding.objective}
+            </p>
+          ) : null}
+          {designStep ? (
+            <p className="mt-2 text-xs font-semibold text-teal-800">
+              {designStep} {designPct ? `(${designPct}%)` : ""}
+            </p>
+          ) : null}
+          <button
+            type="button"
+            disabled={Boolean(busy) || buildBusy}
+            className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-teal-800 px-5 text-sm font-bold text-white disabled:opacity-50 sm:w-auto"
+            onClick={() =>
+              void run("design", async () => {
+                setDesignPct(0);
+                setDesignStep("Starting…");
+                const data = await apiNdjson(`/api/architect/${blueprintId}/design`, {
+                  body: { profileId: profileId || undefined, answers },
+                  timeoutMs: 180_000,
+                  onProgress: (step) => {
+                    setDesignPct(step.pct);
+                    setDesignStep(step.label);
+                  },
+                });
+                await reload();
+                onDesigned?.(data);
+                setNotice("Architecture generated — Approve & Build is now available.");
+                setDesignStep("");
+                setDesignPct(0);
+              }).catch((err) => {
+                setDesignStep("");
+                setDesignPct(0);
+                onDesignError?.(err);
+                throw err;
+              })
+            }
+          >
+            {busy === "design" ? "Generating architecture…" : "Generate architecture"}
+          </button>
         </section>
       ) : null}
 

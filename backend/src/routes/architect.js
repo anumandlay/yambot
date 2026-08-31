@@ -9,6 +9,7 @@ import { BusinessBlueprint } from "../models/BusinessBlueprint.js";
 import { BusinessTemplate } from "../models/BusinessTemplate.js";
 import {
   chatArchitect,
+  designSavedBlueprint,
   normalizeArchitectBlueprint,
   publicArchitectBlueprint,
 } from "../utils/architectChat.js";
@@ -498,6 +499,51 @@ architectRouter.get("/:id/export", async (req, res, next) => {
       return;
     }
     res.json(exportBlueprintDocument(doc));
+  } catch (err) {
+    next(err);
+  }
+});
+
+architectRouter.post("/:id/design", async (req, res, next) => {
+  try {
+    const body = {
+      profileId: req.body?.profileId,
+      answers: req.body?.answers,
+    };
+    const stream = req.body?.stream === true || req.query?.stream === "1";
+    if (stream) {
+      res.status(200);
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      if (typeof res.flushHeaders === "function") res.flushHeaders();
+
+      const writeLine = (obj) => {
+        if (res.writableEnded) return;
+        res.write(`${JSON.stringify(obj)}\n`);
+        if (typeof res.flush === "function") res.flush();
+      };
+
+      const result = await designSavedBlueprint(req.userId, req.params.id, body, {
+        onProgress: (step) => writeLine({ type: "progress", ...step }),
+      });
+
+      if (!result.ok) {
+        writeLine({ type: "error", ...result });
+        res.end();
+        return;
+      }
+      writeLine({ type: "result", ...result });
+      res.end();
+      return;
+    }
+
+    const result = await designSavedBlueprint(req.userId, req.params.id, body);
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
   } catch (err) {
     next(err);
   }

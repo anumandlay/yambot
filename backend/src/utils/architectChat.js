@@ -349,64 +349,199 @@ function emitProgress(onProgress, id, label, pct) {
   }
 }
 
+/**
+ * Fix common LLM JSON shapes (agents at wrong nesting).
+ * @param {object|null} parsed
+ * @returns {object|null}
+ */
+function coerceDesignParsed(parsed) {
+  if (!parsed || typeof parsed !== "object") return null;
+  const out = { ...parsed };
+  if (!out.blueprint && out.plan) {
+    out.blueprint = { plan: out.plan, summary: out.summary || "" };
+  }
+  if (!out.blueprint) return out;
+  const bp = { ...out.blueprint };
+  const plan = bp.plan && typeof bp.plan === "object" ? { ...bp.plan } : {};
+  if (!Array.isArray(plan.agents) || !plan.agents.length) {
+    if (Array.isArray(bp.agents) && bp.agents.length) plan.agents = bp.agents;
+    if (Array.isArray(out.agents) && out.agents.length) plan.agents = out.agents;
+  }
+  if (!Array.isArray(plan.triggers) || !plan.triggers.length) {
+    if (Array.isArray(bp.triggers)) plan.triggers = bp.triggers;
+    if (Array.isArray(out.triggers)) plan.triggers = out.triggers;
+  }
+  if (!Array.isArray(plan.apis) || !plan.apis.length) {
+    if (Array.isArray(bp.apis)) plan.apis = bp.apis;
+    if (Array.isArray(out.apis)) plan.apis = out.apis;
+  }
+  bp.plan = plan;
+  out.blueprint = bp;
+  return out;
+}
+
 async function generateDesignBlueprint(creds, ctx) {
   const onProgress = ctx.onProgress;
   const system = [
     "You are YamBot's Business Architect designer.",
     "The user already confirmed the business understanding. Output JSON ONLY:",
-    '{ "assistantMessage": "...", "blueprint": { summary, graph, components, checklist, branches, failureHandling, humanApprovals, reuse, uiMap, plan } }',
-    "plan MUST include agents[] (1–4) with key,name,skill,profile,instructions,successCriteria,schedule,policy.httpAllowHosts,needsEmail;",
-    "and triggers[] / apis[] as needed. Fill graph nodes/edges and uiMap.",
-    "Do not ask questions. Do not return stage gathering/understanding.",
+    '{ "assistantMessage": "...", "blueprint": { summary, graph, components, checklist, branches, failureHandling, humanApprovals, reuse, uiMap, plan: { agents[], triggers[], apis[] } } }',
+    "plan.agents is REQUIRED (1–4 items). Each agent: key,name,skill,profile,instructions,successCriteria,schedule,policy.httpAllowHosts,needsEmail;",
+    "triggers[] / apis[] as needed. Fill graph nodes/edges and uiMap.",
+    "Do not ask questions. Never return an empty agents array.",
   ].join("\n");
 
-  try {
-    emitProgress(onProgress, "design_send", "Sending design request to LLM…", 62);
-    const raw = await llmChatCompletion({
-      apiKey: creds.apiKey,
-      baseUrl: creds.llmBaseUrl,
-      model: creds.llmModel,
-      openAiAccountId: creds.openAiAccountId || creds.oauthAccount || "",
-      temperature: 0.2,
-      maxTokens: 6000,
-      timeoutMs: 100_000,
-      messages: [
-        { role: "system", content: system },
-        {
-          role: "user",
-          content: [
-            "CONFIRMED_UNDERSTANDING:",
-            JSON.stringify(ctx.understanding || {}),
-            "",
-            "ANSWERS:",
-            summarizeAnswersForPrompt(ctx.answers),
-            "",
-            "EXISTING_AGENTS:",
-            JSON.stringify(ctx.existingAgents || []).slice(0, 4000),
-            "",
-            "CONVERSATION:",
-            String(ctx.transcript || "").slice(0, 12_000),
-            "",
-            "Design the full executable blueprint now.",
-          ].join("\n"),
-        },
-      ],
-    });
-    emitProgress(onProgress, "design_recv", "Received design response from LLM", 78);
-    emitProgress(onProgress, "design_parse", "Parsing agents, workflow graph, and checklist…", 85);
-    const parsed = parseJsonObject(raw);
-    if (!parsed?.blueprint) return null;
-    const bp = normalizeArchitectBlueprint(parsed.blueprint, ctx.answers);
-    if (!bp?.plan?.agents?.length) return null;
-    return {
-      blueprint: bp,
-      assistantMessage:
-        String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
-        "Here is the full architecture. Review it, then Approve & Build.",
-    };
-  } catch {
-    return null;
+  const userBlock = [
+    "CONFIRMED_UNDERSTANDING:",
+    JSON.stringify(ctx.understanding || {}),
+    "",
+    "ANSWERS:",
+    summarizeAnswersForPrompt(ctx.answers),
+    "",
+    "EXISTING_AGENTS:",
+    JSON.stringify(ctx.existingAgents || []).slice(0, 4000),
+    "",
+    "CONVERSATION:",
+    String(ctx.transcript || "").slice(0, 12_000),
+    "",
+    "Design the full executable blueprint now.",
+  ].join("\n");
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      emitProgress(
+        onProgress,
+        attempt ? "design_retry_send" : "design_send",
+        attempt
+          ? "Retrying design — agents were missing…"
+          : "Sending design request to LLM…",
+        attempt ? 65 : 62
+      );
+      const raw = await llmChatCompletion({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl,
+        model: creds.llmModel,
+        openAiAccountId: creds.openAiAccountId || creds.oauthAccount || "",
+        temperature: attempt ? 0.15 : 0.2,
+        maxTokens: 6000,
+        timeoutMs: 100_000,
+        messages: [
+          { role: "system", content: system },
+          {
+            role: "user",
+            content:
+              attempt === 0
+                ? userBlock
+                : `${userBlock}\n\nCRITICAL: Your previous reply had no plan.agents. Return at least one complete agent in plan.agents now.`,
+          },
+        ],
+      });
+      emitProgress(onProgress, "design_recv", "Received design response from LLM", 78);
+      emitProgress(onProgress, "design_parse", "Parsing agents, workflow graph, and checklist…", 85);
+      const parsed = coerceDesignParsed(parseJsonObject(raw));
+      if (!parsed?.blueprint) continue;
+      const bp = normalizeArchitectBlueprint(parsed.blueprint, ctx.answers);
+      if (!bp?.plan?.agents?.length) continue;
+      return {
+        blueprint: bp,
+        assistantMessage:
+          String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
+          "Here is the full architecture. Review it, then Approve & Build.",
+      };
+    } catch {
+      /* try again or fail */
+    }
   }
+  return null;
+}
+
+/**
+ * Re-run design for a saved draft that has understanding but no executable plan.agents.
+ * @param {string} userId
+ * @param {string} blueprintId
+ * @param {object} [body]
+ * @param {{ onProgress?: Function }} [opts]
+ */
+export async function designSavedBlueprint(userId, blueprintId, body = {}, opts = {}) {
+  const onProgress = opts.onProgress;
+  const doc = await BusinessBlueprint.findOne({ _id: blueprintId, user: userId });
+  if (!doc) {
+    return { ok: false, title: "Not found", detail: "Blueprint missing" };
+  }
+
+  emitProgress(onProgress, "prepare", "Preparing architecture design…", 8);
+
+  const user = await User.findById(userId);
+  if (!user) {
+    return { ok: false, title: "User missing", detail: "Could not load your account." };
+  }
+
+  const resolved = await resolvePlannerCreds(user, body.profileId || doc.profileId);
+  if (resolved.error) return resolved.error;
+  const { creds } = resolved;
+
+  const understanding = normalizeUnderstanding(doc.understanding);
+  const transcript = (doc.messages || [])
+    .map((m) => `${m.role === "assistant" ? "Assistant" : "User"}: ${m.content}`)
+    .join("\n\n");
+
+  if (!understanding.objective && !transcript.trim()) {
+    return {
+      ok: false,
+      title: "Nothing to design yet",
+      detail: "Describe your business in the Architect chat first, then confirm understanding.",
+    };
+  }
+
+  emitProgress(onProgress, "agents", "Loading existing agents…", 18);
+  const existingAgents = await loadExistingAgentsSummary(userId);
+  const answers = body.answers && typeof body.answers === "object" ? body.answers : {};
+
+  const designed = await generateDesignBlueprint(creds, {
+    understanding,
+    transcript,
+    answers,
+    existingAgents,
+    onProgress,
+  });
+
+  if (!designed?.blueprint?.plan?.agents?.length) {
+    return {
+      ok: false,
+      title: "Design failed",
+      detail:
+        "The planning LLM did not return agents for this business. Check your LLM profile, then try Generate architecture again.",
+      hint: "Settings → LLM profiles, or pick a different Planning LLM on /architect.",
+    };
+  }
+
+  emitProgress(onProgress, "save", "Saving blueprint draft…", 92);
+  doc.stage = "ready";
+  doc.blueprint = publicArchitectBlueprint(designed.blueprint);
+  doc.understanding = { ...understanding, confirmed: true };
+  doc.profileId = creds.profileId || doc.profileId;
+  if (Object.keys(answers).length) doc.answersMeta = redactAnswersMeta(answers);
+  doc.messages = [
+    ...(doc.messages || []),
+    {
+      role: "assistant",
+      content: designed.assistantMessage,
+      at: new Date(),
+    },
+  ].slice(-50);
+  await doc.save();
+
+  emitProgress(onProgress, "done", "Blueprint ready", 100);
+
+  return {
+    ok: true,
+    stage: "ready",
+    assistantMessage: designed.assistantMessage,
+    blueprint: doc.blueprint,
+    blueprintId: String(doc._id),
+    profileId: creds.profileId || "",
+    profileName: creds.profileName || "",
+  };
 }
 
 /**

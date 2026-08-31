@@ -889,10 +889,20 @@ export function BusinessArchitectPage() {
         <ArchitectOpsHub
           blueprintId={blueprintId}
           profileId={profileId}
+          answers={answers}
           onError={(err) => setError(err)}
           onDocLoaded={syncFromBlueprintDoc}
           onBuild={onApply}
           buildBusy={applyBusy || simBusy}
+          onDesigned={(data) => {
+            if (data.blueprint) setBlueprint(data.blueprint);
+            setStage("ready");
+            setUnderstanding(null);
+            if (data.assistantMessage) {
+              setMessages((prev) => [...prev, { role: "assistant", content: data.assistantMessage }]);
+            }
+          }}
+          onDesignError={(err) => setError(err)}
         />
       ) : null}
 

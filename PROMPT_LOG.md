@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 01:20] Architect Generate architecture for empty drafts
+
+- **Prompt Provided:** Blueprint has no agents yet on saved draft — cannot build
+- **Architectural Flow:** POST /api/architect/:id/design re-runs design pass with retry + JSON coercion; ops hub "Generate architecture" button with progress; stronger generateDesignBlueprint.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/architectChat.js`, `backend/src/routes/architect.js`, `frontend/src/components/ArchitectOpsHub.jsx`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-31 01:05] Architect Approve & Build in ops hub
 
 - **Prompt Provided:** Simulation approved message but still cannot see Approve & Build — need step-by-step guide
