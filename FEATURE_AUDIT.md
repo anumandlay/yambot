@@ -91,8 +91,9 @@ Runtime proofs at `POST /api/proofs/run` (`suite`: `bos` | `harden` | `all`) and
 | `LIVE_BOS` unset/0 | All live cases **BLOCKED** |
 | `LIVE_BOS=1` + `LIVE_BOS_TEST_ONLY=1` | Provisions disposable tenant; runs real SMTP/IMAP/WorkflowRunner/scheduler/approval/events |
 | `LIVE_BOS_ALLOW_MAIL_MUTATION=1` | Required to SMTP-send on the dedicated test mailbox |
-| Cloud worker online | Required for browser case to PASS (else BLOCKED) |
+| Browser claim | `desired=running` + wait; `LIVE_BOS_ALLOW_INLINE_CLAIM=1` = TEST_ONLY Mongo claim (same path as worker; Chromium only if computer-manager boots the box) |
+| Lead-to-Customer ordeal | `live_lead_to_customer` — GET leads → promo email → handoff → CRM POST → dedupe/approval → browser → attribution |
 
 Commands: `npm run test:live-bos` · `POST /api/proofs/run` `{ "suite": "live" }` · secrets in gitignored `backend/.live-bos.env` only.
 
-Sandbox proofs remain separate: `npm run test:bos` → **14/14**.
+Sandbox proofs remain separate: `npm run test:bos` → **14/14**. Last local LIVE_BOS: **10/10 PASS** (incl. ordeal + inline browser claim).

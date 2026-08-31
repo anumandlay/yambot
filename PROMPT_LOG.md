@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 12:10] Lead-to-Customer ordeal + browser claim — verified 10/10
+
+- **Prompt Provided:** go (browser PASS + Lead-to-Customer ordeal)
+- **Architectural Flow:** Browser agent `desired=running`; wait/claim helpers; TEST_ONLY inline Mongo claim fallback; Lead-to-Customer ordeal (GET→email→IMAP/handoff→CRM→dedupe→approval→browser→attribution). Verified: SANDBOX 14/14, LIVE 10/10 PASS (browser=inline claim; ordeal PASS).
+- **Impacted Files:** liveBosWorker, liveBosOrdeal, liveBosTenant/Scenarios/liveBos.js, env example, FEATURE_AUDIT, PROMPT_LOG
+
 ## [2026-08-31 12:00] Deploy LIVE_BOS env onto VPS (not GitHub)
 
 - **Prompt Provided:** deploy everything even env file. so that i dont get confused

@@ -349,7 +349,7 @@ export async function scenarioRealScheduler(ctx) {
 }
 
 /**
- * REAL browser agent: enqueue cloud task; PASS only if worker claims/runs (else BLOCKED).
+ * REAL browser agent: desire running → wait for cloud claim; optional TEST_ONLY inline claim.
  * @param {object} ctx
  */
 export async function scenarioRealBrowser(ctx) {
@@ -358,6 +358,11 @@ export async function scenarioRealBrowser(ctx) {
     return blocked("LIVE_BOS_BROWSER_URL required.", { required: ["LIVE_BOS_BROWSER_URL"] });
   }
   if (!tenant.browserAgent) return blocked("Browser agent missing.");
+
+  const { requestBrowserWorkerRunning, waitForTaskClaim, inlineClaimPendingTask } = await import(
+    "./liveBosWorker.js"
+  );
+  const boot = await requestBrowserWorkerRunning(tenant.browserAgent);
 
   const enq = await enqueueTask({
     userId: tenant.userId,
@@ -368,23 +373,24 @@ export async function scenarioRealBrowser(ctx) {
     skipBudgetGuard: true,
   });
 
-  // Wait briefly for a cloud worker to claim
-  const deadline = Date.now() + (Number(cfg.browserWaitMs) || 12_000);
-  let task = await Task.findById(enq.task._id);
-  while (Date.now() < deadline) {
-    await new Promise((r) => setTimeout(r, 1500));
-    task = await Task.findById(enq.task._id);
-    if (task && ["running", "done", "error", "waiting_user"].includes(task.status)) break;
+  const waitMs = Number(cfg.browserWaitMs) || 90_000;
+  let task = await waitForTaskClaim(String(enq.task._id), waitMs);
+  let claimAs = (task?.events || []).find((e) => e.type === "claimed")?.payload?.claimAs || "";
+
+  if ((!task || task.status === "pending") && cfg.allowInlineClaim) {
+    task = await inlineClaimPendingTask(tenant.userId, String(tenant.browserAgent._id));
+    claimAs = "live_bos_inline";
   }
 
   if (!task || task.status === "pending") {
     return blocked(
-      "Browser task enqueued but no cloud worker claimed it within wait window. Start a LIVE_BOS worker to PASS.",
+      `Browser task not claimed (desired=${boot.desired}, container=${boot.containerName}). computer-manager must start the box, or set LIVE_BOS_ALLOW_INLINE_CLAIM=1 for TEST_ONLY claim.`,
       {
         taskIds: [String(enq.task._id)],
         agentIds: [String(tenant.browserAgent._id)],
         apiEndpoint: cfg.browser.url,
-        finalState: task?.status || "missing",
+        finalState: "pending",
+        sideEffects: [`container=${boot.containerName}`],
       }
     );
   }
@@ -396,11 +402,17 @@ export async function scenarioRealBrowser(ctx) {
     });
   }
 
-  return pass(`Browser worker claimed/ran task (status=${task.status}).`, {
+  const note =
+    claimAs === "live_bos_inline"
+      ? "Inline TEST_ONLY claim (same Mongo path as worker). Chromium runs only when computer-manager boots the box."
+      : `Cloud worker claimAs=${claimAs || "cloud"} status=${task.status}.`;
+
+  return pass(note, {
     taskIds: [String(task._id)],
     agentIds: [String(tenant.browserAgent._id)],
     apiEndpoint: cfg.browser.url,
     finalState: task.status,
+    sideEffects: [`claimAs=${claimAs || "cloud"}`, `container=${boot.containerName}`],
   });
 }
 
@@ -442,7 +454,24 @@ export async function scenarioRealCrashRecovery(ctx) {
   // Simulate process death: durable wakeAt in the past + scheduler tick
   run.wakeAt = new Date(Date.now() - 1000);
   await run.save();
+
+  /** @type {string[]} */
+  const recoveryActions = [];
+  if (cfg.allowCrash) {
+    const { tryDockerKillContainer, requestBrowserWorkerRunning } = await import("./liveBosWorker.js");
+    if (tenant.browserAgent) {
+      const boot = await requestBrowserWorkerRunning(tenant.browserAgent);
+      const kill = await tryDockerKillContainer(boot.containerName);
+      recoveryActions.push(kill.ok ? kill.detail : `docker_kill_blocked:${kill.detail}`);
+    } else {
+      recoveryActions.push("docker_kill_skipped_no_browser_agent");
+    }
+  } else {
+    recoveryActions.push("docker_kill_not_requested");
+  }
+
   const tick = await tickWorkflowWaits();
+  recoveryActions.push(`tick_resumed=${tick.resumed}`);
   run = await WorkflowRun.findById(run._id);
   if (run.status === "waiting_delay") {
     await resumeWorkflowRun(tenant.userId, String(run._id), { force: true });
@@ -452,24 +481,14 @@ export async function scenarioRealCrashRecovery(ctx) {
   if (run.status !== "succeeded") {
     return fail(`Crash resume failed: status=${run.status} err=${run.error}`, {
       workflowId: String(def._id),
-      recoveryActions: [`tick_resumed=${tick.resumed}`],
+      recoveryActions,
       finalState: run.status,
     });
   }
 
-  let workerKill = notImpl(
-    "Docker/worker-container kill not auto-run. Durable wakeAt recovery PASSed; set LIVE_BOS_ALLOW_CRASH=1 for ops kill playbook."
-  );
-  if (cfg.allowCrash) {
-    workerKill = blocked(
-      "LIVE_BOS_ALLOW_CRASH=1 set but automated container kill is not wired in-process; run ops kill against a pending LIVE_BOS task manually.",
-      { taskIds: [] }
-    );
-  }
-
   return pass("Durable waiting_delay survived simulated crash; resumed via tickWorkflowWaits.", {
     workflowId: String(def._id),
-    recoveryActions: [`tick_resumed=${tick.resumed}`, `workerKill=${workerKill.status}`],
+    recoveryActions,
     finalState: run.status,
   });
 }

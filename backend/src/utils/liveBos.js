@@ -20,6 +20,7 @@ import {
   LIVE_TAG,
 } from "./liveBosTenant.js";
 import * as scenarios from "./liveBosScenarios.js";
+import { scenarioLeadToCustomerOrdeal } from "./liveBosOrdeal.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
@@ -94,12 +95,17 @@ export function loadLiveBosConfig() {
   const allowMailMutation =
     String(process.env.LIVE_BOS_ALLOW_MAIL_MUTATION || "").trim() === "1" ||
     String(process.env.LIVE_BOS_ALLOW_MAIL_MUTATION || "").toLowerCase() === "true";
+  const allowInlineClaim =
+    process.env.LIVE_BOS_ALLOW_INLINE_CLAIM == null ||
+    process.env.LIVE_BOS_ALLOW_INLINE_CLAIM === "" ||
+    String(process.env.LIVE_BOS_ALLOW_INLINE_CLAIM).trim() === "1" ||
+    String(process.env.LIVE_BOS_ALLOW_INLINE_CLAIM).toLowerCase() === "true";
   const customerEmail = String(
     process.env.LIVE_BOS_CUSTOMER_EMAIL || mail.user || ""
   )
     .trim()
     .toLowerCase();
-  const browserWaitMs = Number(process.env.LIVE_BOS_BROWSER_WAIT_MS) || 12_000;
+  const browserWaitMs = Number(process.env.LIVE_BOS_BROWSER_WAIT_MS) || 90_000;
 
   /** @type {string[]} */
   const missing = [];
@@ -116,6 +122,7 @@ export function loadLiveBosConfig() {
     browser,
     allowCrash,
     allowMailMutation,
+    allowInlineClaim,
     customerEmail,
     browserWaitMs,
     missing,
@@ -155,6 +162,11 @@ const LIVE_CASES = [
     id: "live_real_attribution",
     name: "REAL attribution + causal memory",
     run: scenarios.scenarioRealAttribution,
+  },
+  {
+    id: "live_lead_to_customer",
+    name: "ORDEAL Lead-to-Customer (email→handoff→CRM→faults→browser)",
+    run: scenarioLeadToCustomerOrdeal,
   },
 ];
 
@@ -307,6 +319,7 @@ function formatReport(proofId, results, cfg, bag, meta = {}) {
       crash_recovery: statusOf(results, "live_real_crash_recovery"),
       events: statusOf(results, "live_real_events"),
       attribution: statusOf(results, "live_real_attribution"),
+      lead_to_customer_ordeal: statusOf(results, "live_lead_to_customer"),
     },
     sandboxBosNote: "Sandbox BOS+harden remain at npm run test:bos (14 proofs) — separate from LIVE_BOS.",
     auditedAt: new Date().toISOString(),

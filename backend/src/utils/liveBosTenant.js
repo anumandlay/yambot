@@ -11,7 +11,7 @@ import { Trigger } from "../models/Trigger.js";
 import { Goal } from "../models/Goal.js";
 import { WorkflowDefinition } from "../models/WorkflowDefinition.js";
 import { encryptSecret } from "./crypto.js";
-import { issueWorkerToken } from "./workerAuth.js";
+import { issueWorkerToken, containerNameForAgent } from "./workerAuth.js";
 import { materializeHandoffTriggers } from "./handoffCompile.js";
 
 export const LIVE_TAG = "LIVE_BOS_TEST_ONLY";
@@ -178,8 +178,14 @@ export async function provisionLiveTenant(userId, cfg) {
     startUrl: cfg.browser.url || "https://example.com",
     workerTokenHash: issuedBr.workerTokenHash,
     workerTokenEnc: issuedBr.workerTokenEnc,
-    computer: { desired: "stopped", containerName: "" },
+    // Why: computer-manager only boots boxes with desired=running.
+    computer: {
+      desired: "running",
+      containerName: "", // set after create — need _id
+    },
   });
+  browserAgent.computer.containerName = containerNameForAgent(browserAgent._id);
+  await browserAgent.save();
 
   const customerEmail = String(cfg.customerEmail || mailUser || "").trim().toLowerCase();
   if (customerEmail) {
@@ -224,6 +230,7 @@ export async function provisionLiveTenant(userId, cfg) {
     agentB,
     schedAgent,
     browserAgent,
+    browserWorkerToken: issuedBr.token,
     entity,
     triggerIds,
     fakeCustomers,
