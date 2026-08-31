@@ -303,7 +303,7 @@ function canSatisfy(cfg, needs) {
   for (const n of needs) {
     if (n === "api" && !cfg.api.baseUrl) return false;
     if (n === "mail" && !(cfg.mail.imapHost && cfg.mail.user && cfg.mail.pass)) return false;
-    if (n === "browser" && !(cfg.browser.url && cfg.browser.user && cfg.browser.pass)) return false;
+    if (n === "browser" && !cfg.browser.url) return false;
     if (n === "crash" && !cfg.allowCrash) return false;
     if (n === "mongo") {
       /* mongo assumed when suite is invoked with a userId connected */
@@ -324,8 +324,8 @@ function missingFor(cfg, needs) {
     if (n === "mail" && !(cfg.mail.imapHost && cfg.mail.user && cfg.mail.pass)) {
       out.push("LIVE_BOS_IMAP_*");
     }
-    if (n === "browser" && !(cfg.browser.url && cfg.browser.user && cfg.browser.pass)) {
-      out.push("LIVE_BOS_BROWSER_*");
+    if (n === "browser" && !cfg.browser.url) {
+      out.push("LIVE_BOS_BROWSER_URL");
     }
     if (n === "crash" && !cfg.allowCrash) out.push("LIVE_BOS_ALLOW_CRASH=1");
   }
