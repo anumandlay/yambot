@@ -149,6 +149,48 @@ function normalizePendingRequirements(parsed) {
 }
 
 /**
+ * Coerce a blueprint list item (string or LLM object) into readable text.
+ * Why: models often return branches as `{ if, then, else }` — String(obj) becomes "[object Object]".
+ * @param {unknown} item
+ * @param {number} [maxLen=400]
+ * @returns {string}
+ */
+export function formatBlueprintTextItem(item, maxLen = 400) {
+  if (item == null) return "";
+  if (typeof item === "string") return item.trim().slice(0, maxLen);
+  if (typeof item === "number" || typeof item === "boolean") {
+    return String(item).slice(0, maxLen);
+  }
+  if (typeof item === "object") {
+    const o = /** @type {Record<string, unknown>} */ (item);
+    const cond = o.condition ?? o.if ?? o.when ?? o.label ?? o.branch ?? o.name;
+    const thenPart = o.then ?? o.action ?? o.outcome ?? o.yes ?? o.true;
+    const elsePart = o.else ?? o.otherwise ?? o.no ?? o.false;
+    const desc = o.description ?? o.text ?? o.summary ?? o.detail;
+    const parts = [];
+    if (cond != null && String(cond).trim()) parts.push(String(cond).trim());
+    if (thenPart != null && String(thenPart).trim()) {
+      parts.push(`→ ${String(thenPart).trim()}`);
+    }
+    if (elsePart != null && String(elsePart).trim()) {
+      parts.push(`else → ${String(elsePart).trim()}`);
+    }
+    if (!parts.length && desc != null && String(desc).trim()) {
+      parts.push(String(desc).trim());
+    }
+    if (!parts.length) {
+      try {
+        return JSON.stringify(item).slice(0, maxLen);
+      } catch {
+        return "";
+      }
+    }
+    return parts.join(" ").replace(/\s+/g, " ").trim().slice(0, maxLen);
+  }
+  return String(item).trim().slice(0, maxLen);
+}
+
+/**
  * @param {object} u
  * @returns {object}
  */
@@ -159,11 +201,11 @@ function normalizeUnderstanding(u) {
   return {
     objective: String(u.objective || "").trim().slice(0, 1000),
     bullets: (Array.isArray(u.bullets) ? u.bullets : [])
-      .map((b) => String(b || "").trim().slice(0, 500))
+      .map((b) => formatBlueprintTextItem(b, 500))
       .filter(Boolean)
       .slice(0, 20),
     assumptions: (Array.isArray(u.assumptions) ? u.assumptions : [])
-      .map((b) => String(b || "").trim().slice(0, 500))
+      .map((b) => formatBlueprintTextItem(b, 500))
       .filter(Boolean)
       .slice(0, 15),
   };
@@ -256,15 +298,15 @@ export function normalizeArchitectBlueprint(bp, answers = null) {
     components,
     checklist,
     branches: (Array.isArray(bp.branches) ? bp.branches : [])
-      .map((b) => String(b || "").trim().slice(0, 400))
+      .map((b) => formatBlueprintTextItem(b, 400))
       .filter(Boolean)
       .slice(0, 20),
     failureHandling: (Array.isArray(bp.failureHandling) ? bp.failureHandling : [])
-      .map((b) => String(b || "").trim().slice(0, 400))
+      .map((b) => formatBlueprintTextItem(b, 400))
       .filter(Boolean)
       .slice(0, 20),
     humanApprovals: (Array.isArray(bp.humanApprovals) ? bp.humanApprovals : [])
-      .map((b) => String(b || "").trim().slice(0, 400))
+      .map((b) => formatBlueprintTextItem(b, 400))
       .filter(Boolean)
       .slice(0, 15),
     reuse: (Array.isArray(bp.reuse) ? bp.reuse : [])
@@ -608,7 +650,7 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
     '    "graph": { "nodes": [{ "id", "label", "kind": "api|agent|email|wait|branch|schedule|human|step" }], "edges": [{ "from", "to", "label" }] },',
     '    "components": [{ "id", "kind", "title", "purpose", "uses": [], "starts": "" }],',
     '    "checklist": { "agents", "schedules", "triggers", "apiConnections", "emailConnections", "handoffs", "branches", "humanApprovals" },',
-    '    "branches": ["..."],',
+    '    "branches": ["If condition X → do Y; else → do Z", "..."],',
     '    "failureHandling": ["API fail → retry 3x → notify"],',
     '    "humanApprovals": ["..."],',
     '    "reuse": [{ "agentKey", "existingAgentId", "existingAgentName", "reason", "changeRisk", "recommend": "reuse|create_new" }],',
@@ -626,7 +668,7 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
     "If UNDERSTANDING_REJECTED=true → stage=gathering or understanding; revise based on their correction.",
     "",
     "Reuse: Inspect EXISTING_AGENTS. Prefer recommend=create_new unless an existing agent clearly matches; never imply silent modification of production agents. If reuse, set recommend=reuse and explain changeRisk.",
-    "Branches: model decision trees in graph (kind=branch) and branches[].",
+    "Branches: model decision trees in graph (kind=branch) and branches[] as plain English strings (not objects).",
     "plan.agents keys must be stable slugs; triggers.agentKey must match; include schedule for daily 9am style requests.",
   ].join("\n");
 

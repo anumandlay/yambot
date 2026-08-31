@@ -11,7 +11,7 @@ import { CompanyMemory } from "../models/CompanyMemory.js";
 import { LlmProfile } from "../models/LlmProfile.js";
 import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { llmChatCompletion } from "./llmChat.js";
-import { normalizeArchitectBlueprint, publicArchitectBlueprint } from "./architectChat.js";
+import { normalizeArchitectBlueprint, publicArchitectBlueprint, formatBlueprintTextItem } from "./architectChat.js";
 import { normalizeBusinessPlan } from "./businessPlanFromBrief.js";
 
 /**
@@ -228,7 +228,9 @@ export function runBlueprintTests(blueprintDoc) {
     id: "t_unsubscribe",
     name: "Branch or instructions cover unsubscribe / stop",
     ok:
-      (bp?.branches || []).some((b) => /unsub|stop|opt.?out/i.test(b)) ||
+      (bp?.branches || []).some((b) =>
+        /unsub|stop|opt.?out/i.test(formatBlueprintTextItem(b))
+      ) ||
       agents.some((a) => /unsub|opt.?out|do not email/i.test(a.instructions || "")) ||
       !emailAgents.length,
     detail: emailAgents.length ? "Recommended for outreach" : "N/A",
@@ -504,10 +506,10 @@ export function exportBlueprintDocument(doc) {
     ),
     "",
     "## Branches",
-    ...(bp.branches || []).map((b) => `- ${b}`),
+    ...(bp.branches || []).map((b) => `- ${formatBlueprintTextItem(b)}`),
     "",
     "## Failure handling",
-    ...(bp.failureHandling || []).map((b) => `- ${b}`),
+    ...(bp.failureHandling || []).map((b) => `- ${formatBlueprintTextItem(b)}`),
     ...(doc.incidentPolicy
       ? [
           `- Retries: API ${doc.incidentPolicy.apiRetries}, Email ${doc.incidentPolicy.emailRetries}`,
@@ -516,7 +518,7 @@ export function exportBlueprintDocument(doc) {
       : []),
     "",
     "## Human approvals",
-    ...(bp.humanApprovals || []).map((b) => `- ${b}`),
+    ...(bp.humanApprovals || []).map((b) => `- ${formatBlueprintTextItem(b)}`),
     "",
     "## Checklist",
     "```json",

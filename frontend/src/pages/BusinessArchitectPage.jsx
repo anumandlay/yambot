@@ -17,6 +17,42 @@ const WELCOME =
   "Describe the business outcome you want in plain English. I’ll ask only what’s necessary, confirm my understanding, then show a full architecture — nothing is created until you Approve & Build.";
 
 /**
+ * Render a blueprint list item that may be a string or an LLM object.
+ * Why: older drafts / uncoerced payloads show as "[object Object]" if rendered raw.
+ * @param {unknown} item
+ * @returns {string}
+ */
+function formatBlueprintLine(item) {
+  if (item == null) return "";
+  if (typeof item === "string") {
+    const t = item.trim();
+    return t === "[object Object]" ? "" : t;
+  }
+  if (typeof item === "number" || typeof item === "boolean") return String(item);
+  if (typeof item === "object") {
+    const o = /** @type {Record<string, unknown>} */ (item);
+    const cond = o.condition ?? o.if ?? o.when ?? o.label ?? o.branch ?? o.name;
+    const thenPart = o.then ?? o.action ?? o.outcome ?? o.yes;
+    const elsePart = o.else ?? o.otherwise ?? o.no;
+    const desc = o.description ?? o.text ?? o.summary;
+    const parts = [];
+    if (cond != null && String(cond).trim()) parts.push(String(cond).trim());
+    if (thenPart != null && String(thenPart).trim()) parts.push(`→ ${String(thenPart).trim()}`);
+    if (elsePart != null && String(elsePart).trim()) parts.push(`else → ${String(elsePart).trim()}`);
+    if (!parts.length && desc != null && String(desc).trim()) parts.push(String(desc).trim());
+    if (!parts.length) {
+      try {
+        return JSON.stringify(item);
+      } catch {
+        return "";
+      }
+    }
+    return parts.join(" ");
+  }
+  return String(item);
+}
+
+/**
  * Live design / chat progress with bar + step checklist from NDJSON stream.
  * @param {{ steps: { id: string, label: string, pct: number }[], pct: number, title?: string }} props
  */
@@ -302,9 +338,10 @@ function BlueprintPanel({ blueprint }) {
             Conditions / branches
           </h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-teal-900/80">
-            {blueprint.branches.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
+            {blueprint.branches.map((b, i) => {
+              const line = formatBlueprintLine(b);
+              return line ? <li key={i}>{line}</li> : null;
+            })}
           </ul>
         </section>
       ) : null}
@@ -315,9 +352,10 @@ function BlueprintPanel({ blueprint }) {
             Failure handling
           </h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-teal-900/80">
-            {blueprint.failureHandling.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
+            {blueprint.failureHandling.map((b, i) => {
+              const line = formatBlueprintLine(b);
+              return line ? <li key={i}>{line}</li> : null;
+            })}
           </ul>
         </section>
       ) : null}
@@ -328,9 +366,10 @@ function BlueprintPanel({ blueprint }) {
             Human approval points
           </h3>
           <ul className="mt-2 list-disc space-y-1 pl-5 text-sm text-amber-950/90">
-            {blueprint.humanApprovals.map((b, i) => (
-              <li key={i}>{b}</li>
-            ))}
+            {blueprint.humanApprovals.map((b, i) => {
+              const line = formatBlueprintLine(b);
+              return line ? <li key={i}>{line}</li> : null;
+            })}
           </ul>
         </section>
       ) : null}

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 02:05] Architect branches show [object Object]
+
+- **Prompt Provided:** when i click generate architecture i see Conditions / branches [object Object]
+- **Architectural Flow:** LLM often returns branches/failureHandling/humanApprovals as objects; String(obj) became "[object Object]". Coerce to readable if/then text; UI formats objects defensively.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/architectChat.js`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-31 01:45] Architect blueprint scrollable panel
 
 - **Prompt Provided:** not able to scroll the architecture on /architect
