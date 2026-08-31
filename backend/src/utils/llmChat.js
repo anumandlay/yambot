@@ -6,6 +6,11 @@
 
 import { codexChatCompletion, isOpenAiCodexBaseUrl } from "./openaiCodex.js";
 import { extractLlmApiMessage, hintForLlmStatus, looksLikeHtml } from "./llmTest.js";
+import {
+  buildLlmAuthHeaders,
+  normalizeApiKey,
+  validateAnthropicApiKey,
+} from "./llmDefaults.js";
 
 /**
  * @param {{ apiKey: string, baseUrl: string, model: string, messages: object[], temperature?: number, maxTokens?: number, timeoutMs?: number, openAiAccountId?: string }} opts
@@ -23,6 +28,14 @@ export async function llmChatCompletion(opts) {
     openAiAccountId,
   } = opts;
   const root = String(baseUrl || "").replace(/\/$/, "");
+  const key = normalizeApiKey(apiKey);
+  const keyErr = validateAnthropicApiKey(key, root);
+  if (keyErr) {
+    throw Object.assign(new Error(keyErr.detail), {
+      title: keyErr.title,
+      hint: keyErr.hint,
+    });
+  }
 
   if (isOpenAiCodexBaseUrl(root)) {
     const codex = await codexChatCompletion({
@@ -43,10 +56,7 @@ export async function llmChatCompletion(opts) {
   try {
     const response = await fetch(`${root}/chat/completions`, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: buildLlmAuthHeaders({ apiKey: key, baseUrl: root }),
       body: JSON.stringify({
         model,
         temperature,

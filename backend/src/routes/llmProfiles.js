@@ -38,9 +38,8 @@ function pickProfileFields(body, opts = {}) {
   const fields = {};
   if (name != null) fields.name = name;
   if (body.baseUrl != null || !opts.partial) {
-    fields.baseUrl = String(body.baseUrl ?? existing.baseUrl ?? "")
-      .trim()
-      .slice(0, 500);
+    const raw = String(body.baseUrl ?? existing.baseUrl ?? "").trim().slice(0, 500);
+    fields.baseUrl = raw ? normalizeLlmBaseUrl(raw, raw) : "";
   }
   if (body.model != null || !opts.partial) {
     fields.model = String(body.model ?? existing.model ?? "")
@@ -48,7 +47,7 @@ function pickProfileFields(body, opts = {}) {
       .slice(0, 200);
   }
 
-  const key = String(body.apiKey ?? "").trim();
+  const key = String(body.apiKey ?? "").replace(/\s+/g, "").trim();
   if (key) {
     fields.apiKeyEnc = encryptSecret(key);
   } else if (body.clearApiKey) {
@@ -181,7 +180,7 @@ llmProfilesRouter.delete("/:id", async (req, res, next) => {
  */
 llmProfilesRouter.post("/test", async (req, res, next) => {
   try {
-    const bodyKey = String(req.body?.apiKey ?? "").trim();
+    const bodyKey = String(req.body?.apiKey ?? "").replace(/\s+/g, "").trim();
     let apiKey = bodyKey;
     let baseUrl = String(req.body?.baseUrl ?? "").trim();
     let model = String(req.body?.model ?? "").trim();

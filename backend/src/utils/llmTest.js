@@ -9,6 +9,12 @@ import {
   codexChatCompletion,
   isOpenAiCodexBaseUrl,
 } from "./openaiCodex.js";
+import {
+  buildLlmAuthHeaders,
+  isAnthropicBaseUrl,
+  normalizeApiKey,
+  validateAnthropicApiKey,
+} from "./llmDefaults.js";
 
 /**
  * @param {string} text
@@ -92,6 +98,9 @@ export function hintForLlmStatus(status, bodyText, baseUrl = "") {
   if (looksLikeHtml(bodyText)) {
     return describeHtmlLlmFailure(status, bodyText, baseUrl).hint;
   }
+  if ((status === 401 || status === 403) && isAnthropicBaseUrl(baseUrl)) {
+    return "Create a new key at console.anthropic.com/settings/keys (sk-ant-…). Ensure billing is enabled. Multi-workspace keys may need a workspace selected when created.";
+  }
   if (status === 401 || status === 403) return "Check your API key (and model access).";
   if (status === 404) return "Check the base URL ends with /v1 and the model name.";
   if (status === 429) return "Rate limited or out of quota.";
@@ -106,6 +115,14 @@ export function hintForLlmStatus(status, bodyText, baseUrl = "") {
  */
 export async function probeLlmConnection({ apiKey, baseUrl, model, timeoutMs = 60_000, openAiAccountId }) {
   const root = String(baseUrl || "").replace(/\/$/, "");
+  const key = normalizeApiKey(apiKey);
+  const keyErr = validateAnthropicApiKey(key, root);
+  if (keyErr) {
+    throw Object.assign(new Error(keyErr.detail), {
+      title: keyErr.title,
+      hint: keyErr.hint,
+    });
+  }
   const messages = [{ role: "user", content: "Reply with exactly: ok" }];
 
   if (isOpenAiCodexBaseUrl(root)) {
@@ -131,10 +148,7 @@ export async function probeLlmConnection({ apiKey, baseUrl, model, timeoutMs = 6
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${apiKey}`,
-      },
+      headers: buildLlmAuthHeaders({ apiKey: key, baseUrl: root }),
       body: JSON.stringify({
         model,
         temperature: 0,

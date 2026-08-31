@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 01:35] Anthropic LLM auth headers + key validation
+
+- **Prompt Provided:** 401 Invalid Anthropic API Key with correct base URL and claude-sonnet-4-6
+- **Architectural Flow:** buildLlmAuthHeaders adds x-api-key + anthropic-version for anthropic.com; validate sk-ant- prefix; trim pasted keys; Anthropic preset in LLM profiles UI.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/llmDefaults.js`, `backend/src/utils/llmTest.js`, `backend/src/utils/llmChat.js`, `backend/src/routes/llmProfiles.js`, `frontend/src/pages/SettingsLlmProfilesPage.jsx`
+
 ## [2026-08-31 01:20] Architect Generate architecture for empty drafts
 
 - **Prompt Provided:** Blueprint has no agents yet on saved draft — cannot build

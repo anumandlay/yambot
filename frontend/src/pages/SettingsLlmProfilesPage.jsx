@@ -18,6 +18,24 @@ const EMPTY_FORM = {
   hasApiKey: false,
 };
 
+/** Quick-fill presets for common providers. */
+const LLM_PRESETS = [
+  {
+    id: "anthropic",
+    label: "Anthropic",
+    baseUrl: "https://api.anthropic.com/v1",
+    model: "claude-sonnet-4-6",
+    keyHint: "sk-ant-api03-… from console.anthropic.com",
+  },
+  {
+    id: "minimax",
+    label: "MiniMax",
+    baseUrl: "https://api.minimax.io/v1",
+    model: "MiniMax-M2.7",
+    keyHint: "MiniMax API key",
+  },
+];
+
 /**
  * Settings subpage for managing reusable LLM credential profiles.
  */
@@ -136,7 +154,7 @@ export function SettingsLlmProfilesPage() {
     setOkMsg("");
     try {
       const body = {
-        apiKey: form.apiKey,
+        apiKey: form.apiKey.replace(/\s+/g, ""),
         baseUrl: form.baseUrl,
         model: form.model,
         profileId: editingId || undefined,
@@ -260,6 +278,34 @@ export function SettingsLlmProfilesPage() {
           <h2 className="text-sm font-semibold text-teal-900">
             {editingId ? "Edit LLM" : "New LLM"}
           </h2>
+          <div className="flex flex-wrap gap-2">
+            {LLM_PRESETS.map((p) => (
+              <button
+                key={p.id}
+                type="button"
+                className="min-h-9 rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-900"
+                onClick={() => {
+                  update("baseUrl", p.baseUrl);
+                  update("model", p.model);
+                  if (!form.name) update("name", p.label);
+                }}
+              >
+                Use {p.label}
+              </button>
+            ))}
+          </div>
+          <p className="text-xs text-teal-800/70">
+            Anthropic: key must start with <span className="font-mono">sk-ant-</span> from{" "}
+            <a
+              className="font-semibold underline"
+              href="https://console.anthropic.com/settings/keys"
+              target="_blank"
+              rel="noreferrer"
+            >
+              console.anthropic.com
+            </a>
+            . Not OpenAI, not Claude login password.
+          </p>
           <label className="flex flex-col gap-1 text-sm">
             <FieldLabel helpId="settings.llmProfile.name">Name</FieldLabel>
             <input
