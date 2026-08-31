@@ -225,6 +225,16 @@ function pickAgentFields(body, opts = {}) {
     const role = String(body.role || "worker");
     set("role", AGENT_ROLES.includes(role) ? role : "worker");
   }
+  if (body.lifecycleStatus != null) {
+    const lc = String(body.lifecycleStatus || "active");
+    const allowed = ["hire", "training", "active", "paused", "retiring", "retired"];
+    if (allowed.includes(lc)) set("lifecycleStatus", lc);
+  }
+  if (body.authorityLevel != null) {
+    const al = String(body.authorityLevel || "external");
+    const allowed = ["observe", "internal", "external", "financial", "critical"];
+    if (allowed.includes(al)) set("authorityLevel", al);
+  }
   if (body.managedAgents != null && Array.isArray(body.managedAgents)) {
     set(
       "managedAgents",

@@ -264,3 +264,16 @@ ceoRouter.post("/sop-from-agent", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * POST /api/ceo/optimize-loop — run continuous optimization once (experiments).
+ */
+ceoRouter.post("/optimize-loop", async (req, res, next) => {
+  try {
+    const { runContinuousOptimize } = await import("../utils/continuousOptimize.js");
+    const result = await runContinuousOptimize(req.userId);
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});

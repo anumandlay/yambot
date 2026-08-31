@@ -19,7 +19,7 @@ export const workforceRouter = Router();
 workforceRouter.get("/overview", async (req, res, next) => {
   try {
     const agents = await Agent.find({ user: req.userId, active: { $ne: false } })
-      .select("name role managedAgents computer.online computer.lastSeenAt")
+      .select("name role managedAgents computer.online computer.lastSeenAt lifecycleStatus authorityLevel")
       .lean();
 
     const counts = await Task.aggregate([
@@ -55,6 +55,8 @@ workforceRouter.get("/overview", async (req, res, next) => {
           id: String(a._id),
           name: a.name,
           role: a.role || "worker",
+          lifecycleStatus: a.lifecycleStatus || "active",
+          authorityLevel: a.authorityLevel || "external",
           managedAgents: (a.managedAgents || []).map(String),
           online: Boolean(a.computer?.online),
           workload: {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 09:50] Deepen PARTIALs — model routing, auto-optimize, lifecycle UI, explain UI
+
+- **Prompt Provided:** lets do it (finish remaining PARTIAL depth)
+- **Architectural Flow:** modelRouter auto-tier by complexity/errors/cost; continuousOptimize tick for A/B promote; Agents/Edit/Workforce lifecycle controls; AgentRuns + Command Center explain chain UI.
+- **Impacted Files:** modelRouter, continuousOptimize, scheduler, ceo/pulse, AgentsPage, AgentEditPage, WorkforcePage, AgentRunsPage, CommandCenter, FEATURE_AUDIT, PROMPT_LOG
+
 ## [2026-08-31 09:10] P1/P2 Autonomous BOS — CEO loop, canary, explain, audit, resume
 
 - **Prompt Provided:** Still thin / not full P2 — lets do this

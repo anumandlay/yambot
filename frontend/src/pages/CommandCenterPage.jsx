@@ -351,6 +351,37 @@ export function CommandCenterPage() {
         >
           {busy === "audit" ? "Auditing…" : "Audit my business"}
         </button>
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          className="min-h-10 rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-950 disabled:opacity-50"
+          onClick={() =>
+            void (async () => {
+              setBusy("optimize");
+              setError(null);
+              try {
+                const data = await api("/api/ceo/optimize-loop", {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                  timeoutMs: 120_000,
+                });
+                setMessages((m) => [
+                  ...m,
+                  {
+                    role: "assistant",
+                    content: `Continuous optimize: started ${data.experimentsStarted || 0} experiment(s), promoted ${data.promoted || 0}, rolled back ${data.rolledBack || 0}.`,
+                  },
+                ]);
+              } catch (err) {
+                setError(err);
+              } finally {
+                setBusy("");
+              }
+            })()
+          }
+        >
+          {busy === "optimize" ? "Optimizing…" : "Run optimize loop"}
+        </button>
       </section>
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">

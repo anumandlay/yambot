@@ -37,6 +37,8 @@ const EMPTY = {
     visionEnabled: true,
   },
   role: "worker",
+  lifecycleStatus: "active",
+  authorityLevel: "external",
   managedAgents: [],
   policy: {
     requireApprovalForSubmit: false,
@@ -176,6 +178,8 @@ export function AgentEditPage() {
               visionEnabled: a.autonomy?.visionEnabled !== false,
             },
             role: a.role === "manager" ? "manager" : "worker",
+            lifecycleStatus: a.lifecycleStatus || "active",
+            authorityLevel: a.authorityLevel || "external",
             managedAgents: (a.managedAgents || []).map(String),
             policy: {
               requireApprovalForSubmit: a.policy?.requireApprovalForSubmit === true,
@@ -1279,6 +1283,35 @@ export function AgentEditPage() {
             >
               <option value="worker">Worker — executes browser tasks</option>
               <option value="manager">Manager — can delegate goals to managed agents</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-teal-950">Employee lifecycle</span>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.lifecycleStatus || "active"}
+              onChange={(e) => update("lifecycleStatus", e.target.value)}
+            >
+              <option value="hire">Hire</option>
+              <option value="training">Training</option>
+              <option value="active">Active</option>
+              <option value="paused">Paused</option>
+              <option value="retiring">Retiring</option>
+              <option value="retired">Retired</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-teal-950">Authority ceiling (this employee)</span>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.authorityLevel || "external"}
+              onChange={(e) => update("authorityLevel", e.target.value)}
+            >
+              <option value="observe">Observe</option>
+              <option value="internal">Internal</option>
+              <option value="external">External</option>
+              <option value="financial">Financial</option>
+              <option value="critical">Critical</option>
             </select>
           </label>
           {form.role === "manager" && !isNew ? (

@@ -27,12 +27,12 @@ Status: **PASS** = runtime-wired · **PARTIAL** = exists but incomplete · **MIS
 | 20 | Department / workforce creation | PASS | One-shot: agents+goals+KPIs+skills+escalation+workflow stub |
 | 21 | KPI / business monitoring | PASS | Goals + dashboard + autonomy gaps |
 | 22 | Failure recovery / self-healing | PASS | HealController + playbooks + loop guard |
-| 23 | Cost / model optimization | PARTIAL | Suggestions + apply in BOS loop |
+| 23 | Cost / model optimization | PASS | Scored modelRouter + auto-apply in autonomous |
 | 24 | Agent health / readiness | PASS | agentReadiness |
-| 25 | Natural-language debugging | PASS | diagnoseCeo + /api/explain chains |
+| 25 | Natural-language debugging | PASS | diagnoseCeo + Explain chain UI on Runs |
 | 26 | Company-wide audit | PASS | Structural + NL `/api/ceo/audit-company` |
 | 27 | Emergency / escalation | PASS | emergency-stop + task escalation |
-| 28 | Continuous optimization | PASS | Experiments promote/rollback + canary monitor |
+| 28 | Continuous optimization | PASS | Auto experiment start/measure/promote/rollback |
 | 29 | Goal autonomy loop | PASS | tickGoalAutonomy |
 | 30 | Manager / workforce autonomy | PASS | tickManagerAutonomy + pick v2 |
 | 31 | Event bus / CompanyEvent | PASS | eventBus → triggers |

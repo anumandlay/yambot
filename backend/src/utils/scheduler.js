@@ -23,6 +23,8 @@ import { tickImprovementProposals } from "./improvementLoop.js";
 import { tickBusinessPulse } from "./businessPulse.js";
 import { tickCeoAutonomy } from "./ceoAutonomy.js";
 import { tickCanaryMonitor } from "./workflowCanary.js";
+import { tickModelRouting } from "./modelRouter.js";
+import { tickContinuousOptimize } from "./continuousOptimize.js";
 import { unblockDependentTasks } from "./enqueueTask.js";
 import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
 import { tickCampaigns } from "./campaignEngine.js";
@@ -267,6 +269,8 @@ export function startAgentScheduler(opts = {}) {
       const pulse = await tickBusinessPulse();
       const ceo = await tickCeoAutonomy();
       const canary = await tickCanaryMonitor();
+      const modelRoute = await tickModelRouting();
+      const continuous = await tickContinuousOptimize();
       const emailWatch = await tickEmailInboxWatcher();
       const campaigns = await tickCampaigns();
       const ticketSla = await tickTicketSla();
@@ -289,13 +293,16 @@ export function startAgentScheduler(opts = {}) {
         ceo.executed ||
         ceo.recommended ||
         canary.rolledBack ||
+        modelRoute.applied ||
+        continuous.promoted ||
+        continuous.started ||
         emailWatch.newMessages ||
         campaigns.enqueued ||
         ticketSla.breached ||
         reports.sent
       ) {
         console.log(
-          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} pulseAuto=${pulse.autoApplied} ceoExec=${ceo.executed} ceoRec=${ceo.recommended} canaryRb=${canary.rolledBack} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
+          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} pulseAuto=${pulse.autoApplied} ceoExec=${ceo.executed} ceoRec=${ceo.recommended} canaryRb=${canary.rolledBack} modelRoute=${modelRoute.applied} optPromo=${continuous.promoted} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
         );
       }
     } catch (err) {

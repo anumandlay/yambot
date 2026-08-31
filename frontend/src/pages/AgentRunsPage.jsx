@@ -9,6 +9,7 @@ import { Link, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { PageGuideBanner } from "../components/FieldLabel.jsx";
+import { ExplainChainPanel } from "../components/ExplainChainPanel.jsx";
 
 const STATUSES = [
   { value: "all", label: "All statuses" },
@@ -70,6 +71,8 @@ export function AgentRunsPage() {
   const [askWhy, setAskWhy] = useState("");
   const [diagnoseBusy, setDiagnoseBusy] = useState(false);
   const [diagnoseResult, setDiagnoseResult] = useState(null);
+  const [explainBusy, setExplainBusy] = useState("");
+  const [explainResult, setExplainResult] = useState(null);
 
   const agentId = lockedAgentId || searchParams.get("agentId") || "";
   const status = searchParams.get("status") || "all";
@@ -320,6 +323,17 @@ export function AgentRunsPage() {
             ) : null}
           </div>
         ) : null}
+        {explainResult ? (
+          <div className="mt-3">
+            <ExplainChainPanel
+              chain={explainResult.chain}
+              howHumanWouldConfigure={explainResult.howHumanWouldConfigure}
+              narrative={explainResult.narrative}
+              correlationId={explainResult.correlationId}
+              onClose={() => setExplainResult(null)}
+            />
+          </div>
+        ) : null}
       </section>
 
       <ul className="flex flex-col gap-3">
@@ -379,6 +393,27 @@ export function AgentRunsPage() {
                       Open chat
                     </Link>
                   ) : null}
+                  <button
+                    type="button"
+                    className="inline-flex min-h-10 items-center rounded-xl border border-indigo-200 bg-indigo-50 px-3 text-xs font-semibold text-indigo-950 disabled:opacity-50"
+                    disabled={Boolean(explainBusy)}
+                    onClick={() =>
+                      void (async () => {
+                        setExplainBusy(r._id);
+                        setError(null);
+                        try {
+                          const data = await api(`/api/explain?taskId=${encodeURIComponent(r._id)}`);
+                          setExplainResult(data);
+                        } catch (err) {
+                          setError(err);
+                        } finally {
+                          setExplainBusy("");
+                        }
+                      })()
+                    }
+                  >
+                    {explainBusy === r._id ? "…" : "Explain"}
+                  </button>
                   <button
                     type="button"
                     className="inline-flex min-h-10 items-center rounded-xl border border-teal-100 px-3 text-xs font-semibold text-teal-800"

@@ -77,6 +77,15 @@ function AgentRow({
             }`}
           >
             Readiness {agent.readiness.score}%
+            {agent.lifecycleStatus && agent.lifecycleStatus !== "active" ? (
+              <span className="ml-2 rounded bg-slate-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase text-slate-700">
+                {agent.lifecycleStatus}
+              </span>
+            ) : null}
+          </p>
+        ) : agent.lifecycleStatus ? (
+          <p className="mt-1 text-xs text-teal-800/70">
+            Lifecycle: <span className="font-semibold">{agent.lifecycleStatus}</span>
           </p>
         ) : null}
         {agent.description ? (

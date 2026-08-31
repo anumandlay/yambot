@@ -83,11 +83,12 @@ export function WorkforcePage() {
       {okMsg ? <p className="text-sm font-semibold text-teal-800">{okMsg}</p> : null}
 
       <div className="overflow-x-auto rounded-2xl border border-teal-100 bg-white shadow-sm">
-        <table className="w-full min-w-[32rem] text-left text-sm">
+        <table className="w-full min-w-[36rem] text-left text-sm">
           <thead className="border-b border-teal-100 bg-teal-50/50 text-xs uppercase text-teal-800/70">
             <tr>
               <th className="px-3 py-2">Agent</th>
               <th className="px-3 py-2">Role</th>
+              <th className="px-3 py-2">Lifecycle</th>
               <th className="px-3 py-2">Online</th>
               <th className="px-3 py-2">Pending</th>
               <th className="px-3 py-2">Running</th>
@@ -97,7 +98,7 @@ export function WorkforcePage() {
           <tbody>
             {agents.length === 0 ? (
               <tr>
-                <td colSpan={6} className="px-3 py-4 text-teal-900/60">
+                <td colSpan={7} className="px-3 py-4 text-teal-900/60">
                   No agents yet.
                 </td>
               </tr>
@@ -110,6 +111,36 @@ export function WorkforcePage() {
                     </Link>
                   </td>
                   <td className="px-3 py-2 capitalize">{a.role || "worker"}</td>
+                  <td className="px-3 py-2">
+                    <select
+                      className="min-h-9 rounded-lg border border-teal-100 bg-white px-2 text-xs"
+                      value={a.lifecycleStatus || "active"}
+                      onChange={(e) =>
+                        void (async () => {
+                          setError(null);
+                          try {
+                            await api("/api/workforce/lifecycle", {
+                              method: "POST",
+                              body: JSON.stringify({
+                                agentId: a.id,
+                                status: e.target.value,
+                              }),
+                            });
+                            await load();
+                          } catch (err) {
+                            setError(err);
+                          }
+                        })()
+                      }
+                    >
+                      <option value="hire">hire</option>
+                      <option value="training">training</option>
+                      <option value="active">active</option>
+                      <option value="paused">paused</option>
+                      <option value="retiring">retiring</option>
+                      <option value="retired">retired</option>
+                    </select>
+                  </td>
                   <td className="px-3 py-2">{a.online ? "●" : "○"}</td>
                   <td className="px-3 py-2">{a.workload?.pending ?? 0}</td>
                   <td className="px-3 py-2">{a.workload?.running ?? 0}</td>
