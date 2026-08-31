@@ -380,6 +380,8 @@ export function CommandCenterPage() {
             })()
           }
         >
+          {busy === "optimize" ? "Optimizing…" : "Run optimize loop"}
+        </button>
         <button
           type="button"
           disabled={Boolean(busy)}
