@@ -61,6 +61,11 @@ function AgentRow({
             {agent.computer?.online ? "online" : "offline"}
           </span>
         </div>
+        {agent.createdAt ? (
+          <p className="mt-1 text-xs text-teal-800/55">
+            Created {new Date(agent.createdAt).toLocaleString()}
+          </p>
+        ) : null}
         {agent.description ? (
           <p className="mt-1 break-words text-sm text-teal-900/70">{agent.description}</p>
         ) : null}

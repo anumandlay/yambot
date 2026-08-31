@@ -692,6 +692,9 @@ export function OperationsPage() {
                     </div>
                   ) : null}
                   <div className="mt-1 text-xs text-teal-900/40">
+                    {t.createdAt
+                      ? `Created ${new Date(t.createdAt).toLocaleString()} · `
+                      : ""}
                     Fired {t.fireCount || 0}×
                     {t.lastFiredAt ? ` · last ${new Date(t.lastFiredAt).toLocaleString()}` : ""}
                   </div>

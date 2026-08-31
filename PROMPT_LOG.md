@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 02:09] Agents + triggers show createdAt
+
+- **Prompt Provided:** /agents and operations trigger page need date and time when created
+- **Architectural Flow:** Show locale created date/time on Agents list rows and Operations Triggers list (createdAt already on Agent/Trigger models).
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/AgentsPage.jsx`, `frontend/src/pages/OperationsPage.jsx`
+
 ## [2026-08-31 02:05] Architect branches show [object Object]
 
 - **Prompt Provided:** when i click generate architecture i see Conditions / branches [object Object]
