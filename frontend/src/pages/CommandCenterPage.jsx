@@ -380,7 +380,43 @@ export function CommandCenterPage() {
             })()
           }
         >
-          {busy === "optimize" ? "Optimizing…" : "Run optimize loop"}
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          className="min-h-10 rounded-xl border border-emerald-400 bg-emerald-50 px-3 text-xs font-semibold text-emerald-950 disabled:opacity-50"
+          onClick={() =>
+            void (async () => {
+              setBusy("proofs");
+              setError(null);
+              try {
+                const data = await api("/api/proofs/run", {
+                  method: "POST",
+                  body: JSON.stringify({ cleanup: false }),
+                  timeoutMs: 180_000,
+                });
+                const lines = (data.results || []).map(
+                  (r) =>
+                    `${r.passed ? "PASS" : "FAIL"} ${r.id || r.name}${r.detail ? `: ${r.detail}` : ""}`
+                );
+                setMessages((m) => [
+                  ...m,
+                  {
+                    role: "assistant",
+                    content: [
+                      `BOS proofs ${data.ok ? "PASSED" : "FAILED"} (${data.summary?.passed}/${data.summary?.total}).`,
+                      ...lines,
+                    ].join("\n"),
+                  },
+                ]);
+              } catch (err) {
+                setError(err);
+              } finally {
+                setBusy("");
+              }
+            })()
+          }
+        >
+          {busy === "proofs" ? "Proving…" : "Run BOS proofs"}
         </button>
       </section>
 

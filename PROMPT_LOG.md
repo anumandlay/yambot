@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 10:25] E2E BOS proof suite (5 scenarios, no new product features)
+
+- **Prompt Provided:** yes (prove Architect+CEO+Pulse+Workforce+Trigger+Workflow end-to-end)
+- **Architectural Flow:** bosProofs runner creates ephemeral fixtures; scenarios: API email chain, multi-agent handoff, failure/heal, CEO goal/KPI, pulse optimize; `/api/proofs/run` + `npm run test:bos`.
+- **Impacted Files:** `backend/src/utils/bosProofs.js`, `backend/src/routes/proofs.js`, `backend/test/bosProofs.test.js`, `backend/package.json`, `index.js`, CommandCenter, FEATURE_AUDIT, PROMPT_LOG
+
 ## [2026-08-31 09:50] Deepen PARTIALs — model routing, auto-optimize, lifecycle UI, explain UI
 
 - **Prompt Provided:** lets do it (finish remaining PARTIAL depth)

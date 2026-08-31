@@ -49,3 +49,13 @@ Status: **PASS** = runtime-wired · **PARTIAL** = exists but incomplete · **MIS
 ## Outer loop (ChatGPT “missing”)
 
 Seeds existed; **Autonomous Business Loop v1** wires Observe → Decide → Act → Measure into Command Center + scheduler (`businessPulse.js`).
+
+## E2E proofs
+
+Five runtime proofs live at `POST /api/proofs/run` and `npm run test:bos` (backend):
+
+1. API GET→map→POST→verify  
+2. Multi-agent handoff + `email.replied` triggers  
+3. Failure→diagnose→modify→heal→retry  
+4. Goal KPI gap→workforce pick→CEO loop→measure  
+5. Deterioration→pulse→recovery→routing→optimize  
