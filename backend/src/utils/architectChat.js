@@ -17,6 +17,10 @@ import {
   unsealArchitectAnswers,
   redactArchitectAnswersMeta,
 } from "./businessChat.js";
+import {
+  buildCapabilitiesCatalog,
+  formatCapabilitiesForPrompt,
+} from "./capabilitiesCatalog.js";
 
 /**
  * @param {string} raw
@@ -351,27 +355,6 @@ export function publicArchitectBlueprint(bp) {
   return { ...bp, plan };
 }
 
-import {
-  buildCapabilitiesCatalog,
-  formatCapabilitiesForPrompt,
-} from "./capabilitiesCatalog.js";
-
-/**
- * @param {string} userId
- * @returns {Promise<object[]>}
- */
-async function loadExistingAgentsSummary(userId) {
-  const catalog = await buildCapabilitiesCatalog(userId);
-  return catalog.agents || [];
-}
-
-/**
- * Dedicated design pass — used when the user confirmed understanding but the chat
- * turn did not return a usable blueprint (models often stay on "understanding").
- * @param {object} creds
- * @param {{ understanding: object, transcript: string, answers: object, existingAgents: object[] }} ctx
- * @returns {Promise<object|null>}
- */
 /**
  * Emit a progress step for streaming clients (no-op if callback missing).
  * @param {((step: { id: string, label: string, pct: number }) => void)|undefined} onProgress

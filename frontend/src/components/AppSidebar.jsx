@@ -105,7 +105,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
 
       <SectionLabel label="Start here" />
       <NavItem to="/command" helpId="nav.command" letter="⌘" label="Command Center" />
-      <NavItem to="/connections" helpId="nav.connections" letter="⚡" label="Connections" />
+      <NavItem to="/connections" helpId="nav.connections" letter="Cn" label="Connections" />
       <NavItem to="/architect" helpId="nav.architect" letter="BA" label="Business Architect" />
       <NavItem to="/business" helpId="nav.business" letter="B" label="Business setup" />
       <NavItem to="/agent-actions" helpId="nav.agentActions" letter="⚡" label="Agent actions" />

@@ -54,15 +54,19 @@ export function CommandCenterPage() {
   const [sopResult, setSopResult] = useState(null);
   const [deptRequest, setDeptRequest] = useState("");
   const [optimize, setOptimize] = useState(null);
+  const [learningMode, setLearningMode] = useState(false);
 
   useEffect(() => {
     document.title = "Command Center · YamBot";
     Promise.all([
       api("/api/capabilities").catch(() => null),
       api("/api/company-dashboard").catch(() => null),
-    ]).then(([cap, dash]) => {
+      api("/api/policies").catch(() => null),
+    ]).then(([cap, dash, pol]) => {
       setCapabilities(cap);
-      setHealth(dash);
+      // Why: API nests payload under `dashboard`; older clients expected flat fields.
+      setHealth(dash?.dashboard || dash || null);
+      setLearningMode(pol?.policy?.learningMode === true);
     });
   }, []);
 
@@ -214,7 +218,7 @@ export function CommandCenterPage() {
   }
 
   const summary = capabilities?.summary;
-  const taskStats = health?.taskStats || health?.tasks || null;
+  const taskStats = Array.isArray(health?.tasksLast7Days) ? health.tasksLast7Days : null;
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-24">
@@ -228,6 +232,12 @@ export function CommandCenterPage() {
           proposes the next hire.
         </p>
       </header>
+
+      {learningMode ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          Learning mode is on (Policies) — Command Center answers include short WHY explanations.
+        </p>
+      ) : null}
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
@@ -555,9 +565,10 @@ export function CommandCenterPage() {
             {busy === "chat" ? "Thinking…" : "Send"}
           </button>
         </div>
-        {taskStats ? (
+        {taskStats?.length ? (
           <p className="text-xs text-teal-800/60">
-            Recent task activity loaded from company dashboard.
+            Last 7 days:{" "}
+            {taskStats.map((r) => `${r.status || "unknown"} ${r.count}`).join(" · ")}
           </p>
         ) : null}
       </section>

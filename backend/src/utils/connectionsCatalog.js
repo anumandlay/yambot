@@ -89,12 +89,15 @@ export async function buildConnectionsStatus(userId) {
     rows.map((r) => [String(r.key || "").trim(), String(r.value || "").trim()])
   );
   const emailAgents = agents
-    .map((a) => ({
-      _id: String(a._id),
-      name: a.name,
-      configured: Boolean(publicEmailSummary(a).configured),
-      fromAddress: publicEmailSummary(a).fromAddress || "",
-    }))
+    .map((a) => {
+      const summary = publicEmailSummary(a);
+      return {
+        _id: String(a._id),
+        name: a.name,
+        configured: Boolean(summary.configured),
+        fromAddress: summary.fromAddress || "",
+      };
+    })
     .filter((a) => a.configured || a.fromAddress);
 
   const connections = CONNECTION_DEFS.map((def) => {
@@ -161,21 +164,19 @@ export async function upsertConnectionValues(userId, connectionId, values) {
   for (const key of def.keys) {
     const val = String(bag[key] ?? "").trim();
     if (!val) continue;
-    let row = await CompanyMemory.findOne({ user: userId, key });
-    if (row) {
-      row.value = val.slice(0, 4000);
-      row.category = "system";
-      row.source = "connections";
-      await row.save();
-    } else {
-      row = await CompanyMemory.create({
-        user: userId,
-        category: "system",
-        key,
-        value: val.slice(0, 4000),
-        source: "connections",
-      });
-    }
+    const row = await CompanyMemory.findOneAndUpdate(
+      { user: userId, key },
+      {
+        $set: {
+          value: val.slice(0, 4000),
+          category: "system",
+          source: "connections",
+          key,
+        },
+        $setOnInsert: { user: userId, confidence: 1 },
+      },
+      { upsert: true, new: true }
+    );
     saved.push({ key, id: String(row._id) });
   }
   if (!saved.length) {

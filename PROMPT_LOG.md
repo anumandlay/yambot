@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 03:00] Recheck Business OS — fix bugs
+
+- **Prompt Provided:** recheck everything and fix
+- **Architectural Flow:** Audit Command Center / capabilities / connections / CEO optimizer / Architect; fix Goal `title` mapping; dashboard `tasksLast7Days` nesting; learningMode wiring; Connections upsert; ObjectId aggregate match; sidebar letter clash; tidy Architect imports.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/{capabilitiesCatalog,ceoChat,architectChat,connectionsCatalog}.js`, `frontend/src/pages/{CommandCenter,BusinessArchitect}Page.jsx`, `frontend/src/components/AppSidebar.jsx`
+
 ## [2026-08-31 02:47] Complete remaining Business OS phases
 
 - **Prompt Provided:** complete all the phases (deferred roadmap)

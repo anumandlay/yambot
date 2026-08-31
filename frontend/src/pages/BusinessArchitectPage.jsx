@@ -264,10 +264,16 @@ function WorkflowDiagram({ nodes = [], edges = [] }) {
 /**
  * @param {{ blueprint: object }} props
  */
-function BlueprintPanel({ blueprint }) {
+function BlueprintPanel({ blueprint, learningMode = false }) {
   const cl = blueprint.checklist || {};
   return (
     <div className="flex flex-col gap-5">
+      {learningMode ? (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          Learning mode: read “Why am I using this?” below — each component explains purpose before
+          you Approve & Build.
+        </p>
+      ) : null}
       {blueprint.summary ? (
         <p className="rounded-xl border border-teal-100 bg-teal-50/50 px-3 py-2 text-sm leading-relaxed text-teal-950">
           {blueprint.summary}
@@ -475,6 +481,7 @@ export function BusinessArchitectPage() {
   /** @type {[ { id: string, label: string, pct: number }[], Function ]} */
   const [progressSteps, setProgressSteps] = useState([]);
   const [progressPct, setProgressPct] = useState(0);
+  const [learningMode, setLearningMode] = useState(false);
   const bottomRef = useRef(null);
 
   const showOps = Boolean(
@@ -527,6 +534,9 @@ export function BusinessArchitectPage() {
     api("/api/architect")
       .then((data) => setSavedList(data.blueprints || []))
       .catch(() => {});
+    api("/api/policies")
+      .then((data) => setLearningMode(data?.policy?.learningMode === true))
+      .catch(() => setLearningMode(false));
   }, []);
 
   useEffect(() => {
@@ -856,7 +866,7 @@ export function BusinessArchitectPage() {
         </p>
       </div>
       <div className="max-h-[min(70vh,42rem)] overflow-y-auto overscroll-y-contain px-4 py-4">
-        <BlueprintPanel blueprint={blueprint} />
+        <BlueprintPanel blueprint={blueprint} learningMode={learningMode} />
       </div>
       <div className="flex flex-wrap gap-2 border-t border-amber-100 bg-white px-4 py-3">
         <button

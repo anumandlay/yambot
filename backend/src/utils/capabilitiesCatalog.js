@@ -48,7 +48,7 @@ export async function buildCapabilitiesCatalog(userId) {
       .limit(80)
       .lean(),
     Goal.find({ user: userId })
-      .select("name status kpis agent")
+      .select("title status kpis agent")
       .sort({ updatedAt: -1 })
       .limit(40)
       .lean(),
@@ -113,7 +113,7 @@ export async function buildCapabilitiesCatalog(userId) {
     })),
     goals: goals.map((g) => ({
       _id: String(g._id),
-      name: g.name,
+      name: g.title || "",
       status: g.status,
       agentId: g.agent ? String(g.agent) : "",
       kpiCount: Array.isArray(g.kpis) ? g.kpis.length : 0,

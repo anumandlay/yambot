@@ -4,6 +4,7 @@
  * Downstream: POST /api/ceo/chat, /diagnose, /discover.
  */
 
+import mongoose from "mongoose";
 import { User } from "../models/User.js";
 import { Agent } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
@@ -19,6 +20,16 @@ import {
 import { computeAgentReadiness } from "./agentReadiness.js";
 import { formatCompanyMemoryBlock } from "../models/CompanyMemory.js";
 import { publicEmailSummary } from "./agentEmail.js";
+
+/**
+ * Cast user id for aggregation $match (aggregate does not always cast strings).
+ * @param {string|import("mongoose").Types.ObjectId} id
+ * @returns {import("mongoose").Types.ObjectId}
+ */
+function asObjectId(id) {
+  if (id instanceof mongoose.Types.ObjectId) return id;
+  return new mongoose.Types.ObjectId(String(id));
+}
 
 /**
  * @param {string} raw
@@ -187,6 +198,8 @@ export async function chatCeo(userId, body = {}) {
   }
 
   const ctx = await loadCeoContext(userId);
+  const userDoc = await User.findById(userId).select("settings.learningMode").lean();
+  const learningMode = userDoc?.settings?.learningMode === true;
   const system = [
     "You are YamBot's CEO AI — the business owner talks to YOU, not to fifty agents.",
     "Reply with JSON ONLY:",
@@ -195,7 +208,12 @@ export async function chatCeo(userId, body = {}) {
     "For propose_hire / open_architect set prompt to the hire brief. For propose_change set blueprintId if known and prompt=English change.",
     "For diagnose_run set agentId and/or question. For link set href like /agents/ID or /architect?id=...",
     "Never invent secrets. Prefer reusing existing capabilities. Be concise and executive.",
-  ].join("\n");
+    learningMode
+      ? "Learning mode ON: include a short WHY (1–2 sentences) in assistantMessage so the owner learns how the system thinks."
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
 
   const userBlock = [
     "CAPABILITIES:",
@@ -682,7 +700,7 @@ export async function optimizeModelCosts(userId) {
     Task.aggregate([
       {
         $match: {
-          user: userId,
+          user: asObjectId(userId),
           createdAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
         },
       },
