@@ -9,6 +9,186 @@ import { LlmProfile } from "../models/LlmProfile.js";
 import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { normalizeBusinessPlan } from "./businessPlanFromBrief.js";
+import { encryptSecret, decryptSecret } from "./crypto.js";
+
+/**
+ * True when a password field is a redacted placeholder rather than a real secret.
+ * @param {unknown} value
+ * @returns {boolean}
+ */
+export function isPlaceholderSecret(value) {
+  const s = String(value || "").trim().toLowerCase();
+  if (!s) return true;
+  return (
+    s === "(provided)" ||
+    s === "(set)" ||
+    s === "(needed)" ||
+    s === "(from answers / fill later)" ||
+    s === "••••••••" ||
+    s === "********" ||
+    s === "***"
+  );
+}
+
+/**
+ * Infer SMTP/IMAP hosts from mailbox domain when the user only gave an address.
+ * Why: Architect chat often collects Gmail address + app password without hosts.
+ * @param {string} fromAddress
+ * @param {string} [smtpHost]
+ * @param {string} [imapHost]
+ * @returns {{ smtpHost: string, imapHost: string }}
+ */
+export function inferMailHosts(fromAddress, smtpHost = "", imapHost = "") {
+  let smtp = String(smtpHost || "").trim();
+  let imap = String(imapHost || "").trim();
+  const domain = String(fromAddress || "")
+    .split("@")[1]
+    ?.trim()
+    .toLowerCase();
+  if (!domain) return { smtpHost: smtp, imapHost: imap || smtp };
+  if (!smtp || !imap) {
+    if (domain === "gmail.com" || domain === "googlemail.com") {
+      smtp = smtp || "smtp.gmail.com";
+      imap = imap || "imap.gmail.com";
+    } else if (["outlook.com", "hotmail.com", "live.com", "msn.com"].includes(domain)) {
+      smtp = smtp || "smtp.office365.com";
+      imap = imap || "outlook.office365.com";
+    } else if (domain === "yahoo.com" || domain.endsWith(".yahoo.com")) {
+      smtp = smtp || "smtp.mail.yahoo.com";
+      imap = imap || "imap.mail.yahoo.com";
+    } else if (domain === "icloud.com" || domain === "me.com" || domain === "mac.com") {
+      smtp = smtp || "smtp.mail.me.com";
+      imap = imap || "imap.mail.me.com";
+    }
+  }
+  return { smtpHost: smtp, imapHost: imap || smtp };
+}
+
+/**
+ * Deep-merge answer bags keyed by agentKey (later wins for non-empty fields).
+ * @param {...object} bags
+ * @returns {object}
+ */
+export function mergeAnswerBags(...bags) {
+  /** @type {Record<string, Record<string, string>>} */
+  const out = {};
+  for (const answers of bags) {
+    if (!answers || typeof answers !== "object") continue;
+    for (const [agentKey, bag] of Object.entries(answers)) {
+      if (!bag || typeof bag !== "object") continue;
+      const key = String(agentKey || "").trim() || "general";
+      out[key] = { ...(out[key] || {}) };
+      for (const [fk, v] of Object.entries(bag)) {
+        const val = String(v ?? "").trim();
+        if (!val) continue;
+        if (isPlaceholderSecret(val) && /password|secret|token|apiKey|api_key/i.test(fk)) {
+          continue;
+        }
+        out[key][fk] = val;
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Encrypt Architect answers for later Apply (passwords survive page refresh).
+ * @param {object} answers
+ * @returns {string}
+ */
+export function sealArchitectAnswers(answers) {
+  const cleaned = mergeAnswerBags(answers);
+  if (!Object.keys(cleaned).length) return "";
+  try {
+    return encryptSecret(JSON.stringify(cleaned));
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Decrypt sealed Architect answers.
+ * @param {string} payload
+ * @returns {object}
+ */
+export function unsealArchitectAnswers(payload) {
+  if (!payload) return {};
+  try {
+    const raw = decryptSecret(payload);
+    if (!raw) return {};
+    const parsed = JSON.parse(raw);
+    return mergeAnswerBags(parsed);
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Rebuild partial answers from redacted answersMeta (non-secret fields only).
+ * @param {object} meta
+ * @returns {object}
+ */
+export function answersFromMeta(meta) {
+  return mergeAnswerBags(meta);
+}
+
+/**
+ * Public answersMeta (secrets become "(set)").
+ * @param {object} answers
+ * @returns {object}
+ */
+export function redactArchitectAnswersMeta(answers) {
+  const cleaned = mergeAnswerBags(answers);
+  /** @type {object} */
+  const out = {};
+  for (const [k, bag] of Object.entries(cleaned)) {
+    out[k] = {};
+    for (const [fk, v] of Object.entries(bag)) {
+      if (/password|secret|token|apiKey|api_key/i.test(fk)) {
+        out[k][fk] = String(v || "").trim() ? "(set)" : "";
+      } else {
+        out[k][fk] = String(v || "").trim().slice(0, 200);
+      }
+    }
+  }
+  return out;
+}
+
+/**
+ * Apply one email bag onto a plan agent row (mutates agent).
+ * @param {object} agent
+ * @param {object} bag
+ */
+function applyEmailBagToAgent(agent, bag) {
+  if (!bag || typeof bag !== "object") return;
+  const fromAddress = String(bag.fromAddress || bag.email || agent.email?.fromAddress || "").trim();
+  const smtpUser = String(bag.smtpUser || fromAddress || agent.email?.smtpUser || "").trim();
+  let smtpPassword = String(bag.smtpPassword || bag.password || agent.email?.smtpPassword || "").trim();
+  if (isPlaceholderSecret(smtpPassword)) smtpPassword = "";
+  const hosts = inferMailHosts(
+    fromAddress,
+    String(bag.smtpHost || agent.email?.smtpHost || "").trim(),
+    String(bag.imapHost || agent.email?.imapHost || "").trim()
+  );
+  if (!fromAddress && !hosts.smtpHost && !smtpPassword) return;
+  agent.needsEmail = true;
+  agent.email = {
+    enabled: true,
+    fromName: String(bag.fromName || agent.email?.fromName || agent.name || "").trim().slice(0, 120),
+    fromAddress: fromAddress.slice(0, 200),
+    smtpHost: hosts.smtpHost.slice(0, 200),
+    smtpPort: Number(bag.smtpPort || agent.email?.smtpPort) || 587,
+    smtpSecure:
+      bag.smtpSecure === true ||
+      Number(bag.smtpPort || agent.email?.smtpPort) === 465 ||
+      Boolean(agent.email?.smtpSecure),
+    smtpUser: smtpUser.slice(0, 200),
+    smtpPassword: smtpPassword.slice(0, 500),
+    imapHost: hosts.imapHost.slice(0, 200),
+    imapPort: Number(bag.imapPort || agent.email?.imapPort) || 993,
+    imapSecure: bag.imapSecure !== false && agent.email?.imapSecure !== false,
+  };
+}
 
 /**
  * @param {string} raw
@@ -142,6 +322,7 @@ function normalizePendingRequirements(parsed) {
 
 /**
  * Merges chat-collected answers into plan agents (email + notes). Passwords stay for apply only.
+ * Why: agentKey on pendingRequirements often mismatches plan keys — also apply loose email bags.
  * @param {object} plan
  * @param {object} answers
  * @returns {object}
@@ -149,32 +330,15 @@ function normalizePendingRequirements(parsed) {
 export function mergeAnswersIntoPlan(plan, answers) {
   const next = normalizeBusinessPlan(plan || {});
   if (!answers || typeof answers !== "object") return next;
+
+  const bags = mergeAnswerBags(answers);
+
   for (const agent of next.agents) {
-    const bag = answers[agent.key];
-    if (!bag || typeof bag !== "object") continue;
-    const fromAddress = String(bag.fromAddress || bag.email || "").trim();
-    const smtpUser = String(bag.smtpUser || fromAddress || "").trim();
-    const smtpPassword = String(bag.smtpPassword || bag.password || "").trim();
-    const smtpHost = String(bag.smtpHost || "").trim();
-    const imapHost = String(bag.imapHost || smtpHost || "").trim();
-    if (fromAddress || smtpHost || smtpPassword) {
-      agent.needsEmail = true;
-      agent.email = {
-        enabled: true,
-        fromName: String(bag.fromName || agent.name || "").trim().slice(0, 120),
-        fromAddress: fromAddress.slice(0, 200),
-        smtpHost: smtpHost.slice(0, 200),
-        smtpPort: Number(bag.smtpPort) || 587,
-        smtpSecure: bag.smtpSecure === true || Number(bag.smtpPort) === 465,
-        smtpUser: smtpUser.slice(0, 200),
-        smtpPassword: smtpPassword.slice(0, 500),
-        imapHost: imapHost.slice(0, 200),
-        imapPort: Number(bag.imapPort) || 993,
-        imapSecure: bag.imapSecure !== false,
-      };
-    }
-    const apiKey = String(bag.apiKey || bag.api_token || "").trim();
-    const apiBase = String(bag.apiBaseUrl || bag.baseUrl || "").trim();
+    const bag = bags[agent.key];
+    if (bag) applyEmailBagToAgent(agent, bag);
+
+    const apiKey = String(bag?.apiKey || bag?.api_token || "").trim();
+    const apiBase = String(bag?.apiBaseUrl || bag?.baseUrl || "").trim();
     if (apiKey || apiBase) {
       const factLines = [];
       if (apiBase) factLines.push(`API base URL: ${apiBase}`);
@@ -193,6 +357,38 @@ export function mergeAnswersIntoPlan(plan, answers) {
       agent.apiSecrets = { apiKey, apiBaseUrl: apiBase };
     }
   }
+
+  // Why: LLM often labels the requirement `mailbox` / `email` while the agent key is `inbox_agent`.
+  const emailBags = Object.values(bags).filter(
+    (b) =>
+      b &&
+      (b.fromAddress || b.email || b.smtpPassword || b.password || b.smtpHost || b.imapHost)
+  );
+  if (emailBags.length) {
+    const needing = next.agents.filter(
+      (a) =>
+        a.needsEmail ||
+        /email|mail|inbox|smtp|imap/i.test(`${a.key} ${a.name} ${a.skill} ${a.instructions}`)
+    );
+    const targets = needing.length ? needing : next.agents;
+    for (const agent of targets) {
+      if (agent.email?.smtpPassword && agent.email?.fromAddress && agent.email?.smtpHost) continue;
+      for (const bag of emailBags) {
+        applyEmailBagToAgent(agent, bag);
+      }
+    }
+  }
+
+  // Why: even without answers, Gmail addresses in the plan should get hosts.
+  for (const agent of next.agents) {
+    if (!agent.email?.fromAddress) continue;
+    const hosts = inferMailHosts(agent.email.fromAddress, agent.email.smtpHost, agent.email.imapHost);
+    agent.email.smtpHost = hosts.smtpHost;
+    agent.email.imapHost = hosts.imapHost;
+    if (isPlaceholderSecret(agent.email.smtpPassword)) agent.email.smtpPassword = "";
+    if (!agent.email.smtpUser) agent.email.smtpUser = agent.email.fromAddress;
+  }
+
   return normalizeBusinessPlan(next);
 }
 

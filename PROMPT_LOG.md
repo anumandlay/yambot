@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 02:15] Architect email not configured after build
+
+- **Prompt Provided:** Step 1 check_email failed — Email is not configured; user gave everything in business ops
+- **Architectural Flow:** Persist encrypted Architect answers; merge on Apply; infer Gmail hosts; reject placeholder passwords; sync-mailbox endpoint + ops hub form; post-build emailWarnings.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/utils/businessChat.js`, `backend/src/utils/applyBusinessPlan.js`, `backend/src/utils/architectChat.js`, `backend/src/utils/businessPlanFromBrief.js`, `backend/src/models/BusinessBlueprint.js`, `backend/src/routes/architect.js`, `frontend/src/pages/BusinessArchitectPage.jsx`, `frontend/src/components/ArchitectOpsHub.jsx`
+
 ## [2026-08-31 02:09] Agents + triggers show createdAt
 
 - **Prompt Provided:** /agents and operations trigger page need date and time when created

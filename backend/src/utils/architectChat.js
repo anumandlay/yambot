@@ -11,7 +11,13 @@ import { BusinessBlueprint } from "../models/BusinessBlueprint.js";
 import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { normalizeBusinessPlan } from "./businessPlanFromBrief.js";
-import { mergeAnswersIntoPlan } from "./businessChat.js";
+import {
+  mergeAnswersIntoPlan,
+  mergeAnswerBags,
+  sealArchitectAnswers,
+  unsealArchitectAnswers,
+  redactArchitectAnswersMeta,
+} from "./businessChat.js";
 
 /**
  * @param {string} raw
@@ -429,6 +435,8 @@ async function generateDesignBlueprint(creds, ctx) {
     "The user already confirmed the business understanding. Output JSON ONLY:",
     '{ "assistantMessage": "...", "blueprint": { summary, graph, components, checklist, branches, failureHandling, humanApprovals, reuse, uiMap, plan: { agents[], triggers[], apis[] } } }',
     "plan.agents is REQUIRED (1–4 items). Each agent: key,name,skill,profile,instructions,successCriteria,schedule,policy.httpAllowHosts,needsEmail;",
+    "If ANSWERS include mailbox fields (fromAddress, smtpPassword, smtpHost, imapHost), copy them into plan.agents[].email for the matching agent (needsEmail true).",
+    "For Gmail addresses, set smtpHost=smtp.gmail.com and imapHost=imap.gmail.com when hosts are missing.",
     "triggers[] / apis[] as needed. Fill graph nodes/edges and uiMap.",
     "Do not ask questions. Never return an empty agents array.",
   ].join("\n");
@@ -537,7 +545,10 @@ export async function designSavedBlueprint(userId, blueprintId, body = {}, opts 
 
   emitProgress(onProgress, "agents", "Loading existing agents…", 18);
   const existingAgents = await loadExistingAgentsSummary(userId);
-  const answers = body.answers && typeof body.answers === "object" ? body.answers : {};
+  const answers = mergeAnswerBags(
+    unsealArchitectAnswers(doc.answersSecretsEnc),
+    body.answers && typeof body.answers === "object" ? body.answers : {}
+  );
 
   const designed = await generateDesignBlueprint(creds, {
     understanding,
@@ -562,7 +573,7 @@ export async function designSavedBlueprint(userId, blueprintId, body = {}, opts 
   doc.blueprint = publicArchitectBlueprint(designed.blueprint);
   doc.understanding = { ...understanding, confirmed: true };
   doc.profileId = creds.profileId || doc.profileId;
-  if (Object.keys(answers).length) doc.answersMeta = redactAnswersMeta(answers);
+  if (Object.keys(answers).length) persistArchitectAnswers(doc, answers);
   doc.messages = [
     ...(doc.messages || []),
     {
@@ -839,8 +850,10 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
         confirmed: understandingConfirmed && stage === "ready",
       },
       blueprint: blueprint ? publicArchitectBlueprint(blueprint) : null,
-      answersMeta: redactAnswersMeta(body.answers),
+      answersMeta: {},
+      answersSecretsEnc: "",
     });
+    persistArchitectAnswers(doc, body.answers);
   } else {
     doc.title = title;
     doc.stage = stage;
@@ -854,7 +867,7 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
       confirmed: Boolean(understandingConfirmed && stage === "ready"),
     };
     if (blueprint) doc.blueprint = publicArchitectBlueprint(blueprint);
-    doc.answersMeta = redactAnswersMeta(body.answers);
+    persistArchitectAnswers(doc, body.answers);
     if (stage !== "ready") doc.status = "draft";
   }
   await doc.save();
@@ -881,23 +894,13 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
 }
 
 /**
- * @param {object} answers
- * @returns {object}
+ * Persist Architect answers (meta + encrypted secrets) without wiping prior keys.
+ * @param {import('mongoose').Document} doc
+ * @param {object|null|undefined} incoming
  */
-function redactAnswersMeta(answers) {
-  if (!answers || typeof answers !== "object") return {};
-  /** @type {object} */
-  const out = {};
-  for (const [k, bag] of Object.entries(answers)) {
-    if (!bag || typeof bag !== "object") continue;
-    out[k] = {};
-    for (const [fk, v] of Object.entries(bag)) {
-      if (/password|secret|token|apiKey|api_key/i.test(fk)) {
-        out[k][fk] = String(v || "").trim() ? "(set)" : "";
-      } else {
-        out[k][fk] = String(v || "").trim().slice(0, 200);
-      }
-    }
-  }
-  return out;
+function persistArchitectAnswers(doc, incoming) {
+  if (!incoming || typeof incoming !== "object" || !Object.keys(incoming).length) return;
+  const merged = mergeAnswerBags(unsealArchitectAnswers(doc.answersSecretsEnc), incoming);
+  doc.answersSecretsEnc = sealArchitectAnswers(merged) || doc.answersSecretsEnc || "";
+  doc.answersMeta = mergeAnswerBags(doc.answersMeta || {}, redactArchitectAnswersMeta(merged));
 }

@@ -47,6 +47,12 @@ export function ArchitectOpsHub({
   const [tplName, setTplName] = useState("");
   const [customerCount, setCustomerCount] = useState(100);
   const [notice, setNotice] = useState("");
+  const [mailbox, setMailbox] = useState({
+    fromAddress: "",
+    smtpPassword: "",
+    smtpHost: "",
+    imapHost: "",
+  });
 
   async function reload() {
     const data = await api(`/api/architect/${blueprintId}`);
@@ -181,6 +187,82 @@ export function ArchitectOpsHub({
             }
           >
             {busy === "design" ? "Generating architecture…" : "Generate architecture"}
+          </button>
+        </section>
+      ) : null}
+
+      {(doc.status === "built" || (doc.createdAgentIds || []).length > 0) ? (
+        <section className="rounded-xl border border-sky-200 bg-sky-50/80 p-4">
+          <h3 className="text-sm font-bold text-sky-950">Sync mailbox to agents</h3>
+          <p className="mt-1 text-xs text-sky-900/80">
+            If check_email says email is not configured, paste the mailbox here (Gmail app password)
+            and sync onto the agents created from this blueprint.
+          </p>
+          <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2">
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold">Email address</span>
+              <input
+                className="min-h-10 rounded-xl border border-sky-200 bg-white px-3 text-sm"
+                value={mailbox.fromAddress}
+                onChange={(e) => setMailbox((m) => ({ ...m, fromAddress: e.target.value }))}
+                placeholder="you@gmail.com"
+                autoComplete="off"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold">App password</span>
+              <input
+                type="password"
+                className="min-h-10 rounded-xl border border-sky-200 bg-white px-3 text-sm"
+                value={mailbox.smtpPassword}
+                onChange={(e) => setMailbox((m) => ({ ...m, smtpPassword: e.target.value }))}
+                placeholder="Gmail app password"
+                autoComplete="new-password"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold">SMTP host (optional)</span>
+              <input
+                className="min-h-10 rounded-xl border border-sky-200 bg-white px-3 text-sm"
+                value={mailbox.smtpHost}
+                onChange={(e) => setMailbox((m) => ({ ...m, smtpHost: e.target.value }))}
+                placeholder="smtp.gmail.com"
+              />
+            </label>
+            <label className="flex flex-col gap-1 text-xs">
+              <span className="font-semibold">IMAP host (optional)</span>
+              <input
+                className="min-h-10 rounded-xl border border-sky-200 bg-white px-3 text-sm"
+                value={mailbox.imapHost}
+                onChange={(e) => setMailbox((m) => ({ ...m, imapHost: e.target.value }))}
+                placeholder="imap.gmail.com"
+              />
+            </label>
+          </div>
+          <button
+            type="button"
+            disabled={Boolean(busy) || (!mailbox.fromAddress.trim() && !mailbox.smtpPassword.trim())}
+            className="mt-3 inline-flex min-h-11 items-center justify-center rounded-xl bg-sky-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={() =>
+              void run("mailbox", async () => {
+                const data = await api(`/api/architect/${blueprintId}/sync-mailbox`, {
+                  method: "POST",
+                  body: JSON.stringify({
+                    email: {
+                      fromAddress: mailbox.fromAddress.trim(),
+                      smtpPassword: mailbox.smtpPassword,
+                      smtpHost: mailbox.smtpHost.trim() || undefined,
+                      imapHost: mailbox.imapHost.trim() || undefined,
+                    },
+                    answers,
+                  }),
+                });
+                setNotice(data.detail || "Mailbox sync finished.");
+                setMailbox((m) => ({ ...m, smtpPassword: "" }));
+              })
+            }
+          >
+            {busy === "mailbox" ? "Syncing…" : "Sync mailbox to agents"}
           </button>
         </section>
       ) : null}

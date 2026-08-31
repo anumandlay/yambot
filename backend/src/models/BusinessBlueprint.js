@@ -78,6 +78,11 @@ const businessBlueprintSchema = new mongoose.Schema(
       default: [],
     },
     answersMeta: { type: mongoose.Schema.Types.Mixed, default: {} },
+    /**
+     * Encrypted JSON of Architect answers (includes mailbox passwords).
+     * Why: public blueprint strips secrets; Apply must still create configured email agents after refresh.
+     */
+    answersSecretsEnc: { type: String, default: "" },
     createdAgentIds: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Agent" }],
       default: [],

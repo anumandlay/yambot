@@ -974,6 +974,29 @@ export function BusinessArchitectPage() {
               </Link>
             </p>
           ) : null}
+          {(created.emailWarnings || []).length ? (
+            <div className="mt-3 rounded-xl border border-amber-300 bg-amber-50 p-3 text-amber-950">
+              <p className="font-semibold">Mailbox not configured on agent</p>
+              <p className="mt-1 text-xs leading-relaxed text-amber-900/85">
+                The agent was created, but SMTP/IMAP credentials did not land on it — that is why
+                check_email fails. Open each agent below → Email → enable, set address, Gmail app
+                password, Save. Or use Business ops hub → Sync mailbox.
+              </p>
+              <ul className="mt-2 list-disc space-y-1 pl-5 text-xs">
+                {created.emailWarnings.map((w) => (
+                  <li key={w.agentId}>
+                    {w.agentId ? (
+                      <Link className="font-semibold underline" to={`/agents/${w.agentId}`}>
+                        {w.agentName}
+                      </Link>
+                    ) : (
+                      w.agentName
+                    )}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
           <button
             type="button"
             className="mt-4 min-h-11 rounded-xl border border-emerald-300 bg-white px-4 text-sm font-semibold"

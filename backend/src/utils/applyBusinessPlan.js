@@ -11,7 +11,12 @@ import { debitWallet, creditWallet } from "./wallet.js";
 import { issueWorkerToken, containerNameForAgent } from "./workerAuth.js";
 import { encryptSecret } from "./crypto.js";
 import { normalizeBusinessPlan } from "./businessPlanFromBrief.js";
-import { mergeAnswersIntoPlan } from "./businessChat.js";
+import {
+  mergeAnswersIntoPlan,
+  isPlaceholderSecret,
+  inferMailHosts,
+} from "./businessChat.js";
+import { publicEmailSummary } from "./agentEmail.js";
 
 /**
  * Creates one cloud agent from a plan agent row (wallet debit when priced).
@@ -71,22 +76,30 @@ async function createAgentFromPlanRow(userId, row, agentPriceCents) {
   });
 
   if (row.email && (row.email.fromAddress || row.email.smtpHost || row.email.smtpPassword)) {
+    const hosts = inferMailHosts(row.email.fromAddress, row.email.smtpHost, row.email.imapHost);
+    let pass = String(row.email.smtpPassword || "").trim();
+    if (isPlaceholderSecret(pass)) pass = "";
     agent.email = {
       enabled: row.email.enabled !== false,
       fromName: String(row.email.fromName || row.name || "").trim().slice(0, 120),
       fromAddress: String(row.email.fromAddress || "").trim().slice(0, 200),
-      smtpHost: String(row.email.smtpHost || "").trim().slice(0, 200),
+      smtpHost: String(hosts.smtpHost || "").trim().slice(0, 200),
       smtpPort: Number(row.email.smtpPort) || 587,
-      smtpSecure: Boolean(row.email.smtpSecure),
+      smtpSecure: Boolean(row.email.smtpSecure) || Number(row.email.smtpPort) === 465,
       smtpUser: String(row.email.smtpUser || row.email.fromAddress || "").trim().slice(0, 200),
-      imapHost: String(row.email.imapHost || row.email.smtpHost || "").trim().slice(0, 200),
+      imapHost: String(hosts.imapHost || hosts.smtpHost || "").trim().slice(0, 200),
       imapPort: Number(row.email.imapPort) || 993,
       imapSecure: row.email.imapSecure !== false,
     };
-    const pass = String(row.email.smtpPassword || "").trim();
     if (pass) {
       agent.email.smtpPasswordEnc = encryptSecret(pass);
     }
+  } else if (row.needsEmail) {
+    // Why: mark enabled so the edit form shows email as expected; still not "configured" until password+hosts.
+    agent.email = {
+      enabled: true,
+      fromName: String(row.name || "").trim().slice(0, 120),
+    };
   }
 
   /** @type {{ transaction?: { _id: unknown } } | null} */
@@ -222,6 +235,7 @@ export async function applyBusinessPlan(userId, rawPlan, answers = null) {
         setupRequired: plan.setupRequired,
         agents: plan.agents.map((row) => {
           const doc = byKey.get(row.key);
+          const emailSummary = doc ? publicEmailSummary(doc) : { configured: false };
           return {
             key: row.key,
             _id: doc ? String(doc._id) : null,
@@ -229,11 +243,26 @@ export async function applyBusinessPlan(userId, rawPlan, answers = null) {
             role: row.role,
             scheduleEnabled: Boolean(row.schedule?.enabled),
             needsEmail: Boolean(row.needsEmail),
+            emailConfigured: Boolean(emailSummary.configured),
             httpAllowHosts: row.policy?.httpAllowHosts || [],
           };
         }),
         triggers: createdTriggers,
         apis: plan.apis,
+        emailWarnings: plan.agents
+          .map((row) => {
+            const doc = byKey.get(row.key);
+            if (!doc) return null;
+            if (!row.needsEmail && !row.email?.fromAddress) return null;
+            if (publicEmailSummary(doc).configured) return null;
+            return {
+              agentId: String(doc._id),
+              agentName: doc.name || row.name,
+              detail:
+                "Mailbox was not fully saved on this agent (need address, SMTP/IMAP hosts, and app password). Open Edit → Email, fill settings, Save, then retry the chat.",
+            };
+          })
+          .filter(Boolean),
       },
     };
   } catch (err) {

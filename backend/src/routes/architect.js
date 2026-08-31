@@ -14,7 +14,14 @@ import {
   publicArchitectBlueprint,
 } from "../utils/architectChat.js";
 import { applyBusinessPlan } from "../utils/applyBusinessPlan.js";
-import { mergeAnswersIntoPlan } from "../utils/businessChat.js";
+import {
+  mergeAnswersIntoPlan,
+  mergeAnswerBags,
+  sealArchitectAnswers,
+  unsealArchitectAnswers,
+  answersFromMeta,
+  redactArchitectAnswersMeta,
+} from "../utils/businessChat.js";
 import {
   simulateBlueprint,
   runBlueprintTests,
@@ -60,6 +67,8 @@ function publicDoc(doc) {
       at: v.at,
       label: v.label,
     })),
+    answersMeta: lean.answersMeta || {},
+    hasMailboxSecrets: Boolean(lean.answersSecretsEnc),
     builtAt: lean.builtAt,
     updatedAt: lean.updatedAt,
   };
@@ -201,11 +210,13 @@ architectRouter.post("/templates/:id/use", async (req, res, next) => {
 
 architectRouter.post("/apply", async (req, res, next) => {
   try {
-    const answers = req.body?.answers || null;
+    const clientAnswers = req.body?.answers || null;
     const requireSimulation = req.body?.requireSimulation !== false;
     let blueprint = null;
     /** @type {import('mongoose').Document|null} */
     let doc = null;
+    /** @type {object} */
+    let answers = {};
 
     if (req.body?.blueprintId) {
       doc = await BusinessBlueprint.findOne({
@@ -225,8 +236,15 @@ architectRouter.post("/apply", async (req, res, next) => {
         });
         return;
       }
+      // Why: client answers are lost on refresh; sealed secrets + answersMeta restore mailbox for Apply.
+      answers = mergeAnswerBags(
+        answersFromMeta(doc.answersMeta),
+        unsealArchitectAnswers(doc.answersSecretsEnc),
+        clientAnswers
+      );
       blueprint = normalizeArchitectBlueprint(doc.blueprint || req.body?.blueprint, answers);
     } else {
+      answers = mergeAnswerBags(clientAnswers);
       blueprint = normalizeArchitectBlueprint(req.body?.blueprint, answers);
     }
 
@@ -239,7 +257,7 @@ architectRouter.post("/apply", async (req, res, next) => {
       return;
     }
 
-    const plan = answers ? mergeAnswersIntoPlan(blueprint.plan, answers) : blueprint.plan;
+    const plan = mergeAnswersIntoPlan(blueprint.plan, answers);
     const result = await applyBusinessPlan(req.userId, plan, answers);
     if (!result.ok) {
       const status = /wallet|balance|insufficient/i.test(String(result.detail || "")) ? 402 : 400;
@@ -268,6 +286,16 @@ architectRouter.post("/apply", async (req, res, next) => {
       doc.createdAgentIds = agentIds;
       doc.createdTriggerIds = triggerIds;
       doc.builtAt = new Date();
+      if (Object.keys(answers).length) {
+        doc.answersSecretsEnc =
+          sealArchitectAnswers(
+            mergeAnswerBags(unsealArchitectAnswers(doc.answersSecretsEnc), answers)
+          ) || doc.answersSecretsEnc;
+        doc.answersMeta = mergeAnswerBags(
+          doc.answersMeta || {},
+          redactArchitectAnswersMeta(answers)
+        );
+      }
       doc.understanding = {
         ...(doc.understanding?.toObject?.() || doc.understanding || {}),
         confirmed: true,
@@ -300,6 +328,135 @@ architectRouter.post("/apply", async (req, res, next) => {
       ...result,
       blueprintId: String(doc._id),
       blueprintDoc: publicDoc(doc),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/architect/:id/sync-mailbox — push Architect answers (or body fields) onto created agents.
+ * Why: Builds often create agents with needsEmail before secrets survive; users can fix without rebuild.
+ */
+architectRouter.post("/:id/sync-mailbox", async (req, res, next) => {
+  try {
+    const { Agent } = await import("../models/Agent.js");
+    const { encryptSecret } = await import("../utils/crypto.js");
+    const { publicEmailSummary } = await import("../utils/agentEmail.js");
+    const { inferMailHosts, isPlaceholderSecret } = await import("../utils/businessChat.js");
+
+    const doc = await BusinessBlueprint.findOne({ _id: req.params.id, user: req.userId });
+    if (!doc) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Blueprint missing" });
+      return;
+    }
+    const agentIds = (doc.createdAgentIds || []).map(String).filter(Boolean);
+    if (!agentIds.length) {
+      res.status(400).json({
+        ok: false,
+        title: "No agents yet",
+        detail: "Approve & Build first, then sync mailbox onto the created agents.",
+      });
+      return;
+    }
+
+    const bodyBag =
+      req.body?.email && typeof req.body.email === "object" ? req.body.email : req.body || {};
+    const answers = mergeAnswerBags(
+      answersFromMeta(doc.answersMeta),
+      unsealArchitectAnswers(doc.answersSecretsEnc),
+      req.body?.answers,
+      {
+        mailbox: {
+          fromAddress: bodyBag.fromAddress,
+          fromName: bodyBag.fromName,
+          smtpHost: bodyBag.smtpHost,
+          imapHost: bodyBag.imapHost,
+          smtpUser: bodyBag.smtpUser,
+          smtpPassword: bodyBag.smtpPassword || bodyBag.password,
+          smtpPort: bodyBag.smtpPort,
+          imapPort: bodyBag.imapPort,
+        },
+      }
+    );
+
+    if (Object.keys(mergeAnswerBags(req.body?.answers, { mailbox: bodyBag })).length) {
+      doc.answersSecretsEnc =
+        sealArchitectAnswers(mergeAnswerBags(unsealArchitectAnswers(doc.answersSecretsEnc), answers)) ||
+        doc.answersSecretsEnc;
+      doc.answersMeta = mergeAnswerBags(
+        doc.answersMeta || {},
+        redactArchitectAnswersMeta(answers)
+      );
+      await doc.save();
+    }
+
+    const plan = mergeAnswersIntoPlan(doc.blueprint?.plan || { agents: [] }, answers);
+    const agents = await Agent.find({ _id: { $in: agentIds }, user: req.userId });
+    if (!agents.length) {
+      res.status(404).json({
+        ok: false,
+        title: "Agents missing",
+        detail: "Created agent ids on this blueprint no longer exist.",
+      });
+      return;
+    }
+
+    /** @type {object[]} */
+    const updated = [];
+    for (const agent of agents) {
+      const row =
+        (plan.agents || []).find(
+          (a) =>
+            String(a.name || "").toLowerCase() === String(agent.name || "").toLowerCase() ||
+            a.needsEmail
+        ) ||
+        (plan.agents || []).find((a) => a.email?.fromAddress) ||
+        null;
+      const emailSrc = row?.email || answers.mailbox || Object.values(answers)[0];
+      if (!emailSrc || typeof emailSrc !== "object") continue;
+      const fromAddress = String(emailSrc.fromAddress || emailSrc.email || "").trim();
+      const hosts = inferMailHosts(fromAddress, emailSrc.smtpHost, emailSrc.imapHost);
+      let pass = String(emailSrc.smtpPassword || emailSrc.password || "").trim();
+      if (isPlaceholderSecret(pass)) pass = "";
+      if (!fromAddress && !hosts.smtpHost && !pass) continue;
+
+      agent.email = agent.email || {};
+      agent.email.enabled = true;
+      agent.email.fromName = String(emailSrc.fromName || agent.name || "").trim().slice(0, 120);
+      if (fromAddress) agent.email.fromAddress = fromAddress.slice(0, 200);
+      if (hosts.smtpHost) agent.email.smtpHost = hosts.smtpHost.slice(0, 200);
+      if (hosts.imapHost) agent.email.imapHost = hosts.imapHost.slice(0, 200);
+      agent.email.smtpPort = Number(emailSrc.smtpPort) || agent.email.smtpPort || 587;
+      agent.email.imapPort = Number(emailSrc.imapPort) || agent.email.imapPort || 993;
+      agent.email.smtpSecure =
+        emailSrc.smtpSecure === true || Number(emailSrc.smtpPort) === 465 || Boolean(agent.email.smtpSecure);
+      agent.email.imapSecure = emailSrc.imapSecure !== false;
+      agent.email.smtpUser = String(
+        emailSrc.smtpUser || agent.email.smtpUser || fromAddress || ""
+      )
+        .trim()
+        .slice(0, 200);
+      if (pass) agent.email.smtpPasswordEnc = encryptSecret(pass);
+      await agent.save();
+      const summary = publicEmailSummary(agent);
+      updated.push({
+        agentId: String(agent._id),
+        name: agent.name,
+        emailConfigured: Boolean(summary.configured),
+        fromAddress: summary.fromAddress,
+      });
+    }
+
+    const configured = updated.filter((u) => u.emailConfigured).length;
+    res.json({
+      ok: true,
+      updated,
+      configuredCount: configured,
+      detail:
+        configured > 0
+          ? `Mailbox configured on ${configured} agent(s). Retry check_email.`
+          : "Could not fully configure mailbox — provide fromAddress + app password (Gmail hosts are inferred).",
     });
   } catch (err) {
     next(err);

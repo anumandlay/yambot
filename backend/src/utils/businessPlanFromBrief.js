@@ -198,7 +198,19 @@ export function normalizeBusinessPlan(parsed) {
         smtpPort: Number(a.email.smtpPort) || 587,
         smtpSecure: Boolean(a.email.smtpSecure),
         smtpUser: String(a.email.smtpUser || "").trim().slice(0, 200),
-        smtpPassword: String(a.email.smtpPassword || "").trim().slice(0, 500),
+        smtpPassword: (() => {
+          const p = String(a.email.smtpPassword || "").trim();
+          // Why: publicArchitectBlueprint replaces real passwords with "(provided)".
+          if (
+            !p ||
+            /^\(provided\)$/i.test(p) ||
+            /^\(set\)$/i.test(p) ||
+            /^\(needed\)$/i.test(p)
+          ) {
+            return "";
+          }
+          return p.slice(0, 500);
+        })(),
         imapHost: String(a.email.imapHost || "").trim().slice(0, 200),
         imapPort: Number(a.email.imapPort) || 993,
         imapSecure: a.email.imapSecure !== false,
