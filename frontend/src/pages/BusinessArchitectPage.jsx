@@ -454,7 +454,7 @@ function BlueprintPanel({ blueprint, learningMode = false }) {
 }
 
 export function BusinessArchitectPage() {
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [llmProfiles, setLlmProfiles] = useState([]);
   const [profileId, setProfileId] = useState(() => {
     try {
@@ -850,6 +850,8 @@ export function BusinessArchitectPage() {
     setBlueprintId(null);
     setCreated(null);
     setError(null);
+    // Why: leaving ?id= would reload the old draft on refresh / effect re-run.
+    setSearchParams({}, { replace: true });
   }
 
   const showBlueprintPanel =

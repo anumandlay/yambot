@@ -1,10 +1,16 @@
 /**
- * @fileoverview Sync Architect blueprint plan onto already-created live agents.
- * Purpose: After English change approval, update instructions/schedule without recreating agents.
+ * @fileoverview Sync Architect blueprint plan onto already-created live agents + triggers.
+ * Purpose: After English change approval, update instructions/schedule/triggers without full rebuild.
  * Downstream: POST /api/architect/:id/apply-change with syncLiveAgents.
  */
 
 import { Agent, computeNextRunAt } from "../models/Agent.js";
+import {
+  Trigger,
+  TRIGGER_TYPES,
+  TRIGGER_ACTIONS,
+  normalizeTriggerEventType,
+} from "../models/Trigger.js";
 import { inferMailHosts, isPlaceholderSecret } from "./businessChat.js";
 
 /**
@@ -100,8 +106,138 @@ export async function syncLiveAgentsFromPlan(userId, createdAgentIds, proposedPl
     }
 
     await agent.save();
-    updated.push({ agentId: String(agent._id), name: agent.name });
+    updated.push({ agentId: String(agent._id), name: agent.name, planKey: row.key || "" });
   }
 
   return { updated, skipped };
+}
+
+/**
+ * Sync blueprint plan.triggers onto live Trigger docs for this blueprint.
+ * Why: Apply-change previously only updated agents; UI promised trigger diffs too.
+ * @param {string} userId
+ * @param {{
+ *   createdAgentIds?: string[],
+ *   createdTriggerIds?: string[],
+ *   proposedPlan?: object|null,
+ * }} opts
+ * @returns {Promise<{ updated: object[], created: object[], disabled: object[], triggerIds: string[] }>}
+ */
+export async function syncLiveTriggersFromPlan(userId, opts = {}) {
+  const agentIds = (opts.createdAgentIds || []).map(String).filter(Boolean);
+  const priorTriggerIds = (opts.createdTriggerIds || []).map(String).filter(Boolean);
+  const planTriggers = Array.isArray(opts.proposedPlan?.triggers) ? opts.proposedPlan.triggers : [];
+  const planAgents = Array.isArray(opts.proposedPlan?.agents) ? opts.proposedPlan.agents : [];
+
+  if (!agentIds.length) {
+    return { updated: [], created: [], disabled: [], triggerIds: priorTriggerIds };
+  }
+
+  const agents = await Agent.find({ _id: { $in: agentIds }, user: userId });
+  /** @type {Map<string, import("mongoose").Document>} */
+  const agentByKey = new Map();
+  for (const a of agents) {
+    agentByKey.set(String(a.name || "").trim().toLowerCase(), a);
+  }
+  for (const pa of planAgents) {
+    const key = String(pa.key || "").trim().toLowerCase();
+    const name = String(pa.name || "").trim().toLowerCase();
+    const match =
+      agents.find((a) => String(a.name || "").trim().toLowerCase() === name) ||
+      agents.find(
+        (a) => key && String(a.name || "").toLowerCase().includes(key)
+      );
+    if (match && key) agentByKey.set(key, match);
+    if (match && name) agentByKey.set(name, match);
+  }
+
+  const existing = await Trigger.find({
+    user: userId,
+    $or: [{ _id: { $in: priorTriggerIds } }, { agent: { $in: agentIds } }],
+  });
+
+  /** @type {object[]} */
+  const updated = [];
+  /** @type {object[]} */
+  const created = [];
+  /** @type {object[]} */
+  const disabled = [];
+  /** @type {Set<string>} */
+  const keptIds = new Set();
+
+  for (const t of planTriggers) {
+    const name = String(t.name || "").trim();
+    if (!name) continue;
+    const nameLc = name.toLowerCase();
+    const agentKey = String(t.agentKey || "").trim().toLowerCase();
+    const agent =
+      (agentKey && agentByKey.get(agentKey)) ||
+      agentByKey.get(nameLc) ||
+      (agents.length === 1 ? agents[0] : null);
+    if (!agent) continue;
+
+    const type = TRIGGER_TYPES.includes(t.type) ? t.type : "event";
+    const action = TRIGGER_ACTIONS.includes(t.action) ? t.action : "enqueue_task";
+    const config = { ...(t.config || {}) };
+    if (type === "event" && config.eventType) {
+      config.eventType = normalizeTriggerEventType(config.eventType) || config.eventType;
+    }
+    const actionConfig = {
+      ...(t.actionConfig || {}),
+      instructions: String(t.actionConfig?.instructions || t.purpose || "").slice(0, 4000),
+    };
+
+    const match = existing.find(
+      (e) =>
+        String(e.name || "")
+          .trim()
+          .toLowerCase() === nameLc && String(e.agent) === String(agent._id)
+    ) || existing.find(
+      (e) =>
+        String(e.name || "")
+          .trim()
+          .toLowerCase() === nameLc
+    );
+
+    if (match) {
+      match.enabled = t.enabled !== false;
+      match.type = type;
+      match.agent = agent._id;
+      match.config = config;
+      match.action = action;
+      match.actionConfig = actionConfig;
+      await match.save();
+      keptIds.add(String(match._id));
+      updated.push({ triggerId: String(match._id), name: match.name });
+    } else {
+      const row = await Trigger.create({
+        user: userId,
+        name,
+        enabled: t.enabled !== false,
+        type,
+        agent: agent._id,
+        config,
+        action,
+        actionConfig,
+      });
+      keptIds.add(String(row._id));
+      created.push({ triggerId: String(row._id), name: row.name });
+    }
+  }
+
+  // Why: disable blueprint-owned triggers removed from the plan (do not delete — audit trail).
+  for (const e of existing) {
+    const id = String(e._id);
+    if (priorTriggerIds.includes(id) && !keptIds.has(id) && e.enabled !== false) {
+      e.enabled = false;
+      await e.save();
+      disabled.push({ triggerId: id, name: e.name });
+    }
+  }
+
+  const triggerIds = [
+    ...new Set([...priorTriggerIds.filter((id) => keptIds.has(id) || !planTriggers.length), ...keptIds]),
+  ];
+
+  return { updated, created, disabled, triggerIds };
 }

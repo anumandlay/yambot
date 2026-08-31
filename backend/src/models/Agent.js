@@ -232,6 +232,11 @@ const agentSchema = new mongoose.Schema(
         enum: ["running", "stopped"],
         default: "running",
       },
+      /**
+       * Snapshot of desired before emergency-stop so resume does not wake manually stopped agents.
+       * @type {"running"|"stopped"|""}
+       */
+      desiredBeforeEmergency: { type: String, default: "" },
       containerName: { type: String, default: "" },
       containerId: { type: String, default: "" },
       provisionError: { type: String, default: "" },

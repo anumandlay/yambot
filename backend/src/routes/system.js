@@ -226,6 +226,11 @@ systemRouter.post("/emergency-stop", async (req, res, next) => {
     let schedulesPaused = 0;
     for (const agent of agents) {
       agent.computer = agent.computer || {};
+      // Why: resume must restore prior desired — do not force every agent back to running.
+      if (!agent.computer.desiredBeforeEmergency) {
+        agent.computer.desiredBeforeEmergency =
+          agent.computer.desired === "stopped" ? "stopped" : "running";
+      }
       agent.computer.desired = "stopped";
       agent.schedule = agent.schedule || {};
       if (agent.schedule.enabled) {
@@ -283,7 +288,12 @@ systemRouter.post("/emergency-resume", async (req, res, next) => {
     for (const agent of agents) {
       if (agent.active === false) continue;
       agent.computer = agent.computer || {};
-      agent.computer.desired = "running";
+      const priorDesired = agent.computer.desiredBeforeEmergency;
+      agent.computer.desired =
+        priorDesired === "stopped" || priorDesired === "running"
+          ? priorDesired
+          : "running";
+      agent.computer.desiredBeforeEmergency = "";
       agent.schedule = agent.schedule || {};
       if (agent.schedule.pausedByEmergency || agent.schedule.enabledBeforeEmergency) {
         if (agent.schedule.enabledBeforeEmergency) {

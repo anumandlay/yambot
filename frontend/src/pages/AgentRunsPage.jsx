@@ -165,7 +165,7 @@ export function AgentRunsPage() {
       </div>
 
       <PageGuideBanner helpId={lockedAgentId ? "agent.runs" : "runs.page"} />
-      {error ? <ErrorAlert error={error} onDismiss={() => setError(null)} /> : null}
+      {error ? <ErrorAlert error={error} onClose={() => setError(null)} /> : null}
 
       {agentMeta ? (
         <div className="rounded-xl border border-teal-100 bg-teal-50/50 px-3 py-2 text-xs text-teal-900/80">

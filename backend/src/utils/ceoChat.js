@@ -9,7 +9,6 @@ import { User } from "../models/User.js";
 import { Agent } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Trigger } from "../models/Trigger.js";
-import { Goal } from "../models/Goal.js";
 import { BusinessBlueprint } from "../models/BusinessBlueprint.js";
 import { resolveLlmCredentials } from "./llmCredentials.js";
 import { llmChatCompletion } from "./llmChat.js";
@@ -21,6 +20,28 @@ import { computeAgentReadiness } from "./agentReadiness.js";
 import { formatCompanyMemoryBlock } from "../models/CompanyMemory.js";
 import { publicEmailSummary } from "./agentEmail.js";
 
+/** Authority ladder for filtering CEO actions against Policies.maxAuthorityLevel. */
+const AUTHORITY_RANK = {
+  observe: 0,
+  internal: 1,
+  external: 2,
+  financial: 3,
+  critical: 4,
+};
+
+/** Default authority required per CEO action type. */
+const ACTION_AUTHORITY = {
+  link: "observe",
+  show_readiness: "observe",
+  diagnose_run: "observe",
+  discover: "internal",
+  open_architect: "external",
+  propose_hire: "external",
+  propose_change: "external",
+  emergency_stop: "critical",
+  emergency_resume: "critical",
+};
+
 /**
  * Cast user id for aggregation $match (aggregate does not always cast strings).
  * @param {string|import("mongoose").Types.ObjectId} id
@@ -29,6 +50,36 @@ import { publicEmailSummary } from "./agentEmail.js";
 function asObjectId(id) {
   if (id instanceof mongoose.Types.ObjectId) return id;
   return new mongoose.Types.ObjectId(String(id));
+}
+
+/**
+ * @param {string} id
+ * @returns {boolean}
+ */
+function isValidObjectId(id) {
+  return Boolean(id) && mongoose.isValidObjectId(String(id));
+}
+
+/**
+ * Drop CEO actions that exceed the account authority ceiling.
+ * @param {object[]} actions
+ * @param {string} maxLevel
+ * @returns {{ actions: object[], blocked: string[] }}
+ */
+function filterActionsByAuthority(actions, maxLevel) {
+  const ceiling = AUTHORITY_RANK[maxLevel] ?? AUTHORITY_RANK.external;
+  /** @type {string[]} */
+  const blocked = [];
+  const kept = (actions || []).filter((a) => {
+    const need = ACTION_AUTHORITY[a.type] || "external";
+    const rank = AUTHORITY_RANK[need] ?? AUTHORITY_RANK.external;
+    if (rank > ceiling) {
+      blocked.push(a.label || a.type);
+      return false;
+    }
+    return true;
+  });
+  return { actions: kept, blocked };
 }
 
 /**
@@ -198,8 +249,11 @@ export async function chatCeo(userId, body = {}) {
   }
 
   const ctx = await loadCeoContext(userId);
-  const userDoc = await User.findById(userId).select("settings.learningMode").lean();
+  const userDoc = await User.findById(userId)
+    .select("settings.learningMode settings.maxAuthorityLevel")
+    .lean();
   const learningMode = userDoc?.settings?.learningMode === true;
+  const maxAuthorityLevel = userDoc?.settings?.maxAuthorityLevel || "external";
   const system = [
     "You are YamBot's CEO AI — the business owner talks to YOU, not to fifty agents.",
     "Reply with JSON ONLY:",
@@ -208,6 +262,7 @@ export async function chatCeo(userId, body = {}) {
     "For propose_hire / open_architect set prompt to the hire brief. For propose_change set blueprintId if known and prompt=English change.",
     "For diagnose_run set agentId and/or question. For link set href like /agents/ID or /architect?id=...",
     "Never invent secrets. Prefer reusing existing capabilities. Be concise and executive.",
+    `Account maxAuthorityLevel=${maxAuthorityLevel}. Do not propose emergency_stop/resume unless ceiling is critical; prefer diagnose/link for lower ceilings.`,
     learningMode
       ? "Learning mode ON: include a short WHY (1–2 sentences) in assistantMessage so the owner learns how the system thinks."
       : "",
@@ -259,15 +314,23 @@ export async function chatCeo(userId, body = {}) {
   }
 
   const parsed = parseJsonObject(raw) || {};
-  const assistantMessage =
+  let assistantMessage =
     String(parsed.assistantMessage || parsed.message || "").trim().slice(0, 6000) ||
     String(raw || "").trim().slice(0, 2000) ||
     "I need a bit more detail.";
+  const filtered = filterActionsByAuthority(normalizeActions(parsed.actions), maxAuthorityLevel);
+  if (filtered.blocked.length) {
+    assistantMessage = `${assistantMessage}\n\n(Blocked by Policies authority ceiling “${maxAuthorityLevel}”: ${filtered.blocked.join(", ")}. Raise max authority under Policies if needed.)`.slice(
+      0,
+      6000
+    );
+  }
 
   return {
     ok: true,
     assistantMessage,
-    actions: normalizeActions(parsed.actions),
+    actions: filtered.actions,
+    blockedActions: filtered.blocked,
     contextSummary: {
       agentCount: ctx.catalog.summary?.agentCount || 0,
       avgReadiness: ctx.catalog.summary?.avgReadiness || 0,
@@ -292,13 +355,13 @@ export async function diagnoseCeo(userId, body = {}) {
 
   /** @type {object|null} */
   let agent = null;
-  if (agentId) {
+  if (agentId && isValidObjectId(agentId)) {
     agent = await Agent.findOne({ _id: agentId, user: userId }).lean();
   }
 
   const taskFilter = { user: userId };
-  if (taskId) taskFilter._id = taskId;
-  else if (agentId) taskFilter.agent = agentId;
+  if (taskId && isValidObjectId(taskId)) taskFilter._id = taskId;
+  else if (agentId && isValidObjectId(agentId)) taskFilter.agent = agentId;
 
   const runs = await Task.find(taskFilter)
     .sort({ createdAt: -1 })
@@ -717,9 +780,22 @@ export async function optimizeModelCosts(userId) {
   const usageByAgent = Object.fromEntries(
     usage.map((u) => [String(u._id), { runs: u.runs, errors: u.errors }])
   );
-  const cheap = profiles.filter((p) => (p.tier || "standard") === "cheap");
-  const premium = profiles.filter((p) => p.tier === "premium");
-  const standard = profiles.filter((p) => (p.tier || "standard") === "standard");
+  /**
+   * Prefer explicit tier; otherwise infer from model name so optimizer works before UI tiers are set.
+   * @param {object} p
+   * @returns {"cheap"|"standard"|"premium"}
+   */
+  function effectiveTier(p) {
+    const t = String(p.tier || "standard");
+    if (t === "cheap" || t === "premium") return t;
+    const m = `${p.model || ""} ${p.name || ""}`.toLowerCase();
+    if (/haiku|mini|flash|nano|cheap|3\.5-turbo|gpt-4o-mini|ministral/.test(m)) return "cheap";
+    if (/opus|sonnet-4|gpt-4(?!o-mini)|o1|o3|premium|claude-3-opus/.test(m)) return "premium";
+    return "standard";
+  }
+  const cheap = profiles.filter((p) => effectiveTier(p) === "cheap");
+  const premium = profiles.filter((p) => effectiveTier(p) === "premium");
+  const standard = profiles.filter((p) => effectiveTier(p) === "standard");
 
   /** @type {object[]} */
   const suggestions = [];

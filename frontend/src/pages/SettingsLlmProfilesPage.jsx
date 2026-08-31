@@ -15,6 +15,8 @@ const EMPTY_FORM = {
   apiKey: "",
   baseUrl: "https://api.minimax.io/v1",
   model: "MiniMax-M2.7",
+  tier: "standard",
+  costPer1kUsd: "",
   hasApiKey: false,
 };
 
@@ -94,6 +96,8 @@ export function SettingsLlmProfilesPage() {
       apiKey: "",
       baseUrl: p.baseUrl || "",
       model: p.model || "",
+      tier: p.tier || "standard",
+      costPer1kUsd: p.costPer1kUsd != null && p.costPer1kUsd !== 0 ? String(p.costPer1kUsd) : "",
       hasApiKey: Boolean(p.hasApiKey),
     });
     setOkMsg("");
@@ -114,6 +118,8 @@ export function SettingsLlmProfilesPage() {
         baseUrl: form.baseUrl,
         model: form.model,
         apiKey: form.apiKey,
+        tier: form.tier || "standard",
+        costPer1kUsd: form.costPer1kUsd === "" ? 0 : Number(form.costPer1kUsd) || 0,
       };
       let data;
       if (editingId) {
@@ -261,7 +267,7 @@ export function SettingsLlmProfilesPage() {
                     >
                       <span className="font-semibold text-teal-950">{p.name}</span>
                       <span className="text-xs text-teal-900/60">
-                        {p.model || "—"} · {p.baseUrl || "default base URL"}
+                        {p.model || "—"} · {p.tier || "standard"} · {p.baseUrl || "default base URL"}
                       </span>
                     </button>
                   </li>
@@ -346,6 +352,30 @@ export function SettingsLlmProfilesPage() {
               value={form.model}
               onChange={(e) => update("model", e.target.value)}
               placeholder="gpt-4o"
+            />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-teal-950">Cost tier (for Command Center optimizer)</span>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.tier || "standard"}
+              onChange={(e) => update("tier", e.target.value)}
+            >
+              <option value="cheap">Cheap — classification / extract</option>
+              <option value="standard">Standard — default</option>
+              <option value="premium">Premium — complex / browser</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium text-teal-950">Est. USD per 1k tokens (optional)</span>
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              type="number"
+              min="0"
+              step="0.001"
+              value={form.costPer1kUsd}
+              onChange={(e) => update("costPer1kUsd", e.target.value)}
+              placeholder="0.002"
             />
           </label>
           {error ? (

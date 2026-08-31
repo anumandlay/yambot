@@ -14,7 +14,7 @@ import {
   publicArchitectBlueprint,
 } from "../utils/architectChat.js";
 import { applyBusinessPlan } from "../utils/applyBusinessPlan.js";
-import { syncLiveAgentsFromPlan } from "../utils/syncLiveAgentsFromPlan.js";
+import { syncLiveAgentsFromPlan, syncLiveTriggersFromPlan } from "../utils/syncLiveAgentsFromPlan.js";
 import {
   mergeAnswersIntoPlan,
   mergeAnswerBags,
@@ -408,16 +408,38 @@ architectRouter.post("/:id/sync-mailbox", async (req, res, next) => {
 
     /** @type {object[]} */
     const updated = [];
+    const planAgents = Array.isArray(plan.agents) ? plan.agents : [];
     for (const agent of agents) {
+      const nameLc = String(agent.name || "")
+        .trim()
+        .toLowerCase();
+      // Why: never OR needsEmail into the name predicate — that applied the first mailbox to every agent.
+      const byName = planAgents.find(
+        (a) =>
+          String(a.name || "")
+            .trim()
+            .toLowerCase() === nameLc
+      );
+      const byKey = planAgents.find(
+        (a) =>
+          a.key &&
+          nameLc.includes(
+            String(a.key || "")
+              .trim()
+              .toLowerCase()
+          )
+      );
+      const emailCapable =
+        planAgents.find((a) => a.email?.fromAddress || a.needsEmail) || null;
       const row =
-        (plan.agents || []).find(
-          (a) =>
-            String(a.name || "").toLowerCase() === String(agent.name || "").toLowerCase() ||
-            a.needsEmail
-        ) ||
-        (plan.agents || []).find((a) => a.email?.fromAddress) ||
+        byName ||
+        byKey ||
+        (agents.length === 1 ? emailCapable : null) ||
         null;
-      const emailSrc = row?.email || answers.mailbox || Object.values(answers)[0];
+      const emailSrc =
+        row?.email ||
+        answers.mailbox ||
+        (agents.length === 1 ? Object.values(answers).find((v) => v && typeof v === "object") : null);
       if (!emailSrc || typeof emailSrc !== "object") continue;
       const fromAddress = String(emailSrc.fromAddress || emailSrc.email || "").trim();
       const hosts = inferMailHosts(fromAddress, emailSrc.smtpHost, emailSrc.imapHost);
@@ -630,14 +652,24 @@ architectRouter.post("/:id/apply-change", async (req, res, next) => {
     await doc.save();
     await syncBlueprintToCompanyMemory(req.userId, doc);
 
-    /** @type {{ updated: object[], skipped: string[] } | null} */
+    /** @type {{ updated: object[], skipped: string[], triggers?: object } | null} */
     let liveSync = null;
     if (syncLive) {
-      liveSync = await syncLiveAgentsFromPlan(
+      const agentSync = await syncLiveAgentsFromPlan(
         req.userId,
         doc.createdAgentIds || [],
         proposedBlueprint?.plan || null
       );
+      const triggerSync = await syncLiveTriggersFromPlan(req.userId, {
+        createdAgentIds: doc.createdAgentIds || [],
+        createdTriggerIds: doc.createdTriggerIds || [],
+        proposedPlan: proposedBlueprint?.plan || null,
+      });
+      if (triggerSync.triggerIds?.length) {
+        doc.createdTriggerIds = triggerSync.triggerIds;
+        await doc.save();
+      }
+      liveSync = { ...agentSync, triggers: triggerSync };
     }
 
     res.json({
@@ -647,8 +679,10 @@ architectRouter.post("/:id/apply-change", async (req, res, next) => {
       blueprintDoc: publicDoc(doc),
       detail: liveSync
         ? `Blueprint updated. Synced ${liveSync.updated.length} live agent(s)${
-            liveSync.skipped.length ? `; skipped: ${liveSync.skipped.join(", ")}` : ""
-          }.`
+            liveSync.triggers
+              ? `; triggers +${liveSync.triggers.created?.length || 0}/~${liveSync.triggers.updated?.length || 0}/−${liveSync.triggers.disabled?.length || 0}`
+              : ""
+          }${liveSync.skipped.length ? `; skipped: ${liveSync.skipped.join(", ")}` : ""}.`
         : "Blueprint updated (live agent sync skipped).",
     });
   } catch (err) {

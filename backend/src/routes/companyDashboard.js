@@ -4,6 +4,7 @@
  * Downstream: CompanyPage dashboard tab.
  */
 
+import mongoose from "mongoose";
 import { Router } from "express";
 import { Entity } from "../models/Entity.js";
 import { Campaign, Enrollment } from "../models/Campaign.js";
@@ -15,9 +16,20 @@ import { listEmailMessages } from "../utils/emailInboxWatcher.js";
 
 export const companyDashboardRouter = Router();
 
+/**
+ * JWT user ids are strings; aggregate $match does not cast ObjectId paths.
+ * @param {string|import("mongoose").Types.ObjectId} id
+ * @returns {import("mongoose").Types.ObjectId}
+ */
+function asObjectId(id) {
+  if (id instanceof mongoose.Types.ObjectId) return id;
+  return new mongoose.Types.ObjectId(String(id));
+}
+
 companyDashboardRouter.get("/", async (req, res, next) => {
   try {
     const userId = req.userId;
+    const userOid = asObjectId(userId);
     const [
       entityCounts,
       enrollmentByStage,
@@ -28,11 +40,11 @@ companyDashboardRouter.get("/", async (req, res, next) => {
       taskStats,
     ] = await Promise.all([
       Entity.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userOid } },
         { $group: { _id: "$type", count: { $sum: 1 } } },
       ]),
       Enrollment.aggregate([
-        { $match: { user: userId } },
+        { $match: { user: userOid } },
         { $group: { _id: "$stage", count: { $sum: 1 } } },
       ]),
       Campaign.find({ user: userId, status: "active" })
@@ -53,7 +65,7 @@ companyDashboardRouter.get("/", async (req, res, next) => {
       Task.aggregate([
         {
           $match: {
-            user: userId,
+            user: userOid,
             createdAt: { $gte: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000) },
           },
         },

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 03:20] Full recheck — fix confirmed Business OS bugs
+
+- **Prompt Provided:** recheck all and fix
+- **Architectural Flow:** Fix sync-mailbox wrong agent match; company-dashboard ObjectId aggregates; diagnose CastError; emergency desired restore; apply-change trigger sync + parent UI refresh; maxAuthorityLevel action filter; LLM tier UI + inference; AgentRuns ErrorAlert; Architect resetAll clears URL.
+- **Impacted Files:** `PROMPT_LOG.md`, `backend/src/routes/{architect,companyDashboard,system}.js`, `backend/src/utils/{ceoChat,syncLiveAgentsFromPlan}.js`, `backend/src/models/Agent.js`, `frontend/src/{components/ArchitectOpsHub,pages/{AgentRuns,BusinessArchitect,SettingsLlmProfiles}Page}.jsx`
+
 ## [2026-08-31 03:05] Fix Architect ops hub fetch storm
 
 - **Prompt Provided:** check expected errors and fix it

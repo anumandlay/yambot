@@ -466,6 +466,7 @@ export function ArchitectOpsHub({
                   });
                   setPendingChange(null);
                   setDoc(data.blueprintDoc);
+                  onDocLoadedRef.current?.(data.blueprintDoc);
                   setNotice(data.detail || "Change applied.");
                 })
               }
@@ -484,6 +485,7 @@ export function ArchitectOpsHub({
                   });
                   setPendingChange(null);
                   setDoc(data.blueprintDoc);
+                  onDocLoadedRef.current?.(data.blueprintDoc);
                   setNotice(data.detail || "Blueprint updated only.");
                 })
               }
