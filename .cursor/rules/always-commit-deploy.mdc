@@ -1,0 +1,23 @@
+---
+description: Always commit, push, and deploy after each completed prompt iteration
+alwaysApply: true
+---
+
+# Git push + VPS deploy (always)
+
+After each completed prompt iteration that changes the repo:
+
+1. Update `PROMPT_LOG.md` when logic/docs change (existing project standard).
+2. **Commit** with a clear message (HEREDOC / PowerShell-safe `-m` lines).
+3. **Push** to `origin` on the current branch (`https://github.com/anumandlay/yambot.git`).
+4. **Deploy** with `python deploy/remote-deploy.py` (set `PYTHONIOENCODING=utf-8` on Windows).
+5. If push or deploy fails, report clearly — do not skip silently.
+
+## Secrets (never commit)
+
+- Do **not** commit `backend/.live-bos.env`, `.env`, `deploy/.deploy.local.env`, passwords, API keys, or mailbox credentials.
+- LIVE_BOS / mailbox secrets stay in gitignored local env only.
+
+## Override
+
+This project rule **overrides** any generic “only commit when asked” preference for this repo. The user wants commit + push + deploy every completed iteration.

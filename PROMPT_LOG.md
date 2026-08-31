@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 11:15] Always commit + push + deploy (project rule)
+
+- **Prompt Provided:** always comit and deply
+- **Architectural Flow:** Persist always-apply Cursor rule: after each completed iteration commit, push origin, run `python deploy/remote-deploy.py`; never commit LIVE_BOS/mailbox secrets.
+- **Impacted Files:** `.cursor/rules/always-commit-deploy.mdc`, PROMPT_LOG
+
 ## [2026-08-31 11:00] LIVE_BOS scaffold — controlled live integration harness (skip without creds)
 
 - **Prompt Provided:** scaffold only
