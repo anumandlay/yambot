@@ -64,9 +64,12 @@ function publicDoc(doc) {
     changeHistory: lean.changeHistory || [],
     pendingChange: lean.pendingChange,
     incidentPolicy: lean.incidentPolicy,
-    versions: (lean.versions || []).map((v) => ({
+    versions: (lean.versions || []).map((v, i) => ({
+      index: i,
+      _id: v._id ? String(v._id) : "",
       at: v.at,
       label: v.label,
+      hasBlueprint: Boolean(v.blueprint),
     })),
     answersMeta: lean.answersMeta || {},
     hasMailboxSecrets: Boolean(lean.answersSecretsEnc),
@@ -647,6 +650,59 @@ architectRouter.post("/:id/apply-change", async (req, res, next) => {
             liveSync.skipped.length ? `; skipped: ${liveSync.skipped.join(", ")}` : ""
           }.`
         : "Blueprint updated (live agent sync skipped).",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+architectRouter.post("/:id/restore-version", async (req, res, next) => {
+  try {
+    const doc = await BusinessBlueprint.findOne({ _id: req.params.id, user: req.userId });
+    if (!doc) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Blueprint missing" });
+      return;
+    }
+    const versions = doc.versions || [];
+    const idx =
+      req.body?.versionId != null
+        ? versions.findIndex((v) => String(v._id) === String(req.body.versionId))
+        : Number(req.body?.versionIndex);
+    if (!Number.isInteger(idx) || idx < 0 || idx >= versions.length) {
+      res.status(400).json({
+        ok: false,
+        title: "Invalid version",
+        detail: "Pass versionIndex (0-based) or versionId from the versions list.",
+      });
+      return;
+    }
+    const snap = versions[idx];
+    if (!snap?.blueprint) {
+      res.status(400).json({ ok: false, title: "Empty snapshot", detail: "That version has no blueprint." });
+      return;
+    }
+    doc.versions = doc.versions || [];
+    doc.versions.push({
+      at: new Date(),
+      label: "before-restore",
+      blueprint: doc.blueprint,
+    });
+    if (doc.versions.length > 20) doc.versions = doc.versions.slice(-20);
+    doc.blueprint = snap.blueprint;
+    await doc.save();
+    const { recordDecision } = await import("../models/DecisionJournal.js");
+    await recordDecision(req.userId, {
+      actorType: "user",
+      authorityLevel: "internal",
+      decision: `Restored blueprint version ${idx} (${snap.label || "snapshot"})`,
+      rationale: `Blueprint ${doc.title || doc._id}`,
+      context: { blueprintId: String(doc._id), versionIndex: idx },
+      outcome: "applied",
+    }).catch(() => {});
+    res.json({
+      ok: true,
+      blueprintDoc: publicDoc(doc),
+      detail: `Restored version ${idx}${snap.label ? ` (${snap.label})` : ""}.`,
     });
   } catch (err) {
     next(err);

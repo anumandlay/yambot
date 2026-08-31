@@ -46,6 +46,13 @@ function pickProfileFields(body, opts = {}) {
       .trim()
       .slice(0, 200);
   }
+  if (body.tier != null || !opts.partial) {
+    const t = String(body.tier ?? existing.tier ?? "standard").trim();
+    fields.tier = ["cheap", "standard", "premium"].includes(t) ? t : "standard";
+  }
+  if (body.costPer1kUsd != null) {
+    fields.costPer1kUsd = Math.max(0, Number(body.costPer1kUsd) || 0);
+  }
 
   const key = String(body.apiKey ?? "").replace(/\s+/g, "").trim();
   if (key) {

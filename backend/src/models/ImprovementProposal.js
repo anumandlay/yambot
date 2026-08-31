@@ -39,6 +39,15 @@ const improvementProposalSchema = new mongoose.Schema(
     expectedImpact: { type: String, default: "", trim: true },
     risk: { type: String, default: "medium", trim: true },
     evidence: { type: mongoose.Schema.Types.Mixed, default: {} },
+    /** A/B experiment fields */
+    hypothesis: { type: String, default: "", trim: true },
+    variantA: { type: String, default: "", trim: true },
+    variantB: { type: String, default: "", trim: true },
+    trafficSplit: { type: Number, default: 50, min: 0, max: 100 },
+    metricsBefore: { type: mongoose.Schema.Types.Mixed, default: {} },
+    metricsAfter: { type: mongoose.Schema.Types.Mixed, default: {} },
+    experimentStartedAt: { type: Date, default: null },
+    experimentEndedAt: { type: Date, default: null },
   },
   { timestamps: true }
 );

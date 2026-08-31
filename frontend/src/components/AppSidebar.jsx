@@ -105,6 +105,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
 
       <SectionLabel label="Start here" />
       <NavItem to="/command" helpId="nav.command" letter="⌘" label="Command Center" />
+      <NavItem to="/connections" helpId="nav.connections" letter="⚡" label="Connections" />
       <NavItem to="/architect" helpId="nav.architect" letter="BA" label="Business Architect" />
       <NavItem to="/business" helpId="nav.business" letter="B" label="Business setup" />
       <NavItem to="/agent-actions" helpId="nav.agentActions" letter="⚡" label="Agent actions" />
@@ -127,6 +128,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
           <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
           <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
           <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
+          <NavItem to="/decisions" helpId="nav.decisions" letter="Dj" label="Decisions" />
           <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Workflows" />
           <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
           <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
@@ -150,6 +152,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
               <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
               <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
               <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
+              <NavItem to="/decisions" helpId="nav.decisions" letter="Dj" label="Decisions" />
               <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Workflows" />
               <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
               <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />

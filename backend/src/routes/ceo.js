@@ -5,7 +5,7 @@
  */
 
 import { Router } from "express";
-import { chatCeo, diagnoseCeo, discoverAutomations } from "../utils/ceoChat.js";
+import { chatCeo, diagnoseCeo, discoverAutomations, sopToHireBrief, hireDepartment, optimizeModelCosts } from "../utils/ceoChat.js";
 
 export const ceoRouter = Router();
 
@@ -16,8 +16,7 @@ ceoRouter.post("/chat", async (req, res, next) => {
       profileId: req.body?.profileId,
     });
     if (!result.ok) {
-      const status = /LLM|configured/i.test(String(result.title || "")) ? 400 : 400;
-      res.status(status).json(result);
+      res.status(400).json(result);
       return;
     }
     res.json(result);
@@ -54,6 +53,48 @@ ceoRouter.post("/discover", async (req, res, next) => {
       res.status(400).json(result);
       return;
     }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+ceoRouter.post("/from-sop", async (req, res, next) => {
+  try {
+    const result = await sopToHireBrief(req.userId, {
+      text: req.body?.text,
+      documentId: req.body?.documentId,
+      profileId: req.body?.profileId,
+    });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+ceoRouter.post("/hire-department", async (req, res, next) => {
+  try {
+    const result = await hireDepartment(req.userId, {
+      request: req.body?.request || req.body?.text,
+      profileId: req.body?.profileId,
+    });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+ceoRouter.get("/optimize-models", async (req, res, next) => {
+  try {
+    const result = await optimizeModelCosts(req.userId);
     res.json(result);
   } catch (err) {
     next(err);

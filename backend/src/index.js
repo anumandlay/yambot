@@ -175,6 +175,8 @@ app.use("/api/triggers", authRequired, (await import("./routes/triggers.js")).tr
   app.use("/api/architect", authRequired, (await import("./routes/architect.js")).architectRouter);
   app.use("/api/capabilities", authRequired, (await import("./routes/capabilities.js")).capabilitiesRouter);
   app.use("/api/ceo", authRequired, (await import("./routes/ceo.js")).ceoRouter);
+  app.use("/api/connections", authRequired, (await import("./routes/connections.js")).connectionsRouter);
+  app.use("/api/decisions", authRequired, (await import("./routes/decisions.js")).decisionsRouter);
   app.use("/api/runs", authRequired, (await import("./routes/runs.js")).runsRouter);
   app.use("/api/watchers", authRequired, (await import("./routes/watchers.js")).watchersRouter);
 app.use("/api/entities", authRequired, (await import("./routes/entities.js")).entitiesRouter);

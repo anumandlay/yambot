@@ -33,6 +33,8 @@ policiesRouter.get("/", async (req, res, next) => {
         escalateWaitingMinutes: Number(s.escalateWaitingMinutes) || 30,
         httpAllowHosts: s.httpAllowHosts || [],
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
+        maxAuthorityLevel: s.maxAuthorityLevel || "external",
+        learningMode: s.learningMode === true,
       },
       effective: getEffectivePolicy(s),
     });
@@ -58,6 +60,15 @@ policiesRouter.put("/", async (req, res, next) => {
     }
     if (typeof body.confirmBeforeSubmit === "boolean") {
       user.settings.confirmBeforeSubmit = body.confirmBeforeSubmit;
+    }
+    if (typeof body.learningMode === "boolean") {
+      user.settings.learningMode = body.learningMode;
+    }
+    if (body.maxAuthorityLevel != null) {
+      const lvl = String(body.maxAuthorityLevel).trim();
+      if (["observe", "internal", "external", "financial", "critical"].includes(lvl)) {
+        user.settings.maxAuthorityLevel = lvl;
+      }
     }
     if (body.monthlyBudgetUsd != null) {
       user.settings.monthlyBudgetUsd = Math.max(0, Number(body.monthlyBudgetUsd) || 0);

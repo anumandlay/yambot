@@ -20,6 +20,14 @@ const llmProfileSchema = new mongoose.Schema(
     apiKeyEnc: { type: String, default: "" },
     baseUrl: { type: String, default: "", trim: true, maxlength: 500 },
     model: { type: String, default: "", trim: true, maxlength: 200 },
+    /** Cost routing hint for automatic model selection. */
+    tier: {
+      type: String,
+      enum: ["cheap", "standard", "premium"],
+      default: "standard",
+    },
+    /** Optional USD estimate per 1k tokens for optimizer display. */
+    costPer1kUsd: { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -41,6 +49,8 @@ export function publicLlmProfile(doc) {
     id: String(p._id),
     hasApiKey,
     apiKeyMasked: hasApiKey ? "••••••••" : "",
+    tier: p.tier || "standard",
+    costPer1kUsd: Number(p.costPer1kUsd) || 0,
   };
 }
 

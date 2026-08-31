@@ -12,6 +12,8 @@ import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/Field
 const EMPTY = {
   requireApprovalForSubmit: false,
   confirmBeforeSubmit: false,
+  learningMode: false,
+  maxAuthorityLevel: "external",
   monthlyBudgetUsd: 0,
   dailyBudgetUsd: 0,
   maxTaskMinutes: 0,
@@ -34,6 +36,8 @@ export function PoliciesPage() {
         setForm({
           requireApprovalForSubmit: p.requireApprovalForSubmit === true,
           confirmBeforeSubmit: p.confirmBeforeSubmit === true,
+          learningMode: p.learningMode === true,
+          maxAuthorityLevel: p.maxAuthorityLevel || "external",
           monthlyBudgetUsd: Number(p.monthlyBudgetUsd) || 0,
           dailyBudgetUsd: Number(p.dailyBudgetUsd) || 0,
           maxTaskMinutes: Number(p.maxTaskMinutes) || 0,
@@ -58,6 +62,8 @@ export function PoliciesPage() {
         body: JSON.stringify({
           requireApprovalForSubmit: form.requireApprovalForSubmit,
           confirmBeforeSubmit: form.confirmBeforeSubmit,
+          learningMode: form.learningMode,
+          maxAuthorityLevel: form.maxAuthorityLevel,
           monthlyBudgetUsd: Number(form.monthlyBudgetUsd) || 0,
           dailyBudgetUsd: Number(form.dailyBudgetUsd) || 0,
           maxTaskMinutes: Number(form.maxTaskMinutes) || 0,
@@ -126,6 +132,28 @@ export function PoliciesPage() {
             <FieldLabel helpId="policies.confirmBeforeSubmit">
               Ask in chat before submit clicks (lighter gate than full approval queue)
             </FieldLabel>
+          </label>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={form.learningMode}
+              onChange={(e) => setForm((f) => ({ ...f, learningMode: e.target.checked }))}
+            />
+            <span>Learning mode — explain why components exist</span>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Max AI authority without extra approval</span>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.maxAuthorityLevel}
+              onChange={(e) => setForm((f) => ({ ...f, maxAuthorityLevel: e.target.value }))}
+            >
+              <option value="observe">Observe only</option>
+              <option value="internal">Internal (CRM/files)</option>
+              <option value="external">External messages</option>
+              <option value="financial">Financial</option>
+              <option value="critical">Critical (always approve)</option>
+            </select>
           </label>
         </div>
 

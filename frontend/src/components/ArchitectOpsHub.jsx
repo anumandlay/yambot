@@ -484,6 +484,51 @@ export function ArchitectOpsHub({
       </section>
 
       <section className="rounded-xl border border-slate-200 p-3">
+        <h3 className="text-xs font-bold uppercase text-teal-900/60">Blueprint versions</h3>
+        <ul className="mt-2 flex flex-col gap-1 text-xs">
+          {(doc.versions || []).length ? (
+            (doc.versions || [])
+              .slice()
+              .reverse()
+              .map((v) => (
+                <li
+                  key={`${v.index}-${v.at}`}
+                  className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-slate-100 bg-white px-2 py-1.5"
+                >
+                  <span>
+                    #{v.index} {v.label || "snapshot"}
+                    {v.at ? ` · ${new Date(v.at).toLocaleString()}` : ""}
+                  </span>
+                  {v.hasBlueprint ? (
+                    <button
+                      type="button"
+                      disabled={Boolean(busy)}
+                      className="rounded-lg border border-amber-300 bg-amber-50 px-2 py-1 font-semibold text-amber-950 disabled:opacity-50"
+                      onClick={() =>
+                        void run("restore", async () => {
+                          if (!window.confirm(`Restore blueprint version #${v.index}?`)) return;
+                          const data = await api(`/api/architect/${blueprintId}/restore-version`, {
+                            method: "POST",
+                            body: JSON.stringify({ versionIndex: v.index }),
+                          });
+                          setDoc(data.blueprintDoc);
+                          setNotice(data.detail || "Version restored.");
+                          onDocLoaded?.(data.blueprintDoc);
+                        })
+                      }
+                    >
+                      Restore
+                    </button>
+                  ) : null}
+                </li>
+              ))
+          ) : (
+            <li className="text-teal-800/50">No snapshots yet (created on build / change).</li>
+          )}
+        </ul>
+      </section>
+
+      <section className="rounded-xl border border-slate-200 p-3">
         <h3 className="text-xs font-bold uppercase text-teal-900/60">Execution history</h3>
         <button
           type="button"

@@ -62,6 +62,19 @@ const settingsSchema = new mongoose.Schema(
     confirmBeforeSubmit: { type: Boolean, default: false },
     /** UI preference — show contextual ? tooltips and How To navigation. */
     helpEnabled: { type: Boolean, default: true },
+    /**
+     * Learning mode — Architect / Command Center explain why each component exists.
+     */
+    learningMode: { type: Boolean, default: false },
+    /**
+     * Max authority AI may use without extra approval:
+     * observe | internal | external | financial | critical
+     */
+    maxAuthorityLevel: {
+      type: String,
+      enum: ["observe", "internal", "external", "financial", "critical"],
+      default: "external",
+    },
     /** Layer 2 — global policy defaults */
     requireApprovalForSubmit: { type: Boolean, default: false },
     blockedUrlPatterns: { type: [String], default: [] },

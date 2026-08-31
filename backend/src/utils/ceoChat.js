@@ -477,3 +477,296 @@ export async function discoverAutomations(userId, body = {}) {
     opportunities,
   };
 }
+
+/**
+ * Turn SOP / document text into an Architect hire brief (+ optional department plan).
+ * @param {string} userId
+ * @param {{ text?: string, documentId?: string, profileId?: string }} body
+ */
+export async function sopToHireBrief(userId, body = {}) {
+  const resolved = await resolveCeoCreds(userId, body.profileId);
+  if (resolved.error) return resolved.error;
+  const { creds } = resolved;
+
+  let text = String(body.text || "").trim();
+  if (body.documentId) {
+    const { DocumentFile } = await import("../models/DocumentFile.js");
+    const { readDocumentBytes, extractDocumentText } = await import("./documentStorage.js");
+    const doc = await DocumentFile.findOne({ _id: body.documentId, user: userId });
+    if (!doc) {
+      return { ok: false, title: "Document missing", detail: "Upload the SOP first." };
+    }
+    if (doc.extractedText) text = String(doc.extractedText);
+    else {
+      const buf = await readDocumentBytes(doc);
+      text = extractDocumentText(buf, doc.mimeType, doc.filename);
+      if (text) {
+        doc.extractedText = text;
+        await doc.save();
+      }
+    }
+  }
+  if (text.length < 40) {
+    return {
+      ok: false,
+      title: "SOP too short",
+      detail: "Paste at least a short process description, or upload a text/PDF SOP.",
+    };
+  }
+
+  const ctx = await loadCeoContext(userId);
+  const system = [
+    "Convert an SOP into a YamBot hire brief. JSON ONLY:",
+    '{ "assistantMessage": "...", "architectPrompt": "...", "departmentName": "", "roles": [{ "title", "responsibilities", "architectPrompt" }], "requiredConnections": ["gmail","slack",...], "minimizeAgents": true }',
+    "Prefer the fewest agents that can safely run the SOP. requiredConnections use connection ids: gmail,slack,hubspot,salesforce,twilio,webhook,calendar,sheets.",
+  ].join("\n");
+
+  let raw;
+  try {
+    raw = await llmChatCompletion({
+      apiKey: creds.apiKey,
+      baseUrl: creds.llmBaseUrl,
+      model: creds.llmModel,
+      openAiAccountId: creds.openAiAccountId || creds.oauthAccount || "",
+      temperature: 0.25,
+      maxTokens: 3500,
+      timeoutMs: 100_000,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: [
+            "CAPABILITIES:",
+            ctx.capabilitiesText,
+            "",
+            "SOP:",
+            text.slice(0, 20_000),
+          ].join("\n"),
+        },
+      ],
+    });
+  } catch (err) {
+    return { ok: false, title: "SOP parse failed", detail: err?.message || "LLM failed" };
+  }
+
+  const parsed = parseJsonObject(raw) || {};
+  const architectPrompt =
+    String(parsed.architectPrompt || "").trim().slice(0, 4000) ||
+    `Turn this SOP into agents:\n${text.slice(0, 1500)}`;
+  const roles = (Array.isArray(parsed.roles) ? parsed.roles : [])
+    .slice(0, 8)
+    .map((r) => ({
+      title: String(r?.title || "Role").slice(0, 120),
+      responsibilities: String(r?.responsibilities || "").slice(0, 800),
+      architectPrompt: String(r?.architectPrompt || "").slice(0, 2000),
+    }));
+
+  return {
+    ok: true,
+    assistantMessage:
+      String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
+      "SOP converted into a hire brief.",
+    architectPrompt,
+    departmentName: String(parsed.departmentName || "").slice(0, 120),
+    roles,
+    requiredConnections: (Array.isArray(parsed.requiredConnections)
+      ? parsed.requiredConnections
+      : []
+    )
+      .map((c) => String(c).toLowerCase())
+      .slice(0, 12),
+    minimizeAgents: parsed.minimizeAgents !== false,
+  };
+}
+
+/**
+ * Propose a full department (multi-role) hire plan.
+ * @param {string} userId
+ * @param {{ request?: string, profileId?: string }} body
+ */
+export async function hireDepartment(userId, body = {}) {
+  const resolved = await resolveCeoCreds(userId, body.profileId);
+  if (resolved.error) return resolved.error;
+  const { creds } = resolved;
+  const request = String(body.request || "").trim();
+  if (request.length < 12) {
+    return {
+      ok: false,
+      title: "Describe the department",
+      detail: 'e.g. "Build an AI sales department for outbound leads."',
+    };
+  }
+  const ctx = await loadCeoContext(userId);
+  const system = [
+    "Design a minimal AI department for YamBot. JSON ONLY:",
+    '{ "assistantMessage": "...", "departmentName": "...", "roles": [{ "title", "reportsTo", "responsibilities", "architectPrompt" }], "sharedRules": ["..."], "requiredConnections": [] }',
+    "Minimize headcount. Prefer 2–5 roles. One manager optional. Each architectPrompt is a complete hire brief for Business Architect.",
+  ].join("\n");
+
+  let raw;
+  try {
+    raw = await llmChatCompletion({
+      apiKey: creds.apiKey,
+      baseUrl: creds.llmBaseUrl,
+      model: creds.llmModel,
+      openAiAccountId: creds.openAiAccountId || creds.oauthAccount || "",
+      temperature: 0.3,
+      maxTokens: 4000,
+      timeoutMs: 100_000,
+      messages: [
+        { role: "system", content: system },
+        {
+          role: "user",
+          content: `REQUEST:\n${request}\n\nCAPABILITIES:\n${ctx.capabilitiesText}`,
+        },
+      ],
+    });
+  } catch (err) {
+    return { ok: false, title: "Department design failed", detail: err?.message || "LLM failed" };
+  }
+
+  const parsed = parseJsonObject(raw) || {};
+  const roles = (Array.isArray(parsed.roles) ? parsed.roles : [])
+    .slice(0, 8)
+    .map((r, i) => ({
+      id: `role_${i}`,
+      title: String(r?.title || `Role ${i + 1}`).slice(0, 120),
+      reportsTo: String(r?.reportsTo || "").slice(0, 120),
+      responsibilities: String(r?.responsibilities || "").slice(0, 1000),
+      architectPrompt: String(
+        r?.architectPrompt || `Hire a ${r?.title || "worker"} for: ${request}`
+      ).slice(0, 2000),
+    }));
+
+  const { recordDecision } = await import("../models/DecisionJournal.js");
+  await recordDecision(userId, {
+    actorType: "ceo",
+    authorityLevel: "internal",
+    decision: `Proposed department: ${parsed.departmentName || request.slice(0, 80)}`,
+    rationale: String(parsed.assistantMessage || "").slice(0, 2000),
+    context: { roleCount: roles.length },
+    outcome: "proposed",
+  }).catch(() => {});
+
+  return {
+    ok: true,
+    assistantMessage:
+      String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
+      `Proposed ${roles.length} roles.`,
+    departmentName: String(parsed.departmentName || "Department").slice(0, 120),
+    roles,
+    sharedRules: (Array.isArray(parsed.sharedRules) ? parsed.sharedRules : [])
+      .map((r) => String(r).slice(0, 400))
+      .slice(0, 20),
+    requiredConnections: (Array.isArray(parsed.requiredConnections)
+      ? parsed.requiredConnections
+      : []
+    )
+      .map((c) => String(c).toLowerCase())
+      .slice(0, 12),
+  };
+}
+
+/**
+ * Suggest cheaper/stronger model routing for agents.
+ * @param {string} userId
+ */
+export async function optimizeModelCosts(userId) {
+  const { LlmProfile } = await import("../models/LlmProfile.js");
+  const { Agent } = await import("../models/Agent.js");
+  const { Task } = await import("../models/Task.js");
+
+  const [profiles, agents, usage] = await Promise.all([
+    LlmProfile.find({ user: userId }).lean(),
+    Agent.find({ user: userId }).select("name skill instructions llm").limit(80).lean(),
+    Task.aggregate([
+      {
+        $match: {
+          user: userId,
+          createdAt: { $gte: new Date(Date.now() - 14 * 24 * 60 * 60 * 1000) },
+        },
+      },
+      {
+        $group: {
+          _id: "$agent",
+          runs: { $sum: 1 },
+          errors: { $sum: { $cond: [{ $eq: ["$status", "error"] }, 1, 0] } },
+        },
+      },
+    ]),
+  ]);
+
+  const usageByAgent = Object.fromEntries(
+    usage.map((u) => [String(u._id), { runs: u.runs, errors: u.errors }])
+  );
+  const cheap = profiles.filter((p) => (p.tier || "standard") === "cheap");
+  const premium = profiles.filter((p) => p.tier === "premium");
+  const standard = profiles.filter((p) => (p.tier || "standard") === "standard");
+
+  /** @type {object[]} */
+  const suggestions = [];
+  for (const a of agents) {
+    const u = usageByAgent[String(a._id)] || { runs: 0, errors: 0 };
+    const complex = /research|strateg|negotiat|plan|browser|captcha/i.test(
+      `${a.skill || ""} ${a.instructions || ""}`
+    );
+    const simple = /classif|extract|summar|label|tag|status/i.test(
+      `${a.skill || ""} ${a.instructions || ""}`
+    );
+    const currentProfileId = a.llm?.profile ? String(a.llm.profile) : "";
+    if (simple && cheap.length && (!currentProfileId || u.errors === 0)) {
+      const target = cheap[0];
+      if (String(target._id) !== currentProfileId) {
+        suggestions.push({
+          agentId: String(a._id),
+          agentName: a.name,
+          action: "use_cheap",
+          profileId: String(target._id),
+          profileName: target.name,
+          reason: "Classification/extraction-style work can use a cheaper model.",
+          estimatedSavingsPct: 30,
+        });
+      }
+    } else if (complex && premium.length && u.errors > Math.max(1, u.runs * 0.25)) {
+      const target = premium[0];
+      if (String(target._id) !== currentProfileId) {
+        suggestions.push({
+          agentId: String(a._id),
+          agentName: a.name,
+          action: "use_premium",
+          profileId: String(target._id),
+          profileName: target.name,
+          reason: "High error rate on complex work — try a stronger model.",
+          estimatedSavingsPct: 0,
+        });
+      }
+    } else if (!currentProfileId && standard.length) {
+      suggestions.push({
+        agentId: String(a._id),
+        agentName: a.name,
+        action: "assign_profile",
+        profileId: String(standard[0]._id),
+        profileName: standard[0].name,
+        reason: "No LLM profile assigned — using account default.",
+        estimatedSavingsPct: 0,
+      });
+    }
+  }
+
+  return {
+    ok: true,
+    profiles: profiles.map((p) => ({
+      _id: String(p._id),
+      name: p.name,
+      model: p.model,
+      tier: p.tier || "standard",
+      costPer1kUsd: Number(p.costPer1kUsd) || 0,
+    })),
+    suggestions: suggestions.slice(0, 40),
+    summary: {
+      profileCount: profiles.length,
+      suggestionCount: suggestions.length,
+      potentialSavingsAgents: suggestions.filter((s) => s.estimatedSavingsPct > 0).length,
+    },
+  };
+}

@@ -49,6 +49,11 @@ export function CommandCenterPage() {
   const [capabilities, setCapabilities] = useState(null);
   const [opportunities, setOpportunities] = useState(null);
   const [diagnoseBox, setDiagnoseBox] = useState(null);
+  const [department, setDepartment] = useState(null);
+  const [sopText, setSopText] = useState("");
+  const [sopResult, setSopResult] = useState(null);
+  const [deptRequest, setDeptRequest] = useState("");
+  const [optimize, setOptimize] = useState(null);
 
   useEffect(() => {
     document.title = "Command Center · YamBot";
@@ -260,6 +265,12 @@ export function CommandCenterPage() {
         >
           Hire employee (Architect)
         </Link>
+        <Link
+          to="/connections"
+          className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 bg-white px-4 text-sm font-semibold"
+        >
+          Connections
+        </Link>
         <button
           type="button"
           disabled={Boolean(busy)}
@@ -340,6 +351,166 @@ export function CommandCenterPage() {
           ) : null}
         </section>
       ) : null}
+
+      <section className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+        <div className="rounded-2xl border border-violet-200 bg-violet-50/60 p-4">
+          <h2 className="text-sm font-bold text-violet-950">Turn SOP into employees</h2>
+          <textarea
+            className="mt-2 min-h-28 w-full rounded-xl border border-violet-200 bg-white px-3 py-2 text-sm"
+            placeholder="Paste an SOP, checklist, or process manual…"
+            value={sopText}
+            onChange={(e) => setSopText(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={Boolean(busy) || sopText.trim().length < 40}
+            className="mt-2 min-h-11 rounded-xl bg-violet-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={() =>
+              void (async () => {
+                setBusy("sop");
+                setError(null);
+                try {
+                  const data = await api("/api/ceo/from-sop", {
+                    method: "POST",
+                    body: JSON.stringify({ text: sopText }),
+                    timeoutMs: 120_000,
+                  });
+                  setSopResult(data);
+                  setMessages((m) => [
+                    ...m,
+                    { role: "assistant", content: data.assistantMessage || "SOP converted." },
+                  ]);
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setBusy("");
+                }
+              })()
+            }
+          >
+            {busy === "sop" ? "Parsing…" : "Convert SOP"}
+          </button>
+          {sopResult?.architectPrompt ? (
+            <Link
+              to={`/architect?prompt=${encodeURIComponent(sopResult.architectPrompt)}`}
+              className="mt-2 inline-flex min-h-10 items-center rounded-xl border border-violet-300 bg-white px-3 text-xs font-semibold"
+            >
+              Open in Architect
+            </Link>
+          ) : null}
+          {sopResult?.requiredConnections?.length ? (
+            <p className="mt-2 text-xs text-violet-900/80">
+              Needs: {sopResult.requiredConnections.join(", ")} —{" "}
+              <Link className="underline" to="/connections">
+                Connections
+              </Link>
+            </p>
+          ) : null}
+        </div>
+
+        <div className="rounded-2xl border border-indigo-200 bg-indigo-50/60 p-4">
+          <h2 className="text-sm font-bold text-indigo-950">Hire a department</h2>
+          <input
+            className="mt-2 min-h-11 w-full rounded-xl border border-indigo-200 bg-white px-3 text-sm"
+            placeholder='e.g. "Build an AI sales department"'
+            value={deptRequest}
+            onChange={(e) => setDeptRequest(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={Boolean(busy) || deptRequest.trim().length < 12}
+            className="mt-2 min-h-11 rounded-xl bg-indigo-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={() =>
+              void (async () => {
+                setBusy("dept");
+                setError(null);
+                try {
+                  const data = await api("/api/ceo/hire-department", {
+                    method: "POST",
+                    body: JSON.stringify({ request: deptRequest }),
+                    timeoutMs: 120_000,
+                  });
+                  setDepartment(data);
+                  setMessages((m) => [
+                    ...m,
+                    { role: "assistant", content: data.assistantMessage || "Department proposed." },
+                  ]);
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setBusy("");
+                }
+              })()
+            }
+          >
+            {busy === "dept" ? "Designing…" : "Design department"}
+          </button>
+          {department?.roles?.length ? (
+            <ul className="mt-3 flex flex-col gap-2">
+              {department.roles.map((r) => (
+                <li
+                  key={r.id}
+                  className="flex flex-col gap-1 rounded-xl border border-indigo-200 bg-white p-2 text-xs sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <div className="font-semibold">{r.title}</div>
+                    <div className="text-indigo-900/70">{r.responsibilities?.slice(0, 120)}</div>
+                  </div>
+                  <Link
+                    to={`/architect?prompt=${encodeURIComponent(r.architectPrompt)}`}
+                    className="inline-flex min-h-9 items-center justify-center rounded-lg bg-indigo-700 px-2 font-semibold text-white"
+                  >
+                    Hire
+                  </Link>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-teal-100 bg-white p-4">
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-sm font-bold text-teal-950">Model cost optimizer</h2>
+          <button
+            type="button"
+            disabled={Boolean(busy)}
+            className="min-h-10 rounded-xl border border-teal-200 px-3 text-xs font-semibold disabled:opacity-50"
+            onClick={() =>
+              void (async () => {
+                setBusy("opt");
+                try {
+                  const data = await api("/api/ceo/optimize-models");
+                  setOptimize(data);
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setBusy("");
+                }
+              })()
+            }
+          >
+            {busy === "opt" ? "Analyzing…" : "Analyze"}
+          </button>
+        </div>
+        {optimize?.suggestions?.length ? (
+          <ul className="mt-2 space-y-1 text-sm">
+            {optimize.suggestions.slice(0, 12).map((s, i) => (
+              <li key={i} className="flex flex-wrap items-center justify-between gap-2">
+                <span>
+                  <Link className="font-semibold underline" to={`/agents/${s.agentId}`}>
+                    {s.agentName}
+                  </Link>
+                  : {s.reason}
+                </span>
+                <span className="text-xs text-teal-800/70">→ {s.profileName}</span>
+              </li>
+            ))}
+          </ul>
+        ) : optimize ? (
+          <p className="mt-2 text-xs text-teal-800/60">No routing changes suggested right now.</p>
+        ) : null}
+      </section>
 
       <section className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/80 to-white p-4 shadow-sm">
         <h2 className="text-sm font-bold uppercase tracking-wide text-teal-900/60">

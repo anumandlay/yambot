@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 02:47] Complete remaining Business OS phases
+
+- **Prompt Provided:** complete all the phases (deferred roadmap)
+- **Architectural Flow:** Connections hub; SOP→hire + department design; decision journal + authority/learningMode; blueprint restore; A/B experiment APIs; model cost optimizer; Command Center wired to all.
+- **Impacted Files:** many under `backend/src/{routes,utils,models}`, `frontend/src/pages/{Connections,Decisions,CommandCenter,Policies}Page.jsx`, `ArchitectOpsHub`, `App.jsx`, `AppSidebar`, `helpContent`, `PROMPT_LOG.md`
+
 ## [2026-08-31 02:39] Business OS slice — Command Center + capabilities
 
 - **Prompt Provided:** Complete remaining ChatGPT roadmap slice (Command Center, capability discovery, readiness, emergency stop, NL debug, live apply-change, discover)

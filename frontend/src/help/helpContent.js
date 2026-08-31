@@ -42,6 +42,34 @@ export const HELP = {
       "Does not require you to think in agents or triggers. Reuses checks against your existing agents before creating duplicates."
     ),
   },
+  "nav.connections": {
+    title: "Connections",
+    body: helpBody(
+      "One place to connect Slack, CRM, Twilio, webhooks, and mailboxes the Architect needs.",
+      "Gmail is per-agent Email (or Architect Sync mailbox). Other systems save into Company Memory keys."
+    ),
+  },
+  "connections.page": {
+    title: "Connections",
+    body: helpBody(
+      "Fill missing integrations when hiring employees that need Slack/CRM/SMS.",
+      "Status Connected means the required keys are present."
+    ),
+  },
+  "nav.decisions": {
+    title: "Decision journal",
+    body: helpBody(
+      "Record why the business changed — authority level, rationale, outcome.",
+      "CEO department proposals and blueprint restores also write here."
+    ),
+  },
+  "decisions.page": {
+    title: "Decisions",
+    body: helpBody(
+      "Authority ceiling is set under Policies. Journal entries explain past changes.",
+      "Use this when you want an audit trail without opening Governance export."
+    ),
+  },
   "nav.command": {
     title: "Command Center",
     body: helpBody(

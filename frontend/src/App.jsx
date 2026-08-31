@@ -44,6 +44,8 @@ import { StartPage } from "./pages/StartPage.jsx";
 import { BusinessSetupPage } from "./pages/BusinessSetupPage.jsx";
 import { BusinessArchitectPage } from "./pages/BusinessArchitectPage.jsx";
 import { CommandCenterPage } from "./pages/CommandCenterPage.jsx";
+import { ConnectionsPage } from "./pages/ConnectionsPage.jsx";
+import { DecisionsPage } from "./pages/DecisionsPage.jsx";
 import { AgentActionsPage } from "./pages/AgentActionsPage.jsx";
 import { AgentRunsPage } from "./pages/AgentRunsPage.jsx";
 
@@ -168,6 +170,8 @@ export default function App() {
           <Route path="/agent-actions" element={<AgentActionsPage />} />
           <Route path="/start" element={<StartPage />} />
           <Route path="/command" element={<CommandCenterPage />} />
+          <Route path="/connections" element={<ConnectionsPage />} />
+          <Route path="/decisions" element={<DecisionsPage />} />
           <Route path="/business" element={<BusinessSetupPage />} />
           <Route path="/architect" element={<BusinessArchitectPage />} />
           <Route path="/" element={<ChatsPage />} />

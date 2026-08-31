@@ -63,7 +63,7 @@ documentsRouter.post("/", async (req, res, next) => {
     }
     const buf = Buffer.from(dataBase64, "base64");
     const stored = await storeDocumentBytes(req.userId, buf, filename);
-    const extractedText = extractDocumentText(buf, body.mimeType);
+    const extractedText = extractDocumentText(buf, body.mimeType, filename);
     const doc = await DocumentFile.create({
       user: req.userId,
       entity: body.entityId || null,
