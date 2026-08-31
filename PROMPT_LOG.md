@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 01:45] Architect blueprint scrollable panel
+
+- **Prompt Provided:** not able to scroll the architecture on /architect
+- **Architectural Flow:** Blueprint moved above ops hub; internal max-h scroll panel with sticky header; chat collapsed when blueprint ready; pb for sticky build bar; auto-scroll after generate.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-31 01:35] Anthropic LLM auth headers + key validation
 
 - **Prompt Provided:** 401 Invalid Anthropic API Key with correct base URL and claude-sonnet-4-6

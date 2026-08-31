@@ -574,7 +574,7 @@ export function BusinessArchitectPage() {
     setUnderstanding(nextStage === "understanding" ? data.understanding || null : null);
     setBlueprint(nextBp);
     if (nextStage === "ready" && nextBp) {
-      setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: "smooth" }), 120);
+      setTimeout(() => scrollToBlueprint(), 120);
     }
   }
 
@@ -783,8 +783,68 @@ export function BusinessArchitectPage() {
     setError(null);
   }
 
+  const showBlueprintPanel =
+    !created &&
+    Boolean(blueprint) &&
+    (stage === "ready" || Boolean(blueprint?.plan?.agents?.length));
+
+  /** Scroll blueprint into view after generate / design completes. */
+  function scrollToBlueprint() {
+    setTimeout(() => {
+      document.getElementById("architect-blueprint")?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }, 120);
+  }
+
+  const blueprintSection = showBlueprintPanel ? (
+    <section
+      id="architect-blueprint"
+      className="scroll-mt-4 rounded-2xl border-2 border-amber-300 bg-white shadow-sm"
+    >
+      <div className="sticky top-0 z-10 rounded-t-2xl border-b border-amber-200 bg-amber-50/95 px-4 py-3 backdrop-blur">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-amber-950">
+          Architecture blueprint — scroll to review
+        </h2>
+        <p className="mt-0.5 text-xs text-amber-950/70">
+          Diagram, checklist, and setup map — scroll inside this panel on mobile.
+        </p>
+      </div>
+      <div className="max-h-[min(70vh,42rem)] overflow-y-auto overscroll-y-contain px-4 py-4">
+        <BlueprintPanel blueprint={blueprint} />
+      </div>
+      <div className="flex flex-wrap gap-2 border-t border-amber-100 bg-white px-4 py-3">
+        <button
+          type="button"
+          disabled={applyBusy || simBusy || !blueprintId}
+          onClick={() => void onApply()}
+          className="inline-flex min-h-12 items-center rounded-xl bg-amber-600 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
+        >
+          {applyBusy || simBusy ? "Simulating & building…" : "Approve & Build"}
+        </button>
+        <button
+          type="button"
+          className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 px-4 text-sm font-semibold text-teal-900"
+          onClick={() => {
+            setBlueprint(null);
+            setStage("gathering");
+          }}
+        >
+          Keep chatting
+        </button>
+      </div>
+      {!blueprintId ? (
+        <p className="px-4 pb-3 text-xs text-amber-900/80">
+          Draft id missing — send one more chat message so the blueprint can be saved, then build.
+        </p>
+      ) : null}
+    </section>
+  ) : null;
+
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
+    <div
+      className={`mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6 ${
+        showBlueprintPanel ? "pb-28" : "pb-6"
+      }`}
+    >
       <div>
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Business Architect</h1>
         <p className="mt-1 text-sm text-teal-900/70">
@@ -885,6 +945,8 @@ export function BusinessArchitectPage() {
         </section>
       ) : null}
 
+      {blueprintSection}
+
       {blueprintId && (created || showOps) ? (
         <ArchitectOpsHub
           blueprintId={blueprintId}
@@ -901,6 +963,7 @@ export function BusinessArchitectPage() {
             if (data.assistantMessage) {
               setMessages((prev) => [...prev, { role: "assistant", content: data.assistantMessage }]);
             }
+            scrollToBlueprint();
           }}
           onDesignError={(err) => setError(err)}
         />
@@ -912,7 +975,14 @@ export function BusinessArchitectPage() {
             Stage: {stage}
           </p>
 
-          <section className="flex min-h-[16rem] max-h-[min(22rem,45vh)] flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm">
+          <details
+            className="rounded-2xl border border-teal-100 bg-white shadow-sm"
+            open={!showBlueprintPanel}
+          >
+            <summary className="cursor-pointer list-none px-4 py-3 text-sm font-semibold text-teal-950 marker:content-none [&::-webkit-details-marker]:hidden">
+              {showBlueprintPanel ? "Chat with Architect (tap to expand)" : "Chat with Architect"}
+            </summary>
+            <section className="flex min-h-[12rem] max-h-[min(22rem,45vh)] flex-col overflow-hidden border-t border-teal-100">
             <div className="min-h-0 flex-1 space-y-3 overflow-y-auto p-3 sm:p-4">
               {messages.map((m, i) => (
                 <div
@@ -961,6 +1031,7 @@ export function BusinessArchitectPage() {
               </button>
             </div>
           </section>
+          </details>
 
           {pendingRequirements.length ? (
             <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
@@ -1080,43 +1151,6 @@ export function BusinessArchitectPage() {
                   Needs correction
                 </button>
               </div>
-            </section>
-          ) : null}
-
-          {(stage === "ready" || Boolean(blueprint?.plan?.agents?.length)) && blueprint ? (
-            <section
-              id="architect-blueprint"
-              className="rounded-2xl border-2 border-amber-300 bg-white p-4 shadow-sm"
-            >
-              <h2 className="mb-3 text-sm font-bold uppercase tracking-wide text-amber-950">
-                Architecture blueprint — review then build
-              </h2>
-              <BlueprintPanel blueprint={blueprint} />
-              <div className="mt-4 flex flex-wrap gap-2">
-                <button
-                  type="button"
-                  disabled={applyBusy || simBusy || !blueprintId}
-                  onClick={() => void onApply()}
-                  className="inline-flex min-h-12 items-center rounded-xl bg-amber-600 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-50"
-                >
-                  {applyBusy || simBusy ? "Simulating & building…" : "Approve & Build"}
-                </button>
-                <button
-                  type="button"
-                  className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 px-4 text-sm font-semibold text-teal-900"
-                  onClick={() => {
-                    setBlueprint(null);
-                    setStage("gathering");
-                  }}
-                >
-                  Keep chatting
-                </button>
-              </div>
-              {!blueprintId ? (
-                <p className="mt-2 text-xs text-amber-900/80">
-                  Draft id missing — send one more chat message so the blueprint can be saved, then build.
-                </p>
-              ) : null}
             </section>
           ) : null}
 
