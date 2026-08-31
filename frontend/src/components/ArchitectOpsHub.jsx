@@ -4,7 +4,7 @@
  * Downstream: /api/architect/:id/* endpoints.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link } from "react-router-dom";
 import { api, apiNdjson } from "../lib/api.js";
 
@@ -54,16 +54,27 @@ export function ArchitectOpsHub({
     imapHost: "",
   });
 
+  // Why: parent passes inline onDocLoaded/onError; putting those in deps re-fetched forever.
+  const onDocLoadedRef = useRef(onDocLoaded);
+  const onErrorRef = useRef(onError);
+  useEffect(() => {
+    onDocLoadedRef.current = onDocLoaded;
+  }, [onDocLoaded]);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+
   async function reload() {
     const data = await api(`/api/architect/${blueprintId}`);
     setDoc(data.blueprintDoc);
     setSim(data.blueprintDoc?.lastSimulation || null);
     setTests(data.blueprintDoc?.lastTestRun || null);
     setPendingChange(data.blueprintDoc?.pendingChange || null);
-    onDocLoaded?.(data.blueprintDoc);
+    onDocLoadedRef.current?.(data.blueprintDoc);
   }
 
   useEffect(() => {
+    if (!blueprintId) return undefined;
     let cancelled = false;
     (async () => {
       try {
@@ -75,15 +86,15 @@ export function ArchitectOpsHub({
         setPendingChange(data.blueprintDoc?.pendingChange || null);
         const tpl = await api("/api/architect/templates");
         if (!cancelled) setTemplates(tpl.templates || []);
-        if (!cancelled && data.blueprintDoc) onDocLoaded?.(data.blueprintDoc);
+        if (!cancelled && data.blueprintDoc) onDocLoadedRef.current?.(data.blueprintDoc);
       } catch (err) {
-        onError?.(err);
+        onErrorRef.current?.(err);
       }
     })();
     return () => {
       cancelled = true;
     };
-  }, [blueprintId, onError, onDocLoaded]);
+  }, [blueprintId]);
 
   /**
    * @param {string} label
@@ -95,7 +106,7 @@ export function ArchitectOpsHub({
     try {
       await fn();
     } catch (err) {
-      onError?.(err);
+      onErrorRef.current?.(err);
     } finally {
       setBusy("");
     }
@@ -513,7 +524,7 @@ export function ArchitectOpsHub({
                           });
                           setDoc(data.blueprintDoc);
                           setNotice(data.detail || "Version restored.");
-                          onDocLoaded?.(data.blueprintDoc);
+                          onDocLoadedRef.current?.(data.blueprintDoc);
                         })
                       }
                     >

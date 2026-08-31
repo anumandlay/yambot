@@ -494,11 +494,23 @@ export function BusinessArchitectPage() {
 
   /**
    * Keep page blueprint state in sync when ops hub loads a saved draft.
+   * Avoids no-op setState churn that used to re-trigger ops hub fetches.
    * @param {object} d
    */
   function syncFromBlueprintDoc(d) {
     if (!d?.blueprint) return;
-    setBlueprint(d.blueprint);
+    setBlueprint((prev) => {
+      const next = d.blueprint;
+      if (
+        prev &&
+        prev.summary === next.summary &&
+        (prev.plan?.agents?.length || 0) === (next.plan?.agents?.length || 0) &&
+        JSON.stringify(prev.plan?.agents || []) === JSON.stringify(next.plan?.agents || [])
+      ) {
+        return prev;
+      }
+      return next;
+    });
     if (d.blueprint?.plan?.agents?.length || d.stage === "ready") {
       setStage("ready");
       setUnderstanding(null);

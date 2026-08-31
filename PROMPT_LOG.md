@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 03:05] Fix Architect ops hub fetch storm
+
+- **Prompt Provided:** check expected errors and fix it
+- **Architectural Flow:** Production logs showed Architect page looping GET blueprint + templates; ops hub useEffect depended on inline onDocLoaded/onError → infinite refetch. Stabilize via refs; skip no-op blueprint sync.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/ArchitectOpsHub.jsx`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-31 03:00] Recheck Business OS — fix bugs
 
 - **Prompt Provided:** recheck everything and fix
