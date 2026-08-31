@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 11:30] LIVE_BOS real E2E harness (TEST_ONLY, no sandbox remaps as PASS)
+
+- **Prompt Provided:** Upgrade LIVE_BOS from probe/sandbox remap into controlled real end-to-end validation (ChatGPT gaps 1–6 + safety/evidence).
+- **Architectural Flow:** Dedicated LIVE_BOS tenant fixtures; wire sendAgentEmail + forcePollAgentInbox → email.replied → triggers; real WorkflowRunner (non-sandbox); real schedule tick; approval/resume; event dedupe/DLQ/replay; attribution; honest PASS/BLOCKED/NOT_IMPLEMENTED/FAIL; keep 14 sandbox proofs unchanged.
+- **Impacted Files:** liveBos.js rewrite, liveBosTenant/Evidence/Scenarios, emailInboxWatcher export, Agent schedule 2m, tests, .live-bos.env.example, FEATURE_AUDIT, PROMPT_LOG
+
 ## [2026-08-31 11:15] Always commit + push + deploy (project rule)
 
 - **Prompt Provided:** always comit and deply

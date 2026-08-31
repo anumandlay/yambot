@@ -82,14 +82,17 @@ Runtime proofs at `POST /api/proofs/run` (`suite`: `bos` | `harden` | `all`) and
 | Cost / loop runaway guards | PASS | `runawayGuards` on CEO + enqueue + optimize; Policies UI |
 | Canary KPI rollback | PASS | `canaryKpi*` fields + `tickCanaryMonitor` |
 | Attribution + causal memory | PASS | `/api/ceo/attribution`, `/api/ceo/causal-memory` |
-| Real-world live mailbox/API | PARTIAL | Scaffold: `npm run test:live-bos` + `POST /api/proofs/run` `{suite:"live"}`. Copy `backend/.live-bos.env.example` → `.live-bos.env`, set `LIVE_BOS=1`. Without creds all scenarios SKIP (not fail). |
+| Real-world live mailbox/API | PARTIAL→LIVE harness | Real E2E LIVE_BOS (TEST_ONLY tenant). Strict PASS/FAIL/BLOCKED/NOT_IMPLEMENTED. Sandbox remaps no longer count as live PASS. |
 
-## LIVE_BOS (scaffold)
-
-Controlled live harness maps the 14 sandbox proofs to real API / IMAP / browser / crash probes.
+## LIVE_BOS (real E2E harness)
 
 | Mode | Behavior |
 |---|---|
-| Default (`LIVE_BOS` unset/0) | Entire suite SKIP — CI-safe |
-| `LIVE_BOS=1` + partial creds | Probes that have creds run; others SKIP; mongo-mapped harden/BOS re-run when userId present |
-| Full creds later | Fill API + IMAP (+ optional browser/crash flags) — same suite, no architecture change |
+| `LIVE_BOS` unset/0 | All live cases **BLOCKED** |
+| `LIVE_BOS=1` + `LIVE_BOS_TEST_ONLY=1` | Provisions disposable tenant; runs real SMTP/IMAP/WorkflowRunner/scheduler/approval/events |
+| `LIVE_BOS_ALLOW_MAIL_MUTATION=1` | Required to SMTP-send on the dedicated test mailbox |
+| Cloud worker online | Required for browser case to PASS (else BLOCKED) |
+
+Commands: `npm run test:live-bos` · `POST /api/proofs/run` `{ "suite": "live" }` · secrets in gitignored `backend/.live-bos.env` only.
+
+Sandbox proofs remain separate: `npm run test:bos` → **14/14**.

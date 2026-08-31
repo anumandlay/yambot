@@ -436,19 +436,24 @@ export function CommandCenterPage() {
                 });
                 const lines = (data.results || []).map(
                   (r) =>
-                    `${String(r.status || (r.passed ? "pass" : "fail")).toUpperCase()} ${r.id || r.name}${
+                    `${String(r.status || (r.passed ? "PASS" : "FAIL")).toUpperCase()} ${r.id || r.name}${
                       r.detail ? `: ${r.detail}` : ""
                     }`
                 );
+                const matrix = data.matrix
+                  ? Object.entries(data.matrix)
+                      .map(([k, v]) => `  ${k}: ${v}`)
+                      .join("\n")
+                  : "";
                 setMessages((m) => [
                   ...m,
                   {
                     role: "assistant",
                     content: [
-                      `LIVE_BOS ${data.enabled ? "enabled" : "disabled/scaffold"} — ${
-                        data.ok ? "OK" : "FAILED"
-                      } (pass=${data.summary?.passed} fail=${data.summary?.failed} skip=${data.summary?.skipped}).`,
+                      `LIVE_BOS TEST_ONLY — PASS=${data.summary?.passed} FAIL=${data.summary?.failed} BLOCKED=${data.summary?.blocked} (total ${data.summary?.total}).`,
+                      data.sandboxBosNote || "",
                       data.reason || "",
+                      matrix ? `MATRIX:\n${matrix}` : "",
                       ...lines,
                     ]
                       .filter(Boolean)
@@ -463,7 +468,7 @@ export function CommandCenterPage() {
             })()
           }
         >
-          {busy === "livebos" ? "LIVE_BOS…" : "Run LIVE_BOS (scaffold)"}
+          {busy === "livebos" ? "LIVE_BOS…" : "Run LIVE_BOS (real E2E)"}
         </button>
       </section>
 

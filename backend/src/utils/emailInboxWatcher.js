@@ -175,6 +175,23 @@ async function pollAgentInbox(agent) {
 }
 
 /**
+ * Poll one agent's inbox immediately (bypasses 5-minute scheduler gap).
+ * Purpose: LIVE_BOS and ops debugging — same path as tickEmailInboxWatcher.
+ * @param {string|import('mongoose').Document} agentIdOrDoc
+ * @returns {Promise<{ newCount: number, scanned: number }>}
+ */
+export async function forcePollAgentInbox(agentIdOrDoc) {
+  const agentDoc =
+    typeof agentIdOrDoc === "object" && agentIdOrDoc?._id
+      ? agentIdOrDoc
+      : await Agent.findById(agentIdOrDoc);
+  if (!agentDoc) throw new Error("Agent missing for forcePollAgentInbox");
+  const result = await pollAgentInbox(agentDoc);
+  lastPollByAgent.set(String(agentDoc._id), Date.now());
+  return result;
+}
+
+/**
  * Polls inboxes for agents with email enabled (respects per-campaign poll interval).
  */
 export async function tickEmailInboxWatcher() {

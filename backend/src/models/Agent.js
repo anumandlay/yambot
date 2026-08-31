@@ -36,6 +36,7 @@ const agentPolicySchema = new mongoose.Schema(
 
 /** How often a scheduled goal is enqueued. */
 export const SCHEDULE_INTERVALS = [
+  "2m",
   "15m",
   "30m",
   "1h",
@@ -502,6 +503,8 @@ export async function appendAgentMemory(agentDoc, entry, cap = 50) {
  */
 export function scheduleIntervalMs(interval) {
   switch (String(interval || "1h")) {
+    case "2m":
+      return 2 * 60 * 1000;
     case "15m":
       return 15 * 60 * 1000;
     case "30m":
