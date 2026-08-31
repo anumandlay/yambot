@@ -150,6 +150,24 @@ def main() -> int:
     stripe_secret = keep("STRIPE_SECRET_KEY", "")
     stripe_webhook = keep("STRIPE_WEBHOOK_SECRET", "")
     public_web_url = keep("PUBLIC_WEB_URL", "https://bot.vughy.com")
+
+    # LIVE_BOS: merge local gitignored backend/.live-bos.env into server deploy/.env
+    # Why: API image only has src/; Command Center suite=live needs process.env on VPS.
+    # Never commit these values to GitHub — deploy copies from the operator machine only.
+    live_bos_path = ROOT / "backend" / ".live-bos.env"
+    live_bos_lines: list[str] = []
+    if live_bos_path.is_file():
+        for raw in live_bos_path.read_text(encoding="utf-8", errors="replace").splitlines():
+            line = raw.strip()
+            if not line or line.startswith("#") or "=" not in line:
+                continue
+            key = line.split("=", 1)[0].strip()
+            if key.startswith("LIVE_BOS"):
+                live_bos_lines.append(line)
+        print(f"Including {len(live_bos_lines)} LIVE_BOS_* keys from backend/.live-bos.env → VPS deploy/.env")
+    else:
+        print("No backend/.live-bos.env — LIVE_BOS will stay disabled on VPS")
+
     env_body = (
         "NODE_ENV=production\n"
         "PORT=4000\n"
@@ -172,6 +190,9 @@ def main() -> int:
         f"STRIPE_WEBHOOK_SECRET={stripe_webhook}\n"
         f"PUBLIC_WEB_URL={public_web_url}\n"
     )
+    if live_bos_lines:
+        env_body += "\n# LIVE_BOS (from operator backend/.live-bos.env — not in git)\n"
+        env_body += "\n".join(live_bos_lines) + "\n"
 
     run("mkdir -p ~/yambot")
     # Why: upload the new tarball before `compose down` so a transfer failure

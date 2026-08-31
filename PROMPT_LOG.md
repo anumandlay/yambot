@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 12:00] Deploy LIVE_BOS env onto VPS (not GitHub)
+
+- **Prompt Provided:** deploy everything even env file. so that i dont get confused
+- **Architectural Flow:** remote-deploy.py merges local `backend/.live-bos.env` LIVE_BOS_* into server `deploy/.env` so API container process.env enables LIVE_BOS; secrets stay gitignored / out of GitHub.
+- **Impacted Files:** `deploy/remote-deploy.py`, PROMPT_LOG
+
 ## [2026-08-31 11:30] LIVE_BOS real E2E harness (TEST_ONLY, no sandbox remaps as PASS)
 
 - **Prompt Provided:** Upgrade LIVE_BOS from probe/sandbox remap into controlled real end-to-end validation (ChatGPT gaps 1–6 + safety/evidence).

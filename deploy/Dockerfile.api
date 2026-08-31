@@ -1,4 +1,5 @@
 # Production API image — build from repo root
+# LIVE_BOS secrets arrive via deploy/.env (compose env_file), not baked into the image.
 FROM node:24-bookworm-slim
 WORKDIR /app
 COPY backend/package.json backend/package-lock.json ./
