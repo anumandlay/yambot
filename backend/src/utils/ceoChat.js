@@ -642,13 +642,25 @@ export async function sopToHireBrief(userId, body = {}) {
       architectPrompt: String(r?.architectPrompt || "").slice(0, 2000),
     }));
 
+  const departmentName = String(parsed.departmentName || "").slice(0, 120);
+  const { recordDecision } = await import("../models/DecisionJournal.js");
+  await recordDecision(userId, {
+    actorType: "ceo",
+    authorityLevel: "external",
+    decision: `SOP → hire brief${departmentName ? ` (${departmentName})` : ""}`,
+    rationale: architectPrompt.slice(0, 500),
+    context: { roleCount: roles.length },
+    outcome: "proposed",
+    approved: false,
+  }).catch(() => {});
+
   return {
     ok: true,
     assistantMessage:
       String(parsed.assistantMessage || "").trim().slice(0, 4000) ||
       "SOP converted into a hire brief.",
     architectPrompt,
-    departmentName: String(parsed.departmentName || "").slice(0, 120),
+    departmentName,
     roles,
     requiredConnections: (Array.isArray(parsed.requiredConnections)
       ? parsed.requiredConnections

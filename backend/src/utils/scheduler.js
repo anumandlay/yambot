@@ -20,6 +20,7 @@ import { tickGoalAutonomy } from "./goalAutonomy.js";
 import { tickManagerAutonomy } from "./managerAutonomy.js";
 import { tickPerformanceReviews } from "./performanceReview.js";
 import { tickImprovementProposals } from "./improvementLoop.js";
+import { tickBusinessPulse } from "./businessPulse.js";
 import { unblockDependentTasks } from "./enqueueTask.js";
 import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
 import { tickCampaigns } from "./campaignEngine.js";
@@ -261,6 +262,7 @@ export function startAgentScheduler(opts = {}) {
       const managers = await tickManagerAutonomy();
       const reviews = await tickPerformanceReviews();
       const improvements = await tickImprovementProposals();
+      const pulse = await tickBusinessPulse();
       const emailWatch = await tickEmailInboxWatcher();
       const campaigns = await tickCampaigns();
       const ticketSla = await tickTicketSla();
@@ -279,13 +281,14 @@ export function startAgentScheduler(opts = {}) {
         watchers.changed ||
         goals.spawned ||
         managers.delegated ||
+        pulse.autoApplied ||
         emailWatch.newMessages ||
         campaigns.enqueued ||
         ticketSla.breached ||
         reports.sent
       ) {
         console.log(
-          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
+          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} pulseAuto=${pulse.autoApplied} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
         );
       }
     } catch (err) {

@@ -45,6 +45,15 @@ export async function tickManagerAutonomy() {
       if (!parentGoal) continue;
 
       for (const ev of recentEvents.slice(0, 3)) {
+        // Why: without dedupe, every scheduler tick re-delegates the same events.
+        const already = await CompanyEvent.exists({
+          user: manager.user,
+          type: "workforce.delegated",
+          "payload.eventId": String(ev._id),
+          createdAt: { $gte: new Date(Date.now() - 6 * 60 * 60 * 1000) },
+        });
+        if (already) continue;
+
         const workloads = await Task.aggregate([
           {
             $match: {

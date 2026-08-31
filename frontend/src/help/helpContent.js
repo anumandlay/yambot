@@ -80,8 +80,8 @@ export const HELP = {
   "command.page": {
     title: "Command Center",
     body: helpBody(
-      "1) Ask in plain English. 2) Use Find automation opportunities. 3) Create opens Business Architect with a ready prompt. 4) Stop all AI pauses schedules and stops cloud boxes.",
-      "Weak readiness agents are listed so you can fix mailbox/schedule gaps before trusting them."
+      "1) Business pulse shows proactive findings (failures, KPI gaps, Watch-me drafts). 2) Ask in plain English. 3) Find automations / Convert SOP / Hire department. 4) Hire all roles or Apply model routes when authority allows. 5) Stop all AI pauses schedules.",
+      "Weak readiness agents and draft skills from Watch-me demos appear in the pulse so you can fix or hire without hunting pages."
     ),
   },
   "nav.runs": {

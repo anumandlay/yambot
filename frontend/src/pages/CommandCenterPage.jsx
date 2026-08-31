@@ -55,6 +55,12 @@ export function CommandCenterPage() {
   const [deptRequest, setDeptRequest] = useState("");
   const [optimize, setOptimize] = useState(null);
   const [learningMode, setLearningMode] = useState(false);
+  const [pulse, setPulse] = useState(null);
+
+  async function reloadPulse() {
+    const p = await api("/api/ceo/pulse").catch(() => null);
+    setPulse(p);
+  }
 
   useEffect(() => {
     document.title = "Command Center · YamBot";
@@ -62,11 +68,13 @@ export function CommandCenterPage() {
       api("/api/capabilities").catch(() => null),
       api("/api/company-dashboard").catch(() => null),
       api("/api/policies").catch(() => null),
-    ]).then(([cap, dash, pol]) => {
+      api("/api/ceo/pulse").catch(() => null),
+    ]).then(([cap, dash, pol, p]) => {
       setCapabilities(cap);
       // Why: API nests payload under `dashboard`; older clients expected flat fields.
       setHealth(dash?.dashboard || dash || null);
       setLearningMode(pol?.policy?.learningMode === true);
+      setPulse(p);
     });
   }, []);
 
@@ -104,6 +112,35 @@ export function CommandCenterPage() {
     }
     if (type === "diagnose_run") {
       await runDiagnose(action.agentId || "", action.question || action.prompt || "");
+      return;
+    }
+    if (type === "diagnose") {
+      await runDiagnose(action.agentId || "", action.question || "Why is this agent unhealthy?");
+      return;
+    }
+    if (
+      type === "apply_recovery" ||
+      type === "spawn_goal_work" ||
+      type === "apply_model_route" ||
+      type === "hire_roles"
+    ) {
+      setBusy("pulse");
+      setError(null);
+      try {
+        const data = await api("/api/ceo/pulse/act", {
+          method: "POST",
+          body: JSON.stringify(action),
+        });
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.detail || "Pulse action applied." },
+        ]);
+        await reloadPulse();
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy("");
+      }
       return;
     }
     if (type === "emergency_stop") {
@@ -260,6 +297,83 @@ export function CommandCenterPage() {
         </div>
       </section>
 
+      {pulse?.findings?.length ? (
+        <section className="rounded-2xl border border-rose-200 bg-rose-50/50 p-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <h2 className="text-sm font-bold text-rose-950">
+              Business pulse · {pulse.summary?.findingCount || pulse.findings.length} finding
+              {(pulse.summary?.findingCount || pulse.findings.length) === 1 ? "" : "s"}
+              {pulse.summary?.high ? ` · ${pulse.summary.high} high` : ""}
+            </h2>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold disabled:opacity-50"
+              onClick={() => void reloadPulse().catch((err) => setError(err))}
+            >
+              Refresh
+            </button>
+          </div>
+          <p className="mt-1 text-xs text-rose-900/70">
+            Proactive observe → decide → act. Auto-fixes respect Policies max authority (
+            {pulse.maxAuthorityLevel || "external"}).
+          </p>
+          <ul className="mt-3 flex flex-col gap-2">
+            {pulse.findings.slice(0, 12).map((f) => (
+              <li
+                key={f.id}
+                className="rounded-xl border border-rose-100 bg-white p-3 text-sm text-teal-950"
+              >
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div className="min-w-0">
+                    <span
+                      className={`mr-2 rounded px-1.5 py-0.5 text-[0.65rem] font-bold uppercase ${
+                        f.severity === "high"
+                          ? "bg-rose-200 text-rose-950"
+                          : f.severity === "medium"
+                            ? "bg-amber-100 text-amber-950"
+                            : "bg-slate-100 text-slate-700"
+                      }`}
+                    >
+                      {f.severity}
+                    </span>
+                    <span className="font-semibold">{f.title}</span>
+                    {f.detail ? (
+                      <p className="mt-1 text-xs text-teal-800/70">{f.detail}</p>
+                    ) : null}
+                  </div>
+                </div>
+                {f.actions?.length ? (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    {f.actions.map((a, i) =>
+                      a.type === "link" && a.href ? (
+                        <Link
+                          key={`${f.id}-${i}`}
+                          to={a.href}
+                          className="inline-flex min-h-9 items-center rounded-lg border border-teal-200 px-2 text-xs font-semibold"
+                        >
+                          {a.label}
+                        </Link>
+                      ) : (
+                        <button
+                          key={`${f.id}-${i}`}
+                          type="button"
+                          disabled={Boolean(busy)}
+                          className="inline-flex min-h-9 items-center rounded-lg bg-teal-800 px-2 text-xs font-semibold text-white disabled:opacity-50"
+                          onClick={() => void handleAction(a)}
+                        >
+                          {a.label || a.type}
+                        </button>
+                      )
+                    )}
+                  </div>
+                ) : null}
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
@@ -401,12 +515,32 @@ export function CommandCenterPage() {
             {busy === "sop" ? "Parsing…" : "Convert SOP"}
           </button>
           {sopResult?.architectPrompt ? (
-            <Link
-              to={`/architect?prompt=${encodeURIComponent(sopResult.architectPrompt)}`}
-              className="mt-2 inline-flex min-h-10 items-center rounded-xl border border-violet-300 bg-white px-3 text-xs font-semibold"
-            >
-              Open in Architect
-            </Link>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <Link
+                to={`/architect?prompt=${encodeURIComponent(sopResult.architectPrompt)}`}
+                className="inline-flex min-h-10 items-center rounded-xl border border-violet-300 bg-white px-3 text-xs font-semibold"
+              >
+                Open in Architect
+              </Link>
+              {sopResult.roles?.length ? (
+                <button
+                  type="button"
+                  disabled={Boolean(busy)}
+                  className="inline-flex min-h-10 items-center rounded-xl bg-violet-900 px-3 text-xs font-semibold text-white disabled:opacity-50"
+                  onClick={() =>
+                    void handleAction({
+                      type: "hire_roles",
+                      authority: "external",
+                      roles: sopResult.roles,
+                      departmentName: sopResult.departmentName || "SOP team",
+                      rationale: "Hired from SOP conversion",
+                    })
+                  }
+                >
+                  {busy === "pulse" ? "Hiring…" : "Hire all roles now"}
+                </button>
+              ) : null}
+            </div>
           ) : null}
           {sopResult?.requiredConnections?.length ? (
             <p className="mt-2 text-xs text-violet-900/80">
@@ -456,25 +590,43 @@ export function CommandCenterPage() {
             {busy === "dept" ? "Designing…" : "Design department"}
           </button>
           {department?.roles?.length ? (
-            <ul className="mt-3 flex flex-col gap-2">
-              {department.roles.map((r) => (
-                <li
-                  key={r.id}
-                  className="flex flex-col gap-1 rounded-xl border border-indigo-200 bg-white p-2 text-xs sm:flex-row sm:items-center sm:justify-between"
-                >
-                  <div>
-                    <div className="font-semibold">{r.title}</div>
-                    <div className="text-indigo-900/70">{r.responsibilities?.slice(0, 120)}</div>
-                  </div>
-                  <Link
-                    to={`/architect?prompt=${encodeURIComponent(r.architectPrompt)}`}
-                    className="inline-flex min-h-9 items-center justify-center rounded-lg bg-indigo-700 px-2 font-semibold text-white"
+            <>
+              <ul className="mt-3 flex flex-col gap-2">
+                {department.roles.map((r) => (
+                  <li
+                    key={r.id || r.title}
+                    className="flex flex-col gap-1 rounded-xl border border-indigo-200 bg-white p-2 text-xs sm:flex-row sm:items-center sm:justify-between"
                   >
-                    Hire
-                  </Link>
-                </li>
-              ))}
-            </ul>
+                    <div>
+                      <div className="font-semibold">{r.title}</div>
+                      <div className="text-indigo-900/70">{r.responsibilities?.slice(0, 120)}</div>
+                    </div>
+                    <Link
+                      to={`/architect?prompt=${encodeURIComponent(r.architectPrompt)}`}
+                      className="inline-flex min-h-9 items-center justify-center rounded-lg bg-indigo-700 px-2 font-semibold text-white"
+                    >
+                      Hire in Architect
+                    </Link>
+                  </li>
+                ))}
+              </ul>
+              <button
+                type="button"
+                disabled={Boolean(busy)}
+                className="mt-2 min-h-10 rounded-xl bg-indigo-950 px-3 text-xs font-semibold text-white disabled:opacity-50"
+                onClick={() =>
+                  void handleAction({
+                    type: "hire_roles",
+                    authority: "external",
+                    roles: department.roles,
+                    departmentName: department.departmentName || "Department",
+                    rationale: "Hired from department design",
+                  })
+                }
+              >
+                {busy === "pulse" ? "Hiring…" : "Hire entire department now"}
+              </button>
+            </>
           ) : null}
         </div>
       </section>
@@ -504,19 +656,64 @@ export function CommandCenterPage() {
           </button>
         </div>
         {optimize?.suggestions?.length ? (
-          <ul className="mt-2 space-y-1 text-sm">
-            {optimize.suggestions.slice(0, 12).map((s, i) => (
-              <li key={i} className="flex flex-wrap items-center justify-between gap-2">
-                <span>
-                  <Link className="font-semibold underline" to={`/agents/${s.agentId}`}>
-                    {s.agentName}
-                  </Link>
-                  : {s.reason}
-                </span>
-                <span className="text-xs text-teal-800/70">→ {s.profileName}</span>
-              </li>
-            ))}
-          </ul>
+          <>
+            <ul className="mt-2 space-y-1 text-sm">
+              {optimize.suggestions.slice(0, 12).map((s, i) => (
+                <li key={i} className="flex flex-wrap items-center justify-between gap-2">
+                  <span>
+                    <Link className="font-semibold underline" to={`/agents/${s.agentId}`}>
+                      {s.agentName}
+                    </Link>
+                    : {s.reason}
+                  </span>
+                  <button
+                    type="button"
+                    disabled={Boolean(busy)}
+                    className="rounded-lg border border-teal-200 px-2 py-1 text-xs font-semibold disabled:opacity-50"
+                    onClick={() =>
+                      void handleAction({
+                        type: "apply_model_route",
+                        authority: "internal",
+                        agentId: s.agentId,
+                        profileId: s.profileId,
+                        reason: s.reason,
+                      })
+                    }
+                  >
+                    Apply → {s.profileName}
+                  </button>
+                </li>
+              ))}
+            </ul>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              className="mt-2 min-h-10 rounded-xl bg-teal-800 px-3 text-xs font-semibold text-white disabled:opacity-50"
+              onClick={() =>
+                void (async () => {
+                  setBusy("opt_apply");
+                  try {
+                    const data = await api("/api/ceo/optimize-models/apply", {
+                      method: "POST",
+                      body: JSON.stringify({}),
+                    });
+                    setMessages((m) => [
+                      ...m,
+                      { role: "assistant", content: data.detail || "Model routes applied." },
+                    ]);
+                    const refreshed = await api("/api/ceo/optimize-models");
+                    setOptimize(refreshed);
+                  } catch (err) {
+                    setError(err);
+                  } finally {
+                    setBusy("");
+                  }
+                })()
+              }
+            >
+              {busy === "opt_apply" ? "Applying…" : "Apply all suggestions"}
+            </button>
+          </>
         ) : optimize ? (
           <p className="mt-2 text-xs text-teal-800/60">No routing changes suggested right now.</p>
         ) : null}
