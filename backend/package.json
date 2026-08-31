@@ -11,7 +11,8 @@
     "start": "NODE_ENV=production node src/index.js",
     "start:prod": "NODE_ENV=production node src/index.js",
     "test": "node --test test/smoke.test.js",
-    "test:bos": "node --test --test-force-exit test/bosProofs.test.js"
+    "test:bos": "node --test --test-force-exit test/bosProofs.test.js",
+    "test:live-bos": "node --test --test-force-exit test/liveBos.test.js"
   },
   "dependencies": {
     "bcryptjs": "^3.0.2",

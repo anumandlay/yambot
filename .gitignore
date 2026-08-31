@@ -10,6 +10,7 @@ frontend/.env
 frontend/.env.local
 deploy/.env
 deploy/.deploy.local.env
+backend/.live-bos.env
 .vscode/
 .idea/
 coverage/

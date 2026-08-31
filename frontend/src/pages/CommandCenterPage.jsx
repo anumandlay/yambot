@@ -420,6 +420,51 @@ export function CommandCenterPage() {
         >
           {busy === "proofs" ? "Proving…" : "Run BOS+harden proofs"}
         </button>
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          className="min-h-10 rounded-xl border border-slate-300 bg-slate-50 px-3 text-xs font-semibold text-slate-800 disabled:opacity-50"
+          onClick={() =>
+            void (async () => {
+              setBusy("livebos");
+              setError(null);
+              try {
+                const data = await api("/api/proofs/run", {
+                  method: "POST",
+                  body: JSON.stringify({ suite: "live" }),
+                  timeoutMs: 300_000,
+                });
+                const lines = (data.results || []).map(
+                  (r) =>
+                    `${String(r.status || (r.passed ? "pass" : "fail")).toUpperCase()} ${r.id || r.name}${
+                      r.detail ? `: ${r.detail}` : ""
+                    }`
+                );
+                setMessages((m) => [
+                  ...m,
+                  {
+                    role: "assistant",
+                    content: [
+                      `LIVE_BOS ${data.enabled ? "enabled" : "disabled/scaffold"} — ${
+                        data.ok ? "OK" : "FAILED"
+                      } (pass=${data.summary?.passed} fail=${data.summary?.failed} skip=${data.summary?.skipped}).`,
+                      data.reason || "",
+                      ...lines,
+                    ]
+                      .filter(Boolean)
+                      .join("\n"),
+                  },
+                ]);
+              } catch (err) {
+                setError(err);
+              } finally {
+                setBusy("");
+              }
+            })()
+          }
+        >
+          {busy === "livebos" ? "LIVE_BOS…" : "Run LIVE_BOS (scaffold)"}
+        </button>
       </section>
 
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">

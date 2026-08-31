@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 11:00] LIVE_BOS scaffold — controlled live integration harness (skip without creds)
+
+- **Prompt Provided:** scaffold only
+- **Architectural Flow:** No product architecture changes. Add LIVE_BOS gated suite that maps the 14 BOS/harden proofs to real API/mailbox/browser/crash probes; SKIP with reasons until `LIVE_BOS=1` + untracked `.live-bos.env` credentials; report PASS/FAIL/SKIP.
+- **Impacted Files:** `backend/src/utils/liveBos.js`, `backend/test/liveBos.test.js`, `backend/.live-bos.env.example`, proofs route/script, FEATURE_AUDIT, PROMPT_LOG, .gitignore
+
 ## [2026-08-31 10:40] Harden BOS — durability, events, chaos, security, attribution
 
 - **Prompt Provided:** yes do everything what chatgpt says (hardening phase)

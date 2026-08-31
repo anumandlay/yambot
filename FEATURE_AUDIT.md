@@ -82,4 +82,14 @@ Runtime proofs at `POST /api/proofs/run` (`suite`: `bos` | `harden` | `all`) and
 | Cost / loop runaway guards | PASS | `runawayGuards` on CEO + enqueue + optimize; Policies UI |
 | Canary KPI rollback | PASS | `canaryKpi*` fields + `tickCanaryMonitor` |
 | Attribution + causal memory | PASS | `/api/ceo/attribution`, `/api/ceo/causal-memory` |
-| Real-world live mailbox/API | PARTIAL | Architecture proven in sandbox; live harness needs credentials (`LIVE_BOS`) |
+| Real-world live mailbox/API | PARTIAL | Scaffold: `npm run test:live-bos` + `POST /api/proofs/run` `{suite:"live"}`. Copy `backend/.live-bos.env.example` → `.live-bos.env`, set `LIVE_BOS=1`. Without creds all scenarios SKIP (not fail). |
+
+## LIVE_BOS (scaffold)
+
+Controlled live harness maps the 14 sandbox proofs to real API / IMAP / browser / crash probes.
+
+| Mode | Behavior |
+|---|---|
+| Default (`LIVE_BOS` unset/0) | Entire suite SKIP — CI-safe |
+| `LIVE_BOS=1` + partial creds | Probes that have creds run; others SKIP; mongo-mapped harden/BOS re-run when userId present |
+| Full creds later | Fill API + IMAP (+ optional browser/crash flags) — same suite, no architecture change |
