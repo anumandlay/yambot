@@ -42,6 +42,20 @@ export const HELP = {
       "Does not require you to think in agents or triggers. Reuses checks against your existing agents before creating duplicates."
     ),
   },
+  "nav.command": {
+    title: "Command Center",
+    body: helpBody(
+      "Talk to YamBot like a CEO: describe outcomes, find automations, diagnose failures, emergency-stop the workforce.",
+      "Uses safe action buttons (Architect, diagnose, stop) — it does not silently rewrite production config."
+    ),
+  },
+  "command.page": {
+    title: "Command Center",
+    body: helpBody(
+      "1) Ask in plain English. 2) Use Find automation opportunities. 3) Create opens Business Architect with a ready prompt. 4) Stop all AI pauses schedules and stops cloud boxes.",
+      "Weak readiness agents are listed so you can fix mailbox/schedule gaps before trusting them."
+    ),
+  },
   "nav.runs": {
     title: "Agent runs",
     body: helpBody(

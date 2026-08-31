@@ -439,20 +439,45 @@ export function ArchitectOpsHub({
             <button
               type="button"
               disabled={Boolean(busy)}
-              className="mt-2 min-h-10 rounded-xl border border-amber-400 bg-white px-3 text-xs font-semibold"
+              className="mt-2 min-h-10 rounded-xl bg-amber-700 px-3 text-xs font-semibold text-white"
               onClick={() =>
                 void run("applychg", async () => {
+                  if (
+                    !window.confirm(
+                      "Apply this change to the blueprint AND update matching live agents (instructions, schedule, email hosts)?"
+                    )
+                  ) {
+                    return;
+                  }
                   const data = await api(`/api/architect/${blueprintId}/apply-change`, {
                     method: "POST",
-                    body: JSON.stringify({}),
+                    body: JSON.stringify({ syncLiveAgents: true }),
                   });
                   setPendingChange(null);
                   setDoc(data.blueprintDoc);
-                  setNotice(data.detail || "Change applied to blueprint.");
+                  setNotice(data.detail || "Change applied.");
                 })
               }
             >
-              Approve change (blueprint only)
+              Approve & apply to live agents
+            </button>
+            <button
+              type="button"
+              disabled={Boolean(busy)}
+              className="mt-2 ml-2 min-h-10 rounded-xl border border-amber-400 bg-white px-3 text-xs font-semibold"
+              onClick={() =>
+                void run("applychg_bp", async () => {
+                  const data = await api(`/api/architect/${blueprintId}/apply-change`, {
+                    method: "POST",
+                    body: JSON.stringify({ syncLiveAgents: false }),
+                  });
+                  setPendingChange(null);
+                  setDoc(data.blueprintDoc);
+                  setNotice(data.detail || "Blueprint updated only.");
+                })
+              }
+            >
+              Blueprint only
             </button>
           </div>
         ) : null}

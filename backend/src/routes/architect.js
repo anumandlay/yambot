@@ -14,6 +14,7 @@ import {
   publicArchitectBlueprint,
 } from "../utils/architectChat.js";
 import { applyBusinessPlan } from "../utils/applyBusinessPlan.js";
+import { syncLiveAgentsFromPlan } from "../utils/syncLiveAgentsFromPlan.js";
 import {
   mergeAnswersIntoPlan,
   mergeAnswerBags,
@@ -597,11 +598,16 @@ architectRouter.post("/:id/apply-change", async (req, res, next) => {
       doc.pendingChange.impact ||
       computeChangeImpact(doc.blueprint, doc.pendingChange.proposedBlueprint);
 
+    const proposedBlueprint = doc.pendingChange.proposedBlueprint;
+    const syncLive =
+      req.body?.syncLiveAgents !== false &&
+      (doc.status === "built" || (doc.createdAgentIds || []).length > 0);
+
     doc.versions = doc.versions || [];
     doc.versions.push({ at: new Date(), label: "before-change", blueprint: doc.blueprint });
     if (doc.versions.length > 20) doc.versions = doc.versions.slice(-20);
 
-    doc.blueprint = doc.pendingChange.proposedBlueprint;
+    doc.blueprint = proposedBlueprint;
     if (Array.isArray(doc.pendingChange.dataMaps) && doc.pendingChange.dataMaps.length) {
       doc.dataMaps = ensureDataMaps(null, doc.pendingChange.dataMaps);
     }
@@ -617,17 +623,30 @@ architectRouter.post("/:id/apply-change", async (req, res, next) => {
       applied: true,
     });
     doc.pendingChange = null;
-    // Why: blueprint-only update does not recreate agents — user rebuilds or edits manually.
     doc.status = doc.status === "built" ? "built" : "draft";
     await doc.save();
     await syncBlueprintToCompanyMemory(req.userId, doc);
 
+    /** @type {{ updated: object[], skipped: string[] } | null} */
+    let liveSync = null;
+    if (syncLive) {
+      liveSync = await syncLiveAgentsFromPlan(
+        req.userId,
+        doc.createdAgentIds || [],
+        proposedBlueprint?.plan || null
+      );
+    }
+
     res.json({
       ok: true,
       impact,
+      liveSync,
       blueprintDoc: publicDoc(doc),
-      detail:
-        "Blueprint updated. Existing live agents were not auto-mutated — use Approve & Build again or edit agents/triggers manually if needed.",
+      detail: liveSync
+        ? `Blueprint updated. Synced ${liveSync.updated.length} live agent(s)${
+            liveSync.skipped.length ? `; skipped: ${liveSync.skipped.join(", ")}` : ""
+          }.`
+        : "Blueprint updated (live agent sync skipped).",
     });
   } catch (err) {
     next(err);

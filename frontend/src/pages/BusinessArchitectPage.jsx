@@ -563,6 +563,14 @@ export function BusinessArchitectPage() {
       .catch((err) => setError(err));
   }, [searchParams]);
 
+  // Why: Command Center / discovery deep-links with ?prompt= or ?change=
+  useEffect(() => {
+    const prompt = searchParams.get("prompt");
+    const change = searchParams.get("change");
+    if (prompt) setDraft(prompt);
+    if (change) setDraft(`Please change the architecture: ${change}`);
+  }, [searchParams]);
+
   useEffect(() => {
     try {
       if (profileId) localStorage.setItem(PROFILE_KEY, profileId);

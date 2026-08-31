@@ -215,3 +215,94 @@ systemRouter.post("/stop", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * POST /api/system/emergency-stop — stop all AI for this user (computers + schedules).
+ */
+systemRouter.post("/emergency-stop", async (req, res, next) => {
+  try {
+    const agents = await Agent.find({ user: req.userId });
+    let stopped = 0;
+    let schedulesPaused = 0;
+    for (const agent of agents) {
+      agent.computer = agent.computer || {};
+      agent.computer.desired = "stopped";
+      agent.schedule = agent.schedule || {};
+      if (agent.schedule.enabled) {
+        agent.schedule.enabledBeforeEmergency = true;
+        agent.schedule.enabled = false;
+        agent.schedule.pausedByEmergency = true;
+        agent.schedule.nextRunAt = null;
+        schedulesPaused += 1;
+      } else if (agent.schedule.pausedByEmergency) {
+        /* already paused */
+      }
+      await agent.save();
+      stopped += 1;
+
+      const name = String(agent.computer?.containerName || "").trim();
+      if (name) {
+        try {
+          await managerFetch("/internal/stop", {
+            method: "POST",
+            body: JSON.stringify({ name }),
+          });
+        } catch {
+          /* manager may be down — desired=stopped still prevents restart */
+        }
+      }
+    }
+
+    // Why: cancel only pending (not claimed) tasks so workers finish current step safely.
+    const { Task } = await import("../models/Task.js");
+    const cancelResult = await Task.updateMany(
+      { user: req.userId, status: "pending" },
+      { $set: { status: "cancelled", lastError: "Emergency stop" } }
+    );
+
+    res.json({
+      ok: true,
+      stoppedAgents: stopped,
+      schedulesPaused,
+      pendingCancelled: cancelResult.modifiedCount || 0,
+      detail: `Emergency stop: ${stopped} agent(s) set to stopped; ${schedulesPaused} schedule(s) paused.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/system/emergency-resume — restore computers + schedules paused by emergency stop.
+ */
+systemRouter.post("/emergency-resume", async (req, res, next) => {
+  try {
+    const agents = await Agent.find({ user: req.userId });
+    let resumed = 0;
+    let schedulesRestored = 0;
+    for (const agent of agents) {
+      if (agent.active === false) continue;
+      agent.computer = agent.computer || {};
+      agent.computer.desired = "running";
+      agent.schedule = agent.schedule || {};
+      if (agent.schedule.pausedByEmergency || agent.schedule.enabledBeforeEmergency) {
+        if (agent.schedule.enabledBeforeEmergency) {
+          agent.schedule.enabled = true;
+          schedulesRestored += 1;
+        }
+        agent.schedule.pausedByEmergency = false;
+        agent.schedule.enabledBeforeEmergency = false;
+      }
+      await agent.save();
+      resumed += 1;
+    }
+    res.json({
+      ok: true,
+      resumedAgents: resumed,
+      schedulesRestored,
+      detail: `Emergency resume: ${resumed} agent(s) set to running; ${schedulesRestored} schedule(s) restored.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});

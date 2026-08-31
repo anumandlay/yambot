@@ -1,0 +1,414 @@
+/**
+ * @fileoverview Command Center — CEO AI chat, discovery, readiness, emergency stop.
+ * Purpose: Manage the business in English without visiting every agent form.
+ * Downstream: POST /api/ceo/*, GET /api/capabilities, /api/system/emergency-*.
+ */
+
+import { useEffect, useRef, useState } from "react";
+import { Link, useNavigate } from "react-router-dom";
+import { api } from "../lib/api.js";
+import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { PageGuideBanner } from "../components/FieldLabel.jsx";
+
+/**
+ * @param {object} action
+ * @param {(a: object) => void} onAction
+ */
+function ActionButtons({ actions, onAction }) {
+  if (!actions?.length) return null;
+  return (
+    <div className="mt-2 flex flex-wrap gap-2">
+      {actions.map((a, i) => (
+        <button
+          key={`${a.type}-${i}`}
+          type="button"
+          onClick={() => onAction(a)}
+          className="inline-flex min-h-10 items-center rounded-xl border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-950"
+        >
+          {a.label || a.type}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+export function CommandCenterPage() {
+  const navigate = useNavigate();
+  const bottomRef = useRef(null);
+  const [messages, setMessages] = useState([
+    {
+      role: "assistant",
+      content:
+        "I’m your Command Center. Describe a business outcome, ask why an agent failed, or say “find automations”. I’ll propose safe next steps.",
+    },
+  ]);
+  const [draft, setDraft] = useState("");
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState(null);
+  const [health, setHealth] = useState(null);
+  const [capabilities, setCapabilities] = useState(null);
+  const [opportunities, setOpportunities] = useState(null);
+  const [diagnoseBox, setDiagnoseBox] = useState(null);
+
+  useEffect(() => {
+    document.title = "Command Center · YamBot";
+    Promise.all([
+      api("/api/capabilities").catch(() => null),
+      api("/api/company-dashboard").catch(() => null),
+    ]).then(([cap, dash]) => {
+      setCapabilities(cap);
+      setHealth(dash);
+    });
+  }, []);
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages, diagnoseBox, opportunities]);
+
+  /**
+   * @param {object} action
+   */
+  async function handleAction(action) {
+    const type = action.type;
+    if (type === "link" && action.href) {
+      navigate(action.href);
+      return;
+    }
+    if (type === "open_architect" || type === "propose_hire") {
+      const q = encodeURIComponent(action.prompt || "");
+      navigate(q ? `/architect?prompt=${q}` : "/architect");
+      return;
+    }
+    if (type === "propose_change") {
+      const id = action.blueprintId;
+      const q = encodeURIComponent(action.prompt || "");
+      navigate(id ? `/architect?id=${id}&change=${q}` : `/architect?change=${q}`);
+      return;
+    }
+    if (type === "show_readiness") {
+      navigate("/agents");
+      return;
+    }
+    if (type === "discover") {
+      await runDiscover(action.prompt || "");
+      return;
+    }
+    if (type === "diagnose_run") {
+      await runDiagnose(action.agentId || "", action.question || action.prompt || "");
+      return;
+    }
+    if (type === "emergency_stop") {
+      if (!window.confirm("Stop ALL AI agents and pause schedules for this account?")) return;
+      setBusy("stop");
+      try {
+        const data = await api("/api/system/emergency-stop", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.detail || "Emergency stop complete." },
+        ]);
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy("");
+      }
+      return;
+    }
+    if (type === "emergency_resume") {
+      setBusy("resume");
+      try {
+        const data = await api("/api/system/emergency-resume", {
+          method: "POST",
+          body: JSON.stringify({}),
+        });
+        setMessages((m) => [
+          ...m,
+          { role: "assistant", content: data.detail || "Emergency resume complete." },
+        ]);
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy("");
+      }
+    }
+  }
+
+  async function runDiscover(brief = "") {
+    setBusy("discover");
+    setError(null);
+    try {
+      const data = await api("/api/ceo/discover", {
+        method: "POST",
+        body: JSON.stringify({ brief }),
+        timeoutMs: 120_000,
+      });
+      setOpportunities(data.opportunities || []);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: data.assistantMessage || "Here are opportunities." },
+      ]);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function runDiagnose(agentId, question) {
+    setBusy("diagnose");
+    setError(null);
+    try {
+      const data = await api("/api/ceo/diagnose", {
+        method: "POST",
+        body: JSON.stringify({ agentId, question }),
+        timeoutMs: 120_000,
+      });
+      setDiagnoseBox(data);
+      setMessages((m) => [
+        ...m,
+        { role: "assistant", content: data.assistantMessage || "Diagnosis ready." },
+      ]);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  async function onSend() {
+    const text = draft.trim();
+    if (!text || busy) return;
+    const next = [...messages, { role: "user", content: text }];
+    setMessages(next);
+    setDraft("");
+    setBusy("chat");
+    setError(null);
+    try {
+      const data = await api("/api/ceo/chat", {
+        method: "POST",
+        body: JSON.stringify({
+          messages: next.filter((m) => m.role === "user" || m.role === "assistant"),
+        }),
+        timeoutMs: 120_000,
+      });
+      setMessages([
+        ...next,
+        {
+          role: "assistant",
+          content: data.assistantMessage || "…",
+          actions: data.actions || [],
+        },
+      ]);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const summary = capabilities?.summary;
+  const taskStats = health?.taskStats || health?.tasks || null;
+
+  return (
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 pb-24">
+      <PageGuideBanner helpId="command.page" />
+      <header>
+        <h1 className="text-2xl font-bold tracking-tight text-teal-950 sm:text-3xl">
+          Command Center
+        </h1>
+        <p className="mt-1 text-sm text-teal-900/70">
+          Tell YamBot what the business needs — it discovers capabilities, diagnoses failures, and
+          proposes the next hire.
+        </p>
+      </header>
+
+      <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
+        <div className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
+          <div className="text-xs font-semibold uppercase text-teal-800/60">Agents</div>
+          <div className="text-xl font-bold text-teal-950">{summary?.agentCount ?? "—"}</div>
+        </div>
+        <div className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
+          <div className="text-xs font-semibold uppercase text-teal-800/60">Avg readiness</div>
+          <div className="text-xl font-bold text-teal-950">
+            {summary?.avgReadiness != null ? `${summary.avgReadiness}%` : "—"}
+          </div>
+        </div>
+        <div className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
+          <div className="text-xs font-semibold uppercase text-teal-800/60">Skills</div>
+          <div className="text-xl font-bold text-teal-950">{summary?.skillCount ?? "—"}</div>
+        </div>
+        <div className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
+          <div className="text-xs font-semibold uppercase text-teal-800/60">Triggers</div>
+          <div className="text-xl font-bold text-teal-950">{summary?.triggerCount ?? "—"}</div>
+        </div>
+      </section>
+
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          onClick={() => void runDiscover()}
+          className="min-h-11 rounded-xl bg-teal-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+        >
+          {busy === "discover" ? "Finding…" : "Find automation opportunities"}
+        </button>
+        <Link
+          to="/architect"
+          className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 bg-white px-4 text-sm font-semibold"
+        >
+          Hire employee (Architect)
+        </Link>
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          onClick={() => void handleAction({ type: "emergency_stop", label: "Stop" })}
+          className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-semibold text-rose-800 disabled:opacity-50"
+        >
+          {busy === "stop" ? "Stopping…" : "Stop all AI"}
+        </button>
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          onClick={() => void handleAction({ type: "emergency_resume", label: "Resume" })}
+          className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900 disabled:opacity-50"
+        >
+          {busy === "resume" ? "Resuming…" : "Resume AI"}
+        </button>
+      </div>
+
+      {error ? (
+        <ErrorAlert
+          title={error.title}
+          detail={error.detail || error.message}
+          hint={error.hint}
+          onClose={() => setError(null)}
+        />
+      ) : null}
+
+      {opportunities?.length ? (
+        <section className="rounded-2xl border border-amber-200 bg-amber-50/80 p-4">
+          <h2 className="text-sm font-bold text-amber-950">Automation opportunities</h2>
+          <ul className="mt-3 flex flex-col gap-2">
+            {opportunities.map((o) => (
+              <li
+                key={o.id}
+                className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div className="min-w-0">
+                  <div className="font-semibold text-teal-950">{o.title}</div>
+                  <div className="text-xs text-teal-800/70">
+                    Effort {o.effort} · ~{o.automationPct}% automatable
+                  </div>
+                  {o.reason ? <p className="mt-1 text-xs text-teal-900/70">{o.reason}</p> : null}
+                </div>
+                <Link
+                  to={`/architect?prompt=${encodeURIComponent(o.architectPrompt)}`}
+                  className="inline-flex min-h-10 shrink-0 items-center justify-center rounded-xl bg-amber-700 px-3 text-xs font-semibold text-white"
+                >
+                  Create in Architect
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
+
+      {diagnoseBox ? (
+        <section className="rounded-2xl border border-sky-200 bg-sky-50/80 p-4 text-sm">
+          <h2 className="font-bold text-sky-950">Diagnosis</h2>
+          {diagnoseBox.causes?.length ? (
+            <ul className="mt-2 list-disc space-y-1 pl-5 text-sky-950/90">
+              {diagnoseBox.causes.map((c, i) => (
+                <li key={i}>{c}</li>
+              ))}
+            </ul>
+          ) : null}
+          {diagnoseBox.fixes?.length ? (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {diagnoseBox.fixes.map((f, i) => (
+                <Link
+                  key={i}
+                  to={f.href}
+                  className="inline-flex min-h-10 items-center rounded-xl border border-sky-300 bg-white px-3 text-xs font-semibold"
+                >
+                  {f.label}
+                </Link>
+              ))}
+            </div>
+          ) : null}
+        </section>
+      ) : null}
+
+      <section className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-gradient-to-b from-teal-50/80 to-white p-4 shadow-sm">
+        <h2 className="text-sm font-bold uppercase tracking-wide text-teal-900/60">
+          What do you want YamBot to do?
+        </h2>
+        <div className="flex max-h-[min(50vh,28rem)] flex-col gap-3 overflow-y-auto">
+          {messages.map((m, i) => (
+            <div
+              key={i}
+              className={`rounded-xl px-3 py-2 text-sm ${
+                m.role === "user"
+                  ? "ml-8 bg-teal-800 text-white"
+                  : "mr-4 border border-teal-100 bg-white text-teal-950"
+              }`}
+            >
+              <p className="whitespace-pre-wrap">{m.content}</p>
+              {m.actions ? <ActionButtons actions={m.actions} onAction={handleAction} /> : null}
+            </div>
+          ))}
+          <div ref={bottomRef} />
+        </div>
+        <div className="flex flex-col gap-2 sm:flex-row">
+          <input
+            className="min-h-12 flex-1 rounded-xl border border-teal-200 bg-white px-3 text-sm"
+            placeholder='e.g. “Increase qualified leads” or “Why did the email agent fail?”'
+            value={draft}
+            disabled={Boolean(busy)}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                e.preventDefault();
+                void onSend();
+              }
+            }}
+          />
+          <button
+            type="button"
+            disabled={Boolean(busy) || !draft.trim()}
+            onClick={() => void onSend()}
+            className="min-h-12 rounded-xl bg-teal-700 px-5 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {busy === "chat" ? "Thinking…" : "Send"}
+          </button>
+        </div>
+        {taskStats ? (
+          <p className="text-xs text-teal-800/60">
+            Recent task activity loaded from company dashboard.
+          </p>
+        ) : null}
+      </section>
+
+      {(capabilities?.agents || []).filter((a) => a.readinessScore < 80).length ? (
+        <section className="rounded-2xl border border-teal-100 bg-white p-4">
+          <h2 className="text-sm font-bold text-teal-950">Agents needing attention</h2>
+          <ul className="mt-2 flex flex-col gap-1 text-sm">
+            {capabilities.agents
+              .filter((a) => a.readinessScore < 80)
+              .slice(0, 8)
+              .map((a) => (
+                <li key={a._id} className="flex items-center justify-between gap-2">
+                  <Link className="font-semibold underline" to={`/agents/${a._id}`}>
+                    {a.name}
+                  </Link>
+                  <span className="text-xs text-amber-800">Readiness {a.readinessScore}%</span>
+                </li>
+              ))}
+          </ul>
+        </section>
+      ) : null}
+    </div>
+  );
+}

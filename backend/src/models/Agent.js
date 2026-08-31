@@ -83,6 +83,11 @@ const scheduleSchema = new mongoose.Schema(
     dailyAt: { type: String, default: "09:00", trim: true },
     lastRunAt: { type: Date, default: null },
     nextRunAt: { type: Date, default: null },
+    /**
+     * Emergency stop: schedule was paused; resume restores enabled from enabledBeforeEmergency.
+     */
+    pausedByEmergency: { type: Boolean, default: false },
+    enabledBeforeEmergency: { type: Boolean, default: false },
     /** Chat thread that receives scheduled goals (auto-created). */
     chatId: {
       type: mongoose.Schema.Types.ObjectId,

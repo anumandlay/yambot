@@ -66,6 +66,19 @@ function AgentRow({
             Created {new Date(agent.createdAt).toLocaleString()}
           </p>
         ) : null}
+        {agent.readiness ? (
+          <p
+            className={`mt-1 text-xs font-semibold ${
+              agent.readiness.score >= 80
+                ? "text-emerald-800"
+                : agent.readiness.score >= 50
+                  ? "text-amber-800"
+                  : "text-rose-800"
+            }`}
+          >
+            Readiness {agent.readiness.score}%
+          </p>
+        ) : null}
         {agent.description ? (
           <p className="mt-1 break-words text-sm text-teal-900/70">{agent.description}</p>
         ) : null}

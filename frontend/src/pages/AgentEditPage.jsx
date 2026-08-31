@@ -121,6 +121,7 @@ export function AgentEditPage() {
   const [agentGroups, setAgentGroups] = useState([]);
   const [llmProfiles, setLlmProfiles] = useState([]);
   const [walletInfo, setWalletInfo] = useState({ balanceUsd: 0, agentPriceUsd: 0 });
+  const [readiness, setReadiness] = useState(null);
 
   useEffect(() => {
     if (!isNew) return;
@@ -152,6 +153,7 @@ export function AgentEditPage() {
         if (!isNew) {
           const data = await api(`/api/agents/${agentId}`);
           const a = data.agent;
+          setReadiness(a.readiness || null);
           const agentsList = await api("/api/agents");
           setAllAgents((agentsList.agents || []).filter((x) => x._id !== agentId));
           setForm({
@@ -606,6 +608,28 @@ export function AgentEditPage() {
             required
           />
         </label>
+        {readiness ? (
+          <div className="rounded-xl border border-teal-100 bg-teal-50/80 p-3 text-sm">
+            <div
+              className={`font-bold ${
+                readiness.score >= 80
+                  ? "text-emerald-800"
+                  : readiness.score >= 50
+                    ? "text-amber-800"
+                    : "text-rose-800"
+              }`}
+            >
+              Readiness {readiness.score}%
+            </div>
+            <ul className="mt-2 space-y-1 text-xs text-teal-900/80">
+              {(readiness.checks || []).map((c) => (
+                <li key={c.id}>
+                  {c.ok ? "✓" : "✗"} {c.label}
+                </li>
+              ))}
+            </ul>
+          </div>
+        ) : null}
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="agent.group">Group</FieldLabel>
           <select

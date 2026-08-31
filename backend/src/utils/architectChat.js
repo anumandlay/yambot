@@ -5,7 +5,6 @@
  */
 
 import { User } from "../models/User.js";
-import { Agent } from "../models/Agent.js";
 import { LlmProfile } from "../models/LlmProfile.js";
 import { BusinessBlueprint } from "../models/BusinessBlueprint.js";
 import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
@@ -352,26 +351,18 @@ export function publicArchitectBlueprint(bp) {
   return { ...bp, plan };
 }
 
+import {
+  buildCapabilitiesCatalog,
+  formatCapabilitiesForPrompt,
+} from "./capabilitiesCatalog.js";
+
 /**
  * @param {string} userId
  * @returns {Promise<object[]>}
  */
 async function loadExistingAgentsSummary(userId) {
-  const agents = await Agent.find({ user: userId })
-    .select("name skill description schedule.enabled schedule.interval email.enabled role")
-    .sort({ updatedAt: -1 })
-    .limit(40)
-    .lean();
-  return agents.map((a) => ({
-    _id: String(a._id),
-    name: a.name,
-    skill: String(a.skill || "").slice(0, 200),
-    description: String(a.description || "").slice(0, 200),
-    role: a.role || "worker",
-    scheduleEnabled: Boolean(a.schedule?.enabled),
-    scheduleInterval: a.schedule?.interval || "",
-    emailEnabled: Boolean(a.email?.enabled),
-  }));
+  const catalog = await buildCapabilitiesCatalog(userId);
+  return catalog.agents || [];
 }
 
 /**
@@ -448,8 +439,14 @@ async function generateDesignBlueprint(creds, ctx) {
     "ANSWERS:",
     summarizeAnswersForPrompt(ctx.answers),
     "",
-    "EXISTING_AGENTS:",
-    JSON.stringify(ctx.existingAgents || []).slice(0, 4000),
+    "EXISTING_CAPABILITIES (prefer reuse — do not recreate duplicate agents/skills):",
+    formatCapabilitiesForPrompt({
+      agents: ctx.existingAgents || [],
+      skills: ctx.capabilities?.skills || [],
+      integrations: ctx.capabilities?.integrations || {},
+      builtinActions: ctx.capabilities?.builtinActions || [],
+      summary: ctx.capabilities?.summary || { agentCount: (ctx.existingAgents || []).length },
+    }),
     "",
     "CONVERSATION:",
     String(ctx.transcript || "").slice(0, 12_000),
@@ -544,7 +541,8 @@ export async function designSavedBlueprint(userId, blueprintId, body = {}, opts 
   }
 
   emitProgress(onProgress, "agents", "Loading existing agents…", 18);
-  const existingAgents = await loadExistingAgentsSummary(userId);
+  const capabilities = await buildCapabilitiesCatalog(userId);
+  const existingAgents = capabilities.agents || [];
   const answers = mergeAnswerBags(
     unsealArchitectAnswers(doc.answersSecretsEnc),
     body.answers && typeof body.answers === "object" ? body.answers : {}
@@ -555,6 +553,7 @@ export async function designSavedBlueprint(userId, blueprintId, body = {}, opts 
     transcript,
     answers,
     existingAgents,
+    capabilities,
     onProgress,
   });
 
@@ -634,7 +633,8 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
   const { creds } = resolved;
 
   emitProgress(onProgress, "agents", "Loading your existing agents for reuse checks…", 18);
-  const existingAgents = await loadExistingAgentsSummary(userId);
+  const capabilities = await buildCapabilitiesCatalog(userId);
+  const existingAgents = capabilities.agents || [];
   const understandingConfirmed = body.understandingConfirmed === true;
   const understandingRejected = body.understandingRejected === true;
 
@@ -716,10 +716,8 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
             "ALREADY COLLECTED ANSWERS:",
             summarizeAnswersForPrompt(body.answers),
             "",
-            "EXISTING_AGENTS:",
-            existingAgents.length
-              ? JSON.stringify(existingAgents, null, 0).slice(0, 6000)
-              : "(none)",
+            "EXISTING_CAPABILITIES:",
+            formatCapabilitiesForPrompt(capabilities),
             "",
             "CONVERSATION:",
             transcript,
@@ -810,6 +808,7 @@ export async function chatArchitect(userId, body = {}, opts = {}) {
       transcript,
       answers: body.answers,
       existingAgents,
+      capabilities,
       onProgress,
     });
     if (designed?.blueprint) {

@@ -236,6 +236,48 @@ export function SystemPage() {
 
       <PageGuideBanner helpId="system.page" />
 
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          className="min-h-11 rounded-xl border border-rose-300 bg-rose-50 px-4 text-sm font-semibold text-rose-800"
+          onClick={() => {
+            if (!window.confirm("Stop ALL AI agents and pause schedules?")) return;
+            void (async () => {
+              try {
+                const data = await api("/api/system/emergency-stop", {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                });
+                setClearNotice(data.detail || "Emergency stop done.");
+              } catch (err) {
+                setError(err);
+              }
+            })();
+          }}
+        >
+          Stop all AI
+        </button>
+        <button
+          type="button"
+          className="min-h-11 rounded-xl border border-emerald-300 bg-emerald-50 px-4 text-sm font-semibold text-emerald-900"
+          onClick={() => {
+            void (async () => {
+              try {
+                const data = await api("/api/system/emergency-resume", {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                });
+                setClearNotice(data.detail || "Emergency resume done.");
+              } catch (err) {
+                setError(err);
+              }
+            })();
+          }}
+        >
+          Resume AI
+        </button>
+      </div>
+
       {clearNotice ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50/80 px-3 py-2 text-xs text-amber-950">
           {clearNotice}

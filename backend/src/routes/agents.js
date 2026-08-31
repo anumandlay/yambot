@@ -20,6 +20,8 @@ import {
   sendAgentEmail,
   checkAgentInbox,
 } from "../utils/agentEmail.js";
+import { computeAgentReadiness } from "../utils/agentReadiness.js";
+import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { getPlatformSettings } from "../models/PlatformSettings.js";
 import { debitWallet } from "../utils/wallet.js";
@@ -84,7 +86,12 @@ async function resumeHandoffWaitingTask(agentId) {
  * @param {object} agent
  * @returns {object}
  */
-function publicAgent(agent) {
+/**
+ * @param {object} agent
+ * @param {{ hasTrigger?: boolean, recentTasks?: object[] }} [ctx]
+ * @returns {object}
+ */
+function publicAgent(agent, ctx = {}) {
   if (!agent) return agent;
   const a = typeof agent.toObject === "function" ? agent.toObject() : { ...agent };
   delete a.workerTokenHash;
@@ -100,6 +107,7 @@ function publicAgent(agent) {
   };
   a.email = publicEmailSummary(a);
   a.llm = publicLlmSummary(a);
+  a.readiness = computeAgentReadiness(a, ctx);
   return a;
 }
 
@@ -367,7 +375,35 @@ agentsRouter.get("/", async (req, res, next) => {
       .select("-liveScreen.dataBase64 -workerTokenEnc -workerTokenHash -controlQueue")
       .sort({ updatedAt: -1 })
       .lean();
-    res.json({ ok: true, agents: agents.map(publicAgent) });
+    const agentIds = agents.map((a) => a._id);
+    const [triggers, recentTasks] = await Promise.all([
+      Trigger.find({ user: req.userId, agent: { $in: agentIds }, enabled: { $ne: false } })
+        .select("agent")
+        .lean(),
+      Task.find({ user: req.userId, agent: { $in: agentIds } })
+        .sort({ createdAt: -1 })
+        .limit(Math.min(200, Math.max(20, agentIds.length * 5)))
+        .select("agent status")
+        .lean(),
+    ]);
+    const triggerSet = new Set(triggers.map((t) => String(t.agent)));
+    /** @type {Map<string, object[]>} */
+    const tasksByAgent = new Map();
+    for (const t of recentTasks) {
+      const key = String(t.agent);
+      const list = tasksByAgent.get(key) || [];
+      if (list.length < 5) list.push(t);
+      tasksByAgent.set(key, list);
+    }
+    res.json({
+      ok: true,
+      agents: agents.map((a) =>
+        publicAgent(a, {
+          hasTrigger: triggerSet.has(String(a._id)),
+          recentTasks: tasksByAgent.get(String(a._id)) || [],
+        })
+      ),
+    });
   } catch (err) {
     next(err);
   }
@@ -618,7 +654,18 @@ agentsRouter.get("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
     }
-    res.json({ ok: true, agent: publicAgent(agent) });
+    const [hasTrigger, recentTasks] = await Promise.all([
+      Trigger.exists({ user: req.userId, agent: agent._id, enabled: { $ne: false } }),
+      Task.find({ user: req.userId, agent: agent._id })
+        .sort({ createdAt: -1 })
+        .limit(5)
+        .select("status")
+        .lean(),
+    ]);
+    res.json({
+      ok: true,
+      agent: publicAgent(agent, { hasTrigger: Boolean(hasTrigger), recentTasks }),
+    });
   } catch (err) {
     next(err);
   }

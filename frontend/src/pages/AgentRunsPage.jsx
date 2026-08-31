@@ -67,6 +67,9 @@ export function AgentRunsPage() {
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [expanded, setExpanded] = useState(null);
+  const [askWhy, setAskWhy] = useState("");
+  const [diagnoseBusy, setDiagnoseBusy] = useState(false);
+  const [diagnoseResult, setDiagnoseResult] = useState(null);
 
   const agentId = lockedAgentId || searchParams.get("agentId") || "";
   const status = searchParams.get("status") || "all";
@@ -257,6 +260,67 @@ export function AgentRunsPage() {
         {total} run{total === 1 ? "" : "s"}
         {busy ? " · loading…" : ""}
       </p>
+
+      <section className="rounded-2xl border border-sky-200 bg-sky-50/70 p-3">
+        <h2 className="text-sm font-bold text-sky-950">Ask why</h2>
+        <p className="mt-1 text-xs text-sky-900/75">
+          Natural-language diagnosis of recent runs (uses your LLM).
+        </p>
+        <div className="mt-2 flex flex-col gap-2 sm:flex-row">
+          <input
+            className="min-h-11 flex-1 rounded-xl border border-sky-200 bg-white px-3 text-sm"
+            placeholder="e.g. Why didn’t it send the email?"
+            value={askWhy}
+            onChange={(e) => setAskWhy(e.target.value)}
+          />
+          <button
+            type="button"
+            disabled={diagnoseBusy || (!askWhy.trim() && !agentId && !lockedAgentId)}
+            className="min-h-11 rounded-xl bg-sky-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            onClick={() =>
+              void (async () => {
+                setDiagnoseBusy(true);
+                setDiagnoseResult(null);
+                try {
+                  const data = await api("/api/ceo/diagnose", {
+                    method: "POST",
+                    body: JSON.stringify({
+                      agentId: lockedAgentId || agentId || undefined,
+                      question: askWhy.trim() || "Why did recent runs fail?",
+                    }),
+                    timeoutMs: 120_000,
+                  });
+                  setDiagnoseResult(data);
+                } catch (err) {
+                  setError(err);
+                } finally {
+                  setDiagnoseBusy(false);
+                }
+              })()
+            }
+          >
+            {diagnoseBusy ? "Diagnosing…" : "Ask why"}
+          </button>
+        </div>
+        {diagnoseResult ? (
+          <div className="mt-3 rounded-xl border border-sky-200 bg-white p-3 text-sm text-sky-950">
+            <p className="whitespace-pre-wrap">{diagnoseResult.assistantMessage}</p>
+            {diagnoseResult.fixes?.length ? (
+              <div className="mt-2 flex flex-wrap gap-2">
+                {diagnoseResult.fixes.map((f, i) => (
+                  <Link
+                    key={i}
+                    to={f.href}
+                    className="inline-flex min-h-9 items-center rounded-lg border border-sky-200 px-2 text-xs font-semibold"
+                  >
+                    {f.label}
+                  </Link>
+                ))}
+              </div>
+            ) : null}
+          </div>
+        ) : null}
+      </section>
 
       <ul className="flex flex-col gap-3">
         {runs.length === 0 && !busy ? (
