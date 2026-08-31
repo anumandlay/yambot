@@ -13,9 +13,19 @@ import { api } from "../lib/api.js";
  *   blueprintId: string,
  *   profileId?: string,
  *   onError?: (err: object) => void,
+ *   onDocLoaded?: (doc: object) => void,
+ *   onBuild?: () => void | Promise<void>,
+ *   buildBusy?: boolean,
  * }} props
  */
-export function ArchitectOpsHub({ blueprintId, profileId = "", onError }) {
+export function ArchitectOpsHub({
+  blueprintId,
+  profileId = "",
+  onError,
+  onDocLoaded,
+  onBuild,
+  buildBusy = false,
+}) {
   const [doc, setDoc] = useState(null);
   const [busy, setBusy] = useState("");
   const [sim, setSim] = useState(null);
@@ -35,6 +45,7 @@ export function ArchitectOpsHub({ blueprintId, profileId = "", onError }) {
     setSim(data.blueprintDoc?.lastSimulation || null);
     setTests(data.blueprintDoc?.lastTestRun || null);
     setPendingChange(data.blueprintDoc?.pendingChange || null);
+    onDocLoaded?.(data.blueprintDoc);
   }
 
   useEffect(() => {
@@ -49,6 +60,7 @@ export function ArchitectOpsHub({ blueprintId, profileId = "", onError }) {
         setPendingChange(data.blueprintDoc?.pendingChange || null);
         const tpl = await api("/api/architect/templates");
         if (!cancelled) setTemplates(tpl.templates || []);
+        if (!cancelled && data.blueprintDoc) onDocLoaded?.(data.blueprintDoc);
       } catch (err) {
         onError?.(err);
       }
@@ -56,7 +68,7 @@ export function ArchitectOpsHub({ blueprintId, profileId = "", onError }) {
     return () => {
       cancelled = true;
     };
-  }, [blueprintId, onError]);
+  }, [blueprintId, onError, onDocLoaded]);
 
   /**
    * @param {string} label
@@ -79,6 +91,11 @@ export function ArchitectOpsHub({ blueprintId, profileId = "", onError }) {
   }
 
   const maps = doc.dataMaps || [];
+  const canBuild =
+    doc.status === "draft" &&
+    Boolean(doc.blueprint?.plan?.agents?.length) &&
+    typeof onBuild === "function";
+  const buildReady = Boolean(doc.simulationApprovedAt);
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
@@ -92,6 +109,30 @@ export function ArchitectOpsHub({ blueprintId, profileId = "", onError }) {
         </p>
         {notice ? <p className="mt-2 text-xs text-emerald-800">{notice}</p> : null}
       </div>
+
+      {canBuild ? (
+        <section className="rounded-xl border-2 border-amber-300 bg-amber-50/90 p-4">
+          <h3 className="text-sm font-bold text-amber-950">Create agents & triggers</h3>
+          <p className="mt-1 text-xs text-amber-950/80">
+            {buildReady
+              ? "Simulation is approved. Build turns this draft into real agents on your account (may charge wallet)."
+              : "Run simulation below first, or build now — Approve & Build will simulate automatically."}
+          </p>
+          <button
+            type="button"
+            disabled={buildBusy}
+            onClick={() => void onBuild?.()}
+            className="mt-3 inline-flex min-h-12 w-full items-center justify-center rounded-xl bg-amber-600 px-5 text-sm font-bold text-white shadow-sm disabled:opacity-50 sm:w-auto"
+          >
+            {buildBusy ? "Simulating & building…" : "Approve & Build"}
+          </button>
+        </section>
+      ) : doc.status === "draft" && !doc.blueprint?.plan?.agents?.length ? (
+        <section className="rounded-xl border border-amber-200 bg-amber-50/70 p-3 text-xs text-amber-950">
+          Blueprint has no agents yet — finish the Architect chat and confirm understanding to
+          design the architecture, then return here to build.
+        </section>
+      ) : null}
 
       {(doc.businessRules || []).length ? (
         <section>

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 01:05] Architect Approve & Build in ops hub
+
+- **Prompt Provided:** Simulation approved message but still cannot see Approve & Build — need step-by-step guide
+- **Architectural Flow:** Prominent Approve & Build in ArchitectOpsHub when draft has agents; sync blueprint from doc on load; show ops hub when stage ready; onApply refetches blueprint if missing.
+- **Impacted Files:** `PROMPT_LOG.md`, `frontend/src/components/ArchitectOpsHub.jsx`, `frontend/src/pages/BusinessArchitectPage.jsx`
+
 ## [2026-08-30 15:50] Architect saved businesses show createdAt
 
 - **Prompt Provided:** /architect saved business section need date and time when those businesses are created

@@ -438,7 +438,27 @@ export function BusinessArchitectPage() {
   const [progressPct, setProgressPct] = useState(0);
   const bottomRef = useRef(null);
 
-  const showOps = Boolean(blueprintId && (created || searchParams.get("id")));
+  const showOps = Boolean(
+    blueprintId &&
+      (created ||
+        searchParams.get("id") ||
+        stage === "ready" ||
+        Boolean(blueprint?.plan?.agents?.length))
+  );
+
+  /**
+   * Keep page blueprint state in sync when ops hub loads a saved draft.
+   * @param {object} d
+   */
+  function syncFromBlueprintDoc(d) {
+    if (!d?.blueprint) return;
+    setBlueprint(d.blueprint);
+    if (d.blueprint?.plan?.agents?.length || d.stage === "ready") {
+      setStage("ready");
+      setUnderstanding(null);
+    }
+    if (d._id) setBlueprintId(String(d._id));
+  }
 
   /**
    * Append a streamed progress step (dedupe same id label spam).
@@ -678,12 +698,32 @@ export function BusinessArchitectPage() {
   }
 
   async function onApply() {
-    if (!blueprint) return;
+    let bp = blueprint;
     const id = blueprintId;
     if (!id) {
       setError({
         title: "Blueprint id required",
         detail: "Finish the Architect chat so a draft is saved, then Approve & Build.",
+      });
+      return;
+    }
+    if (!bp?.plan?.agents?.length) {
+      try {
+        const docRes = await api(`/api/architect/${id}`);
+        bp = docRes.blueprintDoc?.blueprint || null;
+        if (bp) {
+          setBlueprint(bp);
+          setStage("ready");
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    if (!bp?.plan?.agents?.length) {
+      setError({
+        title: "Blueprint incomplete",
+        detail:
+          "No agents in this draft yet. Click “Yes, correct — design it” in chat, or open the draft after the blueprint finishes generating.",
       });
       return;
     }
@@ -711,7 +751,7 @@ export function BusinessArchitectPage() {
         method: "POST",
         body: JSON.stringify({
           blueprintId: id,
-          blueprint,
+          blueprint: bp,
           answers,
           forceBuild: true,
         }),
@@ -850,6 +890,9 @@ export function BusinessArchitectPage() {
           blueprintId={blueprintId}
           profileId={profileId}
           onError={(err) => setError(err)}
+          onDocLoaded={syncFromBlueprintDoc}
+          onBuild={onApply}
+          buildBusy={applyBusy || simBusy}
         />
       ) : null}
 
