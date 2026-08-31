@@ -86,6 +86,9 @@ export async function enqueueTask(opts) {
         })
       : 0;
 
+  const workflowRunId = opts.workflowRunId || opts.meta?.workflowRunId || null;
+  const correlationId = String(opts.correlationId || opts.meta?.correlationId || "").trim();
+
   const task = await Task.create({
     user: userId,
     chat: chat._id,
@@ -97,6 +100,8 @@ export async function enqueueTask(opts) {
     enrollmentRef: opts.enrollmentRef || opts.meta?.enrollmentId || null,
     campaignRef: opts.campaignRef || opts.meta?.campaignId || null,
     ticketRef: opts.ticketRef || opts.meta?.ticketId || null,
+    workflowRunId: workflowRunId || null,
+    correlationId,
     priority,
     priorityRank: priorityRank(priority),
     agent: agentId,

@@ -692,8 +692,8 @@ export async function hireDepartment(userId, body = {}) {
   const ctx = await loadCeoContext(userId);
   const system = [
     "Design a minimal AI department for YamBot. JSON ONLY:",
-    '{ "assistantMessage": "...", "departmentName": "...", "roles": [{ "title", "reportsTo", "responsibilities", "architectPrompt" }], "sharedRules": ["..."], "requiredConnections": [] }',
-    "Minimize headcount. Prefer 2–5 roles. One manager optional. Each architectPrompt is a complete hire brief for Business Architect.",
+    '{ "assistantMessage": "...", "departmentName": "...", "roles": [{ "title", "reportsTo", "responsibilities", "architectPrompt", "successCriteria" }], "sharedRules": ["..."], "requiredConnections": [], "kpis": [{ "name", "target", "unit" }] }',
+    "Minimize headcount. Prefer 2–5 roles. One manager optional. Each architectPrompt is a complete hire brief. Include 1–3 department KPIs.",
   ].join("\n");
 
   let raw;
@@ -726,9 +726,18 @@ export async function hireDepartment(userId, body = {}) {
       title: String(r?.title || `Role ${i + 1}`).slice(0, 120),
       reportsTo: String(r?.reportsTo || "").slice(0, 120),
       responsibilities: String(r?.responsibilities || "").slice(0, 1000),
+      successCriteria: String(r?.successCriteria || "").slice(0, 500),
       architectPrompt: String(
         r?.architectPrompt || `Hire a ${r?.title || "worker"} for: ${request}`
       ).slice(0, 2000),
+    }));
+
+  const kpis = (Array.isArray(parsed.kpis) ? parsed.kpis : [])
+    .slice(0, 5)
+    .map((k) => ({
+      name: String(k?.name || "KPI").slice(0, 80),
+      target: k?.target != null ? Number(k.target) : null,
+      unit: String(k?.unit || "").slice(0, 40),
     }));
 
   const { recordDecision } = await import("../models/DecisionJournal.js");
@@ -737,7 +746,7 @@ export async function hireDepartment(userId, body = {}) {
     authorityLevel: "internal",
     decision: `Proposed department: ${parsed.departmentName || request.slice(0, 80)}`,
     rationale: String(parsed.assistantMessage || "").slice(0, 2000),
-    context: { roleCount: roles.length },
+    context: { roleCount: roles.length, kpiCount: kpis.length },
     outcome: "proposed",
   }).catch(() => {});
 
@@ -748,6 +757,7 @@ export async function hireDepartment(userId, body = {}) {
       `Proposed ${roles.length} roles.`,
     departmentName: String(parsed.departmentName || "Department").slice(0, 120),
     roles,
+    kpis,
     sharedRules: (Array.isArray(parsed.sharedRules) ? parsed.sharedRules : [])
       .map((r) => String(r).slice(0, 400))
       .slice(0, 20),

@@ -19,7 +19,6 @@ import { recordDecision } from "../models/DecisionJournal.js";
 import { computeAgentReadiness } from "./agentReadiness.js";
 import { emitEvent } from "./eventBus.js";
 import { enqueueTask } from "./enqueueTask.js";
-import { applyBusinessPlan } from "./applyBusinessPlan.js";
 import { optimizeModelCosts } from "./ceoChat.js";
 
 const AUTHORITY_RANK = {
@@ -59,15 +58,17 @@ function authorityAllows(maxLevel, need) {
 export async function pickWorkforceAssignee(userId, opts = {}) {
   const minReadiness = Number(opts.minReadiness) || 50;
   const exclude = new Set((opts.excludeIds || []).map(String));
+  const requireLifecycle = opts.lifecycle || ["active", "training"];
   const agents = await Agent.find({
     user: userId,
     active: { $ne: false },
     role: { $ne: "manager" },
+    lifecycleStatus: { $in: requireLifecycle },
   })
     .limit(40)
     .lean();
 
-  /** @type {{ agent: object, readiness: number, busy: number }[]} */
+  /** @type {{ agent: object, readiness: number, busy: number, successRate: number, score: number }[]} */
   const scored = [];
   for (const a of agents) {
     if (exclude.has(String(a._id))) continue;
@@ -78,9 +79,29 @@ export async function pickWorkforceAssignee(userId, opts = {}) {
       agent: a._id,
       status: { $in: ["pending", "running", "waiting_user", "blocked"] },
     });
-    scored.push({ agent: a, readiness, busy });
+    const recent = await Task.find({
+      user: userId,
+      agent: a._id,
+      status: { $in: ["done", "error"] },
+    })
+      .sort({ completedAt: -1 })
+      .limit(20)
+      .select("status llmUsage.estimatedUsd")
+      .lean();
+    const done = recent.filter((t) => t.status === "done").length;
+    const successRate = recent.length ? done / recent.length : 0.5;
+    const avgCost =
+      recent.reduce((s, t) => s + (Number(t.llmUsage?.estimatedUsd) || 0), 0) /
+      Math.max(1, recent.length);
+    // Why: prefer free capacity, then readiness, then historical success, then lower cost.
+    const score =
+      readiness * 0.35 +
+      successRate * 100 * 0.3 +
+      Math.max(0, 10 - busy) * 3 +
+      Math.max(0, 5 - avgCost * 50);
+    scored.push({ agent: a, readiness, busy, successRate, score });
   }
-  scored.sort((x, y) => x.busy - y.busy || y.readiness - x.readiness);
+  scored.sort((x, y) => y.score - x.score);
   return scored[0] || null;
 }
 
@@ -631,48 +652,14 @@ export async function applyPulseAction(userId, body = {}) {
         detail: "Hiring employees needs external authority or higher.",
       };
     }
-    const roles = Array.isArray(body.roles) ? body.roles : [];
-    if (!roles.length) {
-      return { ok: false, title: "No roles", detail: "Provide roles[] from SOP/department design." };
-    }
-    const departmentName = String(body.departmentName || "Department").slice(0, 120);
-    const plan = {
-      summary: `Hire ${departmentName}`,
-      agents: roles.slice(0, 6).map((r, i) => {
-        const title = String(r.title || `Role ${i + 1}`).slice(0, 120);
-        return {
-          key: `hire_${i}`,
-          name: title,
-          role: i === 0 && roles.length > 1 ? "manager" : "worker",
-          skill: String(r.responsibilities || title).slice(0, 2000),
-          instructions: String(r.architectPrompt || r.responsibilities || title).slice(0, 8000),
-          profile: String(r.responsibilities || "").slice(0, 4000),
-          managedAgentKeys:
-            i === 0 && roles.length > 1 ? roles.slice(1).map((_, j) => `hire_${j + 1}`) : [],
-          schedule: { enabled: false },
-          needsEmail: /email|inbox|mail/i.test(`${title} ${r.responsibilities || ""}`),
-        };
-      }),
-      triggers: [],
-      apis: [],
-    };
-
-    const result = await applyBusinessPlan(userId, plan);
-    if (!result.ok) return result;
-    await recordDecision(userId, {
-      actorType: "ceo",
-      authorityLevel: "external",
-      decision: `Hired ${result.created?.agents?.length || 0} employees for ${departmentName}`,
-      rationale: body.rationale || "SOP / department hire from Command Center",
-      context: { departmentName, agentIds: (result.created?.agents || []).map((a) => a._id) },
-      outcome: "hired",
-      approved: true,
+    const { hireDepartmentComplete } = await import("./departmentHire.js");
+    return hireDepartmentComplete(userId, {
+      roles: body.roles,
+      departmentName: body.departmentName,
+      rationale: body.rationale,
+      sharedRules: body.sharedRules,
+      kpis: body.kpis,
     });
-    return {
-      ok: true,
-      detail: `Created ${result.created?.agents?.length || 0} agent(s) for ${departmentName}.`,
-      created: result.created,
-    };
   }
 
   return {

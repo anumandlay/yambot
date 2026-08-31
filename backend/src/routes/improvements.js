@@ -99,3 +99,72 @@ improvementsRouter.post("/:id/resolve", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * POST /api/improvements/:id/promote — end experiment, mark deployed with metricsAfter.
+ */
+improvementsRouter.post("/:id/promote", async (req, res, next) => {
+  try {
+    const proposal = await ImprovementProposal.findOne({ _id: req.params.id, user: req.userId });
+    if (!proposal) {
+      res.status(404).json({ ok: false, detail: "Proposal missing" });
+      return;
+    }
+    proposal.metricsAfter =
+      req.body?.metricsAfter && typeof req.body.metricsAfter === "object"
+        ? req.body.metricsAfter
+        : proposal.metricsAfter || {};
+    proposal.status = "deployed";
+    proposal.experimentEndedAt = new Date();
+    await proposal.save();
+    const { recordDecision } = await import("../models/DecisionJournal.js");
+    await recordDecision(req.userId, {
+      actorType: "user",
+      authorityLevel: "internal",
+      decision: `Promoted experiment: ${proposal.title}`,
+      rationale: proposal.hypothesis || proposal.expectedImpact,
+      context: {
+        proposalId: String(proposal._id),
+        metricsBefore: proposal.metricsBefore,
+        metricsAfter: proposal.metricsAfter,
+      },
+      outcome: "deployed",
+      approved: true,
+    }).catch(() => {});
+    res.json({ ok: true, proposal });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/improvements/:id/rollback-experiment — reject experiment, keep metrics.
+ */
+improvementsRouter.post("/:id/rollback-experiment", async (req, res, next) => {
+  try {
+    const proposal = await ImprovementProposal.findOne({ _id: req.params.id, user: req.userId });
+    if (!proposal) {
+      res.status(404).json({ ok: false, detail: "Proposal missing" });
+      return;
+    }
+    proposal.status = "rejected";
+    proposal.experimentEndedAt = new Date();
+    if (req.body?.metricsAfter && typeof req.body.metricsAfter === "object") {
+      proposal.metricsAfter = req.body.metricsAfter;
+    }
+    await proposal.save();
+    const { recordDecision } = await import("../models/DecisionJournal.js");
+    await recordDecision(req.userId, {
+      actorType: "user",
+      authorityLevel: "internal",
+      decision: `Rolled back experiment: ${proposal.title}`,
+      rationale: req.body?.reason || "Losing variant",
+      context: { proposalId: String(proposal._id) },
+      outcome: "rejected",
+      approved: true,
+    }).catch(() => {});
+    res.json({ ok: true, proposal });
+  } catch (err) {
+    next(err);
+  }
+});

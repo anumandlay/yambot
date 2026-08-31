@@ -113,6 +113,17 @@ const workflowDefinitionSchema = new mongoose.Schema(
     },
     lastTestAt: { type: Date, default: null },
     active: { type: Boolean, default: true },
+    /**
+     * Snapshot before last promote — used for automatic / manual rollback.
+     * Why: Canary→production must be reversible without re-compiling from blueprint.
+     */
+    rollbackSnapshot: {
+      type: mongoose.Schema.Types.Mixed,
+      default: null,
+    },
+    canaryStartedAt: { type: Date, default: null },
+    canaryFailureThreshold: { type: Number, default: 0.4, min: 0.05, max: 1 },
+    canaryMinSamples: { type: Number, default: 3, min: 1 },
   },
   { timestamps: true }
 );

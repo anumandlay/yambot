@@ -6,8 +6,9 @@
 
 import { Router } from "express";
 import { WorkflowDefinition, WorkflowRun } from "../models/WorkflowDefinition.js";
-import { startWorkflowRun, retryWorkflowRun } from "../utils/apiWorkflowRunner.js";
+import { startWorkflowRun, retryWorkflowRun, resumeWorkflowRun } from "../utils/apiWorkflowRunner.js";
 import { runWorkflowTestSuite, generateWorkflowTestCases } from "../utils/workflowTests.js";
+import { promoteWorkflow, rollbackWorkflow } from "../utils/workflowCanary.js";
 import { BusinessBlueprint } from "../models/BusinessBlueprint.js";
 
 export const workflowsRouter = Router();
@@ -77,6 +78,56 @@ workflowsRouter.get("/runs/:runId", async (req, res, next) => {
 workflowsRouter.post("/runs/:runId/retry", async (req, res, next) => {
   try {
     const result = await retryWorkflowRun(req.userId, req.params.runId);
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+workflowsRouter.post("/runs/:runId/resume", async (req, res, next) => {
+  try {
+    const result = await resumeWorkflowRun(req.userId, req.params.runId, {
+      success: req.body?.success !== false,
+      summary: req.body?.summary,
+      error: req.body?.error,
+      taskId: req.body?.taskId,
+    });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+workflowsRouter.post("/:id/promote", async (req, res, next) => {
+  try {
+    const result = await promoteWorkflow(req.userId, req.params.id, {
+      to: req.body?.to,
+      skipTests: req.body?.skipTests === true,
+    });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+workflowsRouter.post("/:id/rollback", async (req, res, next) => {
+  try {
+    const result = await rollbackWorkflow(req.userId, req.params.id, {
+      reason: req.body?.reason,
+      to: req.body?.to,
+    });
     if (!result.ok) {
       res.status(400).json(result);
       return;

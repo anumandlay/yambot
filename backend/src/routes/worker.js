@@ -712,6 +712,29 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       meta: { llmUsage: task.llmUsage || {}, evaluationScore: task.evaluation?.score },
     });
 
+    // Resume workflow waiting on this agent step (Executable Business Runtime).
+    if (task.workflowRunId) {
+      try {
+        const { resumeWorkflowRun } = await import("../utils/apiWorkflowRunner.js");
+        await resumeWorkflowRun(req.userId, String(task.workflowRunId), {
+          success,
+          summary,
+          error,
+          taskId: String(task._id),
+        });
+      } catch (resumeErr) {
+        console.error("[worker] workflow resume failed", resumeErr?.message || resumeErr);
+      }
+    }
+
+    // Promote employees out of training after a successful run.
+    if (success && task.agent) {
+      await Agent.updateOne(
+        { _id: task.agent, user: req.userId, lifecycleStatus: "training" },
+        { $set: { lifecycleStatus: "active" } }
+      ).catch(() => {});
+    }
+
     res.json({ ok: true, task });
   } catch (err) {
     next(err);

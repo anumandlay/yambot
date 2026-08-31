@@ -197,3 +197,84 @@ workforceRouter.post("/run-goal/:goalId", async (req, res, next) => {
     next(err);
   }
 });
+
+const LIFECYCLE = ["hire", "training", "active", "paused", "retiring", "retired"];
+
+/**
+ * POST /api/workforce/lifecycle — hire/train/pause/retire employee transitions.
+ * Body: { agentId, status, reason? }
+ */
+workforceRouter.post("/lifecycle", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    const status = String(req.body?.status || "").trim();
+    if (!agentId || !LIFECYCLE.includes(status)) {
+      res.status(400).json({ ok: false, detail: `agentId and status in ${LIFECYCLE.join("|")} required` });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    const prev = agent.lifecycleStatus || "active";
+    agent.lifecycleStatus = status;
+    if (status === "paused" || status === "retired" || status === "retiring") {
+      agent.active = status === "paused" ? false : agent.active;
+      if (status === "retired") agent.active = false;
+    }
+    if (status === "active" || status === "training" || status === "hire") {
+      agent.active = true;
+    }
+    await agent.save();
+    await writeAudit({
+      userId: req.userId,
+      action: "workforce.lifecycle",
+      agentId: String(agent._id),
+      detail: `${prev} → ${status}`,
+      meta: { reason: String(req.body?.reason || "").slice(0, 500) },
+    });
+    const { recordDecision } = await import("../models/DecisionJournal.js");
+    await recordDecision(req.userId, {
+      actorType: "user",
+      authorityLevel: "internal",
+      decision: `Lifecycle ${agent.name}: ${prev} → ${status}`,
+      rationale: req.body?.reason || "",
+      context: { agentId: String(agent._id) },
+      outcome: status,
+      approved: true,
+    }).catch(() => {});
+    res.json({ ok: true, agent: { id: String(agent._id), name: agent.name, lifecycleStatus: agent.lifecycleStatus, active: agent.active } });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/workforce/pick — preview Workforce Manager v2 assignee selection.
+ */
+workforceRouter.post("/pick", async (req, res, next) => {
+  try {
+    const { pickWorkforceAssignee } = await import("../utils/businessPulse.js");
+    const pick = await pickWorkforceAssignee(req.userId, {
+      minReadiness: Number(req.body?.minReadiness) || 50,
+      excludeIds: req.body?.excludeIds,
+      lifecycle: req.body?.lifecycle,
+    });
+    res.json({
+      ok: true,
+      pick: pick
+        ? {
+            agentId: String(pick.agent._id),
+            name: pick.agent.name,
+            readiness: pick.readiness,
+            busy: pick.busy,
+            successRate: pick.successRate,
+            score: pick.score,
+          }
+        : null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});

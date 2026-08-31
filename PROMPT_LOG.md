@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 09:10] P1/P2 Autonomous BOS — CEO loop, canary, explain, audit, resume
+
+- **Prompt Provided:** Still thin / not full P2 — lets do this
+- **Architectural Flow:** Workflow resume on task complete; CEO decide→execute tick; department hire completeness; canary promote/rollback; explainability + SOP-from-agent + NL company audit; workforce pick v2 + lifecycle API; experiment promote.
+- **Impacted Files:** apiWorkflowRunner, Task, enqueueTask, worker, ceoAutonomy, departmentHire, workflowCanary, explainability, companyAudit, scheduler, ceo/workflows/workforce routes, CommandCenter, FEATURE_AUDIT, PROMPT_LOG
+
 ## [2026-08-31 09:00] Executable Business Runtime v1 (full P0 + P1 scaffolding)
 
 - **Prompt Provided:** can we do all (approve full Autonomous BOS architecture)

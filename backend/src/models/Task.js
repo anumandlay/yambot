@@ -109,6 +109,15 @@ const taskSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /** WorkflowRun waiting on this agent step (Executable Business Runtime). */
+    workflowRunId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "WorkflowRun",
+      default: null,
+      index: true,
+    },
+    /** Shared business correlation across events / handoffs / workflows. */
+    correlationId: { type: String, default: "", index: true },
     priority: {
       type: String,
       enum: TASK_PRIORITIES,

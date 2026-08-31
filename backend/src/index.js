@@ -180,6 +180,7 @@ app.use("/api/triggers", authRequired, (await import("./routes/triggers.js")).tr
   app.use("/api/workflows", authRequired, (await import("./routes/workflows.js")).workflowsRouter);
   app.use("/api/heal", authRequired, (await import("./routes/heal.js")).healRouter);
   app.use("/api/ontology", authRequired, (await import("./routes/ontology.js")).ontologyRouter);
+  app.use("/api/explain", authRequired, (await import("./routes/explain.js")).explainRouter);
   app.use("/api/runs", authRequired, (await import("./routes/runs.js")).runsRouter);
   app.use("/api/watchers", authRequired, (await import("./routes/watchers.js")).watchersRouter);
 app.use("/api/entities", authRequired, (await import("./routes/entities.js")).entitiesRouter);

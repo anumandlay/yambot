@@ -276,6 +276,83 @@ export function CommandCenterPage() {
         </p>
       ) : null}
 
+      <section className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          className="min-h-10 rounded-xl border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-950 disabled:opacity-50"
+          onClick={() =>
+            void (async () => {
+              setBusy("loop");
+              setError(null);
+              try {
+                const data = await api("/api/ceo/loop", {
+                  method: "POST",
+                  body: JSON.stringify({}),
+                  timeoutMs: 120_000,
+                });
+                setMessages((m) => [
+                  ...m,
+                  {
+                    role: "assistant",
+                    content: `CEO loop (${data.mode}): ${data.executed || 0} executed, ${data.recommended || 0} recommended from ${data.strategies?.length || 0} strategies.`,
+                  },
+                ]);
+                await reloadPulse();
+              } catch (err) {
+                setError(err);
+              } finally {
+                setBusy("");
+              }
+            })()
+          }
+        >
+          {busy === "loop" ? "Running loop…" : "Run CEO loop now"}
+        </button>
+        <button
+          type="button"
+          disabled={Boolean(busy)}
+          className="min-h-10 rounded-xl border border-slate-300 bg-slate-900 px-3 text-xs font-semibold text-white disabled:opacity-50"
+          onClick={() =>
+            void (async () => {
+              setBusy("audit");
+              setError(null);
+              try {
+                const data = await api("/api/ceo/audit-company", {
+                  method: "POST",
+                  body: JSON.stringify({ withNarrative: true }),
+                  timeoutMs: 120_000,
+                });
+                const tops = (data.findings || [])
+                  .slice(0, 8)
+                  .map((f) => `• [${f.severity}] ${f.title}`)
+                  .join("\n");
+                setMessages((m) => [
+                  ...m,
+                  {
+                    role: "assistant",
+                    content: [
+                      data.narrative || "Company audit complete.",
+                      "",
+                      `Findings: ${data.counts?.findings ?? (data.findings || []).length}`,
+                      tops,
+                    ]
+                      .filter(Boolean)
+                      .join("\n"),
+                  },
+                ]);
+              } catch (err) {
+                setError(err);
+              } finally {
+                setBusy("");
+              }
+            })()
+          }
+        >
+          {busy === "audit" ? "Auditing…" : "Audit my business"}
+        </button>
+      </section>
+
       <section className="grid grid-cols-2 gap-2 sm:grid-cols-4">
         <div className="rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
           <div className="text-xs font-semibold uppercase text-teal-800/60">Agents</div>
@@ -620,6 +697,8 @@ export function CommandCenterPage() {
                     authority: "external",
                     roles: department.roles,
                     departmentName: department.departmentName || "Department",
+                    sharedRules: department.sharedRules,
+                    kpis: department.kpis,
                     rationale: "Hired from department design",
                   })
                 }

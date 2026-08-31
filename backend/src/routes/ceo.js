@@ -18,6 +18,9 @@ import {
   applyPulseAction,
   applyAllModelOptimizations,
 } from "../utils/businessPulse.js";
+import { runCeoLoop } from "../utils/ceoAutonomy.js";
+import { auditCompany } from "../utils/companyAudit.js";
+import { explainBusinessAction, generateSopFromAgent } from "../utils/explainability.js";
 
 export const ceoRouter = Router();
 
@@ -179,9 +182,81 @@ ceoRouter.post("/hire-roles", async (req, res, next) => {
       roles: req.body?.roles,
       departmentName: req.body?.departmentName,
       rationale: req.body?.rationale,
+      sharedRules: req.body?.sharedRules,
+      kpis: req.body?.kpis,
     });
     if (!result.ok) {
       res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/ceo/loop — run one CEO decide→execute cycle (respects operatingMode).
+ */
+ceoRouter.post("/loop", async (req, res, next) => {
+  try {
+    const result = await runCeoLoop(req.userId, {
+      forceExecute: req.body?.forceExecute === true,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/ceo/audit-company — NL + structural company audit.
+ */
+ceoRouter.post("/audit-company", async (req, res, next) => {
+  try {
+    const result = await auditCompany(req.userId, {
+      profileId: req.body?.profileId,
+      withNarrative: req.body?.withNarrative !== false,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/ceo/explain — explainability chain.
+ */
+ceoRouter.get("/explain", async (req, res, next) => {
+  try {
+    const result = await explainBusinessAction(req.userId, {
+      taskId: req.query.taskId,
+      runId: req.query.runId,
+      correlationId: req.query.correlationId,
+    });
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/ceo/sop-from-agent — AI employee → SOP.
+ */
+ceoRouter.post("/sop-from-agent", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    if (!agentId) {
+      res.status(400).json({ ok: false, detail: "agentId required" });
+      return;
+    }
+    const result = await generateSopFromAgent(req.userId, agentId);
+    if (!result.ok) {
+      res.status(404).json(result);
       return;
     }
     res.json(result);

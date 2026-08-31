@@ -273,16 +273,19 @@ async function executeRun(userId, def, run, opts) {
           source: "workflow",
           priority: "high",
           chatTitle: `Workflow · ${def.name}`.slice(0, 80),
+          workflowRunId: String(run._id),
+          correlationId: run.correlationId,
           meta: { workflowRunId: String(run._id), correlationId: run.correlationId },
         });
         result.taskId = String(enq.task._id);
         run.status = "waiting";
         run.context = ctx;
         run.stepResults.push(result);
+        // Why: stepIndex points at the *next* step after this agent_task finishes.
         run.stepIndex = i + 1;
         if (idemKey) run.idempotencyKeys = [...(run.idempotencyKeys || []), idemKey];
         await run.save();
-        return; // resume later when agent completes (P1 hook)
+        return;
       }
     } else if (step.kind === "emit_event") {
       await emitEvent({
@@ -333,6 +336,76 @@ async function executeRun(userId, def, run, opts) {
     summary: `Workflow ${def.name} succeeded`,
     payload: { runId: String(run._id) },
   });
+}
+
+/**
+ * Resume a workflow run that was waiting on an agent_task.
+ * @param {string} userId
+ * @param {string} runId
+ * @param {{ success?: boolean, summary?: string, error?: string, taskId?: string }} [opts]
+ */
+export async function resumeWorkflowRun(userId, runId, opts = {}) {
+  const run = await WorkflowRun.findOne({ _id: runId, user: userId });
+  if (!run) return { ok: false, title: "Missing", detail: "Run not found" };
+  if (run.status !== "waiting") {
+    return { ok: false, title: "Not waiting", detail: `Run status is ${run.status}` };
+  }
+  const def = await WorkflowDefinition.findOne({ _id: run.definition, user: userId });
+  if (!def) return { ok: false, title: "Missing", detail: "Definition not found" };
+
+  const ctx = run.context || { vars: {} };
+  ctx.vars = ctx.vars || {};
+  ctx.vars.agentResult = {
+    success: opts.success !== false,
+    summary: String(opts.summary || "").slice(0, 4000),
+    error: String(opts.error || "").slice(0, 2000),
+    taskId: opts.taskId || null,
+  };
+  run.context = ctx;
+
+  if (opts.success === false) {
+    run.status = "failed";
+    run.error = String(opts.error || opts.summary || "Agent step failed").slice(0, 2000);
+    await run.save();
+    await emitEvent({
+      userId,
+      type: "workflow.failed",
+      source: "workflow",
+      significance: "high",
+      correlationId: run.correlationId,
+      summary: run.error,
+      payload: { runId: String(run._id), taskId: opts.taskId },
+    });
+    return { ok: false, title: "Agent step failed", detail: run.error, run };
+  }
+
+  const user = await User.findById(userId);
+  const policy = getEffectivePolicy(user?.settings || {});
+  const sandbox = run.environment === "sandbox" || run.environment === "draft";
+  run.status = "running";
+  await run.save();
+
+  try {
+    await executeRun(userId, def, run, {
+      sandbox,
+      allowHosts: policy.httpAllowHosts || [],
+    });
+  } catch (err) {
+    run.status = "failed";
+    run.error = err?.message || String(err);
+    await run.save();
+    await emitEvent({
+      userId,
+      type: "workflow.failed",
+      source: "workflow",
+      significance: "high",
+      correlationId: run.correlationId,
+      summary: run.error,
+      payload: { runId: String(run._id) },
+    });
+    return { ok: false, title: "Resume failed", detail: run.error, run };
+  }
+  return { ok: true, run };
 }
 
 /**
