@@ -161,24 +161,22 @@ export function ArchitectOpsHub({
               void run("design", async () => {
                 setDesignPct(0);
                 setDesignStep("Starting…");
-                const data = await apiNdjson(`/api/architect/${blueprintId}/design`, {
-                  body: { profileId: profileId || undefined, answers },
-                  timeoutMs: 180_000,
-                  onProgress: (step) => {
-                    setDesignPct(step.pct);
-                    setDesignStep(step.label);
-                  },
-                });
-                await reload();
-                onDesigned?.(data);
-                setNotice("Architecture generated — Approve & Build is now available.");
-                setDesignStep("");
-                setDesignPct(0);
-              }).catch((err) => {
-                setDesignStep("");
-                setDesignPct(0);
-                onDesignError?.(err);
-                throw err;
+                try {
+                  const data = await apiNdjson(`/api/architect/${blueprintId}/design`, {
+                    body: { profileId: profileId || undefined, answers },
+                    timeoutMs: 180_000,
+                    onProgress: (step) => {
+                      setDesignPct(step.pct);
+                      setDesignStep(step.label);
+                    },
+                  });
+                  await reload();
+                  onDesigned?.(data);
+                  setNotice("Architecture generated — Approve & Build is now available.");
+                } finally {
+                  setDesignStep("");
+                  setDesignPct(0);
+                }
               })
             }
           >
