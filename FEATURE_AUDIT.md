@@ -12,12 +12,12 @@ Status: **PASS** = runtime-wired · **PARTIAL** = exists but incomplete · **MIS
 | 5 | AI-generated agents | PASS | applyBusinessPlan |
 | 6 | AI-generated schedules | PASS | Plan → Agent.schedule |
 | 7 | AI-generated triggers | PASS | Create + live sync |
-| 8 | Agent-to-agent handoffs | PARTIAL | Triggers/completion actions; Architect handoffs are design-only |
-| 9 | API GET→act→POST workflows | PARTIAL | plan.apis + httpAllowHosts; no structured runner |
+| 8 | Agent-to-agent handoffs | PASS | Handoff compile → triggers + correlationId |
+| 9 | API GET→act→POST workflows | PASS | WorkflowDefinition + ApiWorkflowRunner |
 | 10 | Capability discovery | PASS | /api/capabilities + CEO discover |
 | 11 | Skill/tool reuse | PASS | Catalog + Skills library |
 | 12 | Simulation | PASS | Synthetic dry-run |
-| 13 | Automated tests | PARTIAL | Structural blueprint tests only |
+| 13 | Automated tests | PASS | Sandbox suite gates Architect build |
 | 14 | Approval before build | PASS | Simulation gate + Approve & Build |
 | 15 | Natural-language changes | PASS | /change → apply-change |
 | 16 | Change-impact analysis | PASS | computeChangeImpact |
@@ -26,7 +26,7 @@ Status: **PASS** = runtime-wired · **PARTIAL** = exists but incomplete · **MIS
 | 19 | CEO AI | PASS | Command Center + /api/ceo |
 | 20 | Department / workforce creation | PARTIAL | Proposes roles; direct hire added in BOS loop |
 | 21 | KPI / business monitoring | PASS | Goals + dashboard + autonomy gaps |
-| 22 | Failure recovery / self-healing | PARTIAL | Diagnose + improvements; recovery playbooks in BOS loop |
+| 22 | Failure recovery / self-healing | PASS | HealController + playbooks + loop guard |
 | 23 | Cost / model optimization | PARTIAL | Suggestions + apply in BOS loop |
 | 24 | Agent health / readiness | PASS | agentReadiness |
 | 25 | Natural-language debugging | PASS | diagnoseCeo |

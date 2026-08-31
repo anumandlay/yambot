@@ -80,6 +80,22 @@ const entitySchema = new mongoose.Schema(
     externalId: { type: String, default: "", trim: true, index: true },
     status: { type: String, default: "active", trim: true },
     attributes: { type: mongoose.Schema.Types.Mixed, default: {} },
+    /**
+     * Ontology relationships to other entities (customer←lead, order→invoice, …).
+     */
+    links: {
+      type: [
+        {
+          rel: { type: String, default: "related_to", trim: true },
+          entityId: {
+            type: mongoose.Schema.Types.ObjectId,
+            ref: "Entity",
+            required: true,
+          },
+        },
+      ],
+      default: [],
+    },
     /** Temporal memory — newest observations last (capped on write). */
     observations: { type: [observationSchema], default: [] },
     relatedGoals: {

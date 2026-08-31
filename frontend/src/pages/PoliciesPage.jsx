@@ -14,6 +14,7 @@ const EMPTY = {
   confirmBeforeSubmit: false,
   learningMode: false,
   maxAuthorityLevel: "external",
+  operatingMode: "assisted",
   monthlyBudgetUsd: 0,
   dailyBudgetUsd: 0,
   maxTaskMinutes: 0,
@@ -38,6 +39,7 @@ export function PoliciesPage() {
           confirmBeforeSubmit: p.confirmBeforeSubmit === true,
           learningMode: p.learningMode === true,
           maxAuthorityLevel: p.maxAuthorityLevel || "external",
+          operatingMode: p.operatingMode || "assisted",
           monthlyBudgetUsd: Number(p.monthlyBudgetUsd) || 0,
           dailyBudgetUsd: Number(p.dailyBudgetUsd) || 0,
           maxTaskMinutes: Number(p.maxTaskMinutes) || 0,
@@ -64,6 +66,7 @@ export function PoliciesPage() {
           confirmBeforeSubmit: form.confirmBeforeSubmit,
           learningMode: form.learningMode,
           maxAuthorityLevel: form.maxAuthorityLevel,
+          operatingMode: form.operatingMode,
           monthlyBudgetUsd: Number(form.monthlyBudgetUsd) || 0,
           dailyBudgetUsd: Number(form.dailyBudgetUsd) || 0,
           maxTaskMinutes: Number(form.maxTaskMinutes) || 0,
@@ -153,6 +156,20 @@ export function PoliciesPage() {
               <option value="external">External messages</option>
               <option value="financial">Financial</option>
               <option value="critical">Critical (always approve)</option>
+            </select>
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-medium">Operating mode</span>
+            <select
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              value={form.operatingMode}
+              onChange={(e) => setForm((f) => ({ ...f, operatingMode: e.target.value }))}
+            >
+              <option value="observe">Observe — never auto-act</option>
+              <option value="recommend">Recommend — suggest only</option>
+              <option value="assisted">Assisted — heal with approval gates</option>
+              <option value="autonomous">Autonomous — internal heals/runs</option>
+              <option value="autopilot">Autopilot — max within authority ceiling</option>
             </select>
           </label>
         </div>

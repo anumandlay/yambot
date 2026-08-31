@@ -12,20 +12,27 @@ import { emitEvent } from "./eventBus.js";
 import { buildInvestigationGoal } from "./investigation.js";
 import { shouldFireCronTrigger } from "./cronMatch.js";
 import { Ticket } from "../models/Ticket.js";
+import { normalizeEventType } from "./eventCatalog.js";
 
 /**
  * @param {import('mongoose').Document} event
  */
 export async function processEventTriggers(event) {
+  const type = normalizeEventType(event.type);
+  // Why: older triggers may store underscored aliases — match both forms.
+  const aliases = [type, type.replace(/\./g, "_"), String(event.type || "")].filter(Boolean);
   const triggers = await Trigger.find({
     user: event.user,
     enabled: true,
     type: "event",
-    "config.eventType": event.type,
+    "config.eventType": { $in: [...new Set(aliases)] },
   }).limit(20);
 
   for (const trigger of triggers) {
-    await fireTrigger(trigger, { event });
+    await fireTrigger(trigger, {
+      event,
+      correlationId: event.correlationId || event.payload?.correlationId,
+    });
   }
 }
 
@@ -81,7 +88,20 @@ export async function fireTrigger(trigger, ctx = {}) {
       `Autonomous work from trigger "${trigger.name}"`;
     const eventPayload = ctx.event?.payload && typeof ctx.event.payload === "object" ? ctx.event.payload : {};
     const ticketId = eventPayload.ticketId ? String(eventPayload.ticketId) : "";
-    const entityId = eventPayload.entityId ? String(eventPayload.entityId) : "";
+    const entityId =
+      eventPayload.entityId
+        ? String(eventPayload.entityId)
+        : ctx.event?.entity
+          ? String(ctx.event.entity)
+          : "";
+    const correlationId =
+      String(ctx.correlationId || ctx.event?.correlationId || eventPayload.correlationId || "").trim();
+    if (correlationId) {
+      instructions = `${instructions}\n\ncorrelationId=${correlationId}`;
+    }
+    if (ctx.event?.type) {
+      instructions = `${instructions}\nhandoffEvent=${ctx.event.type}`;
+    }
 
     if (ticketId && (cfg.injectTicketContext || ctx.event?.type === "ticket.created")) {
       const ticket = await Ticket.findById(ticketId).lean();
@@ -133,6 +153,7 @@ export async function fireTrigger(trigger, ctx = {}) {
         triggerEventType: ctx.event?.type || null,
         ticketId: ticketId || null,
         entityId: entityId || null,
+        correlationId: correlationId || null,
       },
     });
     if (!cfg.chatId && enqueued.chat?._id) {

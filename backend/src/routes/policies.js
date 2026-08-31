@@ -35,6 +35,7 @@ policiesRouter.get("/", async (req, res, next) => {
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
         maxAuthorityLevel: s.maxAuthorityLevel || "external",
         learningMode: s.learningMode === true,
+        operatingMode: s.operatingMode || "assisted",
       },
       effective: getEffectivePolicy(s),
     });
@@ -68,6 +69,12 @@ policiesRouter.put("/", async (req, res, next) => {
       const lvl = String(body.maxAuthorityLevel).trim();
       if (["observe", "internal", "external", "financial", "critical"].includes(lvl)) {
         user.settings.maxAuthorityLevel = lvl;
+      }
+    }
+    if (body.operatingMode != null) {
+      const mode = String(body.operatingMode).trim();
+      if (["observe", "recommend", "assisted", "autonomous", "autopilot"].includes(mode)) {
+        user.settings.operatingMode = mode;
       }
     }
     if (body.monthlyBudgetUsd != null) {

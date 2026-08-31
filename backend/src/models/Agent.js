@@ -159,6 +159,22 @@ const agentSchema = new mongoose.Schema(
       default: "worker",
       index: true,
     },
+    /**
+     * Employee lifecycle for Autonomous BOS.
+     * hire | training | active | paused | retiring | retired
+     */
+    lifecycleStatus: {
+      type: String,
+      enum: ["hire", "training", "active", "paused", "retiring", "retired"],
+      default: "active",
+      index: true,
+    },
+    /** Max authority this employee may exercise without escalation. */
+    authorityLevel: {
+      type: String,
+      enum: ["observe", "internal", "external", "financial", "critical"],
+      default: "external",
+    },
     /** Agents this manager may assign work to (Layer 3). */
     managedAgents: {
       type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Agent" }],

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 09:00] Executable Business Runtime v1 (full P0 + P1 scaffolding)
+
+- **Prompt Provided:** can we do all (approve full Autonomous BOS architecture)
+- **Architectural Flow:** Event envelope/catalog; ontology links; WorkflowDefinition/Run + ApiWorkflowRunner; handoff compile at apply; sandbox tests gate build; HealController; operatingMode policy; routes /workflows /heal /ontology.
+- **Impacted Files:** many under `backend/src/{models,utils,routes}`, `PoliciesPage`, `FEATURE_AUDIT.md`, `PROMPT_LOG.md`
+
 ## [2026-08-31 08:40] Audit + Autonomous Business Loop + SOP/Watch-me
 
 - **Prompt Provided:** can we do all three? (audit, Slice A autonomous loop, SOP/Watch-me)

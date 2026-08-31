@@ -206,6 +206,14 @@ export async function buildBusinessPulse(userId) {
       agentId,
       actions: [
         {
+        type: "apply_recovery",
+        label: "True self-heal",
+        agentId,
+        errorHint: errText.slice(0, 200),
+        authority: "internal",
+        heal: true,
+      },
+        {
           type: "apply_recovery",
           label: "Apply recovery playbook",
           agentId,
@@ -467,6 +475,15 @@ export async function applyPulseAction(userId, body = {}) {
   }
 
   if (type === "apply_recovery") {
+    if (body.heal) {
+      const { applyHeal } = await import("./healController.js");
+      return applyHeal(userId, {
+        agentId: body.agentId,
+        errorHint: body.errorHint,
+        definitionId: body.definitionId,
+        runId: body.runId,
+      });
+    }
     const agentId = String(body.agentId || "").trim();
     if (!mongoose.isValidObjectId(agentId)) {
       return { ok: false, title: "Agent required", detail: "Pick an agent to recover." };

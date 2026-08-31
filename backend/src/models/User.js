@@ -67,6 +67,15 @@ const settingsSchema = new mongoose.Schema(
      */
     learningMode: { type: Boolean, default: false },
     /**
+     * Autonomous operating mode — gates auto-heal and CEO execution.
+     * observe | recommend | assisted | autonomous | autopilot
+     */
+    operatingMode: {
+      type: String,
+      enum: ["observe", "recommend", "assisted", "autonomous", "autopilot"],
+      default: "assisted",
+    },
+    /**
      * Max authority AI may use without extra approval:
      * observe | internal | external | financial | critical
      */

@@ -6,8 +6,13 @@
 
 import { Router } from "express";
 import { listEvents, emitEvent } from "../utils/eventBus.js";
+import { getEventCatalog } from "../utils/eventCatalog.js";
 
 export const eventsRouter = Router();
+
+eventsRouter.get("/catalog", (_req, res) => {
+  res.json({ ok: true, catalog: getEventCatalog() });
+});
 
 eventsRouter.get("/", async (req, res, next) => {
   try {
@@ -15,6 +20,8 @@ eventsRouter.get("/", async (req, res, next) => {
       limit: req.query.limit,
       type: req.query.type,
       unprocessed: req.query.unprocessed === "1",
+      correlationId: req.query.correlationId,
+      entityId: req.query.entityId,
     });
     res.json({ ok: true, events });
   } catch (err) {

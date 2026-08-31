@@ -262,6 +262,48 @@ architectRouter.post("/apply", async (req, res, next) => {
     }
 
     const plan = mergeAnswersIntoPlan(blueprint.plan, answers);
+
+    // Why: Executable Business Runtime — block build when critical sandbox/structural tests fail.
+    if (requireSimulation && !req.body?.forceBuild && doc) {
+      try {
+        const { compileWorkflowFromBlueprint } = await import("../utils/handoffCompile.js");
+        const { runWorkflowTestSuite } = await import("../utils/workflowTests.js");
+        const { def: draftDef } = await compileWorkflowFromBlueprint(req.userId, {
+          blueprint: { ...blueprint, plan, dataMaps: ensureDataMaps(blueprint, doc.dataMaps) },
+          blueprintId: doc._id,
+          agentKeyToId: {},
+          incidentPolicy: doc.incidentPolicy || blueprint.incidentPolicy,
+          environment: "sandbox",
+          skipMaterialize: true,
+        });
+        const suite = await runWorkflowTestSuite(req.userId, String(draftDef._id), {
+          blueprintDoc: doc,
+        });
+        if (!suite.ok) {
+          res.status(400).json({
+            ok: false,
+            title: "Workflow tests failed",
+            detail:
+              "Critical sandbox/structural tests failed. Fix the blueprint or pass forceBuild after review.",
+            suite,
+            hint: "Open Architect tests / Simulation, or use forceBuild only if you accept the risk.",
+          });
+          return;
+        }
+      } catch (testErr) {
+        console.error("[architect/apply] pre-build tests", testErr?.message || testErr);
+        if (!req.body?.forceBuild) {
+          res.status(400).json({
+            ok: false,
+            title: "Could not run workflow tests",
+            detail: testErr?.message || "Test harness error",
+            hint: "Retry, or pass forceBuild to bypass once.",
+          });
+          return;
+        }
+      }
+    }
+
     const result = await applyBusinessPlan(req.userId, plan, answers);
     if (!result.ok) {
       const status = /wallet|balance|insufficient/i.test(String(result.detail || "")) ? 402 : 400;
@@ -328,10 +370,55 @@ architectRouter.post("/apply", async (req, res, next) => {
       await syncBlueprintToCompanyMemory(req.userId, doc);
     }
 
+    /** @type {object|null} */
+    let workflow = null;
+    try {
+      const { compileWorkflowFromBlueprint } = await import("../utils/handoffCompile.js");
+      const created = result.created?.agents || [];
+      /** @type {Record<string, string>} */
+      const agentKeyToId = {};
+      for (const row of plan.agents || []) {
+        const match = created.find(
+          (a) =>
+            String(a.key || "") === String(row.key || "") ||
+            String(a.name || "").toLowerCase() === String(row.name || "").toLowerCase()
+        );
+        if (match?._id && row.key) agentKeyToId[row.key] = String(match._id);
+      }
+      (plan.agents || []).forEach((row, i) => {
+        if (row.key && !agentKeyToId[row.key] && created[i]?._id) {
+          agentKeyToId[row.key] = String(created[i]._id);
+        }
+      });
+      const compiled = await compileWorkflowFromBlueprint(req.userId, {
+        blueprint: { ...blueprint, plan, dataMaps: maps },
+        blueprintId: doc._id,
+        agentKeyToId,
+        incidentPolicy: doc.incidentPolicy || {},
+        environment: "production",
+        skipMaterialize: false,
+      });
+      workflow = {
+        id: String(compiled.def._id),
+        version: compiled.def.version,
+        steps: (compiled.def.steps || []).length,
+        handoffs: (compiled.def.handoffs || []).length,
+      };
+      if (compiled.triggerIds?.length) {
+        doc.createdTriggerIds = [
+          ...new Set([...(doc.createdTriggerIds || []).map(String), ...compiled.triggerIds]),
+        ];
+        await doc.save();
+      }
+    } catch (wfErr) {
+      console.error("[architect/apply] workflow compile", wfErr?.message || wfErr);
+    }
+
     res.status(201).json({
       ...result,
       blueprintId: String(doc._id),
       blueprintDoc: publicDoc(doc),
+      workflow,
     });
   } catch (err) {
     next(err);
