@@ -52,10 +52,34 @@ Seeds existed; **Autonomous Business Loop v1** wires Observe → Decide → Act 
 
 ## E2E proofs
 
-Five runtime proofs live at `POST /api/proofs/run` and `npm run test:bos` (backend):
+Runtime proofs at `POST /api/proofs/run` (`suite`: `bos` | `harden` | `all`) and `npm run test:bos`:
 
+**BOS (5)**  
 1. API GET→map→POST→verify  
 2. Multi-agent handoff + `email.replied` triggers  
 3. Failure→diagnose→modify→heal→retry  
 4. Goal KPI gap→workforce pick→CEO loop→measure  
 5. Deterioration→pulse→recovery→routing→optimize  
+
+**Harden (9)** — ChatGPT “break it” phase  
+1. Durable delay + crash resume (`waiting_delay` + `wakeAt`)  
+2. `await_approval` → resume on approve  
+3. Event dedupe + DLQ + replay  
+4. POST-once idempotency after crash/retry  
+5. Canary KPI deterioration auto-rollback  
+6. Cost ceiling + CEO oscillation guards  
+7. Security adversarial (SSRF / HTTP allowlist)  
+8. Chaos (bad assert, DLQ, kill mid-wait)  
+9. Outcome attribution + causal memory  
+
+## Hardening runtime (PASS)
+
+| Capability | Status | Notes |
+|---|---|---|
+| Durable waits (days) | PASS | `delay` / `wait_until` → `waiting_delay` + scheduler `tickWorkflowWaits` |
+| WAITING_FOR_APPROVAL | PASS | `await_approval` + Approval.workflowRunId → resume |
+| Event retry / DLQ / dedupe / replay | PASS | `eventDelivery.js` + `/api/events/dead-letters` + `/:id/replay` |
+| Cost / loop runaway guards | PASS | `runawayGuards` on CEO + enqueue + optimize; Policies UI |
+| Canary KPI rollback | PASS | `canaryKpi*` fields + `tickCanaryMonitor` |
+| Attribution + causal memory | PASS | `/api/ceo/attribution`, `/api/ceo/causal-memory` |
+| Real-world live mailbox/API | PARTIAL | Architecture proven in sandbox; live harness needs credentials (`LIVE_BOS`) |

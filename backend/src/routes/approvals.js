@@ -63,10 +63,21 @@ approvalsRouter.post("/:id/resolve", async (req, res, next) => {
     await writeAudit({
       userId: req.userId,
       action: `approval.${decision}`,
-      taskId: String(approval.task),
+      taskId: approval.task ? String(approval.task) : null,
       agentId: approval.agent ? String(approval.agent) : null,
       detail: approval.question?.slice(0, 200),
     });
+
+    // Resume durable workflow waiting on this approval
+    const runId = approval.workflowRunId || approval.context?.workflowRunId;
+    if (runId) {
+      const { resumeWorkflowRun } = await import("../utils/apiWorkflowRunner.js");
+      await resumeWorkflowRun(req.userId, String(runId), {
+        approvalDecision: decision,
+        summary: approval.resolutionNote,
+        force: true,
+      }).catch(() => null);
+    }
 
     res.json({ ok: true, approval });
   } catch (err) {

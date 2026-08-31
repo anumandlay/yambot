@@ -7,6 +7,7 @@
 import { Router } from "express";
 import { listEvents, emitEvent } from "../utils/eventBus.js";
 import { getEventCatalog } from "../utils/eventCatalog.js";
+import { listDeadLetters, replayEvent } from "../utils/eventDelivery.js";
 
 export const eventsRouter = Router();
 
@@ -66,8 +67,38 @@ eventsRouter.post("/emit", async (req, res, next) => {
       payload: req.body?.payload || {},
       agentId: req.body?.agentId,
       goalId: req.body?.goalId,
+      dedupeKey: req.body?.dedupeKey,
+      correlationId: req.body?.correlationId,
     });
     res.status(201).json({ ok: true, event });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/events/dead-letters — DLQ feed.
+ */
+eventsRouter.get("/dead-letters", async (req, res, next) => {
+  try {
+    const events = await listDeadLetters(req.userId, { limit: req.query.limit });
+    res.json({ ok: true, events });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/events/:id/replay — force re-delivery from DLQ / failed.
+ */
+eventsRouter.post("/:id/replay", async (req, res, next) => {
+  try {
+    const result = await replayEvent(req.userId, req.params.id);
+    if (!result.ok && result.title === "Missing") {
+      res.status(404).json(result);
+      return;
+    }
+    res.json({ ok: Boolean(result.ok), result });
   } catch (err) {
     next(err);
   }

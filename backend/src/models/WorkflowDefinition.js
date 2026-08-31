@@ -15,6 +15,9 @@ export const WORKFLOW_STEP_KINDS = [
   "verify",
   "handoff",
   "emit_event",
+  "delay",
+  "wait_until",
+  "await_approval",
 ];
 
 const stepSchema = new mongoose.Schema(
@@ -54,6 +57,12 @@ const stepSchema = new mongoose.Schema(
       backoffMs: { type: Number, default: 1000 },
     },
     idempotencyKeyTemplate: { type: String, default: "" },
+    /** Durable delay: milliseconds to wait before continuing (persisted wakeAt). */
+    delayMs: { type: Number, default: 0, min: 0 },
+    /** ISO / template datetime for wait_until. */
+    waitUntilTemplate: { type: String, default: "" },
+    /** await_approval question shown to human. */
+    approvalQuestion: { type: String, default: "" },
   },
   { _id: false }
 );
@@ -124,6 +133,18 @@ const workflowDefinitionSchema = new mongoose.Schema(
     canaryStartedAt: { type: Date, default: null },
     canaryFailureThreshold: { type: Number, default: 0.4, min: 0.05, max: 1 },
     canaryMinSamples: { type: Number, default: 3, min: 1 },
+    /**
+     * Optional KPI canary: if linked goal KPI drops more than canaryKpiMaxDropPct
+     * from canaryKpiBaseline during canary, auto-rollback (ChatGPT harden #6).
+     */
+    canaryKpiGoalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Goal",
+      default: null,
+    },
+    canaryKpiName: { type: String, default: "" },
+    canaryKpiBaseline: { type: Number, default: null },
+    canaryKpiMaxDropPct: { type: Number, default: 0.15, min: 0.01, max: 1 },
   },
   { timestamps: true }
 );
@@ -152,7 +173,16 @@ const workflowRunSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "running", "waiting", "succeeded", "failed", "cancelled"],
+      enum: [
+        "pending",
+        "running",
+        "waiting",
+        "waiting_delay",
+        "waiting_approval",
+        "succeeded",
+        "failed",
+        "cancelled",
+      ],
       default: "pending",
       index: true,
     },
@@ -167,12 +197,22 @@ const workflowRunSchema = new mongoose.Schema(
       default: null,
     },
     idempotencyKeys: { type: [String], default: [] },
+    /** When status is waiting_delay — durable wake time (survives process restart). */
+    wakeAt: { type: Date, default: null, index: true },
+    /** Pending Approval document for waiting_approval. */
+    approvalId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Approval",
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );
 
 workflowRunSchema.index({ user: 1, correlationId: 1 });
 workflowRunSchema.index({ user: 1, createdAt: -1 });
+workflowRunSchema.index({ status: 1, wakeAt: 1 });
 
 export const WorkflowDefinition = mongoose.model(
   "WorkflowDefinition",

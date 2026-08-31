@@ -393,8 +393,8 @@ export function CommandCenterPage() {
               try {
                 const data = await api("/api/proofs/run", {
                   method: "POST",
-                  body: JSON.stringify({ cleanup: false }),
-                  timeoutMs: 180_000,
+                  body: JSON.stringify({ cleanup: false, suite: "all" }),
+                  timeoutMs: 300_000,
                 });
                 const lines = (data.results || []).map(
                   (r) =>
@@ -405,7 +405,7 @@ export function CommandCenterPage() {
                   {
                     role: "assistant",
                     content: [
-                      `BOS proofs ${data.ok ? "PASSED" : "FAILED"} (${data.summary?.passed}/${data.summary?.total}).`,
+                      `BOS+harden proofs ${data.ok ? "PASSED" : "FAILED"} (${data.summary?.passed}/${data.summary?.total}).`,
                       ...lines,
                     ].join("\n"),
                   },
@@ -418,7 +418,7 @@ export function CommandCenterPage() {
             })()
           }
         >
-          {busy === "proofs" ? "Proving…" : "Run BOS proofs"}
+          {busy === "proofs" ? "Proving…" : "Run BOS+harden proofs"}
         </button>
       </section>
 

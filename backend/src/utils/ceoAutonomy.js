@@ -223,10 +223,40 @@ async function applyStrategy(userId, strategy, opts) {
  * @param {{ forceExecute?: boolean }} [opts]
  */
 export async function runCeoLoop(userId, opts = {}) {
+  const { checkCostCeiling, checkCeoLoopGuard } = await import("./runawayGuards.js");
+  const cost = await checkCostCeiling(userId);
+  if (!cost.ok) {
+    return { ok: false, title: "Budget", detail: cost.detail, mode: null, strategies: [], results: [] };
+  }
+  const loopGuard = await checkCeoLoopGuard(userId);
+  if (!loopGuard.ok) {
+    return {
+      ok: false,
+      title: "Loop guard",
+      detail: loopGuard.detail,
+      mode: null,
+      strategies: [],
+      results: [],
+    };
+  }
+
   const user = await User.findById(userId).select("settings").lean();
   const mode = user?.settings?.operatingMode || "assisted";
   const pulse = await buildBusinessPulse(userId);
-  const strategies = strategiesFromPulse(pulse);
+  let strategies = strategiesFromPulse(pulse);
+
+  // Causal memory: drop strategies matching failed lessons
+  try {
+    const { loadCausalLessons } = await import("./causalMemory.js");
+    const lessons = await loadCausalLessons(userId);
+    if (lessons.blocklist?.length) {
+      strategies = strategies.filter(
+        (s) => !lessons.blocklist.some((b) => String(s.title || "").includes(b.slice(0, 40)))
+      );
+    }
+  } catch {
+    /* optional */
+  }
 
   /** @type {object[]} */
   const results = [];

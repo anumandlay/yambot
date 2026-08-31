@@ -41,6 +41,18 @@ export async function enqueueTask(opts) {
     throw Object.assign(new Error("userId, agentId, and goalText required"), { status: 400 });
   }
 
+  // Why: runaway spend must stop new autonomous work before the worker burns budget.
+  if (!opts.skipBudgetGuard) {
+    const { checkCostCeiling } = await import("./runawayGuards.js");
+    const cost = await checkCostCeiling(userId);
+    if (!cost.ok) {
+      throw Object.assign(new Error(cost.detail || "Company AI budget exhausted"), {
+        status: 429,
+        title: "Budget",
+      });
+    }
+  }
+
   const agentDoc = await Agent.findOne({ _id: agentId, user: userId });
   if (!agentDoc) {
     throw Object.assign(new Error("Agent missing"), { status: 404 });

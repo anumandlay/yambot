@@ -44,6 +44,12 @@ async function agentMetrics(userId, agentId, since) {
  * @param {string} userId
  */
 async function autoStartExperiments(userId) {
+  const { checkExperimentBudget, checkCostCeiling } = await import("./runawayGuards.js");
+  const budget = await checkExperimentBudget(userId);
+  if (!budget.ok) return 0;
+  const cost = await checkCostCeiling(userId);
+  if (!cost.ok) return 0;
+
   const proposals = await ImprovementProposal.find({
     user: userId,
     status: "proposed",

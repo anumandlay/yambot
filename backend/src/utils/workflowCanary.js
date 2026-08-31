@@ -5,6 +5,7 @@
  */
 
 import { WorkflowDefinition, WorkflowRun, WORKFLOW_ENVIRONMENTS } from "../models/WorkflowDefinition.js";
+import { Goal } from "../models/Goal.js";
 import { runWorkflowTestSuite } from "./workflowTests.js";
 import { BusinessBlueprint } from "../models/BusinessBlueprint.js";
 import { recordDecision } from "../models/DecisionJournal.js";
@@ -194,17 +195,44 @@ export async function tickCanaryMonitor() {
       .lean();
 
     const minSamples = def.canaryMinSamples || 3;
-    if (runs.length < minSamples) continue;
+    if (runs.length >= minSamples) {
+      const failed = runs.filter((r) => r.status === "failed").length;
+      const rate = failed / runs.length;
+      const threshold = def.canaryFailureThreshold || 0.4;
+      if (rate >= threshold) {
+        await rollbackWorkflow(String(def.user), String(def._id), {
+          reason: `Canary failure rate ${(rate * 100).toFixed(0)}% ≥ ${(threshold * 100).toFixed(0)}% (${failed}/${runs.length})`,
+          to: "sandbox",
+        });
+        rolledBack += 1;
+        continue;
+      }
+    }
 
-    const failed = runs.filter((r) => r.status === "failed").length;
-    const rate = failed / runs.length;
-    const threshold = def.canaryFailureThreshold || 0.4;
-    if (rate >= threshold) {
-      await rollbackWorkflow(String(def.user), String(def._id), {
-        reason: `Canary failure rate ${(rate * 100).toFixed(0)}% ≥ ${(threshold * 100).toFixed(0)}% (${failed}/${runs.length})`,
-        to: "sandbox",
-      });
-      rolledBack += 1;
+    // KPI deterioration rollback (beyond failure-rate; does not need minSamples)
+    if (def.canaryKpiGoalId && def.canaryKpiBaseline != null) {
+      const goal = await Goal.findOne({
+        _id: def.canaryKpiGoalId,
+        user: def.user,
+      })
+        .select("kpis")
+        .lean();
+      const kpiName = String(def.canaryKpiName || "").trim();
+      const kpi = (goal?.kpis || []).find(
+        (k) => !kpiName || String(k.name || "").toLowerCase() === kpiName.toLowerCase()
+      );
+      if (kpi && kpi.current != null) {
+        const baseline = Number(def.canaryKpiBaseline);
+        const current = Number(kpi.current);
+        const maxDrop = Number(def.canaryKpiMaxDropPct) || 0.15;
+        if (baseline > 0 && (baseline - current) / baseline >= maxDrop) {
+          await rollbackWorkflow(String(def.user), String(def._id), {
+            reason: `Canary KPI “${kpi.name}” dropped ${(((baseline - current) / baseline) * 100).toFixed(0)}% from baseline ${baseline} → ${current}`,
+            to: "sandbox",
+          });
+          rolledBack += 1;
+        }
+      }
     }
   }
   return { checked: canaries.length, rolledBack };

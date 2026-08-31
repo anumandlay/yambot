@@ -277,3 +277,56 @@ ceoRouter.post("/optimize-loop", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * GET /api/ceo/attribution — which agents/workflows moved KPIs.
+ */
+ceoRouter.get("/attribution", async (req, res, next) => {
+  try {
+    const { attributeOutcomes } = await import("../utils/attribution.js");
+    const result = await attributeOutcomes(req.userId, {
+      goalId: req.query.goalId,
+      sinceDays: req.query.sinceDays,
+    });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/ceo/causal-memory — load strategy lessons for CEO.
+ */
+ceoRouter.get("/causal-memory", async (req, res, next) => {
+  try {
+    const { loadCausalLessons } = await import("../utils/causalMemory.js");
+    const result = await loadCausalLessons(req.userId, { limit: req.query.limit });
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/ceo/causal-memory — record or harvest causal lessons.
+ */
+ceoRouter.post("/causal-memory", async (req, res, next) => {
+  try {
+    const { recordCausalLesson, harvestCausalLessons } = await import(
+      "../utils/causalMemory.js"
+    );
+    if (req.body?.harvest === true) {
+      const result = await harvestCausalLessons(req.userId);
+      res.json(result);
+      return;
+    }
+    const result = await recordCausalLesson(req.userId, req.body || {});
+    if (!result.ok) {
+      res.status(400).json(result);
+      return;
+    }
+    res.json(result);
+  } catch (err) {
+    next(err);
+  }
+});

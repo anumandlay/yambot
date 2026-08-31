@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-08-31 10:40] Harden BOS — durability, events, chaos, security, attribution
+
+- **Prompt Provided:** yes do everything what chatgpt says (hardening phase)
+- **Architectural Flow:** Durable wait + approval workflow states; event retry/DLQ/dedupe/replay; crash/idempotency proofs; canary KPI rollback proof; cost+loop runaway guards; security+chaos suites; outcome attribution + causal memory; extend bosProofs.
+- **Impacted Files:** WorkflowDefinition/Run, apiWorkflowRunner, eventBus/CompanyEvent, eventDelivery, runawayGuards, attribution, causalMemory, security/chaos proofs, scheduler, policies, FEATURE_AUDIT, PROMPT_LOG
+
 ## [2026-08-31 10:25] E2E BOS proof suite (5 scenarios, no new product features)
 
 - **Prompt Provided:** yes (prove Architect+CEO+Pulse+Workforce+Trigger+Workflow end-to-end)

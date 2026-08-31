@@ -62,11 +62,19 @@ const companyEventSchema = new mongoose.Schema(
     payload: { type: mongoose.Schema.Types.Mixed, default: {} },
     processed: { type: Boolean, default: false, index: true },
     processedAt: { type: Date, default: null },
+    /** Delivery guarantees (retry / DLQ / dedupe). */
+    deliveryAttempts: { type: Number, default: 0 },
+    lastDeliveryError: { type: String, default: "" },
+    nextRetryAt: { type: Date, default: null, index: true },
+    deadLettered: { type: Boolean, default: false, index: true },
+    dedupeKey: { type: String, default: "", index: true },
   },
   { timestamps: true }
 );
 
 companyEventSchema.index({ user: 1, createdAt: -1 });
 companyEventSchema.index({ user: 1, type: 1, correlationId: 1 });
+companyEventSchema.index({ user: 1, dedupeKey: 1 }, { sparse: true });
+companyEventSchema.index({ processed: 1, deadLettered: 1, nextRetryAt: 1 });
 
 export const CompanyEvent = mongoose.model("CompanyEvent", companyEventSchema);

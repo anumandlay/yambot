@@ -36,6 +36,10 @@ policiesRouter.get("/", async (req, res, next) => {
         maxAuthorityLevel: s.maxAuthorityLevel || "external",
         learningMode: s.learningMode === true,
         operatingMode: s.operatingMode || "assisted",
+        companyDailyBudgetUsd: Number(s.companyDailyBudgetUsd) || 0,
+        companyMonthlyBudgetUsd: Number(s.companyMonthlyBudgetUsd) || 0,
+        maxCeoDecisionsPerHour: Number(s.maxCeoDecisionsPerHour) || 20,
+        maxConcurrentExperiments: Number(s.maxConcurrentExperiments) || 3,
       },
       effective: getEffectivePolicy(s),
     });
@@ -82,6 +86,27 @@ policiesRouter.put("/", async (req, res, next) => {
     }
     if (body.dailyBudgetUsd != null) {
       user.settings.dailyBudgetUsd = Math.max(0, Number(body.dailyBudgetUsd) || 0);
+    }
+    if (body.companyDailyBudgetUsd != null) {
+      user.settings.companyDailyBudgetUsd = Math.max(0, Number(body.companyDailyBudgetUsd) || 0);
+    }
+    if (body.companyMonthlyBudgetUsd != null) {
+      user.settings.companyMonthlyBudgetUsd = Math.max(
+        0,
+        Number(body.companyMonthlyBudgetUsd) || 0
+      );
+    }
+    if (body.maxCeoDecisionsPerHour != null) {
+      user.settings.maxCeoDecisionsPerHour = Math.max(
+        1,
+        Math.min(500, Number(body.maxCeoDecisionsPerHour) || 20)
+      );
+    }
+    if (body.maxConcurrentExperiments != null) {
+      user.settings.maxConcurrentExperiments = Math.max(
+        1,
+        Math.min(20, Number(body.maxConcurrentExperiments) || 3)
+      );
     }
     if (body.maxTaskMinutes != null) {
       user.settings.maxTaskMinutes = Math.max(0, Number(body.maxTaskMinutes) || 0);

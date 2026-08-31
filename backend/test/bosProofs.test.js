@@ -1,7 +1,6 @@
 /**
- * @fileoverview Node test entry for BOS proofs (requires MongoDB).
+ * @fileoverview Node test entry for BOS + harden proofs (requires MongoDB).
  * Purpose: `npm run test:bos` — skips cleanly when MONGODB_URI unreachable.
- * Run: npm run test:bos (from backend/)
  */
 
 import { describe, it, before, after } from "node:test";
@@ -11,7 +10,7 @@ import bcrypt from "bcryptjs";
 
 const uri = process.env.MONGODB_URI || "mongodb://127.0.0.1:27017/yambot";
 
-describe("BOS end-to-end proofs", () => {
+describe("BOS + harden end-to-end proofs", () => {
   /** @type {string|null} */
   let userId = null;
   let connected = false;
@@ -30,6 +29,7 @@ describe("BOS end-to-end proofs", () => {
         settings: {
           operatingMode: "autonomous",
           maxAuthorityLevel: "external",
+          httpAllowHosts: ["example.com"],
         },
       });
       userId = String(user._id);
@@ -52,22 +52,34 @@ describe("BOS end-to-end proofs", () => {
     await mongoose.disconnect().catch(() => {});
   });
 
-  it("runs all five proof scenarios", async (t) => {
+  it("runs BOS + harden proof scenarios", async (t) => {
     if (!connected || !userId) {
       t.skip("MongoDB not available");
       return;
     }
     const { runBosProofSuite } = await import("../src/utils/bosProofs.js");
-    const result = await runBosProofSuite(userId, { cleanup: false });
-    console.log(JSON.stringify(result.summary, null, 2));
-    for (const r of result.results) {
-      console.log(`  ${r.passed ? "PASS" : "FAIL"} ${r.id || r.name}: ${r.detail || r.steps?.join(" → ") || ""}`);
+    const { runHardenProofSuite } = await import("../src/utils/hardenProofs.js");
+    const bos = await runBosProofSuite(userId, { cleanup: false });
+    const harden = await runHardenProofSuite(userId, { cleanup: false });
+    const results = [...bos.results, ...harden.results];
+    console.log(
+      JSON.stringify(
+        { bos: bos.summary, harden: harden.summary },
+        null,
+        2
+      )
+    );
+    for (const r of results) {
+      console.log(
+        `  ${r.passed ? "PASS" : "FAIL"} ${r.id || r.name}: ${r.detail || r.steps?.join(" → ") || ""}`
+      );
     }
-    assert.equal(result.summary.total, 5);
+    assert.equal(bos.summary.total, 5);
+    assert.equal(harden.summary.total, 9);
     assert.equal(
-      result.ok,
+      bos.ok && harden.ok,
       true,
-      `Proofs failed: ${result.results
+      `Proofs failed: ${results
         .filter((r) => !r.passed)
         .map((r) => `${r.id}: ${r.detail}`)
         .join("; ")}`

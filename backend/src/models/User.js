@@ -93,6 +93,14 @@ const settingsSchema = new mongoose.Schema(
     escalateWaitingMinutes: { type: Number, default: 30 },
     /** Layer 4 — hosts allowed for http_request tool (empty = any non-blocked) */
     httpAllowHosts: { type: [String], default: [] },
+    /**
+     * Hard AI spend ceilings (USD) — 0 = unlimited.
+     * Enforced in runawayGuards before enqueue / CEO loop spawn.
+     */
+    companyDailyBudgetUsd: { type: Number, default: 0 },
+    companyMonthlyBudgetUsd: { type: Number, default: 0 },
+    maxCeoDecisionsPerHour: { type: Number, default: 20 },
+    maxConcurrentExperiments: { type: Number, default: 3 },
   },
   { _id: false }
 );

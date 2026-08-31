@@ -26,7 +26,7 @@ const approvalSchema = new mongoose.Schema(
     task: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Task",
-      required: true,
+      default: null,
       index: true,
     },
     type: {
@@ -45,6 +45,13 @@ const approvalSchema = new mongoose.Schema(
     context: { type: mongoose.Schema.Types.Mixed, default: {} },
     resolutionNote: { type: String, default: "", trim: true },
     resolvedAt: { type: Date, default: null },
+    /** Optional link so resolving resumes a durable workflow. */
+    workflowRunId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "WorkflowRun",
+      default: null,
+      index: true,
+    },
   },
   { timestamps: true }
 );

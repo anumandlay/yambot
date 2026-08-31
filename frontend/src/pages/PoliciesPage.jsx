@@ -17,6 +17,10 @@ const EMPTY = {
   operatingMode: "assisted",
   monthlyBudgetUsd: 0,
   dailyBudgetUsd: 0,
+  companyDailyBudgetUsd: 0,
+  companyMonthlyBudgetUsd: 0,
+  maxCeoDecisionsPerHour: 20,
+  maxConcurrentExperiments: 3,
   maxTaskMinutes: 0,
   escalateWaitingMinutes: 30,
   blockedUrlPatterns: "",
@@ -42,6 +46,10 @@ export function PoliciesPage() {
           operatingMode: p.operatingMode || "assisted",
           monthlyBudgetUsd: Number(p.monthlyBudgetUsd) || 0,
           dailyBudgetUsd: Number(p.dailyBudgetUsd) || 0,
+          companyDailyBudgetUsd: Number(p.companyDailyBudgetUsd) || 0,
+          companyMonthlyBudgetUsd: Number(p.companyMonthlyBudgetUsd) || 0,
+          maxCeoDecisionsPerHour: Number(p.maxCeoDecisionsPerHour) || 20,
+          maxConcurrentExperiments: Number(p.maxConcurrentExperiments) || 3,
           maxTaskMinutes: Number(p.maxTaskMinutes) || 0,
           escalateWaitingMinutes: Number(p.escalateWaitingMinutes) || 30,
           blockedUrlPatterns: (p.blockedUrlPatterns || []).join("\n"),
@@ -69,6 +77,10 @@ export function PoliciesPage() {
           operatingMode: form.operatingMode,
           monthlyBudgetUsd: Number(form.monthlyBudgetUsd) || 0,
           dailyBudgetUsd: Number(form.dailyBudgetUsd) || 0,
+          companyDailyBudgetUsd: Number(form.companyDailyBudgetUsd) || 0,
+          companyMonthlyBudgetUsd: Number(form.companyMonthlyBudgetUsd) || 0,
+          maxCeoDecisionsPerHour: Number(form.maxCeoDecisionsPerHour) || 20,
+          maxConcurrentExperiments: Number(form.maxConcurrentExperiments) || 3,
           maxTaskMinutes: Number(form.maxTaskMinutes) || 0,
           escalateWaitingMinutes: Number(form.escalateWaitingMinutes) || 30,
           blockedUrlPatterns: form.blockedUrlPatterns
@@ -197,6 +209,54 @@ export function PoliciesPage() {
             className="min-h-11 rounded-xl border border-teal-100 px-3"
             value={form.dailyBudgetUsd}
             onChange={(e) => setForm((f) => ({ ...f, dailyBudgetUsd: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Company daily AI ceiling (USD, 0 = use daily budget)</span>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.companyDailyBudgetUsd}
+            onChange={(e) => setForm((f) => ({ ...f, companyDailyBudgetUsd: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Company monthly AI ceiling (USD, 0 = use monthly budget)</span>
+          <input
+            type="number"
+            min={0}
+            step={0.01}
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.companyMonthlyBudgetUsd}
+            onChange={(e) => setForm((f) => ({ ...f, companyMonthlyBudgetUsd: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Max CEO decisions / hour</span>
+          <input
+            type="number"
+            min={1}
+            max={500}
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.maxCeoDecisionsPerHour}
+            onChange={(e) => setForm((f) => ({ ...f, maxCeoDecisionsPerHour: e.target.value }))}
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-sm">
+          <span className="font-medium">Max concurrent A/B experiments</span>
+          <input
+            type="number"
+            min={1}
+            max={20}
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            value={form.maxConcurrentExperiments}
+            onChange={(e) => setForm((f) => ({ ...f, maxConcurrentExperiments: e.target.value }))}
           />
         </label>
 

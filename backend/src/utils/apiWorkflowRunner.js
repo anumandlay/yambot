@@ -295,6 +295,7 @@ async function executeRun(userId, def, run, opts) {
         correlationId: run.correlationId,
         summary: step.name || step.eventType,
         payload: { runId: String(run._id), context: ctx.vars },
+        dedupeKey: idemKey || undefined,
       });
       result.emitted = step.eventType;
     } else if (step.kind === "handoff") {
@@ -308,6 +309,54 @@ async function executeRun(userId, def, run, opts) {
         payload: { toAgentKey: step.toAgentKey, runId: String(run._id) },
       });
       result.handoff = true;
+    } else if (step.kind === "delay" || step.kind === "wait_until") {
+      let wakeAt = null;
+      if (step.kind === "delay") {
+        const ms = Math.max(0, Number(step.delayMs) || 0);
+        // Why: sandbox proofs use tiny delays; production can wait days/weeks.
+        const effectiveMs = opts.sandbox ? Math.min(ms, 50) : ms;
+        wakeAt = new Date(Date.now() + effectiveMs);
+      } else {
+        const raw = renderTemplate(step.waitUntilTemplate || "", ctx);
+        const parsed = Date.parse(raw);
+        wakeAt = Number.isFinite(parsed) ? new Date(parsed) : new Date(Date.now() + 60_000);
+        if (opts.sandbox && wakeAt.getTime() > Date.now() + 1000) {
+          wakeAt = new Date(Date.now() + 50);
+        }
+      }
+      result.wakeAt = wakeAt.toISOString();
+      run.status = "waiting_delay";
+      run.wakeAt = wakeAt;
+      run.context = ctx;
+      run.stepResults.push(result);
+      run.stepIndex = i + 1;
+      if (idemKey) run.idempotencyKeys = [...(run.idempotencyKeys || []), idemKey];
+      await run.save();
+      return;
+    } else if (step.kind === "await_approval") {
+      const { Approval } = await import("../models/Approval.js");
+      const question =
+        renderTemplate(step.approvalQuestion || step.name || "Approve workflow step?", ctx) ||
+        "Approve workflow continuation?";
+      const approval = await Approval.create({
+        user: userId,
+        agent: step.agentId || null,
+        task: null,
+        type: "custom",
+        status: "pending",
+        question: String(question).slice(0, 2000),
+        context: { workflowRunId: String(run._id), stepId: step.id },
+        workflowRunId: run._id,
+      });
+      result.approvalId = String(approval._id);
+      run.status = "waiting_approval";
+      run.approvalId = approval._id;
+      run.context = ctx;
+      run.stepResults.push(result);
+      run.stepIndex = i + 1;
+      if (idemKey) run.idempotencyKeys = [...(run.idempotencyKeys || []), idemKey];
+      await run.save();
+      return;
     }
 
     if (idemKey) run.idempotencyKeys = [...(run.idempotencyKeys || []), idemKey];
@@ -347,7 +396,8 @@ async function executeRun(userId, def, run, opts) {
 export async function resumeWorkflowRun(userId, runId, opts = {}) {
   const run = await WorkflowRun.findOne({ _id: runId, user: userId });
   if (!run) return { ok: false, title: "Missing", detail: "Run not found" };
-  if (run.status !== "waiting") {
+  const waitStatuses = ["waiting", "waiting_delay", "waiting_approval"];
+  if (!waitStatuses.includes(run.status) && opts.force !== true) {
     return { ok: false, title: "Not waiting", detail: `Run status is ${run.status}` };
   }
   const def = await WorkflowDefinition.findOne({ _id: run.definition, user: userId });
@@ -355,15 +405,30 @@ export async function resumeWorkflowRun(userId, runId, opts = {}) {
 
   const ctx = run.context || { vars: {} };
   ctx.vars = ctx.vars || {};
-  ctx.vars.agentResult = {
-    success: opts.success !== false,
-    summary: String(opts.summary || "").slice(0, 4000),
-    error: String(opts.error || "").slice(0, 2000),
-    taskId: opts.taskId || null,
-  };
+  if (opts.approvalDecision) {
+    ctx.vars.approval = {
+      decision: opts.approvalDecision,
+      note: String(opts.summary || "").slice(0, 500),
+    };
+    if (opts.approvalDecision === "denied") {
+      run.status = "cancelled";
+      run.error = "Approval denied";
+      run.context = ctx;
+      await run.save();
+      return { ok: false, title: "Denied", detail: "Approval denied", run };
+    }
+  }
+  if (opts.success !== undefined || opts.summary || opts.error || opts.taskId) {
+    ctx.vars.agentResult = {
+      success: opts.success !== false,
+      summary: String(opts.summary || "").slice(0, 4000),
+      error: String(opts.error || "").slice(0, 2000),
+      taskId: opts.taskId || null,
+    };
+  }
   run.context = ctx;
 
-  if (opts.success === false) {
+  if (opts.success === false && run.status === "waiting") {
     run.status = "failed";
     run.error = String(opts.error || opts.summary || "Agent step failed").slice(0, 2000);
     await run.save();
@@ -383,6 +448,7 @@ export async function resumeWorkflowRun(userId, runId, opts = {}) {
   const policy = getEffectivePolicy(user?.settings || {});
   const sandbox = run.environment === "sandbox" || run.environment === "draft";
   run.status = "running";
+  run.wakeAt = null;
   await run.save();
 
   try {
@@ -406,6 +472,27 @@ export async function resumeWorkflowRun(userId, runId, opts = {}) {
     return { ok: false, title: "Resume failed", detail: run.error, run };
   }
   return { ok: true, run };
+}
+
+/**
+ * Wake durable delay waits whose wakeAt has passed.
+ * @returns {Promise<{ resumed: number }>}
+ */
+export async function tickWorkflowWaits() {
+  const due = await WorkflowRun.find({
+    status: "waiting_delay",
+    wakeAt: { $lte: new Date() },
+  })
+    .limit(40)
+    .select("_id user");
+  let resumed = 0;
+  for (const row of due) {
+    const result = await resumeWorkflowRun(String(row.user), String(row._id), { force: true });
+    if (result.ok || result.run?.status === "succeeded" || result.run?.status === "waiting") {
+      resumed += 1;
+    }
+  }
+  return { resumed };
 }
 
 /**
