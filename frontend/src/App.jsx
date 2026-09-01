@@ -34,6 +34,7 @@ import { SkillEditPage } from "./pages/SkillEditPage.jsx";
 import { HowToPage } from "./pages/HowToPage.jsx";
 import { AdminLoginPage } from "./pages/AdminLoginPage.jsx";
 import { AdminUsersPage } from "./pages/AdminUsersPage.jsx";
+import { AdminPersonalVpsPage } from "./pages/AdminPersonalVpsPage.jsx";
 import { WalletPage } from "./pages/WalletPage.jsx";
 import { QueuesPage } from "./pages/QueuesPage.jsx";
 import { TicketDetailPage } from "./pages/TicketDetailPage.jsx";
@@ -207,6 +208,7 @@ export default function App() {
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/system" element={<SystemPage />} />
           <Route path="/admin/users" element={<AdminUsersPage />} />
+          <Route path="/admin/create-vps" element={<AdminPersonalVpsPage />} />
         </Route>
         <Route path="*" element={<Navigate to="/" replace />} />
         </Routes>

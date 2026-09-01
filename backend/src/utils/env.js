@@ -19,6 +19,7 @@
  * @property {string} DEFAULT_LLM_BASE_URL
  * @property {string} DEFAULT_LLM_MODEL
  * @property {string} COMPUTER_MANAGER_URL
+ * @property {string} PERSONAL_VPS_URL
  * @property {string} SUPERADMIN_EMAILS
  * @property {string} SUPERADMIN_BOOTSTRAP_EMAIL
  * @property {string} SUPERADMIN_BOOTSTRAP_PASSWORD
@@ -47,6 +48,8 @@ export const env = {
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
   /** Internal computer-manager HTTP (Compose network). */
   COMPUTER_MANAGER_URL: process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050",
+  /** Isolated personal VPS manager (super-admin only). */
+  PERSONAL_VPS_URL: process.env.PERSONAL_VPS_URL || "http://personal-vps:4060",
   /** Public web app URL for Stripe redirects (defaults to first CORS origin). */
   PUBLIC_WEB_URL:
     process.env.PUBLIC_WEB_URL ||

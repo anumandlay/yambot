@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-01 16:00] Super-admin Personal VPS — isolated Linux containers
+
+- **Prompt Provided:** Personal VPS page for super-admin only: create named Linux containers on YamBot VPS with OS selection (including Ubuntu Desktop), password SSH/PuTTY, list/stop/delete; dynamic resources; fully isolated from YamBot product.
+- **Architectural Flow:** New `personal-vps/` microservice (Docker socket, Mongo `personal_vps_instances` collection) → internal HTTP :4060 → API proxy `/api/admin/personal-vps/*` (superAdminRequired) → `AdminPersonalVpsPage` at `/admin/create-vps`.
+- **Impacted Files:** `personal-vps/**`, `deploy/Dockerfile.personal-vps`, `deploy/docker-compose.yml`, `backend/src/routes/adminPersonalVps.js`, `backend/src/index.js`, `backend/src/utils/env.js`, `frontend/src/pages/AdminPersonalVpsPage.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `deploy/.env.example`, PROMPT_LOG
+
 ## [2026-08-31 12:10] Lead-to-Customer ordeal + browser claim — verified 10/10
 
 - **Prompt Provided:** go (browser PASS + Lead-to-Customer ordeal)

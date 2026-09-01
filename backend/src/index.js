@@ -208,6 +208,12 @@ app.use(
   superAdminRequired,
   (await import("./routes/admin.js")).adminRouter
 );
+app.use(
+  "/api/admin/personal-vps",
+  authRequired,
+  superAdminRequired,
+  (await import("./routes/adminPersonalVps.js")).adminPersonalVpsRouter
+);
 
 app.use((err, _req, res, _next) => {
   console.error(err);

@@ -1,0 +1,18 @@
+{
+  "name": "personal-vps-manager",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Isolated super-admin personal Linux container manager (not YamBot agents)",
+  "main": "src/index.js",
+  "scripts": {
+    "start": "node src/index.js"
+  },
+  "engines": {
+    "node": ">=20"
+  },
+  "dependencies": {
+    "dockerode": "^4.0.7",
+    "mongoose": "^8.17.1"
+  }
+}
