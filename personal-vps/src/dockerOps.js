@@ -159,6 +159,60 @@ async function finalizeDesktop(docker, containerId, os, password) {
 
 /**
  * @param {import('dockerode')} docker
+ * @param {string} image
+ * @returns {Promise<void>}
+ */
+async function pullImage(docker, image) {
+  console.log(`[personal-vps] pulling image ${image}…`);
+  await new Promise((resolve, reject) => {
+    docker.pull(image, (err, stream) => {
+      if (err) {
+        reject(err);
+        return;
+      }
+      docker.modem.followProgress(
+        stream,
+        (progressErr) => {
+          if (progressErr) reject(progressErr);
+          else resolve(undefined);
+        },
+        (event) => {
+          if (event?.status) {
+            const line = [event.status, event.id, event.progress].filter(Boolean).join(" ");
+            console.log(`[personal-vps] pull ${image}: ${line}`);
+          }
+        }
+      );
+    });
+  });
+}
+
+/**
+ * Ensures the OS image exists locally — pulls from Docker Hub when missing.
+ * Why: createContainer does not always auto-pull on this host; explicit pull avoids 404.
+ * @param {import('dockerode')} docker
+ * @param {string} image
+ * @returns {Promise<void>}
+ */
+async function ensureImage(docker, image) {
+  try {
+    await docker.getImage(image).inspect();
+    return;
+  } catch {
+    /* not local — pull below */
+  }
+  try {
+    await pullImage(docker, image);
+  } catch (err) {
+    const msg = String(err?.message || err);
+    throw new Error(
+      `Failed to download OS image "${image}". ${msg.includes("404") ? "Image not found on Docker Hub." : msg}`
+    );
+  }
+}
+
+/**
+ * @param {import('dockerode')} docker
  * @param {{ name: string, osId: string, createdBy: string, sshHost: string, cryptoKey: string }} opts
  * @returns {Promise<object>}
  */
@@ -178,6 +232,9 @@ export async function createInstance(docker, opts) {
   const volumeName = `pvps-data-${shortId}`;
   const sshPort = await pickFreePort(SSH_PORT_MIN, SSH_PORT_MAX);
   const webPort = os.kind === "desktop" ? await pickFreePort(WEB_PORT_MIN, WEB_PORT_MAX) : 0;
+
+  // Why: pull before Mongo write so a missing image does not leave a broken DB row.
+  await ensureImage(docker, os.image);
 
   const doc = await PersonalVps.create({
     name: opts.name.trim(),

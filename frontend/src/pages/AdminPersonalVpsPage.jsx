@@ -225,7 +225,7 @@ export function AdminPersonalVpsPage() {
             disabled={createBusy || !name.trim() || !osId}
             className="min-h-11 w-full rounded-xl bg-slate-800 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
           >
-            {createBusy ? "Creating… (may take a few minutes)" : "Create VPS"}
+            {createBusy ? "Creating… (downloading OS image if needed, then booting)" : "Create VPS"}
           </button>
         </ButtonWithHelp>
       </form>

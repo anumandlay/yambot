@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-01 16:20] Personal VPS — explicit Docker image pull before create
+
+- **Prompt Provided:** Fix create VPS error `(HTTP code 404) no such container - No such image: ubuntu:24.04`
+- **Architectural Flow:** `ensureImage()` pulls OS image from Docker Hub when missing locally, before Mongo record + `createContainer`; clearer pull error messages.
+- **Impacted Files:** `personal-vps/src/dockerOps.js`, `frontend/src/pages/AdminPersonalVpsPage.jsx`, PROMPT_LOG
+
 ## [2026-09-01 16:00] Super-admin Personal VPS — isolated Linux containers
 
 - **Prompt Provided:** Personal VPS page for super-admin only: create named Linux containers on YamBot VPS with OS selection (including Ubuntu Desktop), password SSH/PuTTY, list/stop/delete; dynamic resources; fully isolated from YamBot product.
