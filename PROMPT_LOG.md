@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-01 16:25] Personal VPS — Show connection details (host, port, user, password)
+
+- **Prompt Provided:** When clicking show password, display hostname, port, username, and password together.
+- **Architectural Flow:** `ConnectionCredentials` panel on Create VPS list; button renamed to "Show connection details".
+- **Impacted Files:** `frontend/src/pages/AdminPersonalVpsPage.jsx`, PROMPT_LOG
+
 ## [2026-09-01 16:20] Personal VPS — explicit Docker image pull before create
 
 - **Prompt Provided:** Fix create VPS error `(HTTP code 404) no such container - No such image: ubuntu:24.04`

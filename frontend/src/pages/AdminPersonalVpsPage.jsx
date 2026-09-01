@@ -12,29 +12,42 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, SectionTitle } from "../components/FieldLabel.jsx";
 
 /**
- * PuTTY connection steps shown after create or on demand.
+ * SSH credentials panel for PuTTY.
  * @param {{ host: string, port: number, user: string, password: string }} conn
  */
-function PuttyGuide({ conn }) {
-  if (!conn.host || !conn.port) return null;
+function ConnectionCredentials({ conn }) {
+  if (!conn.password) return null;
   return (
-    <div className="rounded-xl border border-slate-200 bg-slate-50 p-3 text-sm text-slate-800">
-      <p className="font-bold text-slate-900">Connect with PuTTY (SSH)</p>
-      <ol className="mt-2 list-decimal space-y-1 pl-5">
-        <li>Open PuTTY on your PC.</li>
-        <li>
-          <strong>Host Name:</strong> {conn.host}
-        </li>
-        <li>
-          <strong>Port:</strong> {conn.port} (not 22 — each box gets its own port)
-        </li>
-        <li>Connection type: <strong>SSH</strong> → Open.</li>
-        <li>
-          Login as <strong>{conn.user}</strong> with password:{" "}
-          <code className="rounded bg-white px-1">{conn.password || "— reveal password —"}</code>
-        </li>
-        <li>Accept the host key warning on first connect.</li>
-      </ol>
+    <div className="mt-2 rounded-xl border border-slate-200 bg-white p-3 text-sm text-slate-800">
+      <p className="mb-2 font-bold text-slate-900">PuTTY connection details</p>
+      <dl className="grid gap-2 sm:grid-cols-2">
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Host name</dt>
+          <dd>
+            <code className="mt-0.5 block rounded bg-slate-50 px-2 py-1 text-sm">{conn.host}</code>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Port</dt>
+          <dd>
+            <code className="mt-0.5 block rounded bg-slate-50 px-2 py-1 text-sm">{conn.port}</code>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Username</dt>
+          <dd>
+            <code className="mt-0.5 block rounded bg-slate-50 px-2 py-1 text-sm">{conn.user}</code>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs font-semibold uppercase tracking-wide text-slate-500">Password</dt>
+          <dd>
+            <code className="mt-0.5 block break-all rounded bg-slate-50 px-2 py-1 text-sm">
+              {conn.password}
+            </code>
+          </dd>
+        </div>
+      </dl>
     </div>
   );
 }
@@ -233,7 +246,7 @@ export function AdminPersonalVpsPage() {
       {lastCreated ? (
         <div className="flex flex-col gap-3 rounded-2xl border border-emerald-200 bg-emerald-50/50 p-4">
           <p className="font-bold text-emerald-900">New VPS ready — connection details</p>
-          <PuttyGuide
+          <ConnectionCredentials
             conn={{
               host: lastCreated.sshHost || sshHost,
               port: lastCreated.sshPort,
@@ -241,6 +254,9 @@ export function AdminPersonalVpsPage() {
               password: lastCreated.password,
             }}
           />
+          <p className="text-xs text-emerald-900">
+            In PuTTY: enter host + port → SSH → Open → login with username and password above.
+          </p>
           {lastCreated.webPort ? (
             <p className="text-sm text-emerald-900">
               Desktop URL:{" "}
@@ -266,8 +282,16 @@ export function AdminPersonalVpsPage() {
         ) : (
           <ul className="mt-3 flex flex-col gap-3">
             {instances.map((box) => {
-              const password = revealedPasswords[box.id] || "";
               const host = box.sshHost || sshHost;
+              const revealed = revealedPasswords[box.id];
+              const conn = revealed
+                ? {
+                    host,
+                    port: box.sshPort,
+                    user: box.sshUser,
+                    password: revealed,
+                  }
+                : null;
               return (
                 <li
                   key={box.id}
@@ -342,17 +366,15 @@ export function AdminPersonalVpsPage() {
                       </span>
                     ) : null}
                   </div>
-                  <div className="mt-2 flex flex-wrap items-center gap-2">
+                  <div className="mt-2">
                     <button
                       type="button"
                       className="min-h-9 rounded-lg border border-slate-200 bg-white px-2 text-xs font-semibold"
                       onClick={() => revealPassword(box.id)}
                     >
-                      Show password
+                      {conn ? "Refresh connection details" : "Show connection details"}
                     </button>
-                    {password ? (
-                      <code className="rounded bg-white px-2 py-1 text-xs">{password}</code>
-                    ) : null}
+                    {conn ? <ConnectionCredentials conn={conn} /> : null}
                   </div>
                 </li>
               );
