@@ -86,12 +86,20 @@ export function LiveWallPage() {
         {screens.map((s) => (
           <div key={s.id} className="flex min-h-0 flex-col gap-2">
             <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
-              <Link
-                to={`/agents/${s.id}`}
-                className="min-w-0 truncate text-sm font-bold text-teal-950 hover:underline"
-              >
-                {s.name}
-              </Link>
+              <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <Link
+                  to={`/agents/${s.id}`}
+                  className="min-w-0 truncate text-sm font-bold text-teal-950 hover:underline"
+                >
+                  {s.name}
+                </Link>
+                <Link
+                  to={`/agents/${s.id}/memory`}
+                  className="shrink-0 text-xs font-semibold text-violet-800 hover:underline"
+                >
+                  View memory
+                </Link>
+              </div>
               <span
                 className={`shrink-0 text-[0.65rem] font-semibold uppercase tracking-wide ${
                   s.needsAttention

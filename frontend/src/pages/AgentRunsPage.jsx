@@ -160,6 +160,10 @@ export function AgentRunsPage() {
               Edit agent
             </Link>
             {" · "}
+            <Link className="font-semibold text-violet-800 underline" to={`/agents/${lockedAgentId}/memory`}>
+              View memory
+            </Link>
+            {" · "}
             <Link className="font-semibold underline" to="/runs">
               All agent runs
             </Link>

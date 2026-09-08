@@ -992,6 +992,10 @@ export function BusinessArchitectPage() {
                   <Link className="font-semibold underline" to={`/agents/${a._id}`}>
                     {a.name}
                   </Link>
+                  {" · "}
+                  <Link className="font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
+                    View memory
+                  </Link>
                 ) : (
                   a.name
                 )}
@@ -1020,6 +1024,10 @@ export function BusinessArchitectPage() {
                     {w.agentId ? (
                       <Link className="font-semibold underline" to={`/agents/${w.agentId}`}>
                         {w.agentName}
+                      </Link>
+                      {" · "}
+                      <Link className="font-semibold text-violet-800 underline" to={`/agents/${w.agentId}/memory`}>
+                        View memory
                       </Link>
                     ) : (
                       w.agentName

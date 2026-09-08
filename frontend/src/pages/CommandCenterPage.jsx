@@ -862,6 +862,10 @@ export function CommandCenterPage() {
                     <Link className="font-semibold underline" to={`/agents/${s.agentId}`}>
                       {s.agentName}
                     </Link>
+                    {" · "}
+                    <Link className="text-xs font-semibold text-violet-800 underline" to={`/agents/${s.agentId}/memory`}>
+                      View memory
+                    </Link>
                     : {s.reason}
                   </span>
                   <button
@@ -977,9 +981,14 @@ export function CommandCenterPage() {
               .slice(0, 8)
               .map((a) => (
                 <li key={a._id} className="flex items-center justify-between gap-2">
-                  <Link className="font-semibold underline" to={`/agents/${a._id}`}>
-                    {a.name}
-                  </Link>
+                  <span className="flex flex-wrap items-center gap-2">
+                    <Link className="font-semibold underline" to={`/agents/${a._id}`}>
+                      {a.name}
+                    </Link>
+                    <Link className="text-xs font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
+                      View memory
+                    </Link>
+                  </span>
                   <span className="text-xs text-amber-800">Readiness {a.readinessScore}%</span>
                 </li>
               ))}

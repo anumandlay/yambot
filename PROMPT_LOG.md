@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-08 13:00] View memory link on every agent
+
+- **Prompt Provided:** For every agent, show a link to view what is in the agent memory.
+- **Architectural Flow:** GET `/api/agents/:id/memory` returns episodic notes; `/agents/:agentId/memory` page; "View memory" links on Agents, edit, Live Wall, Workforce, Command Center, Architect, System.
+- **Impacted Files:** `backend/src/routes/agents.js`, `frontend/src/pages/AgentMemoryPage.jsx`, `App.jsx`, Agents/AgentEdit/LiveWall/Workforce/CommandCenter/BusinessArchitect/BusinessSetup/AgentRuns/System pages, PROMPT_LOG
+
 ## [2026-09-01 16:25] Personal VPS — Show connection details (host, port, user, password)
 
 - **Prompt Provided:** When clicking show password, display hostname, port, username, and password together.

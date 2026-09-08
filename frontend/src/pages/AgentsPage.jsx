@@ -120,6 +120,13 @@ function AgentRow({
           >
             Runs
           </Link>
+          <Link
+            to={`/agents/${agent._id}/memory`}
+            className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-semibold text-violet-950 sm:w-auto"
+          >
+            View memory
+            {Array.isArray(agent.memory) ? ` (${agent.memory.length})` : ""}
+          </Link>
           <ButtonWithHelp helpId="agents.copy">
             <button
               type="button"

@@ -370,6 +370,10 @@ export function BusinessSetupPage() {
                   <Link className="font-semibold underline" to={`/agents/${a._id}`}>
                     {a.name}
                   </Link>
+                  {" · "}
+                  <Link className="font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
+                    View memory
+                  </Link>
                 ) : (
                   a.name
                 )}

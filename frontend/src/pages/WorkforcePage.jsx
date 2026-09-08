@@ -109,6 +109,12 @@ export function WorkforcePage() {
                     <Link to={`/agents/${a.id}`} className="text-teal-800 hover:underline">
                       {a.name}
                     </Link>
+                    <Link
+                      to={`/agents/${a.id}/memory`}
+                      className="ml-2 text-xs font-semibold text-violet-800 hover:underline"
+                    >
+                      View memory
+                    </Link>
                   </td>
                   <td className="px-3 py-2 capitalize">{a.role || "worker"}</td>
                   <td className="px-3 py-2">

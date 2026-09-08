@@ -990,6 +990,37 @@ agentsRouter.put("/:id", async (req, res, next) => {
   }
 });
 
+/**
+ * GET /api/agents/:id/memory — read this agent's long-term notes (newest first).
+ * Why: operators need a dedicated view without opening the full editor.
+ */
+agentsRouter.get("/:id/memory", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("name memory")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const memory = (Array.isArray(agent.memory) ? agent.memory : []).map((m) => ({
+      id: m._id ? String(m._id) : "",
+      kind: m.kind || "note",
+      content: m.content || "",
+      at: m.at || null,
+      sourceTask: m.sourceTask ? String(m.sourceTask) : "",
+    }));
+    res.json({
+      ok: true,
+      agent: { id: String(agent._id), name: agent.name || "Agent" },
+      total: memory.length,
+      memory,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
 agentsRouter.post("/:id/memory", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });

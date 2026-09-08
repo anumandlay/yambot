@@ -526,6 +526,12 @@ export function AgentEditPage() {
           >
             Runs & replies
           </Link>
+          <Link
+            to={`/agents/${agentId}/memory`}
+            className="inline-flex min-h-11 items-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-semibold text-violet-950"
+          >
+            View memory
+          </Link>
         ) : null}
         <h1 className="text-xl font-bold tracking-tight">
           {isNew ? "New agent" : "Edit agent"}
