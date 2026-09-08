@@ -392,19 +392,21 @@ export function SystemPage() {
                         {agentId ? (
                           <div className="mt-0.5 text-[0.7rem] text-teal-800/70">
                             {c.agentName ? (
-                              <Link
-                                to={`/agents/${agentId}`}
-                                className="font-semibold text-teal-800 underline-offset-2 hover:underline"
-                              >
-                                {c.agentName}
-                              </Link>
-                              {" · "}
-                              <Link
-                                to={`/agents/${agentId}/memory`}
-                                className="font-semibold text-violet-800 underline-offset-2 hover:underline"
-                              >
-                                View memory
-                              </Link>
+                              <>
+                                <Link
+                                  to={`/agents/${agentId}`}
+                                  className="font-semibold text-teal-800 underline-offset-2 hover:underline"
+                                >
+                                  {c.agentName}
+                                </Link>
+                                {" · "}
+                                <Link
+                                  to={`/agents/${agentId}/memory`}
+                                  className="font-semibold text-violet-800 underline-offset-2 hover:underline"
+                                >
+                                  View memory
+                                </Link>
+                              </>
                             ) : null}
                             <span className="text-teal-800/50">
                               {c.agentName ? " · " : ""}

@@ -367,13 +367,15 @@ export function BusinessSetupPage() {
             {(created.agents || []).map((a) => (
               <li key={a._id || a.key}>
                 {a._id ? (
-                  <Link className="font-semibold underline" to={`/agents/${a._id}`}>
-                    {a.name}
-                  </Link>
-                  {" · "}
-                  <Link className="font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
-                    View memory
-                  </Link>
+                  <>
+                    <Link className="font-semibold underline" to={`/agents/${a._id}`}>
+                      {a.name}
+                    </Link>
+                    {" · "}
+                    <Link className="font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
+                      View memory
+                    </Link>
+                  </>
                 ) : (
                   a.name
                 )}

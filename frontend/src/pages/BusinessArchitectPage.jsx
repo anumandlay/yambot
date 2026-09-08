@@ -989,13 +989,15 @@ export function BusinessArchitectPage() {
             {(created.agents || []).map((a) => (
               <li key={a._id || a.key}>
                 {a._id ? (
-                  <Link className="font-semibold underline" to={`/agents/${a._id}`}>
-                    {a.name}
-                  </Link>
-                  {" · "}
-                  <Link className="font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
-                    View memory
-                  </Link>
+                  <>
+                    <Link className="font-semibold underline" to={`/agents/${a._id}`}>
+                      {a.name}
+                    </Link>
+                    {" · "}
+                    <Link className="font-semibold text-violet-800 underline" to={`/agents/${a._id}/memory`}>
+                      View memory
+                    </Link>
+                  </>
                 ) : (
                   a.name
                 )}
@@ -1022,13 +1024,15 @@ export function BusinessArchitectPage() {
                 {created.emailWarnings.map((w) => (
                   <li key={w.agentId}>
                     {w.agentId ? (
-                      <Link className="font-semibold underline" to={`/agents/${w.agentId}`}>
-                        {w.agentName}
-                      </Link>
-                      {" · "}
-                      <Link className="font-semibold text-violet-800 underline" to={`/agents/${w.agentId}/memory`}>
-                        View memory
-                      </Link>
+                      <>
+                        <Link className="font-semibold underline" to={`/agents/${w.agentId}`}>
+                          {w.agentName}
+                        </Link>
+                        {" · "}
+                        <Link className="font-semibold text-violet-800 underline" to={`/agents/${w.agentId}/memory`}>
+                          View memory
+                        </Link>
+                      </>
                     ) : (
                       w.agentName
                     )}
