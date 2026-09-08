@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-08 14:50] Live screen — paste and run Python on the agent computer
+
+- **Prompt Provided:** Paste .py scripts and run them in the live screen.
+- **Architectural Flow:** LiveScreen "Run Python" queues `run_python` control; worker writes the script and execs `python3` in the agent container; result stored on `computer.pythonRun` and shown under the live screen. Worker image installs python3; stale agent boxes are recreated by computer-manager.
+- **Impacted Files:** `frontend/src/components/LiveScreen.jsx`, `worker/src/agent.js`, `backend/src/routes/agents.js`, `backend/src/routes/worker.js`, `backend/src/models/Agent.js`, `deploy/Dockerfile.worker`, PROMPT_LOG
+
 ## [2026-09-08 13:00] View memory link on every agent
 
 - **Prompt Provided:** For every agent, show a link to view what is in the agent memory.

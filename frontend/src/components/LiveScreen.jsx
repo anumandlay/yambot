@@ -97,6 +97,10 @@ export function LiveScreen({
   const [desktopSrc, setDesktopSrc] = useState("");
   const [desktopSessionKey, setDesktopSessionKey] = useState(0);
   const [desktopError, setDesktopError] = useState("");
+  const [pythonOpen, setPythonOpen] = useState(false);
+  const [pythonScript, setPythonScript] = useState("print('hello from this agent')\n");
+  const [pythonBusy, setPythonBusy] = useState(false);
+  const [pythonMsg, setPythonMsg] = useState("");
   const desktopIframeRef = useRef(null);
   const imgRef = useRef(null);
   const stageRef = useRef(null);
@@ -1002,6 +1006,107 @@ export function LiveScreen({
 
   const demoNoticeBanner = renderDemoNoticeBanner();
 
+  /**
+   * Queues a pasted Python script on this agent's computer and polls for output.
+   */
+  async function runPython() {
+    if (!agentId || !pythonScript.trim()) return;
+    setPythonBusy(true);
+    setPythonMsg("Sending script to this agent's computer…");
+    try {
+      await api(`/api/agents/${agentId}/control`, {
+        method: "POST",
+        body: JSON.stringify({
+          type: "run_python",
+          text: pythonScript,
+          scriptName: "pasted.py",
+        }),
+      });
+      const started = Date.now();
+      let last = null;
+      while (Date.now() - started < 100_000) {
+        await new Promise((r) => setTimeout(r, 1500));
+        const data = await api(`/api/agents/${agentId}/live`);
+        const run = data.live?.pythonRun;
+        last = run;
+        if (run?.status === "done" || run?.status === "error") break;
+        setPythonMsg(run?.status === "running" ? "Running on the agent computer…" : "Waiting for the agent computer…");
+      }
+      setPythonMsg(
+        last?.status === "done"
+          ? "Finished."
+          : last?.status === "error"
+            ? "Finished with an error. See output below."
+            : "Still waiting. If this agent just updated, wait a minute and try again."
+      );
+    } catch (err) {
+      setPythonMsg(err.detail || err.message || "Could not run the script.");
+    } finally {
+      setPythonBusy(false);
+    }
+  }
+
+  const pythonRun = live?.pythonRun;
+  const pythonPanel =
+    wallMode || !agentId ? null : (
+      <div className="border-t border-white/10 bg-slate-950 px-3 py-2 text-white">
+        <button
+          type="button"
+          className="min-h-11 text-xs font-bold text-violet-200"
+          onClick={() => setPythonOpen((v) => !v)}
+        >
+          {pythonOpen ? "Hide Python" : "Run Python"}
+        </button>
+        {pythonOpen ? (
+          <div className="mt-2 flex flex-col gap-2">
+            <p className="text-xs text-white/70">
+              Paste a .py script. It runs on this agent&apos;s Linux computer, not in the browser page.
+            </p>
+            <textarea
+              className="min-h-32 w-full rounded-xl border border-white/15 bg-black/40 p-3 font-mono text-xs text-white"
+              value={pythonScript}
+              onChange={(e) => setPythonScript(e.target.value)}
+              spellCheck={false}
+              placeholder="print('hello')"
+            />
+            <div className="flex flex-wrap items-center gap-2">
+              <label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-white/20 px-3 text-xs font-semibold">
+                Load .py file
+                <input
+                  type="file"
+                  accept=".py,text/x-python"
+                  className="sr-only"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0];
+                    if (!file) return;
+                    const reader = new FileReader();
+                    reader.onload = () => setPythonScript(String(reader.result || ""));
+                    reader.readAsText(file);
+                  }}
+                />
+              </label>
+              <button
+                type="button"
+                disabled={pythonBusy || !live?.online || !pythonScript.trim()}
+                onClick={() => void runPython()}
+                className="inline-flex min-h-11 items-center rounded-xl bg-violet-600 px-3 text-xs font-bold text-white disabled:opacity-40"
+              >
+                {pythonBusy ? "Running…" : "Run script"}
+              </button>
+              {pythonMsg ? <span className="text-xs text-white/70">{pythonMsg}</span> : null}
+            </div>
+            {pythonRun?.stdout || pythonRun?.stderr ? (
+              <pre className="max-h-48 overflow-auto whitespace-pre-wrap rounded-xl bg-black/50 p-3 text-xs text-emerald-100">
+                {pythonRun.stdout || ""}
+                {pythonRun.stderr ? `\n${pythonRun.stderr}` : ""}
+                {pythonRun.exitCode != null ? `\n(exit ${pythonRun.exitCode})` : ""}
+              </pre>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
+    );
+
   return (
     <>
       <section className={inlineShell}>
@@ -1024,6 +1129,7 @@ export function LiveScreen({
         ) : (
           renderBody({ modal: false })
         )}
+        {pythonPanel}
       </section>
       {modal}
     </>

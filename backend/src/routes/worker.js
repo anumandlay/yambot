@@ -335,6 +335,39 @@ workerRouter.post("/computer/heartbeat", async (req, res, next) => {
 });
 
 /**
+ * POST /api/worker/python-run — store stdout/stderr from a live-screen Python script.
+ * Body: { agentId, status, exitCode, stdout, stderr, scriptName }
+ */
+workerRouter.post("/python-run", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    if (!agentId) {
+      res.status(400).json({ ok: false, detail: "agentId required" });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    agent.computer = agent.computer || {};
+    agent.computer.pythonRun = {
+      status: String(req.body?.status || "done").slice(0, 20),
+      exitCode: Number.isFinite(Number(req.body?.exitCode)) ? Number(req.body.exitCode) : null,
+      stdout: String(req.body?.stdout || "").slice(0, 20_000),
+      stderr: String(req.body?.stderr || "").slice(0, 20_000),
+      scriptName: String(req.body?.scriptName || "script.py").slice(0, 80),
+      at: new Date(),
+    };
+    agent.markModified("computer");
+    await agent.save();
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/worker/tasks/:id — refresh task (e.g. waiting for user_answer).
  */
 workerRouter.get("/tasks/:id", async (req, res, next) => {

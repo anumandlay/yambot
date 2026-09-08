@@ -958,6 +958,63 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * Runs a pasted .py file inside this agent container and reports output.
+   * @param {object} cmd
+   */
+  async function runPythonScript(cmd) {
+    const script = String(cmd.text || "");
+    const scriptName = String(cmd.key || "script.py").replace(/[^\w.-]+/g, "_").slice(0, 80) || "script.py";
+    const dir = "/tmp/yambot-py";
+    const filePath = path.join(dir, scriptName.endsWith(".py") ? scriptName : `${scriptName}.py`);
+    log(`[${config.workerName}] running python ${scriptName}`);
+    await api("/api/worker/python-run", {
+      method: "POST",
+      body: JSON.stringify({
+        agentId: config.agentId,
+        status: "running",
+        scriptName,
+        stdout: "",
+        stderr: "",
+      }),
+    }).catch(() => {});
+    let stdout = "";
+    let stderr = "";
+    let exitCode = 0;
+    let status = "done";
+    try {
+      await fs.promises.mkdir(dir, { recursive: true });
+      await fs.promises.writeFile(filePath, script, "utf8");
+      const result = await execFileAsync("python3", ["-u", filePath], {
+        cwd: dir,
+        timeout: 90_000,
+        maxBuffer: 200_000,
+        env: { ...process.env, PYTHONUNBUFFERED: "1" },
+      });
+      stdout = String(result.stdout || "");
+      stderr = String(result.stderr || "");
+    } catch (err) {
+      exitCode = Number.isFinite(Number(err?.code)) ? Number(err.code) : 1;
+      stdout = String(err?.stdout || "");
+      stderr = String(err?.stderr || err?.message || err);
+      status = "error";
+    }
+    await api("/api/worker/python-run", {
+      method: "POST",
+      body: JSON.stringify({
+        agentId: config.agentId,
+        status,
+        exitCode,
+        stdout: stdout.slice(0, 20_000),
+        stderr: stderr.slice(0, 20_000),
+        scriptName,
+      }),
+    }).catch((err) => {
+      log(`[${config.workerName}] python result post failed:`, err?.message || err);
+    });
+    log(`[${config.workerName}] python ${scriptName} exit ${exitCode}`);
+  }
+
+  /**
    * Executes a dashboard remote-control command on the live page.
    * @param {object} cmd
    */
@@ -982,6 +1039,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
       log(
         `[${config.workerName}] browser data cleared (${cleared.removed.length} items) — Chromium relaunched`
       );
+      return;
+    }
+    // Why: Python is a process on this agent's Linux box, not a browser keystroke.
+    if (cmd.type === "run_python") {
+      await runPythonScript(cmd);
       return;
     }
     if (!page || page.isClosed()) return;
