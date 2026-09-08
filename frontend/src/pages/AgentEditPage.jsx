@@ -520,18 +520,20 @@ export function AgentEditPage() {
           ← Agents
         </Link>
         {!isNew && agentId ? (
-          <Link
-            to={`/agents/${agentId}/runs`}
-            className="inline-flex min-h-11 items-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-950"
-          >
-            Runs & replies
-          </Link>
-          <Link
-            to={`/agents/${agentId}/memory`}
-            className="inline-flex min-h-11 items-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-semibold text-violet-950"
-          >
-            View memory
-          </Link>
+          <>
+            <Link
+              to={`/agents/${agentId}/runs`}
+              className="inline-flex min-h-11 items-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-950"
+            >
+              Runs & replies
+            </Link>
+            <Link
+              to={`/agents/${agentId}/memory`}
+              className="inline-flex min-h-11 items-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-semibold text-violet-950"
+            >
+              View memory
+            </Link>
+          </>
         ) : null}
         <h1 className="text-xl font-bold tracking-tight">
           {isNew ? "New agent" : "Edit agent"}
