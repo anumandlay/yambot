@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-08 15:26] Remove live-screen Python runner
+
+- **Prompt Provided:** Remove the original scraper run as well; this functionality should not exist in YamBot.
+- **Architectural Flow:** Dropped live-screen "Run Python" (`run_python` control, worker `python3` exec, `computer.pythonRun`, `/api/worker/python-run`). Agent computers stay browser-only. Desktop scraper container already removed.
+- **Impacted Files:** `frontend/src/components/LiveScreen.jsx`, `worker/src/agent.js`, `backend/src/routes/agents.js`, `backend/src/routes/worker.js`, `backend/src/models/Agent.js`, `deploy/Dockerfile.worker`, PROMPT_LOG
+
 ## [2026-09-08 14:50] Live screen — paste and run Python on the agent computer
 
 - **Prompt Provided:** Paste .py scripts and run them in the live screen.

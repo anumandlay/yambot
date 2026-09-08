@@ -302,18 +302,6 @@ const agentSchema = new mongoose.Schema(
         totalBytes: { type: Number, default: 0 },
         measuredAt: { type: Date, default: null },
       },
-      /**
-       * Last Python script run from the live-screen panel.
-       * Why: the dashboard polls this instead of streaming the container shell.
-       */
-      pythonRun: {
-        status: { type: String, default: "" },
-        exitCode: { type: Number, default: null },
-        stdout: { type: String, default: "" },
-        stderr: { type: String, default: "" },
-        scriptName: { type: String, default: "" },
-        at: { type: Date, default: null },
-      },
     },
     /**
      * Latest JPEG screenshot from the cloud computer (base64, no data: prefix).
@@ -333,7 +321,7 @@ const agentSchema = new mongoose.Schema(
           id: { type: String, required: true },
           type: {
             type: String,
-            enum: ["click", "type", "key", "scroll", "session", "clear_browser_data", "run_python"],
+            enum: ["click", "type", "key", "scroll", "session", "clear_browser_data"],
             required: true,
           },
           /** Normalized 0–1 coords relative to the live screenshot / viewport. */

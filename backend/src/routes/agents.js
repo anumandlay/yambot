@@ -735,7 +735,6 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
         attentionReason,
         attentionAt: agent.computer?.attentionAt || null,
         browserData: agent.computer?.browserData || null,
-        pythonRun: agent.computer?.pythonRun || null,
       },
     });
   } catch (err) {
@@ -745,17 +744,17 @@ agentsRouter.get("/:id/live", async (req, res, next) => {
 
 /**
  * POST /api/agents/:id/control — queue a remote input for the cloud worker (takeover).
- * Body: { type: click|type|key|scroll|session|clear_browser_data|run_python, xNorm?, yNorm?, text?, key?, dy?, active? }
+ * Body: { type: click|type|key|scroll|session|clear_browser_data, xNorm?, yNorm?, text?, key?, dy?, active? }
  * Why `session`: toggles humanControl so the worker pauses/resumes the LLM agent loop.
  */
 agentsRouter.post("/:id/control", async (req, res, next) => {
   try {
     const type = String(req.body?.type || "").trim();
-    if (!["click", "type", "key", "scroll", "session", "clear_browser_data", "run_python"].includes(type)) {
+    if (!["click", "type", "key", "scroll", "session", "clear_browser_data"].includes(type)) {
       res.status(400).json({
         ok: false,
         title: "Invalid control",
-        detail: "type must be click, type, key, scroll, session, clear_browser_data, or run_python",
+        detail: "type must be click, type, key, scroll, session, or clear_browser_data",
       });
       return;
     }
@@ -862,54 +861,6 @@ agentsRouter.post("/:id/control", async (req, res, next) => {
         command: clearCmd,
         queued: agent.controlQueue.length,
         detail: "Queued — the cloud computer will clear cookies, cache, and downloads shortly.",
-      });
-      return;
-    }
-
-    // Why: pasted Python runs on the agent box, not in the browser page.
-    if (type === "run_python") {
-      const script = String(req.body?.text || "");
-      if (!script.trim()) {
-        res.status(400).json({ ok: false, title: "Empty script", detail: "Paste a Python script first." });
-        return;
-      }
-      if (script.length > 80_000) {
-        res.status(400).json({
-          ok: false,
-          title: "Script too large",
-          detail: "Keep the script under 80,000 characters.",
-        });
-        return;
-      }
-      const scriptName = String(req.body?.scriptName || "script.py").slice(0, 80);
-      const pyCmd = {
-        id: crypto.randomBytes(8).toString("hex"),
-        type: "run_python",
-        text: script,
-        key: scriptName,
-        at: new Date(),
-      };
-      agent.controlQueue = agent.controlQueue || [];
-      agent.controlQueue.push(pyCmd);
-      if (agent.controlQueue.length > 80) {
-        agent.controlQueue = agent.controlQueue.slice(-80);
-      }
-      agent.computer = agent.computer || {};
-      agent.computer.pythonRun = {
-        status: "queued",
-        exitCode: null,
-        stdout: "",
-        stderr: "",
-        scriptName,
-        at: new Date(),
-      };
-      agent.markModified("computer");
-      await agent.save();
-      res.json({
-        ok: true,
-        command: { id: pyCmd.id, type: pyCmd.type, scriptName },
-        queued: agent.controlQueue.length,
-        detail: "Queued — the agent computer will run this Python script shortly.",
       });
       return;
     }
