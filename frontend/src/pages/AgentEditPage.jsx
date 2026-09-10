@@ -99,8 +99,6 @@ export function AgentEditPage() {
   const [form, setForm] = useState(EMPTY);
   const [jobBrief, setJobBrief] = useState("");
   const [draftBusy, setDraftBusy] = useState(false);
-  const [csvText, setCsvText] = useState("");
-  const [importBusy, setImportBusy] = useState(false);
   const [scheduleIntervals, setScheduleIntervals] = useState([
     "15m",
     "30m",
@@ -330,63 +328,6 @@ export function AgentEditPage() {
     } finally {
       setDraftBusy(false);
     }
-  }
-
-  /**
-   * Imports CSV leads into this agent's territory group (selected Group field).
-   * @param {string} text
-   */
-  async function importLeadsCsv(text) {
-    const csv = String(text || "").trim();
-    if (!csv) return;
-    if (!form.group) {
-      setError({
-        title: "Pick a group first",
-        detail: "Select a Group (e.g. USA) above so leads go into that territory database.",
-        hint: "Create groups on the Agents list if you do not have one yet.",
-      });
-      return;
-    }
-    setImportBusy(true);
-    setError(null);
-    setOkMsg("");
-    try {
-      const data = await api("/api/entities/import", {
-        method: "POST",
-        body: JSON.stringify({
-          csv,
-          entityType: "lead",
-          updateExisting: true,
-          groupId: form.group,
-        }),
-        timeoutMs: 120_000,
-      });
-      setCsvText("");
-      const groupName =
-        agentGroups.find((g) => String(g._id) === String(form.group))?.name || "this group";
-      const parts = [
-        `${data.created || 0} created`,
-        `${data.updated || 0} updated`,
-        `territory: ${groupName}`,
-      ];
-      if (data.skipped) parts.push(`${data.skipped} skipped`);
-      setOkMsg(`Leads imported: ${parts.join(", ")}. Agents in this group can search_entities them.`);
-    } catch (err) {
-      setError(err);
-    } finally {
-      setImportBusy(false);
-    }
-  }
-
-  /**
-   * @param {import("react").ChangeEvent<HTMLInputElement>} e
-   */
-  async function onLeadsCsvFile(e) {
-    const file = e.target.files?.[0];
-    e.target.value = "";
-    if (!file) return;
-    const text = await file.text();
-    await importLeadsCsv(text);
   }
 
   /**
@@ -657,56 +598,6 @@ export function AgentEditPage() {
             ))}
           </select>
         </label>
-
-        <div className="flex flex-col gap-2 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
-          <div className="flex flex-wrap items-center justify-between gap-2">
-            <FieldLabel helpId="agent.leadsUpload">Upload leads to this agent’s group</FieldLabel>
-            <label className="cursor-pointer text-xs font-semibold text-teal-800 underline">
-              Choose CSV file
-              <input
-                type="file"
-                accept=".csv,text/csv"
-                className="hidden"
-                onChange={onLeadsCsvFile}
-                disabled={importBusy}
-              />
-            </label>
-          </div>
-          <p className="text-xs text-teal-900/65">
-            Imports into the <strong>Group</strong> selected above (e.g. USA). All agents in that
-            group share these leads. Formats:{" "}
-            <code className="font-mono text-[0.7rem]">email,name,company</code> or{" "}
-            <code className="font-mono text-[0.7rem]">name,type,email</code>.
-            {!form.group ? (
-              <span className="font-semibold text-amber-800"> Select a group first.</span>
-            ) : (
-              <span>
-                {" "}
-                Territory:{" "}
-                <strong>
-                  {agentGroups.find((g) => String(g._id) === String(form.group))?.name || "selected"}
-                </strong>
-              </span>
-            )}
-          </p>
-          <textarea
-            className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2 font-mono text-xs"
-            value={csvText}
-            onChange={(e) => setCsvText(e.target.value)}
-            placeholder={
-              "email,name,company\njane@agency.com,Jane Doe,Sunrise Travel\n\nor:\n\nname,type,email\nSunrise Travel,lead,support@vughy.com"
-            }
-            disabled={importBusy}
-          />
-          <button
-            type="button"
-            disabled={importBusy || !csvText.trim() || !form.group}
-            onClick={() => importLeadsCsv(csvText)}
-            className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {importBusy ? "Importing…" : "Import leads"}
-          </button>
-        </div>
 
         <label className="flex flex-col gap-1 text-sm">
           <FieldLabel helpId="agent.description">Short description</FieldLabel>

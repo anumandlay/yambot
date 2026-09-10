@@ -529,15 +529,7 @@ export const HELP = {
     title: "Agent group",
     body: helpBody(
       "Optional folder on the Agents list (e.g. USA). Create groups from the Agents page filter bar.",
-      "Also the territory for Company leads and tickets: agents in the same group share that database. Upload leads on this page into the selected group."
-    ),
-  },
-  "agent.leadsUpload": {
-    title: "Upload leads",
-    body: helpBody(
-      "Paste or choose a CSV of leads. They are saved into the Group selected above (not a private per-agent file).",
-      "Formats: email,name,company or name,type,email. New leads get status \"new\". Any agent in that group can search_entities them.",
-      "Pick a group first (e.g. USA). You can upload before or after saving the agent."
+      "Also the territory for Company leads and tickets: agents in the same group share that database. Import leads from Company → Entities."
     ),
   },
   "agent.description": {

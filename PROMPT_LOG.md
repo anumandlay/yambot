@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-10 15:24] Remove agent-page leads upload
+
+- **Prompt Provided:** On `/agents/new`, remove "Upload leads to this agent's group" and all related functionality.
+- **Architectural Flow:** Dropped CSV upload UI + handlers from AgentEditPage (new + edit). Company → Entities import (`POST /api/entities/import`) stays. Help key `agent.leadsUpload` removed; group help points to Company.
+- **Impacted Files:** `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-08 15:26] Remove live-screen Python runner
 
 - **Prompt Provided:** Remove the original scraper run as well; this functionality should not exist in YamBot.
