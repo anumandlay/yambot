@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-10 15:27] Vision screenshots off by default
+
+- **Prompt Provided:** Enable vision screenshots (error recovery on cloud worker) — by default uncheck.
+- **Architectural Flow:** New agents default `autonomy.visionEnabled` to false in UI EMPTY form, Agent schema, create/update body parse, worker vision gate, and autonomy prompt string. Opt-in only.
+- **Impacted Files:** `frontend/src/pages/AgentEditPage.jsx`, `backend/src/models/Agent.js`, `backend/src/routes/agents.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-10 15:24] Remove agent-page leads upload
 
 - **Prompt Provided:** On `/agents/new`, remove "Upload leads to this agent's group" and all related functionality.

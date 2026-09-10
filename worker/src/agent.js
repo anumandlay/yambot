@@ -1959,7 +1959,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const sessionTelemetry = telemetry?.getSummary();
         const prevResult = history[history.length - 1]?.result;
-        const visionAllowed = agentSnapshot?.autonomy?.visionEnabled !== false;
+        const visionAllowed = agentSnapshot?.autonomy?.visionEnabled === true;
         const wantVision =
           visionAllowed &&
           shouldAttachVision({ step, result: prevResult }) &&

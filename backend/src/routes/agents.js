@@ -218,7 +218,7 @@ function pickAgentFields(body, opts = {}) {
       allowCaptcha: body.autonomy.allowCaptcha !== false,
       askBeforeLogin: body.autonomy.askBeforeLogin === true,
       askBeforeSubmit: body.autonomy.askBeforeSubmit === true,
-      visionEnabled: body.autonomy.visionEnabled !== false,
+      visionEnabled: body.autonomy.visionEnabled === true,
     });
   }
   if (body.role != null) {

@@ -60,8 +60,8 @@ const autonomySchema = new mongoose.Schema(
     allowCaptcha: { type: Boolean, default: true },
     askBeforeLogin: { type: Boolean, default: true },
     askBeforeSubmit: { type: Boolean, default: false },
-    /** When false, cloud worker never attaches viewport screenshots to the LLM. */
-    visionEnabled: { type: Boolean, default: true },
+    /** When true, cloud worker may attach viewport screenshots to the LLM for error recovery. */
+    visionEnabled: { type: Boolean, default: false },
   },
   { _id: false }
 );
@@ -449,7 +449,7 @@ export function formatAgentPrompt(snapshot) {
     snapshot.email?.configured
       ? `EMAIL IDENTITY: You can send/read mail as ${snapshot.email.fromName || ""} <${snapshot.email.fromAddress}>. Use send_email and check_email actions for verification codes, outreach, or human-like correspondence.`
       : "",
-    `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}; visionEnabled=${auto.visionEnabled !== false}`,
+    `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}; visionEnabled=${auto.visionEnabled === true}`,
     "STEP BUDGET: unlimited — call finish when done",
     formatMemoryBlock(snapshot.memory),
   ]
