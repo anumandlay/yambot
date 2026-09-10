@@ -117,7 +117,7 @@ export async function enqueueTask(opts) {
     priority,
     priorityRank: priorityRank(priority),
     agent: agentId,
-    agentSnapshot: toAgentSnapshot(agentDoc),
+    agentSnapshot: toAgentSnapshot(agentDoc, { goal: goalText }),
     runner: "cloud",
     status: blockedByDeps > 0 ? "blocked" : "pending",
     dependsOn,

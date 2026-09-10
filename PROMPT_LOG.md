@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-10 15:41] Agent memory vault + day history
+
+- **Prompt Provided:** Implement agent memory + credential vault plan — day-wise history, keyword retrieval into new chats, user-entered credentials only (plaintext in UI, encrypted at rest), per-agent scope.
+- **Architectural Flow:** `Agent.dayLogs` + `Agent.credentials`; task complete appends day rollup; `toAgentSnapshot(goal)` selects recent + keyword-matched detail; worker `formatAgentSnapshot` injects SAVED LOGINS + day history; View memory UI for days/filter/vault CRUD.
+- **Impacted Files:** `backend/src/models/Agent.js`, `backend/src/routes/worker.js`, `backend/src/routes/agents.js`, `backend/src/routes/chats.js`, `backend/src/routes/goals.js`, `backend/src/routes/workforce.js`, `backend/src/utils/enqueueTask.js`, `backend/src/utils/scheduler.js`, `worker/src/agent.js`, `frontend/src/pages/AgentMemoryPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-10 15:27] Vision screenshots off by default
 
 - **Prompt Provided:** Enable vision screenshots (error recovery on cloud worker) — by default uncheck.

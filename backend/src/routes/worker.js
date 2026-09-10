@@ -8,7 +8,7 @@ import { Router } from "express";
 import { Task } from "../models/Task.js";
 import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
-import { Agent, appendAgentMemory, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
+import { Agent, appendAgentMemory, appendAgentDayLog, extractMemoryKeywords, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
 import { Goal, recordGoalRun } from "../models/Goal.js";
 import { applyKpiFromTaskSummary } from "../utils/kpiUpdater.js";
 import { applyAutoKpiFromTask } from "../utils/kpiAutoMap.js";
@@ -541,6 +541,34 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
         await appendAgentMemory(agentDoc, {
           kind: success ? "run" : "avoid",
           content: memContent,
+          sourceTask: task._id,
+        });
+        const traj = Array.isArray(task.trajectory) ? task.trajectory : [];
+        const trajDigest = traj
+          .slice(-12)
+          .map((step, i) => {
+            const act = step?.action?.type || step?.type || "step";
+            const note = step?.result || step?.observation || step?.summary || "";
+            return `${i + 1}. ${act}${note ? `: ${String(note).slice(0, 120)}` : ""}`;
+          })
+          .join("\n");
+        const detail = [
+          `Goal: ${task.goal}`,
+          success ? `Result: ${summary}` : `Error: ${error || summary}`,
+          trajDigest ? `Trajectory:\n${trajDigest}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n\n")
+          .slice(0, 4000);
+        const keywords = extractMemoryKeywords(
+          `${task.goal}\n${summary}\n${error}\n${trajDigest}`
+        );
+        await appendAgentDayLog(agentDoc, {
+          summary: success
+            ? `${String(summary || "Done").slice(0, 400)} — goal: ${String(task.goal).slice(0, 200)}`
+            : `Failed: ${String(error || summary || "error").slice(0, 300)} — goal: ${String(task.goal).slice(0, 200)}`,
+          detail,
+          keywords,
           sourceTask: task._id,
         });
       }

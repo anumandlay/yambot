@@ -708,6 +708,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       meta: Object.keys(messageMeta).length ? messageMeta : null,
     });
 
+    // Why: rebuild snapshot with final goal so day-history keyword retrieval matches this chat.
+    snapshot = toAgentSnapshot(agentDoc, { goal: goalText || content });
+
     const task = await Task.create({
       user: req.userId,
       chat: chat._id,

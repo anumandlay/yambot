@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention } from "../models/Agent.js";
+import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention, decryptAgentCredentials, encryptCredentialPassword } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
 import {
@@ -107,6 +107,23 @@ function publicAgent(agent, ctx = {}) {
   };
   a.email = publicEmailSummary(a);
   a.llm = publicLlmSummary(a);
+  // Why: passwords live only on the dedicated memory/credentials endpoints (plaintext there by design).
+  if (Array.isArray(a.credentials)) {
+    a.credentials = a.credentials.map((c) => ({
+      id: c._id ? String(c._id) : "",
+      label: c.label || "",
+      siteHost: c.siteHost || "",
+      username: c.username || "",
+      email: c.email || "",
+      hasPassword: Boolean(c.passwordEnc),
+      notes: c.notes || "",
+      at: c.at || null,
+    }));
+  }
+  if (Array.isArray(a.dayLogs)) {
+    a.dayLogsCount = a.dayLogs.length;
+    delete a.dayLogs;
+  }
   a.readiness = computeAgentReadiness(a, ctx);
   return a;
 }
@@ -991,13 +1008,13 @@ agentsRouter.put("/:id", async (req, res, next) => {
 });
 
 /**
- * GET /api/agents/:id/memory — read this agent's long-term notes (newest first).
+ * GET /api/agents/:id/memory — read this agent's notes, day history, and credential vault.
  * Why: operators need a dedicated view without opening the full editor.
  */
 agentsRouter.get("/:id/memory", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
-      .select("name memory")
+      .select("name memory dayLogs credentials")
       .lean();
     if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
@@ -1010,11 +1027,23 @@ agentsRouter.get("/:id/memory", async (req, res, next) => {
       at: m.at || null,
       sourceTask: m.sourceTask ? String(m.sourceTask) : "",
     }));
+    const dayLogs = (Array.isArray(agent.dayLogs) ? agent.dayLogs : []).map((d) => ({
+      id: d._id ? String(d._id) : "",
+      day: d.day || "",
+      summary: d.summary || "",
+      keywords: Array.isArray(d.keywords) ? d.keywords : [],
+      detail: d.detail || "",
+      sourceTasks: Array.isArray(d.sourceTasks) ? d.sourceTasks.map(String) : [],
+      at: d.at || null,
+    }));
+    const credentials = decryptAgentCredentials(agent.credentials);
     res.json({
       ok: true,
       agent: { id: String(agent._id), name: agent.name || "Agent" },
       total: memory.length,
       memory,
+      dayLogs,
+      credentials,
     });
   } catch (err) {
     next(err);
@@ -1038,6 +1067,10 @@ agentsRouter.post("/:id/memory", async (req, res, next) => {
   }
 });
 
+/**
+ * DELETE /api/agents/:id/memory — clear episodic notes and day logs (credentials kept).
+ * Body: { includeCredentials?: boolean } — when true, also wipes the vault.
+ */
 agentsRouter.delete("/:id/memory", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
@@ -1046,8 +1079,151 @@ agentsRouter.delete("/:id/memory", async (req, res, next) => {
       return;
     }
     agent.memory = [];
+    agent.dayLogs = [];
+    if (req.body?.includeCredentials === true) {
+      agent.credentials = [];
+    }
     await agent.save();
     res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/agents/:id/credentials — list saved logins with plaintext passwords.
+ */
+agentsRouter.get("/:id/credentials", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("name credentials")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    res.json({
+      ok: true,
+      agent: { id: String(agent._id), name: agent.name || "Agent" },
+      credentials: decryptAgentCredentials(agent.credentials),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/credentials — add a user-entered login (agent cannot invent these).
+ * Body: { label?, siteHost?, username?, email?, password?, notes? }
+ */
+agentsRouter.post("/:id/credentials", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const label = String(req.body?.label || "").trim();
+    const siteHost = String(req.body?.siteHost || "").trim().toLowerCase();
+    const username = String(req.body?.username || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const password = String(req.body?.password || "");
+    const notes = String(req.body?.notes || "").trim().slice(0, 500);
+    if (!label && !siteHost && !username && !email) {
+      res.status(400).json({
+        ok: false,
+        title: "Incomplete",
+        detail: "Provide at least a label, site, username, or email.",
+      });
+      return;
+    }
+    agent.credentials = agent.credentials || [];
+    if (agent.credentials.length >= 40) {
+      res.status(400).json({
+        ok: false,
+        title: "Vault full",
+        detail: "This agent already has 40 saved logins. Delete one first.",
+      });
+      return;
+    }
+    agent.credentials.push({
+      label: label.slice(0, 120),
+      siteHost: siteHost.slice(0, 200),
+      username: username.slice(0, 200),
+      email: email.slice(0, 200),
+      passwordEnc: encryptCredentialPassword(password),
+      notes,
+      at: new Date(),
+    });
+    await agent.save();
+    res.status(201).json({
+      ok: true,
+      credentials: decryptAgentCredentials(agent.credentials),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PATCH /api/agents/:id/credentials/:credId — update a saved login.
+ */
+agentsRouter.patch("/:id/credentials/:credId", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const cred = (agent.credentials || []).id(req.params.credId);
+    if (!cred) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Credential missing" });
+      return;
+    }
+    if (req.body?.label != null) cred.label = String(req.body.label).trim().slice(0, 120);
+    if (req.body?.siteHost != null) {
+      cred.siteHost = String(req.body.siteHost).trim().toLowerCase().slice(0, 200);
+    }
+    if (req.body?.username != null) cred.username = String(req.body.username).trim().slice(0, 200);
+    if (req.body?.email != null) cred.email = String(req.body.email).trim().slice(0, 200);
+    if (req.body?.notes != null) cred.notes = String(req.body.notes).trim().slice(0, 500);
+    if (typeof req.body?.password === "string" && req.body.password.length > 0) {
+      cred.passwordEnc = encryptCredentialPassword(req.body.password);
+    }
+    cred.at = new Date();
+    await agent.save();
+    res.json({
+      ok: true,
+      credentials: decryptAgentCredentials(agent.credentials),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/credentials/:credId — remove one saved login.
+ */
+agentsRouter.delete("/:id/credentials/:credId", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const before = (agent.credentials || []).length;
+    agent.credentials = (agent.credentials || []).filter(
+      (c) => String(c._id) !== String(req.params.credId)
+    );
+    if (agent.credentials.length === before) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Credential missing" });
+      return;
+    }
+    await agent.save();
+    res.json({
+      ok: true,
+      credentials: decryptAgentCredentials(agent.credentials),
+    });
   } catch (err) {
     next(err);
   }

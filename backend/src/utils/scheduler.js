@@ -88,7 +88,7 @@ export async function runScheduledAgent(agent) {
   }
 
   const chat = await ensureScheduleChat(agent);
-  const snapshot = toAgentSnapshot(agent);
+  const snapshot = toAgentSnapshot(agent, { goal });
   const now = new Date();
 
   const message = await Message.create({

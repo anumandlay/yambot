@@ -188,7 +188,7 @@ workforceRouter.post("/run-goal/:goalId", async (req, res, next) => {
       priority: goal.priority || "normal",
       priorityRank: priorityRank(goal.priority),
       agent: agentDoc._id,
-      agentSnapshot: toAgentSnapshot(agentDoc),
+      agentSnapshot: toAgentSnapshot(agentDoc, { goal: runText }),
       runner: "cloud",
       status: "pending",
       events: [{ type: "queued", payload: { goalId: String(goal._id), delegated: true } }],

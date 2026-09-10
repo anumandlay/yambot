@@ -860,8 +860,54 @@ export const HELP = {
   "agent.memory": {
     title: "Agent memory notes",
     body: helpBody(
-      "Long-term notes the agent (or you) append across runs — surfaced in future prompts. Use for lessons learned, site quirks, customer context."
+      "Long-term notes the agent (or you) append across runs — surfaced in future prompts. Use for lessons learned, site quirks, customer context.",
+      "Open View memory for day-by-day history and the login vault."
     ),
+  },
+  "agent.memory.credentials": {
+    title: "Saved logins",
+    body: helpBody(
+      "You enter usernames, emails, and passwords for sites this agent uses. Passwords are encrypted in the database and shown in plain text here.",
+      "The agent may reuse these when the site matches. It cannot invent or auto-save new passwords."
+    ),
+  },
+  "agent.memory.credLabel": {
+    title: "Login label",
+    body: helpBody("Friendly name so you can tell accounts apart (e.g. Gmail work)."),
+  },
+  "agent.memory.credSite": {
+    title: "Site host",
+    body: helpBody("Hostname the agent should match, e.g. accounts.google.com or salescrm.vughy.com."),
+  },
+  "agent.memory.credUser": {
+    title: "Username",
+    body: helpBody("Optional username field for sites that use username instead of email."),
+  },
+  "agent.memory.credEmail": {
+    title: "Email",
+    body: helpBody("Login email for this site."),
+  },
+  "agent.memory.credPassword": {
+    title: "Password",
+    body: helpBody("Shown in plain text on this page by design. Stored encrypted at rest."),
+  },
+  "agent.memory.credNotes": {
+    title: "Login notes",
+    body: helpBody("Optional hints (MFA app, which mailbox, etc.)."),
+  },
+  "agent.memory.dayHistory": {
+    title: "Day history",
+    body: helpBody(
+      "Each completed run adds to that calendar day’s summary. New chats always receive recent day summaries; keyword matches also inject fuller detail."
+    ),
+  },
+  "agent.memory.filter": {
+    title: "Filter history",
+    body: helpBody("Filter day entries by words from goals or results (e.g. a city name or site)."),
+  },
+  "agent.memory.notes": {
+    title: "Short notes",
+    body: helpBody("Compact run/avoid/manual notes also injected into prompts."),
   },
   "agent.liveScreen": {
     title: "Live cloud screen",

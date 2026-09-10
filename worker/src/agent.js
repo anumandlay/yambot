@@ -1335,6 +1335,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const domains = (snapshot.allowedDomains || []).filter(Boolean).join(", ");
     const auto = snapshot.autonomy || {};
     const credsInGoal = goalIncludesLoginCredentials(goal);
+    const vault = Array.isArray(snapshot.credentials) ? snapshot.credentials : [];
     const effectiveAskLogin = Boolean(auto.askBeforeLogin) && !credsInGoal;
     const memory = Array.isArray(snapshot.memory)
       ? snapshot.memory
@@ -1342,6 +1343,34 @@ export function createCloudAgent({ api, config, log = console.log }) {
           .map((m) => `- [${m.kind || "note"}] ${m.content}`)
           .join("\n")
       : "";
+    const recentDays = Array.isArray(snapshot.dayHistoryRecent)
+      ? snapshot.dayHistoryRecent
+          .map((d) => `- [${d.day}] ${d.summary || ""}`)
+          .join("\n")
+      : "";
+    const relevantDays = Array.isArray(snapshot.dayHistoryRelevant)
+      ? snapshot.dayHistoryRelevant
+          .map((d) => {
+            const head = `- [${d.day}] ${d.summary || ""}`;
+            const detail = d.detail ? `\n  DETAIL: ${String(d.detail).replace(/\n/g, "\n  ")}` : "";
+            return head + detail;
+          })
+          .join("\n")
+      : "";
+    const vaultLines = vault
+      .slice(0, 20)
+      .map((c) => {
+        const bits = [
+          c.label || c.siteHost || "login",
+          c.siteHost ? `site=${c.siteHost}` : "",
+          c.username ? `username=${c.username}` : "",
+          c.email ? `email=${c.email}` : "",
+          c.password ? `password=${c.password}` : "",
+          c.notes ? `notes=${c.notes}` : "",
+        ].filter(Boolean);
+        return `- ${bits.join(" | ")}`;
+      })
+      .join("\n");
     return [
       `AGENT NAME: ${snapshot.name}`,
       snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
@@ -1362,6 +1391,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
       `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${effectiveAskLogin}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
       credsInGoal
         ? "LOGIN: credentials are in the task GOAL — enter them without ask_user confirmation."
+        : "",
+      vaultLines
+        ? `SAVED LOGINS (use when the site matches; do NOT invent or store new passwords):\n${vaultLines}`
+        : "",
+      recentDays
+        ? `RECENT DAY HISTORY (always use to avoid repeating work):\n${recentDays}`
+        : "",
+      relevantDays
+        ? `RELEVANT PAST WORK (matched keywords from this goal):\n${relevantDays}`
         : "",
       memory ? `AGENT MEMORY:\n${memory}` : "",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",

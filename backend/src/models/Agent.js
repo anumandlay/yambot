@@ -6,6 +6,7 @@
  */
 
 import mongoose from "mongoose";
+import { decryptSecret, encryptSecret } from "../utils/crypto.js";
 
 /**
  * Where queued goals run — cloud-only product (legacy values may exist in Mongo).
@@ -359,16 +360,218 @@ const agentSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    /**
+     * Day-wise work history — one rollup per calendar day (UTC), newest first.
+     * Why: operators want a diary of what the agent did; keywords drive retrieval into new chats.
+     */
+    dayLogs: {
+      type: [
+        {
+          day: { type: String, required: true, trim: true },
+          summary: { type: String, default: "", trim: true },
+          keywords: { type: [String], default: [] },
+          detail: { type: String, default: "", trim: true },
+          sourceTasks: {
+            type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Task" }],
+            default: [],
+          },
+          at: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
+    /**
+     * User-managed site logins for this agent only.
+     * Why: agent reuses what you saved; never invents or auto-stores passwords.
+     * passwordEnc is AES-GCM at rest; UI/API decrypt for display and worker prompts.
+     */
+    credentials: {
+      type: [
+        {
+          label: { type: String, default: "", trim: true },
+          siteHost: { type: String, default: "", trim: true },
+          username: { type: String, default: "", trim: true },
+          email: { type: String, default: "", trim: true },
+          passwordEnc: { type: String, default: "" },
+          notes: { type: String, default: "", trim: true },
+          at: { type: Date, default: Date.now },
+        },
+      ],
+      default: [],
+    },
   },
   { timestamps: true }
 );
 
+/** Stopwords ignored when extracting keywords from goals / results. */
+const MEMORY_STOPWORDS = new Set([
+  "a",
+  "an",
+  "the",
+  "and",
+  "or",
+  "to",
+  "of",
+  "in",
+  "on",
+  "for",
+  "with",
+  "from",
+  "by",
+  "at",
+  "is",
+  "are",
+  "was",
+  "were",
+  "be",
+  "this",
+  "that",
+  "it",
+  "as",
+  "into",
+  "your",
+  "you",
+  "me",
+  "my",
+  "please",
+  "then",
+  "than",
+  "also",
+  "just",
+  "can",
+  "will",
+  "should",
+  "have",
+  "has",
+  "had",
+  "do",
+  "does",
+  "did",
+  "not",
+  "no",
+  "yes",
+  "http",
+  "https",
+  "www",
+  "com",
+]);
+
+/**
+ * Tokenizes free text into keyword tokens for memory retrieval.
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function extractMemoryKeywords(text) {
+  const raw = String(text || "")
+    .toLowerCase()
+    .replace(/https?:\/\/[^\s]+/g, " ")
+    .replace(/[^a-z0-9@._-]+/g, " ");
+  const out = [];
+  const seen = new Set();
+  for (const tok of raw.split(/\s+/)) {
+    const t = tok.replace(/^[,.;:]+|[,.;:]+$/g, "").trim();
+    if (t.length < 3 || MEMORY_STOPWORDS.has(t) || seen.has(t)) continue;
+    seen.add(t);
+    out.push(t);
+    if (out.length >= 40) break;
+  }
+  return out;
+}
+
+/**
+ * @param {Date|string|number} [d]
+ * @returns {string} YYYY-MM-DD (UTC)
+ */
+export function utcDayKey(d = new Date()) {
+  const dt = d instanceof Date ? d : new Date(d);
+  if (Number.isNaN(dt.getTime())) return new Date().toISOString().slice(0, 10);
+  return dt.toISOString().slice(0, 10);
+}
+
+/**
+ * Scores how many query keywords appear in a bag of strings.
+ * @param {string[]} queryKw
+ * @param {string[]} haystackParts
+ * @returns {number}
+ */
+function keywordOverlapScore(queryKw, haystackParts) {
+  if (!queryKw.length) return 0;
+  const hay = haystackParts
+    .filter(Boolean)
+    .join(" ")
+    .toLowerCase();
+  let score = 0;
+  for (const kw of queryKw) {
+    if (hay.includes(kw)) score += 1;
+  }
+  return score;
+}
+
+/**
+ * Picks recent day logs plus keyword-matched logs for the next run.
+ * @param {object[]} dayLogs
+ * @param {string} goalText
+ * @returns {{ recent: object[], relevant: object[] }}
+ */
+export function selectDayLogsForGoal(dayLogs, goalText) {
+  const logs = Array.isArray(dayLogs) ? dayLogs : [];
+  const queryKw = extractMemoryKeywords(goalText);
+  const recent = logs.slice(0, 7).map((d) => ({
+    day: d.day,
+    summary: d.summary || "",
+    keywords: Array.isArray(d.keywords) ? d.keywords.slice(0, 20) : [],
+    at: d.at,
+  }));
+  const scored = logs
+    .map((d, idx) => ({
+      idx,
+      score: keywordOverlapScore(queryKw, [
+        d.summary,
+        d.detail,
+        ...(Array.isArray(d.keywords) ? d.keywords : []),
+      ]),
+      log: d,
+    }))
+    .filter((x) => x.score >= 2)
+    .sort((a, b) => b.score - a.score || a.idx - b.idx)
+    .slice(0, 5);
+  const relevant = scored.map((x) => ({
+    day: x.log.day,
+    summary: x.log.summary || "",
+    keywords: Array.isArray(x.log.keywords) ? x.log.keywords.slice(0, 20) : [],
+    detail: String(x.log.detail || "").slice(0, 4000),
+    score: x.score,
+    at: x.log.at,
+  }));
+  return { recent, relevant };
+}
+
+/**
+ * Decrypts credentials for snapshot / API responses.
+ * @param {object[]} credentials
+ * @returns {object[]}
+ */
+export function decryptAgentCredentials(credentials) {
+  if (!Array.isArray(credentials)) return [];
+  return credentials.map((c) => ({
+    id: c._id ? String(c._id) : "",
+    label: c.label || "",
+    siteHost: c.siteHost || "",
+    username: c.username || "",
+    email: c.email || "",
+    password: decryptSecret(c.passwordEnc || "") || "",
+    notes: c.notes || "",
+    at: c.at || null,
+  }));
+}
+
 /**
  * Builds a plain snapshot embedded on Task so runs stay stable if the agent is edited later.
- * @param {import('mongoose').Document} agentDoc
+ * @param {import('mongoose').Document|object} agentDoc
+ * @param {{ goal?: string }} [opts] — goal text drives keyword retrieval of day history
  * @returns {object}
  */
-export function toAgentSnapshot(agentDoc) {
+export function toAgentSnapshot(agentDoc, opts = {}) {
   const a = agentDoc.toObject ? agentDoc.toObject() : agentDoc;
   const email = a.email || {};
   const hasMail =
@@ -376,6 +579,8 @@ export function toAgentSnapshot(agentDoc) {
     Boolean(email.smtpHost) &&
     Boolean(email.fromAddress || email.smtpUser) &&
     Boolean(email.smtpPasswordEnc);
+  const goalText = String(opts.goal || "").trim();
+  const { recent, relevant } = selectDayLogsForGoal(a.dayLogs, goalText);
   return {
     id: String(a._id),
     name: a.name,
@@ -411,6 +616,9 @@ export function toAgentSnapshot(agentDoc) {
           at: m.at,
         }))
       : [],
+    dayHistoryRecent: recent,
+    dayHistoryRelevant: relevant,
+    credentials: decryptAgentCredentials(a.credentials),
   };
 }
 
@@ -451,10 +659,66 @@ export function formatAgentPrompt(snapshot) {
       : "",
     `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}; visionEnabled=${auto.visionEnabled === true}`,
     "STEP BUDGET: unlimited — call finish when done",
+    formatCredentialsBlock(snapshot.credentials),
+    formatDayHistoryBlock(snapshot.dayHistoryRecent, snapshot.dayHistoryRelevant),
     formatMemoryBlock(snapshot.memory),
   ]
     .filter(Boolean)
     .join("\n\n");
+}
+
+/**
+ * @param {object[]|undefined} credentials
+ * @returns {string}
+ */
+function formatCredentialsBlock(credentials) {
+  if (!Array.isArray(credentials) || credentials.length === 0) return "";
+  const lines = credentials
+    .slice(0, 20)
+    .map((c) => {
+      const bits = [
+        c.label || c.siteHost || "login",
+        c.siteHost ? `site=${c.siteHost}` : "",
+        c.username ? `username=${c.username}` : "",
+        c.email ? `email=${c.email}` : "",
+        c.password ? `password=${c.password}` : "",
+        c.notes ? `notes=${c.notes}` : "",
+      ].filter(Boolean);
+      return `- ${bits.join(" | ")}`;
+    })
+    .join("\n");
+  return (
+    "SAVED LOGINS (use when the site matches; do NOT invent or store new passwords — only the human may add logins):\n" +
+    lines
+  );
+}
+
+/**
+ * @param {object[]|undefined} recent
+ * @param {object[]|undefined} relevant
+ * @returns {string}
+ */
+function formatDayHistoryBlock(recent, relevant) {
+  const parts = [];
+  if (Array.isArray(recent) && recent.length) {
+    const lines = recent
+      .map((d) => `- [${d.day}] ${d.summary || "(no summary)"}`)
+      .join("\n");
+    parts.push(`RECENT DAY HISTORY (always use to avoid repeating work):\n${lines}`);
+  }
+  if (Array.isArray(relevant) && relevant.length) {
+    const lines = relevant
+      .map((d) => {
+        const head = `- [${d.day}] ${d.summary || "(matched past work)"}`;
+        const detail = d.detail ? `\n  DETAIL: ${d.detail.replace(/\n/g, "\n  ")}` : "";
+        return head + detail;
+      })
+      .join("\n");
+    parts.push(
+      `RELEVANT PAST WORK (matched keywords from this goal — prefer this detail when continuing):\n${lines}`
+    );
+  }
+  return parts.join("\n\n");
 }
 
 /**
@@ -494,6 +758,78 @@ export async function appendAgentMemory(agentDoc, entry, cap = 50) {
   }
   await agentDoc.save();
   return agentDoc;
+}
+
+/**
+ * Upserts today's day log with a new run summary/detail/keywords.
+ * @param {import('mongoose').Document} agentDoc
+ * @param {{ summary: string, detail?: string, keywords?: string[], sourceTask?: string|import('mongoose').Types.ObjectId, at?: Date }} entry
+ * @param {{ dayCap?: number }} [opts]
+ */
+export async function appendAgentDayLog(agentDoc, entry, opts = {}) {
+  const dayCap = opts.dayCap ?? 90;
+  const at = entry.at instanceof Date ? entry.at : new Date();
+  const day = utcDayKey(at);
+  const summaryLine = String(entry.summary || "").trim().slice(0, 1500);
+  if (!summaryLine && !entry.detail) return agentDoc;
+
+  const kw = Array.isArray(entry.keywords)
+    ? entry.keywords.map((k) => String(k).toLowerCase().trim()).filter(Boolean)
+    : extractMemoryKeywords(`${summaryLine}\n${entry.detail || ""}`);
+  const detailChunk = String(entry.detail || "").trim().slice(0, 4000);
+
+  agentDoc.dayLogs = agentDoc.dayLogs || [];
+  let row = agentDoc.dayLogs.find((d) => d.day === day);
+  if (!row) {
+    agentDoc.dayLogs.unshift({
+      day,
+      summary: "",
+      keywords: [],
+      detail: "",
+      sourceTasks: [],
+      at,
+    });
+    row = agentDoc.dayLogs[0];
+  }
+
+  const prevSummary = String(row.summary || "").trim();
+  row.summary = (prevSummary ? `${prevSummary}\n• ${summaryLine}` : `• ${summaryLine}`)
+    .slice(0, 4000);
+  const prevDetail = String(row.detail || "").trim();
+  if (detailChunk) {
+    row.detail = (prevDetail ? `${prevDetail}\n\n---\n${detailChunk}` : detailChunk).slice(
+      0,
+      8000
+    );
+  }
+  const kwSet = new Set([...(row.keywords || []).map(String), ...kw]);
+  row.keywords = [...kwSet].slice(0, 60);
+  if (entry.sourceTask) {
+    const tid = String(entry.sourceTask);
+    const existing = (row.sourceTasks || []).map(String);
+    if (!existing.includes(tid)) {
+      row.sourceTasks = [...(row.sourceTasks || []), entry.sourceTask].slice(-20);
+    }
+  }
+  row.at = at;
+
+  // Newest day first
+  agentDoc.dayLogs.sort((a, b) => String(b.day).localeCompare(String(a.day)));
+  if (agentDoc.dayLogs.length > dayCap) {
+    agentDoc.dayLogs = agentDoc.dayLogs.slice(0, dayCap);
+  }
+  agentDoc.markModified("dayLogs");
+  await agentDoc.save();
+  return agentDoc;
+}
+
+/**
+ * Encrypts a password for credential vault storage.
+ * @param {string} plaintext
+ * @returns {string}
+ */
+export function encryptCredentialPassword(plaintext) {
+  return encryptSecret(String(plaintext || ""));
 }
 
 /**

@@ -320,7 +320,7 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
     }
 
     const runText = buildGoalRunText(goal);
-    const snapshot = toAgentSnapshot(agentDoc);
+    const snapshot = toAgentSnapshot(agentDoc, { goal: runText });
     const priority = goal.priority || "normal";
 
     const message = await Message.create({
