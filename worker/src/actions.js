@@ -148,13 +148,20 @@ You control a real Chromium browser (cloud computer for this agent). Reply with 
   "actions": [ { "type":"..." }, { "type":"..." } ]
 }
 
-MULTI-ACTION BATCHES (default — this is how you go fast):
-- ALWAYS prefer "actions": [ ... ] with every click/type/select you can safely do on THIS page before navigate/submit changes the DOM in an unknown way.
-- Target 3–${max} actions per reply when the snapshot already shows the controls (search: focus → type → Enter; login: email → password → submit; forms: type every visible field then click submit).
+MULTI-ACTION BATCHES (REQUIRED for speed — single-action replies are a last resort):
+- Default reply shape is "actions":[…] with as many safe steps as the CURRENT PAGE SNAPSHOT already shows.
+- Hard target: pack 4–${max} actions whenever 2+ interactives are needed on this page. One-action turns waste a full LLM round-trip.
+- BAD (slow): separate turns for click Search, then type query, then press Enter.
+- GOOD (fast): one turn with click + type(submit:true), or type email + type password + click Sign in.
+- Scan the ranked interactives / A11Y list and queue every click/type/select you can do BEFORE the page navigates or a modal replaces the DOM.
 - Do NOT use fill_form — it often fails (FORM_NOT_FOUND). Use a batch of type + click instead.
-- Single-action "action": { ... } is slower — use ONLY when the next step depends on unknown page content after navigate/submit/open_tab, or for finish/ask_user/solve_captcha alone.
+- Single-action "action": { ... } or a 1-item "actions" array is ONLY allowed when:
+  (1) the next UI is unknown after navigate/submit/open_tab, OR
+  (2) finish / ask_user / solve_captcha alone, OR
+  (3) only one control is visible and useful.
 - If both "action" and "actions" exist, "actions" wins. Hard max ${max} actions per turn.
-- Stop the batch before finish/ask_user/solve_captcha (put those last or alone). Do not put navigate in the middle of a fill burst — navigate/open_tab ends the batch.
+- Put finish/ask_user/solve_captcha last (or alone). Do not put navigate/open_tab in the middle of a fill burst — they end the batch.
+- Gmail / label / filter workflows: batch search box type + Enter, or checkbox + Move-to + label click, in ONE reply when those refs are already on screen.
 
 Example (Google search in ONE turn):
 {"thought":"search hello","actions":[
@@ -167,6 +174,13 @@ Example (login in ONE turn):
   {"type":"type","ref":"e1","text":"user@x.com"},
   {"type":"type","ref":"e2","text":"secret"},
   {"type":"click","ref":"e9","name":"Sign in"}
+]}
+
+Example (Gmail move-to-label in ONE turn when refs are visible):
+{"thought":"select and label","actions":[
+  {"type":"click","ref":"e12","name":"Select"},
+  {"type":"click","ref":"e20","name":"Move to"},
+  {"type":"click","ref":"e33","name":"Product Hunt"}
 ]}
 `.trim();
   return `${header}\n\n${ACTION_FIELDS_AND_RULES}`;

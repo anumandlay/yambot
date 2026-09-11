@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 14:20] Aggressive multi-action batch prompting
+
+- **Prompt Provided:** Tighten the worker prompt so models batch more aggressively.
+- **Architectural Flow:** Stronger MULTI-ACTION rules in `buildActionSchemaForPrompt` (4–N target, anti one-action, Gmail batch example). Per-step BATCH line + SPEED WARNING when the last two turns were single-action. System SPEED lines require 4+ actions when controls are already visible.
+- **Impacted Files:** `worker/src/actions.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-11 13:45] Vision LLM profile (agent + settings default)
 
 - **Prompt Provided:** After "Enable vision screenshots" on agent create/edit, add a dropdown for vision LLM profile; Settings needs a default vision profile used when the agent does not pick one.

@@ -2046,7 +2046,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
             ? "LOGIN: User supplied credentials in GOAL — proceed with login; do not call ask_user for confirmation."
             : "",
           `STEP: ${step}`,
-          `BATCH: Reply with "actions":[…] — pack up to ${stepTiming.maxActionsPerTurn} clicks/types visible on THIS page in ONE JSON (search/login/forms). Re-ask only after navigate/submit changes the page. Single action only when the next UI is unknown.`,
+          `BATCH (speed): Reply with "actions":[…] — pack 4–${stepTiming.maxActionsPerTurn} clicks/types/selects already visible on THIS page in ONE JSON. One-action replies are too slow unless the next UI is unknown after navigate/submit, or you are finishing/asking. Re-ask only after navigate/submit changes the page.`,
+          history.length >= 2 &&
+          history.slice(-2).every((h) => (h.batchSize || 1) <= 1) &&
+          !["finish", "ask_user", "navigate", "open_tab"].includes(String(history[history.length - 1]?.action?.type || ""))
+            ? "SPEED WARNING: your last replies used only 1 action each. Combine the next visible clicks/types into one actions array now."
+            : "",
           loopNote,
           blockedEval.severity === "warn" ? blockedEval.message : "",
           stopEval.hints.length ? formatStopHints(stopEval) : "",
@@ -2106,7 +2111,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
-              "SPEED: default to multi-action batches (actions array). One LLM turn should clear as much of the current page as possible.",
+              "SPEED: multi-action batches are mandatory when the snapshot already shows the next controls. Prefer 4+ actions per turn. Single-action turns are a last resort (unknown UI after navigate/submit, or finish/ask_user alone).",
+              "If RECENT ACTIONS show you only did 1 step last turn, expand: queue every remaining click/type on this page before calling the model again.",
               skillBlock,
               skillsCatalogBlock,
               skillProgressBlock,
