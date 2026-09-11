@@ -56,6 +56,15 @@ const settingsSchema = new mongoose.Schema(
     visionApiKeyEnc: { type: String, default: "" },
     visionBaseUrl: { type: String, default: "" },
     visionModel: { type: String, default: "" },
+    /**
+     * Default LlmProfile for vision screenshots when an agent has no llm.visionProfile.
+     * Empty = legacy visionApiKey/base/model, then main LLM.
+     */
+    visionProfile: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "LlmProfile",
+      default: null,
+    },
     dbcUsername: { type: String, default: "" },
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 0 },

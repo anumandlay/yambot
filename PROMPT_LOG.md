@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 13:45] Vision LLM profile (agent + settings default)
+
+- **Prompt Provided:** After "Enable vision screenshots" on agent create/edit, add a dropdown for vision LLM profile; Settings needs a default vision profile used when the agent does not pick one.
+- **Architectural Flow:** `Agent.llm.visionProfile` and `User.settings.visionProfile`. `resolveVisionLlmCredentials(user, main, agent)` order: agent vision profile → settings default vision profile → legacy vision key/base/model → main LLM. Agent edit Autonomy shows the dropdown; Settings shows Default vision LLM profile.
+- **Impacted Files:** `backend/src/models/Agent.js`, `backend/src/models/User.js`, `backend/src/utils/llmCredentials.js`, `backend/src/utils/agentEmail.js`, `backend/src/routes/agents.js`, `backend/src/routes/settings.js`, `backend/src/routes/worker.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/pages/SettingsPage.jsx`, `frontend/src/pages/SettingsLlmProfilesPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-11 11:25] Blocked-subgoal stop
 
 - **Prompt Provided:** Implement blocked-subgoal stop so the agent does not loop forever when one remaining piece of the goal cannot be done.

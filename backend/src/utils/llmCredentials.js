@@ -118,13 +118,53 @@ export async function resolveLlmCredentialsForAgent(user, agent) {
 }
 
 /**
- * Resolves vision LLM credentials — separate key or falls back to main LLM.
+ * Loads a named LlmProfile as vision credentials (falls back to main key if profile key empty).
  * @param {object} user
  * @param {object} main
- * @returns {Promise<{ apiKey: string, baseUrl: string, model: string, openAiAccountId?: string }>}
+ * @param {string} profileId
+ * @returns {Promise<{ apiKey: string, baseUrl: string, model: string, source: string, profileId: string, profileName: string }|null>}
  */
-export async function resolveVisionLlmCredentials(user, main) {
+async function resolveVisionFromProfile(user, main, profileId) {
+  const id = String(profileId || "").trim();
+  if (!id) return null;
+  const userId = user?._id || user?.id;
+  const profile = await LlmProfile.findOne({ _id: id, user: userId }).lean();
+  if (!profile) return null;
+  const profileKey = decryptSecret(profile.apiKeyEnc || "");
+  const apiKey = profileKey || main.apiKey || "";
+  const baseUrl = String(profile.baseUrl || "").trim()
+    ? normalizeLlmBaseUrl(profile.baseUrl, main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL)
+    : main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL;
+  const model = String(profile.model || "").trim()
+    ? normalizeLlmModel(profile.model, main.llmModel || env.DEFAULT_LLM_MODEL)
+    : main.llmModel || env.DEFAULT_LLM_MODEL;
+  return {
+    apiKey,
+    baseUrl,
+    model,
+    source: "vision_profile",
+    profileId: String(profile._id),
+    profileName: profile.name || "",
+  };
+}
+
+/**
+ * Resolves vision LLM credentials for screenshot recovery steps.
+ * Order: agent llm.visionProfile → settings.visionProfile → legacy vision fields → main LLM.
+ * @param {object} user
+ * @param {object} main
+ * @param {object|null|undefined} [agent]
+ * @returns {Promise<{ apiKey: string, baseUrl: string, model: string, openAiAccountId?: string, source?: string, profileId?: string, profileName?: string }>}
+ */
+export async function resolveVisionLlmCredentials(user, main, agent = null) {
   const s = user?.settings || {};
+
+  const fromAgent = await resolveVisionFromProfile(user, main, agent?.llm?.visionProfile);
+  if (fromAgent) return fromAgent;
+
+  const fromSettings = await resolveVisionFromProfile(user, main, s.visionProfile);
+  if (fromSettings) return fromSettings;
+
   const visionKey = decryptSecret(s.visionApiKeyEnc || "");
   const visionBase = s.visionBaseUrl
     ? normalizeLlmBaseUrl(s.visionBaseUrl, main.llmBaseUrl || env.DEFAULT_LLM_BASE_URL)
@@ -137,6 +177,7 @@ export async function resolveVisionLlmCredentials(user, main) {
       apiKey: visionKey,
       baseUrl: visionBase,
       model: visionModel,
+      source: "legacy_vision",
     };
   }
   return {
@@ -144,5 +185,6 @@ export async function resolveVisionLlmCredentials(user, main) {
     baseUrl: visionBase,
     model: visionModel,
     openAiAccountId: main.openAiAccountId || "",
+    source: "main",
   };
 }

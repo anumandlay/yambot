@@ -101,7 +101,7 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
 
     // Why: per-agent LLM override when agent.llm.useCustom; else Settings (incl. OAuth).
     const mainCreds = await resolveLlmCredentialsForAgent(user, agentDoc);
-    const visionCreds = await resolveVisionLlmCredentials(user, mainCreds);
+    const visionCreds = await resolveVisionLlmCredentials(user, mainCreds, agentDoc);
 
     res.json({
       ok: true,

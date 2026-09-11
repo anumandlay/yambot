@@ -76,6 +76,7 @@ settingsRouter.get("/", async (req, res, next) => {
           ? normalizeLlmBaseUrl(s.visionBaseUrl, env.DEFAULT_LLM_BASE_URL)
           : "",
         visionModel: s.visionModel ? normalizeLlmModel(s.visionModel, env.DEFAULT_LLM_MODEL) : "",
+        visionProfileId: s.visionProfile ? String(s.visionProfile) : "",
         dbcUsername: s.dbcUsername || "",
         dbcPasswordMasked: mask(savedDbcPass),
         hasDbcPassword: Boolean(savedDbcPass),
@@ -113,6 +114,26 @@ settingsRouter.put("/", async (req, res, next) => {
     }
     if (typeof body.visionModel === "string" && body.visionModel.trim()) {
       user.settings.visionModel = normalizeLlmModel(body.visionModel.trim(), env.DEFAULT_LLM_MODEL);
+    }
+    if (body.visionProfileId !== undefined || body.visionProfile !== undefined) {
+      const raw = body.visionProfileId ?? body.visionProfile;
+      const visionProfileId =
+        raw && String(raw).trim() && String(raw) !== "settings" ? String(raw).trim() : "";
+      if (visionProfileId) {
+        const { LlmProfile } = await import("../models/LlmProfile.js");
+        const ok = await LlmProfile.exists({ _id: visionProfileId, user: req.userId });
+        if (!ok) {
+          res.status(400).json({
+            ok: false,
+            title: "Invalid vision LLM",
+            detail: "That vision LLM profile was not found. Create one under Settings → LLM profiles.",
+          });
+          return;
+        }
+        user.settings.visionProfile = visionProfileId;
+      } else {
+        user.settings.visionProfile = null;
+      }
     }
     if (typeof body.dbcUsername === "string") user.settings.dbcUsername = body.dbcUsername.trim();
     if (typeof body.confirmBeforeSubmit === "boolean") {

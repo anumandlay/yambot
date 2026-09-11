@@ -835,8 +835,16 @@ export const HELP = {
   "agent.autonomy.visionEnabled": {
     title: "Vision screenshots",
     body: helpBody(
-      "When enabled, cloud worker may attach viewport screenshots to LLM on verification failures (uses Vision LLM from Settings).",
+      "When enabled, cloud worker may attach viewport screenshots to LLM on verification failures.",
+      "Uses this agent's Vision LLM profile if set, else Settings → default vision LLM profile, else legacy vision fields / main LLM.",
       "Costs more tokens but recovers from stale refs and hidden UI."
+    ),
+  },
+  "agent.llm.visionProfile": {
+    title: "Vision LLM for this agent",
+    body: helpBody(
+      "Optional. Pick a saved LLM profile used only for vision screenshot steps.",
+      "Leave as Default to use Settings → default vision LLM profile."
     ),
   },
   "agent.active": {
@@ -1352,6 +1360,13 @@ export const HELP = {
     title: "LLM model",
     body: helpBody(
       "Model id sent in chat completions (MiniMax-M2.7, gpt-4o, etc.). Affects quality, speed, and cost."
+    ),
+  },
+  "settings.visionProfile": {
+    title: "Default vision LLM profile",
+    body: helpBody(
+      "Account-wide profile for vision screenshots when an agent does not pick its own vision LLM.",
+      "Create vision-capable profiles under Settings → LLM profiles, then select one here."
     ),
   },
   "settings.visionApiKey": {

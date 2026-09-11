@@ -201,6 +201,15 @@ const agentSchema = new mongoose.Schema(
         ref: "LlmProfile",
         default: null,
       },
+      /**
+       * Optional vision-only profile for screenshot recovery steps.
+       * Empty = User.settings.visionProfile, then legacy vision fields, then main LLM.
+       */
+      visionProfile: {
+        type: mongoose.Schema.Types.ObjectId,
+        ref: "LlmProfile",
+        default: null,
+      },
       /** @deprecated Prefer profile — kept for agents created before profiles existed. */
       apiKeyEnc: { type: String, default: "" },
       baseUrl: { type: String, default: "", trim: true },
@@ -599,6 +608,7 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
     llm: {
       useCustom: Boolean(a.llm?.profile || a.llm?.useCustom),
       profileId: a.llm?.profile ? String(a.llm.profile) : "",
+      visionProfileId: a.llm?.visionProfile ? String(a.llm.visionProfile) : "",
       model: a.llm?.useCustom || a.llm?.profile ? String(a.llm?.model || "").trim() : "",
       baseUrl: a.llm?.useCustom || a.llm?.profile ? String(a.llm?.baseUrl || "").trim() : "",
     },

@@ -223,7 +223,12 @@ export function SettingsLlmProfilesPage() {
       <PageGuideBanner helpId="settings.llmProfiles" />
       <p className="text-sm text-teal-900/70">
         Save named LLMs here, then pick one from the dropdown when you create or edit an agent. Your
-        Settings → API key / OpenAI OAuth remains the default when an agent has no profile selected.{" "}
+        Settings → API key / OpenAI OAuth remains the default when an agent has no profile selected.
+        For vision screenshots, set a{" "}
+        <Link to="/settings" className="font-semibold text-teal-800 underline">
+          default vision LLM profile
+        </Link>{" "}
+        on Settings (or per agent under Autonomy).{" "}
         <Link to="/agents/new" className="font-semibold text-teal-800 underline">
           Create agent
         </Link>

@@ -246,11 +246,13 @@ export function publicEmailSummary(agent) {
 export function publicLlmSummary(agent) {
   const llm = agent?.llm || {};
   const profileId = llm.profile ? String(llm.profile) : "";
+  const visionProfileId = llm.visionProfile ? String(llm.visionProfile) : "";
   const hasApiKey = Boolean(llm.apiKeyEnc);
   const useCustom = Boolean(profileId) || Boolean(llm.useCustom);
   return {
     useCustom,
     profileId,
+    visionProfileId,
     baseUrl: String(llm.baseUrl || "").trim(),
     model: String(llm.model || "").trim(),
     hasApiKey,

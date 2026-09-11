@@ -312,10 +312,16 @@ function pickAgentFields(body, opts = {}) {
       profileRaw && String(profileRaw).trim() && String(profileRaw) !== "settings"
         ? String(profileRaw).trim()
         : null;
+    const visionRaw = l.visionProfileId ?? l.visionProfile ?? null;
+    const visionProfileId =
+      visionRaw && String(visionRaw).trim() && String(visionRaw) !== "settings"
+        ? String(visionRaw).trim()
+        : null;
 
     /** @type {object} */
     const llm = {
       profile: profileId,
+      visionProfile: visionProfileId,
       // Why: profile selection is the product path; useCustom stays true when a profile is set.
       useCustom: Boolean(profileId),
       baseUrl: "",
@@ -545,6 +551,18 @@ agentsRouter.post("/", async (req, res, next) => {
           ok: false,
           title: "Invalid LLM",
           detail: "That LLM profile was not found. Pick another or create one in Settings.",
+        });
+        return;
+      }
+    }
+    if (fields.llm?.visionProfile) {
+      const { LlmProfile } = await import("../models/LlmProfile.js");
+      const ok = await LlmProfile.exists({ _id: fields.llm.visionProfile, user: req.userId });
+      if (!ok) {
+        res.status(400).json({
+          ok: false,
+          title: "Invalid vision LLM",
+          detail: "That vision LLM profile was not found. Pick another or create one in Settings.",
         });
         return;
       }
@@ -983,6 +1001,20 @@ agentsRouter.put("/:id", async (req, res, next) => {
         fields.llm.baseUrl = "";
         fields.llm.model = "";
         fields.llm.profile = null;
+      }
+      if (fields.llm.visionProfile) {
+        const { LlmProfile } = await import("../models/LlmProfile.js");
+        const ok = await LlmProfile.exists({ _id: fields.llm.visionProfile, user: req.userId });
+        if (!ok) {
+          res.status(400).json({
+            ok: false,
+            title: "Invalid vision LLM",
+            detail: "That vision LLM profile was not found. Pick another or create one in Settings.",
+          });
+          return;
+        }
+      } else {
+        fields.llm.visionProfile = null;
       }
       agent.set("llm", fields.llm);
       agent.markModified("llm");
