@@ -12,6 +12,12 @@ export { checkPreconditions, attachFingerprints } from "./preconditions.js";
 export { formatStateProjection } from "./format.js";
 export { classifyFailure, attachFailureClass, FAILURE_CLASSES } from "./failureClass.js";
 export { detectActionLoop, actionKey } from "./loops.js";
+export {
+  evaluateBlockedSubgoal,
+  buildPartialResultSummary,
+  BLOCKED_SUBGOAL_WARN_AFTER,
+  BLOCKED_SUBGOAL_FINISH_AFTER,
+} from "./blockedSubgoal.js";
 export { evaluateStopConditions, formatStopHints } from "./stopConditions.js";
 export { runRecoveryLadder, isRecoverableAction } from "./recovery.js";
 export { waitForDomSettle, waitForSemantic, executeWaitFor, pollUntilCondition } from "./semanticWait.js";

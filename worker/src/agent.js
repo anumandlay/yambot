@@ -46,6 +46,7 @@ import {
   defaultPlan,
   computeGoalProgress,
   detectActionLoop,
+  evaluateBlockedSubgoal,
   diffObservations,
   enrichActionResult,
   evaluateStopConditions,
@@ -1998,6 +1999,32 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const loopCheck = detectActionLoop(history, 3);
         const loopNote = loopCheck.detected ? loopCheck.message : "";
 
+        const blockedEval = evaluateBlockedSubgoal(history);
+        if (blockedEval.severity === "finish") {
+          const summary = blockedEval.finishSummary || blockedEval.message;
+          await mirror(taskId, "step", {
+            payload: {
+              step,
+              action: { type: "finish", success: true, summary },
+              thought: "blocked_subgoal_stop",
+              result: { ok: true, finished: true, blockedSubgoal: true },
+            },
+            appendMessage: `Blocked subgoal stop — finishing with partial results.\n${summary}`,
+          }).catch(() => {});
+          await complete(taskId, {
+            success: true,
+            summary,
+            history,
+            siteDomain,
+            llmUsage,
+          });
+          log(`[${config.workerName}] Task ${taskId} blocked-subgoal finish: ${blockedEval.needKey}`);
+          return;
+        }
+        if (blockedEval.severity === "warn" && blockedEval.message) {
+          notes.push(blockedEval.message);
+        }
+
         const sessionTelemetry = telemetry?.getSummary();
         const prevResult = history[history.length - 1]?.result;
         const visionAllowed = agentSnapshot?.autonomy?.visionEnabled === true;
@@ -2021,6 +2048,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           `STEP: ${step}`,
           `BATCH: Reply with "actions":[…] — pack up to ${stepTiming.maxActionsPerTurn} clicks/types visible on THIS page in ONE JSON (search/login/forms). Re-ask only after navigate/submit changes the page. Single action only when the next UI is unknown.`,
           loopNote,
+          blockedEval.severity === "warn" ? blockedEval.message : "",
           stopEval.hints.length ? formatStopHints(stopEval) : "",
           notes.length
             ? `NOTES SO FAR (latest only; older findings are in SESSION CONTEXT):\n${notes
@@ -2076,6 +2104,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
+              "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
               "SPEED: default to multi-action batches (actions array). One LLM turn should clear as much of the current page as possible.",
               skillBlock,

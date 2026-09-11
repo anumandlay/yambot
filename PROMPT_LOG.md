@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 11:25] Blocked-subgoal stop
+
+- **Prompt Provided:** Implement blocked-subgoal stop so the agent does not loop forever when one remaining piece of the goal cannot be done.
+- **Architectural Flow:** `evaluateBlockedSubgoal(history)` watches consecutive thoughts that say prior work is done but the same remaining need is stuck. After 4 turns: warn the LLM to finish/ask_user. After 6 turns: force `finish` with a partial-results summary. Same-control failure streaks after prior findings also trip the stop.
+- **Impacted Files:** `worker/src/browserState/blockedSubgoal.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-11 10:20] 40-minute FIFO run memory
 
 - **Prompt Provided:** Each LLM call only sees the last 6 actions. The model has a 1M context window — summarize with FIFO so the agent remembers about the last 30–40 minutes.
