@@ -1706,6 +1706,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           appendMessage: `Opening ${startUrl}…`,
         }).catch(() => {});
         history.push({
+          at: Date.now(),
           step: 0,
           thought: "bootstrap",
           action: { type: "navigate", url: startUrl },
@@ -2021,10 +2022,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
           `BATCH: Reply with "actions":[…] — pack up to ${stepTiming.maxActionsPerTurn} clicks/types visible on THIS page in ONE JSON (search/login/forms). Re-ask only after navigate/submit changes the page. Single action only when the next UI is unknown.`,
           loopNote,
           stopEval.hints.length ? formatStopHints(stopEval) : "",
-          notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
+          notes.length
+            ? `NOTES SO FAR (latest only; older findings are in SESSION CONTEXT):\n${notes
+                .slice(-4)
+                .map((n) => String(n).slice(0, 700))
+                .join("\n---\n")}`
+            : "",
           summarizeSessionContext(history),
           history.length
-            ? `RECENT ACTIONS:\n${history
+            ? `RECENT ACTIONS (last 6 only — current refs; do not treat this as the whole run):\n${history
                 .slice(-6)
                 .map((h) => JSON.stringify(h))
                 .join("\n")}`
@@ -2069,6 +2075,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
+              "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
               "SPEED: default to multi-action batches (actions array). One LLM turn should clear as much of the current page as possible.",
               skillBlock,
@@ -2158,6 +2165,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             appendMessage: `Step ${step}: LLM error — retrying… (${detail.slice(0, 120)})`,
           });
           history.push({
+            at: Date.now(),
             step,
             thought: "llm_error",
             action: { type: "wait", ms: stepTiming.llmRetryMs },
@@ -2187,6 +2195,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             appendMessage: `Step ${step}: model reply was not valid JSON — retrying…`,
           });
           history.push({
+            at: Date.now(),
             step,
             thought: "parse_error",
             action: { type: "wait", ms: stepTiming.parseRetryMs },
@@ -2424,6 +2433,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
         history.push({
+          at: Date.now(),
           step,
           thought: batchThought,
           action: actionToRun,
@@ -2677,6 +2687,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       case "extract": {
         const result = await page.evaluate(executeInPage, action);
+        const snippet = String(result.text || "").replace(/\s+/g, " ").trim().slice(0, 500);
         notes.push(
           [
             `Extract (${action.focus || "page"}) from ${result.url}`,
@@ -2688,7 +2699,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               .join("\n"),
           ].join("\n")
         );
-        return { ok: true, extracted: true };
+        return { ok: true, extracted: true, focus: action.focus || "", snippet };
       }
       case "send_email": {
         if (!agentSnapshot?.email?.configured) {

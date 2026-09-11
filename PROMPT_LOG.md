@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 10:20] 40-minute FIFO run memory
+
+- **Prompt Provided:** Each LLM call only sees the last 6 actions. The model has a 1M context window — summarize with FIFO so the agent remembers about the last 30–40 minutes.
+- **Architectural Flow:** Raw actions stay at the last 6 (current refs only). `summarizeSessionContext` now injects a FIFO summary of thoughts, extracts, and failed controls from the last 40 minutes; oldest lines drop first. Typed passwords stay for the whole run. A new run is required so the worker image picks this up.
+- **Impacted Files:** `worker/src/browserState/learn.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-11 09:00] Agent brief JSON parse
 
 - **Prompt Provided:** Generate with AI on /agents/new shows "Could not parse AI response — The model did not return valid JSON."
