@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 15:15] Soft-skip stale dismiss clicks (Got it / Accept)
+
+- **Prompt Provided:** click failed Element not found for Got it (stale ref/xpath) — do this without failing.
+- **Architectural Flow:** New `softClick.js` detects ephemeral dismiss/consent targets. Recovery now name-rebinds, tries Playwright getByRole, then soft-skips with `ok:true` when the control is already gone. Preconditions no longer hard-block a dead eN when name/css can still resolve. Absolute `/body/...` xpath is dropped so name matching is not poisoned.
+- **Impacted Files:** `worker/src/browserState/softClick.js`, `worker/src/browserState/recovery.js`, `worker/src/browserState/preconditions.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-11 15:05] Searchable dropdown macro (choose_searchable)
 
 - **Prompt Provided:** For dropdowns with search, can we do something?

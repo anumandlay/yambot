@@ -21,6 +21,13 @@ export {
 } from "./blockedSubgoal.js";
 export { evaluateStopConditions, formatStopHints } from "./stopConditions.js";
 export { runRecoveryLadder, isRecoverableAction } from "./recovery.js";
+export {
+  isEphemeralDismissClick,
+  isElementMissingError,
+  rebindActionByName,
+  actionDisplayName,
+} from "./softClick.js";
+
 export { waitForDomSettle, waitForSemantic, executeWaitFor, pollUntilCondition } from "./semanticWait.js";
 export { scoreInteractives, filterByRelevance } from "./relevance.js";
 export { formatStructuresBlock, buildStructuresFromObs } from "./structures.js";

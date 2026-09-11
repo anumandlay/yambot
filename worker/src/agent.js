@@ -69,6 +69,10 @@ import {
   scorePageUrl,
   parseFrameRef,
   runRecoveryLadder,
+  isRecoverableAction,
+  isEphemeralDismissClick,
+  isElementMissingError,
+  actionDisplayName,
   shouldAttachVision,
   switchTab,
   updatePlanFromObservation,
@@ -1257,12 +1261,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
     if (!action?.ref || !obs?.interactives) return action;
     const item = obs.interactives.find((i) => i.ref === action.ref);
     if (!item) return action;
+    const xpath = item.xpath || action.xpath;
     return {
       ...action,
       role: action.role || item.role,
       name: action.name || item.name,
       css: action.css || item.cssHint,
-      xpath: action.xpath || item.xpath,
+      // Why: /body/... absolute paths go stale after React reorders; prefer smart xpath from item only.
+      xpath:
+        xpath && !String(xpath).startsWith("/body") && !String(xpath).startsWith("/html")
+          ? xpath
+          : item.xpath && !String(item.xpath).startsWith("/body")
+            ? item.xpath
+            : undefined,
       fingerprint: item.fingerprint,
       frameId: item.frameId || action.frameId,
     };
@@ -2259,7 +2270,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           notes.push(precondition.recovery);
         }
 
-        const locatorTypes = new Set(["click", "type", "select"]);
+        const locatorTypes = new Set(["click", "type", "select", "choose_searchable"]);
 
         const batchLabel =
           batchActions.length > 1 ? ` (${batchIdx + 1}/${batchActions.length})` : "";
@@ -2284,14 +2295,32 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let result;
         try {
           if (!precondition.ok && locatorTypes.has(actionToRun.type)) {
-            result = attachFailureClass(
-              {
-                ok: false,
-                error: precondition.issues?.join("; ") || "Precondition failed",
-                failure_class: "PRECONDITION_FAILED",
-              },
-              { precondition }
-            );
+            // Why: cookie "Got it" / Accept often vanish before click — don't fail the batch.
+            if (
+              isEphemeralDismissClick(actionToRun) &&
+              (precondition.issues || []).some((i) => /not found|STALE/i.test(String(i)))
+            ) {
+              result = {
+                ok: true,
+                skipped: true,
+                soft_skip: true,
+                reason: "target_already_gone",
+                clicked: actionDisplayName(actionToRun),
+                detail: `"${actionDisplayName(actionToRun)}" already gone — skipped without failure`,
+              };
+              notes.push(
+                `Soft-skipped missing dismiss control "${actionDisplayName(actionToRun)}".`
+              );
+            } else {
+              result = attachFailureClass(
+                {
+                  ok: false,
+                  error: precondition.issues?.join("; ") || "Precondition failed",
+                  failure_class: "PRECONDITION_FAILED",
+                },
+                { precondition }
+              );
+            }
           } else {
             result = await executeAction(actionToRun, {
               settings,
@@ -2412,21 +2441,46 @@ export function createCloudAgent({ api, config, log = console.log }) {
                 prevUrl = String(recovery.obs.url || "");
                 obs = recovery.obs;
               }
-              notes.push(`Recovery succeeded after ${recovery.attempts.length} attempt(s).`);
+              if (recovery.result.soft_skip) {
+                notes.push(
+                  `Soft-skipped missing dismiss control "${actionDisplayName(actionToRun)}" (already gone).`
+                );
+              } else {
+                notes.push(`Recovery succeeded after ${recovery.attempts.length} attempt(s).`);
+              }
             } else if (recovery.attempts?.length) {
-              result = attachFailureClass(
-                {
-                  ...result,
-                  recovery: false,
+              // Last chance: ephemeral dismiss with element-missing — never hard-fail those.
+              if (
+                isEphemeralDismissClick(actionToRun) &&
+                isElementMissingError(result?.error)
+              ) {
+                result = {
+                  ok: true,
+                  skipped: true,
+                  soft_skip: true,
+                  reason: "target_already_gone",
+                  clicked: actionDisplayName(actionToRun),
                   recovery_attempts: recovery.attempts,
-                },
-                { result, precondition, loop: loopCheck }
-              );
-              notes.push(
-                `Recovery failed (${recovery.attempts.length} strategies): ${recovery.attempts
-                  .map((a) => a.strategy)
-                  .join(" → ")}`
-              );
+                  detail: `"${actionDisplayName(actionToRun)}" not found after recovery — skipped`,
+                };
+                notes.push(
+                  `Soft-skipped missing dismiss control "${actionDisplayName(actionToRun)}".`
+                );
+              } else {
+                result = attachFailureClass(
+                  {
+                    ...result,
+                    recovery: false,
+                    recovery_attempts: recovery.attempts,
+                  },
+                  { result, precondition, loop: loopCheck }
+                );
+                notes.push(
+                  `Recovery failed (${recovery.attempts.length} strategies): ${recovery.attempts
+                    .map((a) => a.strategy)
+                    .join(" → ")}`
+                );
+              }
             }
           }
 
@@ -2465,6 +2519,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
             },
             { error: String(err?.message || err) }
           );
+          // Why: evaluate throws before recovery; mark ephemeral misses so recovery soft-skips cleanly.
+          if (isEphemeralDismissClick(actionToRun) && isElementMissingError(err)) {
+            result.ephemeral_miss = true;
+          }
         }
       }
 
