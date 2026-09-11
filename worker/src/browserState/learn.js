@@ -43,6 +43,110 @@ export function buildTrajectory(history, cap = 80) {
 }
 
 /**
+ * Classifies a typed field so later steps can reuse email/password from this session.
+ * @param {string} name
+ * @param {string} text
+ * @returns {"password"|"email"|"username"|"phone"|"other"}
+ */
+function classifyTypedField(name, text) {
+  const n = String(name || "").toLowerCase();
+  const t = String(text || "");
+  if (/pass(word)?|pwd|secret/.test(n)) return "password";
+  if (/e-?mail/.test(n) || /@[\w.-]+\.\w{2,}/.test(t)) return "email";
+  if (/user(name)?|login|account/.test(n)) return "username";
+  if (/phone|mobile/.test(n)) return "phone";
+  return "other";
+}
+
+/**
+ * Builds a compact summary of this run so the next LLM call does not forget values it already typed.
+ * Why: only the last few raw actions are sent; registration passwords fall out of that window before login.
+ * @param {object[]} history
+ * @returns {string}
+ */
+export function summarizeSessionContext(history) {
+  const steps = Array.isArray(history) ? history : [];
+  if (!steps.length) return "";
+
+  /** @type {Record<string, { value: string, field: string, step: number }>} */
+  const latest = {};
+  const lines = [];
+
+  for (const h of steps) {
+    const action = h?.action || {};
+    const type = String(action.type || "");
+    const step = h?.step ?? "?";
+    if (type === "type" || type === "fill_form") {
+      const fields =
+        type === "fill_form" && action.fields && typeof action.fields === "object"
+          ? Object.entries(action.fields).map(([name, text]) => ({ name, text }))
+          : [{ name: action.name || action.ref || "field", text: action.text }];
+      for (const field of fields) {
+        const text = String(field.text ?? "").trim();
+        if (!text) continue;
+        const kind = classifyTypedField(field.name, text);
+        const label = String(field.name || kind);
+        latest[kind === "other" ? `field:${label}` : kind] = {
+          value: text.slice(0, 200),
+          field: label,
+          step,
+        };
+        lines.push(`step ${step}: typed ${kind} into "${label}" = ${text.slice(0, 120)}`);
+      }
+      continue;
+    }
+    if (type === "navigate" && action.url) {
+      lines.push(`step ${step}: opened ${String(action.url).slice(0, 160)}`);
+      continue;
+    }
+    if (type === "click") {
+      const label = action.name || action.text || action.ref || "control";
+      lines.push(`step ${step}: clicked ${String(label).slice(0, 80)}`);
+      continue;
+    }
+    if (type === "ask_user") {
+      lines.push(`step ${step}: asked user — ${String(action.question || "").slice(0, 120)}`);
+    }
+  }
+
+  const credOrder = ["email", "username", "password", "phone"];
+  const credLines = credOrder
+    .filter((k) => latest[k])
+    .map((k) => `- ${k}: ${latest[k].value} (typed into "${latest[k].field}" at step ${latest[k].step})`);
+
+  const compact = lines.slice(-24).join("\n");
+  const parts = [
+    "SESSION CONTEXT (this run only — summarized so you do not forget earlier steps):",
+    credLines.length
+      ? `VALUES ALREADY USED (reuse these exact values for login/verify; do NOT ask_user for them):\n${credLines.join("\n")}`
+      : "",
+    compact ? `EARLIER STEPS:\n${compact}` : "",
+  ].filter(Boolean);
+  return parts.join("\n\n").slice(0, 4500);
+}
+
+/**
+ * Whether an ask_user question is requesting a value already typed this session.
+ * @param {string} question
+ * @param {object[]} history
+ * @returns {{ email?: string, username?: string, password?: string }|null}
+ */
+export function sessionCredentialsForAsk(question, history) {
+  const q = String(question || "").toLowerCase();
+  const asking =
+    /pass(word)?|pwd|email|e-mail|username|login|credential|account/.test(q);
+  if (!asking) return null;
+  const summary = summarizeSessionContext(history);
+  if (!summary.includes("VALUES ALREADY USED")) return null;
+  const found = {};
+  for (const key of ["email", "username", "password", "phone"]) {
+    const m = summary.match(new RegExp(`- ${key}: (.+?) \\(typed`));
+    if (m) found[key] = m[1];
+  }
+  return Object.keys(found).length ? found : null;
+}
+
+/**
  * Formats site hints for the LLM prompt.
  * @param {object|null} profile
  * @returns {string}

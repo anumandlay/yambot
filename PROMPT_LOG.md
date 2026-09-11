@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 08:50] Session summary on each LLM step
+
+- **Prompt Provided:** Summarize this run's context (especially email/password already typed) and send it to the LLM so login does not forget registration.
+- **Architectural Flow:** `summarizeSessionContext(history)` is injected on every step; `ask_user` for email/password is skipped when those values were already typed this session.
+- **Impacted Files:** `worker/src/browserState/learn.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-10 15:41] Agent memory vault + day history
 
 - **Prompt Provided:** Implement agent memory + credential vault plan — day-wise history, keyword retrieval into new chats, user-entered credentials only (plaintext in UI, encrypted at rest), per-agent scope.

@@ -94,6 +94,8 @@ import {
   loadSiteProfile,
   deriveSiteHint,
   recordSiteLearning,
+  summarizeSessionContext,
+  sessionCredentialsForAsk,
 } from "./browserState/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -2020,6 +2022,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           loopNote,
           stopEval.hints.length ? formatStopHints(stopEval) : "",
           notes.length ? `NOTES SO FAR:\n${notes.join("\n---\n")}` : "",
+          summarizeSessionContext(history),
           history.length
             ? `RECENT ACTIONS:\n${history
                 .slice(-6)
@@ -2253,6 +2256,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               goal,
               agentSnapshot,
               notes,
+              history,
             });
           }
 
@@ -2338,6 +2342,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   goal,
                   agentSnapshot,
                   notes,
+                  history,
                 });
                 await waitForSemantic(page, observeInPage, waitForConditionInPage, {
                   timeoutMs: stepTiming.recoverySettleMs,
@@ -2622,6 +2627,23 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return runChooseMenuItem(page, frame, action);
       }
       case "ask_user": {
+        // Why: registration already typed email/password this session — do not ask the human again.
+        const known = sessionCredentialsForAsk(action.question, ctx.history);
+        if (known) {
+          const reuse = Object.entries(known)
+            .map(([k, v]) => `${k}=${v}`)
+            .join(", ");
+          notes.push(
+            `Do not ask the user. Reuse values already typed this session: ${reuse}`
+          );
+          return {
+            ok: true,
+            skippedAsk: true,
+            reason: "session_credentials",
+            credentials: known,
+            detail: `Already typed this session — reuse these instead of asking: ${reuse}`,
+          };
+        }
         const answer = await waitForUserAnswer(taskId, action.question || "Need your input");
         return { ok: true, userAnswer: answer };
       }

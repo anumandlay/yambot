@@ -74,4 +74,6 @@ export {
   loadSiteProfile,
   deriveSiteHint,
   recordSiteLearning,
+  summarizeSessionContext,
+  sessionCredentialsForAsk,
 } from "./learn.js";
