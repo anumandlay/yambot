@@ -310,7 +310,7 @@ export function AgentEditPage() {
       const data = await api("/api/agents/draft-from-brief", {
         method: "POST",
         body: JSON.stringify({ brief: jobBrief }),
-        timeoutMs: 90_000,
+        timeoutMs: 180_000,
       });
       const d = data.draft || {};
       setForm((prev) => ({

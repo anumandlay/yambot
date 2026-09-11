@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 09:00] Agent brief JSON parse
+
+- **Prompt Provided:** Generate with AI on /agents/new shows "Could not parse AI response — The model did not return valid JSON."
+- **Architectural Flow:** Prefer JSON from content or reasoning; repair fences, smart quotes, trailing commas, and newlines inside strings; one repair call if the first reply is still not JSON. Longer token budget so the draft is not cut off.
+- **Impacted Files:** `backend/src/utils/agentDraftFromBrief.js`, `backend/src/utils/llmChat.js`, `frontend/src/pages/AgentEditPage.jsx`, PROMPT_LOG
+
 ## [2026-09-11 08:50] Session summary on each LLM step
 
 - **Prompt Provided:** Summarize this run's context (especially email/password already typed) and send it to the LLM so login does not forget registration.

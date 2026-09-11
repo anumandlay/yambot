@@ -9,24 +9,120 @@ import { resolveLlmCredentials } from "./llmCredentials.js";
 import { llmChatCompletion } from "./llmChat.js";
 
 /**
+ * Pulls the first balanced `{...}` so trailing model prose is ignored.
+ * @param {string} text
+ * @returns {string|null}
+ */
+function extractFirstJsonObject(text) {
+  const s = String(text || "");
+  const start = s.indexOf("{");
+  if (start < 0) return null;
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  for (let i = start; i < s.length; i += 1) {
+    const ch = s[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        continue;
+      }
+      if (ch === '"') inString = false;
+      continue;
+    }
+    if (ch === '"') {
+      inString = true;
+      continue;
+    }
+    if (ch === "{") depth += 1;
+    else if (ch === "}") {
+      depth -= 1;
+      if (depth === 0) return s.slice(start, i + 1);
+    }
+  }
+  return null;
+}
+
+/**
+ * Turns common model JSON mistakes into parseable text.
+ * @param {string} raw
+ * @returns {string}
+ */
+function relaxJsonText(raw) {
+  let text = String(raw || "");
+  text = text.replace(/<think>[\s\S]*?<\/think>/gi, "");
+  text = text.replace(/<thinking>[\s\S]*?<\/thinking>/gi, "");
+  text = text.replace(/[“”]/g, '"').replace(/[‘’]/g, "'");
+  text = text.replace(/```(?:json)?/gi, "");
+  text = text.replace(/,\s*([}\]])/g, "$1");
+  // Why: models often put real newlines inside string values, which JSON.parse rejects.
+  let out = "";
+  let inString = false;
+  let escape = false;
+  for (let i = 0; i < text.length; i += 1) {
+    const ch = text[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+        out += ch;
+        continue;
+      }
+      if (ch === "\\") {
+        escape = true;
+        out += ch;
+        continue;
+      }
+      if (ch === '"') {
+        inString = false;
+        out += ch;
+        continue;
+      }
+      if (ch === "\n") {
+        out += "\\n";
+        continue;
+      }
+      if (ch === "\r") continue;
+      if (ch === "\t") {
+        out += "\\t";
+        continue;
+      }
+      out += ch;
+      continue;
+    }
+    if (ch === '"') inString = true;
+    out += ch;
+  }
+  return out.trim();
+}
+
+/**
  * @param {string} raw
  * @returns {object|null}
  */
 function parseDraftJson(raw) {
-  const text = String(raw || "").trim();
-  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const candidate = fence ? fence[1].trim() : text;
-  try {
-    return JSON.parse(candidate);
-  } catch {
-    const brace = candidate.match(/\{[\s\S]*\}/);
-    if (!brace) return null;
+  const text = relaxJsonText(raw);
+  if (!text) return null;
+  const candidates = [];
+  const fence = String(raw || "").match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) candidates.push(relaxJsonText(fence[1]));
+  const balanced = extractFirstJsonObject(text);
+  if (balanced) candidates.push(balanced);
+  candidates.push(text);
+
+  for (const candidate of candidates) {
+    if (!candidate) continue;
     try {
-      return JSON.parse(brace[0]);
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) return parsed;
     } catch {
-      return null;
+      /* try next candidate */
     }
   }
+  return null;
 }
 
 /**
@@ -113,13 +209,13 @@ export async function draftAgentFromBrief(userId, brief) {
       model: creds.llmModel,
       openAiAccountId: creds.oauthAccount || "",
       temperature: 0.4,
-      maxTokens: 1800,
-      timeoutMs: 60_000,
+      maxTokens: 4000,
+      timeoutMs: 90_000,
       messages: [
         { role: "system", content: system },
         {
           role: "user",
-          content: `Job brief:\n${text.slice(0, 4000)}\n\nReply with JSON only.`,
+          content: `Job brief:\n${text.slice(0, 4000)}\n\nReply with a single JSON object only. No markdown fences.`,
         },
       ],
     });
@@ -132,12 +228,41 @@ export async function draftAgentFromBrief(userId, brief) {
     };
   }
 
-  const parsed = parseDraftJson(raw);
+  let parsed = parseDraftJson(raw);
   if (!parsed) {
+    try {
+      const repaired = await llmChatCompletion({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl,
+        model: creds.llmModel,
+        openAiAccountId: creds.oauthAccount || "",
+        temperature: 0,
+        maxTokens: 4000,
+        timeoutMs: 90_000,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Convert the user text into one JSON object with keys name, description, skill, profile, instructions, successCriteria. JSON only.",
+          },
+          { role: "user", content: String(raw || "").slice(0, 8000) },
+        ],
+      });
+      parsed = parseDraftJson(repaired);
+      raw = repaired || raw;
+    } catch {
+      /* keep original parse failure */
+    }
+  }
+  if (!parsed) {
+    const preview = String(raw || "").replace(/\s+/g, " ").trim().slice(0, 180);
     return {
       ok: false,
       title: "Could not parse AI response",
-      detail: "The model did not return valid JSON. Try again with a clearer brief.",
+      detail: preview
+        ? `The model did not return valid JSON. Preview: ${preview}`
+        : "The model returned an empty reply. Try again.",
+      hint: "Try again, or shorten the job description.",
     };
   }
 

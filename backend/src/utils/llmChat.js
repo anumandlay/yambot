@@ -13,6 +13,26 @@ import {
 } from "./llmDefaults.js";
 
 /**
+ * @param {unknown} content
+ * @returns {string}
+ */
+function flattenLlmContent(content) {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        if (typeof part === "string") return part;
+        if (part && typeof part === "object") {
+          return String(part.text || part.content || "");
+        }
+        return "";
+      })
+      .join("");
+  }
+  return "";
+}
+
+/**
  * @param {{ apiKey: string, baseUrl: string, model: string, messages: object[], temperature?: number, maxTokens?: number, timeoutMs?: number, openAiAccountId?: string }} opts
  * @returns {Promise<string>}
  */
@@ -81,11 +101,13 @@ export async function llmChatCompletion(opts) {
         title: "Invalid LLM response",
       });
     }
-    const raw =
-      data.choices?.[0]?.message?.content ??
-      data.choices?.[0]?.message?.reasoning_content ??
-      "";
-    return String(raw || "").trim();
+    const message = data.choices?.[0]?.message || {};
+    const content = flattenLlmContent(message.content);
+    const reasoning = flattenLlmContent(message.reasoning_content);
+    // Why: some models put the JSON draft in reasoning and a short sentence in content.
+    if (content.includes("{") && content.includes("}")) return content.trim();
+    if (reasoning.includes("{") && reasoning.includes("}")) return reasoning.trim();
+    return (content || reasoning).trim();
   } finally {
     clearTimeout(timer);
   }
