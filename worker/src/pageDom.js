@@ -439,6 +439,16 @@ export function observeInPage() {
       el.getAttribute("aria-invalid") === "true" ||
       el.matches?.(":invalid") ||
       false;
+    const autoComplete = (el.getAttribute("aria-autocomplete") || "").toLowerCase();
+    const searchable =
+      autoComplete === "list" ||
+      autoComplete === "both" ||
+      (role === "combobox" &&
+        (el.tagName === "INPUT" ||
+          el.isContentEditable ||
+          /select|autocomplete|typeahead|search/i.test(
+            `${el.className || ""} ${el.getAttribute("placeholder") || ""}`
+          )));
 
     return {
       ref,
@@ -450,6 +460,7 @@ export function observeInPage() {
       xpath: smartXPath || undefined,
       overlay: Boolean(overlayRoot(el) || el.closest('[role="menu"]')),
       hasSubmenu: hasSubmenu(el) || undefined,
+      searchable: searchable || undefined,
       href: tag === "a" ? el.href?.slice(0, 200) : undefined,
       value: "value" in el && el.value ? cleanText(el.value, 80) : undefined,
       id: el.id || undefined,
@@ -2037,4 +2048,205 @@ export function clickMenuSegmentInPage(segmentName) {
     }
   }
   return { ok: false, error: "MENU_ITEM_NOT_FOUND", segment: segmentName };
+}
+
+/**
+ * Finds the filter/search field for an open searchable dropdown (React Select, Ant, MUI, etc.).
+ * Why: After opening a combobox, focus may be on the combobox itself or a nested search input.
+ * @returns {{ ok: boolean, x?: number, y?: number, method?: string, error?: string }}
+ */
+export function findSearchableFilterInPage() {
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function isEditable(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const tag = el.tagName;
+    if (tag === "TEXTAREA") return true;
+    if (tag === "INPUT") {
+      const type = (el.getAttribute("type") || "text").toLowerCase();
+      return !["hidden", "checkbox", "radio", "file", "submit", "button", "image"].includes(type);
+    }
+    if (el.isContentEditable) return true;
+    const role = (el.getAttribute("role") || "").toLowerCase();
+    return role === "textbox" || role === "searchbox" || role === "combobox";
+  }
+
+  function pointFor(el, method) {
+    el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+    try {
+      el.focus({ preventScroll: true });
+    } catch {
+      /* ignore */
+    }
+    const rect = el.getBoundingClientRect();
+    return {
+      ok: true,
+      method,
+      x: Math.round(rect.left + rect.width / 2),
+      y: Math.round(rect.top + rect.height / 2),
+    };
+  }
+
+  const active = document.activeElement;
+  if (isEditable(active) && isVisible(active)) {
+    return pointFor(active, "active_element");
+  }
+
+  const overlaySelectors = [
+    '[role="listbox"]',
+    '[role="menu"]',
+    '[role="dialog"]',
+    '[data-radix-popper-content-wrapper]',
+    '[data-radix-select-content]',
+    '[class*="dropdown"]',
+    '[class*="Dropdown"]',
+    '[class*="select__menu"]',
+    '[class*="Select-menu"]',
+    '[class*="MuiAutocomplete-popper"]',
+    '[class*="ant-select-dropdown"]',
+  ];
+
+  const overlays = overlaySelectors
+    .flatMap((sel) => [...document.querySelectorAll(sel)])
+    .filter(isVisible);
+
+  for (const root of overlays) {
+    const candidates = [
+      ...root.querySelectorAll(
+        'input:not([type="hidden"]):not([type="checkbox"]):not([type="radio"]), textarea, [contenteditable="true"], [role="textbox"], [role="searchbox"], [role="combobox"]'
+      ),
+    ].filter((el) => isVisible(el) && isEditable(el));
+    if (candidates.length) {
+      const searchy =
+        candidates.find((el) =>
+          /search|filter|typeahead|combobox/i.test(
+            `${el.getAttribute("placeholder") || ""} ${el.getAttribute("aria-label") || ""} ${el.className || ""}`
+          )
+        ) || candidates[0];
+      return pointFor(searchy, "overlay_input");
+    }
+  }
+
+  const expanded = [
+    ...document.querySelectorAll(
+      '[role="combobox"][aria-expanded="true"], [aria-haspopup="listbox"][aria-expanded="true"], input[aria-autocomplete="list"], input[aria-autocomplete="both"]'
+    ),
+  ].filter((el) => isVisible(el) && isEditable(el));
+  if (expanded.length) return pointFor(expanded[0], "expanded_combobox");
+
+  return { ok: false, error: "FILTER_INPUT_NOT_FOUND" };
+}
+
+/**
+ * Clicks a filtered option in an open listbox/menu/dropdown (searchable select).
+ * @param {string} optionName
+ * @returns {object}
+ */
+export function clickSearchableOptionInPage(optionName) {
+  const wanted = String(optionName || "")
+    .toLowerCase()
+    .trim();
+  if (!wanted) return { ok: false, error: "EMPTY_OPTION" };
+
+  function isVisible(el) {
+    if (!el || el.nodeType !== 1) return false;
+    const style = window.getComputedStyle(el);
+    if (style.display === "none" || style.visibility === "hidden" || style.opacity === "0") {
+      return false;
+    }
+    const rect = el.getBoundingClientRect();
+    return rect.width > 0 && rect.height > 0;
+  }
+
+  function labelOf(el) {
+    return (
+      el.getAttribute("aria-label") ||
+      el.getAttribute("title") ||
+      el.innerText ||
+      el.textContent ||
+      ""
+    )
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function scoreMatch(name) {
+    const lower = name.toLowerCase();
+    if (!lower || lower === "…" || lower === "...") return -1;
+    if (lower === wanted) return 100;
+    if (lower.startsWith(wanted)) return 80;
+    if (lower.includes(wanted)) return 60;
+    if (wanted.includes(lower) && lower.length >= 3) return 40;
+    return -1;
+  }
+
+  const optionSelectors = [
+    '[role="option"]',
+    '[role="menuitem"]',
+    '[role="menuitemcheckbox"]',
+    '[role="menuitemradio"]',
+    '[role="listbox"] [role="treeitem"]',
+    "li[id]",
+    '[class*="option"]',
+    '[class*="Option"]',
+    '[class*="MenuItem"]',
+    '[class*="menu-item"]',
+    '[data-value]',
+  ];
+
+  const roots = [
+    ...document.querySelectorAll(
+      [
+        '[role="listbox"]',
+        '[role="menu"]',
+        '[role="dialog"]',
+        '[data-radix-popper-content-wrapper]',
+        '[data-radix-select-content]',
+        '[class*="dropdown"]',
+        '[class*="select__menu"]',
+        '[class*="Select-menu"]',
+        '[class*="MuiAutocomplete-popper"]',
+        '[class*="ant-select-dropdown"]',
+        '[data-state="open"]',
+      ].join(", ")
+    ),
+  ].filter(isVisible);
+
+  /** @type {{ el: Element, name: string, score: number }[]} */
+  const hits = [];
+  const pools = roots.length ? roots : [document.body];
+  for (const root of pools) {
+    for (const sel of optionSelectors) {
+      for (const el of root.querySelectorAll(sel)) {
+        if (!isVisible(el)) continue;
+        if (el.closest('input, textarea, [contenteditable="true"]')) continue;
+        const name = labelOf(el);
+        const score = scoreMatch(name);
+        if (score < 0) continue;
+        hits.push({ el, name, score });
+      }
+    }
+  }
+
+  hits.sort((a, b) => b.score - a.score || a.name.length - b.name.length);
+  const best = hits[0];
+  if (!best) return { ok: false, error: "OPTION_NOT_FOUND", option: optionName };
+
+  best.el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
+  const rect = best.el.getBoundingClientRect();
+  return {
+    ok: true,
+    name: best.name,
+    score: best.score,
+    x: Math.round(rect.left + rect.width / 2),
+    y: Math.round(rect.top + rect.height / 2),
+  };
 }

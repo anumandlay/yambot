@@ -1,11 +1,15 @@
 /**
- * @fileoverview High-level browser macros — fill_form, dismiss_dialog, choose_menu_item.
+ * @fileoverview High-level browser macros — fill_form, dismiss_dialog, choose_menu_item, choose_searchable.
  * Purpose: Phase 4 composite actions that chain locator steps without LLM micro-management.
  * Downstream: worker/src/agent.js executeAction.
  */
 
 import { buildStructuresFromObs } from "./structures.js";
-import { clickMenuSegmentInPage } from "../pageDom.js";
+import {
+  clickMenuSegmentInPage,
+  clickSearchableOptionInPage,
+  findSearchableFilterInPage,
+} from "../pageDom.js";
 
 const DISMISS_RE =
   /^(cancel|close|dismiss|not now|no thanks|skip|maybe later|×|✕|x)$/i;
@@ -202,6 +206,112 @@ export async function runChooseMenuItem(page, frame, action) {
   }
 
   return { ok: true, path: clicked };
+}
+
+/**
+ * Opens a searchable dropdown/combobox, types a filter query with real keystrokes, then picks an option.
+ * Why: Instant DOM fill does not fire React/Select2/Ant/MUI filter handlers; keyboard.type does.
+ * @param {import('playwright').Page} page
+ * @param {import('playwright').Frame} frame
+ * @param {Function} executeInPage
+ * @param {Function} enrichLocatorAction
+ * @param {object} action
+ * @param {object} obs
+ * @returns {Promise<object>}
+ */
+export async function runChooseSearchable(
+  page,
+  frame,
+  executeInPage,
+  enrichLocatorAction,
+  action,
+  obs
+) {
+  const query = String(action.query || action.text || action.filter || "").trim();
+  const value = String(action.value || action.option || action.name || query).trim();
+  if (!query && !value) {
+    return { ok: false, error: "QUERY_OR_VALUE_REQUIRED" };
+  }
+  const toType = query || value;
+  const shouldOpen = action.open !== false;
+
+  if (
+    shouldOpen &&
+    (action.ref || action.css || action.xpath || action.label || action.role)
+  ) {
+    const openAction = enrichLocatorAction(
+      {
+        type: "click",
+        ref: action.ref,
+        css: action.css,
+        xpath: action.xpath,
+        name: action.open_name || action.label,
+        label: action.label,
+        role: action.role || "combobox",
+      },
+      obs
+    );
+    try {
+      const point = await frame.evaluate(executeInPage, {
+        ...openAction,
+        type: "resolve_point",
+      });
+      if (point?.x != null && point?.y != null) {
+        await page.mouse.click(point.x, point.y, { delay: 40 });
+        await sleep(280);
+      }
+    } catch (err) {
+      return {
+        ok: false,
+        error: "OPEN_FAILED",
+        detail: String(err?.message || err),
+      };
+    }
+  }
+
+  const filter = await frame.evaluate(findSearchableFilterInPage);
+  if (filter?.ok && filter.x != null && filter.y != null) {
+    await page.mouse.click(filter.x, filter.y, { delay: 20 });
+    await sleep(60);
+  }
+
+  // Why: clear prior filter text without relying on site-specific clear buttons.
+  await page.keyboard.down("Control");
+  await page.keyboard.press("a");
+  await page.keyboard.up("Control");
+  await page.keyboard.press("Backspace");
+  await page.keyboard.type(toType, { delay: 22 });
+
+  let hit = null;
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    hit = await frame.evaluate(clickSearchableOptionInPage, value || toType);
+    if (hit?.ok) break;
+    await sleep(180);
+  }
+
+  if (!hit?.ok) {
+    // Why: virtualized lists often highlight the first match — keyboard select is a solid fallback.
+    await page.keyboard.press("ArrowDown");
+    await sleep(120);
+    await page.keyboard.press("Enter");
+    return {
+      ok: true,
+      method: "keyboard_select",
+      query: toType,
+      value,
+      filterMethod: filter?.method || "none",
+      note: hit?.error || "OPTION_NOT_CLICKED_USED_KEYBOARD",
+    };
+  }
+
+  await page.mouse.click(hit.x, hit.y, { delay: 40 });
+  return {
+    ok: true,
+    method: "click_option",
+    query: toType,
+    selected: hit.name,
+    filterMethod: filter?.method || "none",
+  };
 }
 
 /**

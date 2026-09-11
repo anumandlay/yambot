@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 15:05] Searchable dropdown macro (choose_searchable)
+
+- **Prompt Provided:** For dropdowns with search, can we do something?
+- **Architectural Flow:** New `choose_searchable` action opens a combobox/ref, finds the filter input (active/overlay/expanded), types the query with real keystrokes, then clicks a matching listbox/option (ArrowDown+Enter fallback). `select` with `query`/`filter` routes to the same macro. Observe marks comboboxes with `aria-autocomplete` / input combobox as `[searchable]` on ACTION SURFACE. Prompt docs + verification updated.
+- **Impacted Files:** `worker/src/pageDom.js`, `worker/src/browserState/macros.js`, `worker/src/browserState/index.js`, `worker/src/browserState/actionSurface.js`, `worker/src/browserState/verify.js`, `worker/src/actions.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-11 14:50] Compact ACTION SURFACE observe/serialize
 
 - **Prompt Provided:** Improve the worker observe/serialize path toward a Browser-Use–style compact action surface.

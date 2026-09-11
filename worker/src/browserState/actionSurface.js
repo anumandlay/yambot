@@ -78,6 +78,7 @@ export function formatActionSurfaceLine(el, newRefs) {
   const bits = [`[${ref}${isNew ? "*" : ""}] ${kind} "${name}"`];
   if (el.value) bits.push(`value="${clip(el.value, 40)}"`);
   if (el.overlay) bits.push("[overlay]");
+  if (el.searchable) bits.push("[searchable]");
   if (el.hasSubmenu) bits.push("[submenu]");
   if (el.frameId && el.frameId !== "main") bits.push(`frame=${el.frameId}`);
   if (el.shadowHost) bits.push("[shadow]");

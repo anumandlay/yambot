@@ -77,6 +77,7 @@ import {
   runFillForm,
   runDismissDialog,
   runChooseMenuItem,
+  runChooseSearchable,
   detectSkill,
   formatSkillBlock,
   computeSkillProgress,
@@ -2671,6 +2672,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const { frame } = resolveActionTarget(action, obs);
         return runChooseMenuItem(page, frame, action);
       }
+      case "choose_searchable": {
+        const { frame } = resolveActionTarget(action, obs);
+        return runChooseSearchable(
+          page,
+          frame,
+          executeInPage,
+          enrichLocatorAction,
+          action,
+          obs
+        );
+      }
       case "ask_user": {
         // Why: registration already typed email/password this session — do not ask the human again.
         const known = sessionCredentialsForAsk(action.question, ctx.history);
@@ -3203,6 +3215,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
       case "select":
       case "press_key":
       case "scroll": {
+        // Why: select + query means type-to-filter UI — reuse the searchable macro.
+        if (action.type === "select" && (action.query || action.filter)) {
+          const { frame } = resolveActionTarget(action, obs);
+          return runChooseSearchable(
+            page,
+            frame,
+            executeInPage,
+            enrichLocatorAction,
+            action,
+            obs
+          );
+        }
         const { enriched, frame } = resolveActionTarget(action, obs);
         const result = await frame.evaluate(executeInPage, enriched);
         // Why: custom select returns a click point — finish with a real mouse click too.

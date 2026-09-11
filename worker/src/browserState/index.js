@@ -58,7 +58,7 @@ export {
   MAX_TABS,
 } from "./tabs.js";
 export { observePageFull, parseFrameRef, getPlaywrightFrame } from "./observe.js";
-export { runFillForm, runDismissDialog, runChooseMenuItem } from "./macros.js";
+export { runFillForm, runDismissDialog, runChooseMenuItem, runChooseSearchable } from "./macros.js";
 export {
   detectSkill,
   formatSkillBlock,

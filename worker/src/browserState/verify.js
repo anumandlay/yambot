@@ -105,6 +105,24 @@ export function verifyAction(action, beforeObs, afterObs, domResult = {}) {
         detail: passed ? `Selected: ${selected || wanted}` : `Option not confirmed: ${wanted}`,
       };
     }
+    case "choose_searchable": {
+      const wanted = String(action.value || action.query || action.name || "");
+      const selected = String(domResult?.selected || "");
+      const passed =
+        domResult?.ok !== false &&
+        (diff.dom_changed ||
+          !wanted ||
+          selected.toLowerCase().includes(wanted.toLowerCase()) ||
+          domResult?.method === "keyboard_select");
+      return {
+        ...base,
+        passed,
+        expected_condition: "searchable_option_selected_or_dom_change",
+        detail: passed
+          ? `Searchable select: ${selected || wanted || domResult?.method || "ok"}`
+          : `Searchable option not confirmed: ${wanted}`,
+      };
+    }
     case "navigate": {
       const target = String(action.url || "").replace(/\/$/, "");
       const current = String(afterObs?.url || "").replace(/\/$/, "");

@@ -21,6 +21,7 @@ export const ACTION_TYPES = [
   "fill_form",
   "dismiss_dialog",
   "choose_menu_item",
+  "choose_searchable",
   "extract",
   "solve_captcha",
   "ask_user",
@@ -57,7 +58,7 @@ export const ACTION_TYPES = [
 /** Field docs + locator/business rules appended after the batch header. */
 const ACTION_FIELDS_AND_RULES = `
 "type" for action.type:
-"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>"
+"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|investigate|request_training|finish>"
 
 Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
@@ -65,6 +66,7 @@ Action fields:
 - type: { "type":"type", "ref":"e5", "text":"...", "submit": false, "role":"textbox", "name":"Email", "css":"input[name=email]", "xpath":"//input[@name='email']" }
   Instant fill (not keystroke-by-keystroke). Also works on contenteditable compose bodies. For multi-field forms, batch several type actions + one click submit — do not use fill_form.
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
+  Optional "query" turns this into a searchable dropdown (same as choose_searchable).
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
 - scroll: { "type":"scroll", "direction":"down|up", "amount": 600 } — scrolls the menu/sidebar under the pointer (Vughy nav), not just the whole page; optional ref to scroll a specific panel
 - wait: { "type":"wait", "ms": 400 } — rare; prefer acting on the current snapshot
@@ -75,6 +77,7 @@ Action fields:
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
 - dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" } — closes modal via cancel/close/Escape
 - choose_menu_item: { "type":"choose_menu_item", "path": ["File", "Export", "PDF"] } — clicks open menu items in order (menu must already be open)
+- choose_searchable: { "type":"choose_searchable", "ref":"e12", "query":"product", "value":"Product Hunt" } — searchable dropdown/combobox: open ref (optional if already open), type filter with real keystrokes, then click the matching option. Use when ACTION SURFACE shows [searchable] or the list only appears after typing.
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }
 - ask_user: { "type":"ask_user", "question":"..." }
@@ -114,8 +117,9 @@ Locator rules (click/type/select):
 - Without a ref, you MUST supply at least one of: name, label, css, xpath (optionally with role).
 - Resolution order: ref → xpath → role+name → label/name → css.
 - Custom dropdowns (not native <select>): open the control, then click/select the option by exact name (e.g. name:"Passport", role:"option"). You may use select with value:"Passport".
+- Searchable dropdowns / comboboxes (type-to-filter): prefer choose_searchable with ref + query (+ optional value). Do NOT use instant type alone — filter UIs need keystrokes. If the panel is already open, omit opening or set "open":false.
 - Date pickers / calendars: click the day number or quick chip (Today, Tomorrow) by name (e.g. name:"21" or name:"Today"). Do not use type into the date field unless it accepts typed dates.
-- Prefer a batch of type/click for multi-field forms; dismiss_dialog for cookie/promo modals; choose_menu_item for nested menus.
+- Prefer a batch of type/click for multi-field forms; dismiss_dialog for cookie/promo modals; choose_menu_item for nested menus; choose_searchable for filterable selects.
 - Never emit fill_form (removed — use type batches).
 - Refs in iframes are prefixed frame_N_eM — use as-is; the runtime resolves the frame automatically.
 - A viewport screenshot may be attached when verification fails — correlate refs with visible UI.
@@ -181,6 +185,11 @@ Example (Gmail move-to-label in ONE turn when refs are visible):
   {"type":"click","ref":"e12","name":"Select"},
   {"type":"click","ref":"e20","name":"Move to"},
   {"type":"click","ref":"e33","name":"Product Hunt"}
+]}
+
+Example (searchable dropdown in ONE turn):
+{"thought":"pick country via filter","actions":[
+  {"type":"choose_searchable","ref":"e8","query":"can","value":"Canada"}
 ]}
 `.trim();
   return `${header}\n\n${ACTION_FIELDS_AND_RULES}`;
@@ -379,6 +388,7 @@ export const LIGHT_SETTLE_TYPES = new Set([
   "type",
   "fill_form",
   "select",
+  "choose_searchable",
   "press_key",
   "scroll",
   "wait",
