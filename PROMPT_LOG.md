@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-11 14:50] Compact ACTION SURFACE observe/serialize
+
+- **Prompt Provided:** Improve the worker observe/serialize path toward a Browser-Use–style compact action surface.
+- **Architectural Flow:** New `actionSurface.js` filters noise, ranks by goal/subgoal + new/overlay boosts, and emits compact lines `[e12*] button "Sign in"`. `formatStateProjection` leads with ACTION SURFACE, marks `*` from `stateDiff.added_refs`, trims a11y/structures/page-text when the surface is rich. Action schema + agent SPEED/PAGE READY lines tell the model to use those refs. Element resolution unchanged (same `ref` ids).
+- **Impacted Files:** `worker/src/browserState/actionSurface.js`, `worker/src/browserState/format.js`, `worker/src/browserState/index.js`, `worker/src/actions.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-11 14:20] Aggressive multi-action batch prompting
 
 - **Prompt Provided:** Tighten the worker prompt so models batch more aggressively.

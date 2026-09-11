@@ -1,7 +1,7 @@
 /**
  * @fileoverview Compact LLM projection of browser state (not full 6k text dump).
- * Purpose: Layered observation — plan, progress, structures, a11y, tabs, ranked interactives.
- * Downstream: agent.js replaces formatObservation for LLM prompts.
+ * Purpose: Browser-Use–style ACTION SURFACE first, then light context (plan/diff/text).
+ * Downstream: agent.js formatObservation for each LLM step.
  */
 
 import { scoreInteractives } from "./relevance.js";
@@ -10,6 +10,7 @@ import { formatProgressBlock } from "./progress.js";
 import { formatPlanBlock } from "./planner.js";
 import { formatA11yBlock } from "./a11y.js";
 import { formatTelemetryBlock } from "./telemetry.js";
+import { buildActionSurface } from "./actionSurface.js";
 
 /**
  * Formats page state block for the LLM.
@@ -99,6 +100,7 @@ function formatFramesBlock(obs) {
 
 /**
  * Builds the compact observation string for the LLM.
+ * Why: Lead with ACTION SURFACE (Browser-Use style). Keep plan/diff/text short; a11y is secondary.
  * @param {object} params
  * @returns {string}
  */
@@ -115,6 +117,7 @@ export function formatStateProjection({
   maxText = 1800,
 }) {
   const lines = [];
+  const subgoal = currentSubgoal || "";
 
   const planBlock = formatPlanBlock(plan);
   if (planBlock) lines.push(planBlock);
@@ -122,25 +125,21 @@ export function formatStateProjection({
   const progressBlock = formatProgressBlock(progress);
   if (progressBlock) lines.push("", progressBlock);
 
-  const telBlock = formatTelemetryBlock(telemetry);
-  if (telBlock) lines.push("", telBlock);
-
   lines.push("", formatStateBlock(pageState));
   const diffBlock = formatDiffBlock(stateDiff);
   if (diffBlock) lines.push("", diffBlock);
 
-  const structures = buildStructuresFromObs(obs);
-  const structuresBlock = formatStructuresBlock(structures);
-  if (structuresBlock) lines.push("", structuresBlock);
-
-  const framesBlock = formatFramesBlock(obs);
-  if (framesBlock) lines.push("", framesBlock);
-
-  const a11yBlock = formatA11yBlock(obs.a11y);
-  if (a11yBlock) lines.push("", a11yBlock);
+  // Why: primary channel for actions — numbered compact list with * for new controls.
+  const surface = buildActionSurface(obs.interactives || [], {
+    goal,
+    currentSubgoal: subgoal,
+    addedRefs: stateDiff?.added_refs || [],
+    max: maxInteractives,
+  });
+  lines.push("", surface.block);
 
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
-    lines.push("", "Open menus (use overlay refs; [submenu] first):");
+    lines.push("", "Open menus (use overlay refs above; open [submenu] first):");
     for (const menu of obs.openMenus) {
       lines.push(`Menu ${menu.menuIndex + 1}:`);
       for (const item of menu.items || []) {
@@ -155,29 +154,38 @@ export function formatStateProjection({
     }
   }
 
-  const subgoal = currentSubgoal || "";
-  const ranked = scoreInteractives(obs.interactives || [], goal, subgoal).slice(0, maxInteractives);
-  lines.push("", `Interactive elements (top ${ranked.length} by goal relevance):`);
-  for (const el of ranked) {
-    const rel = el.relevance != null ? ` score=${el.relevance}` : "";
-    const ctx = el.nearbyText ? ` context="${String(el.nearbyText).slice(0, 50)}"` : "";
-    const frame = el.frameId && el.frameId !== "main" ? ` frame=${el.frameId}` : "";
-    const shadow = el.shadowHost ? ` shadow=${el.shadowHost}` : "";
-    lines.push(
-      `- ${el.ref}: <${el.tag}${el.type ? ` type=${el.type}` : ""}${
-        el.role ? ` role=${el.role}` : ""
-      }> "${el.name}"${rel}${frame}${shadow}${ctx}${el.cssHint ? ` css=${el.cssHint}` : ""}${
-        el.overlay ? " [overlay]" : ""
-      }${el.hasSubmenu ? " [submenu]" : ""}${el.href ? ` href=${el.href}` : ""}${
-        el.value ? ` value=${el.value}` : ""
-      }${el.disabled ? " [disabled]" : ""}`
-    );
+  const framesBlock = formatFramesBlock(obs);
+  if (framesBlock) lines.push("", framesBlock);
+
+  // Why: structures/a11y are secondary context — trim when the action surface is already rich.
+  if (surface.count < 12) {
+    const structures = buildStructuresFromObs(obs);
+    const structuresBlock = formatStructuresBlock(structures);
+    if (structuresBlock) lines.push("", structuresBlock);
   }
 
-  const text = String(obs.text || "").slice(0, maxText);
+  const a11yBlock = formatA11yBlock(obs.a11y);
+  if (a11yBlock && surface.count < 20) {
+    lines.push("", a11yBlock);
+  }
+
+  const telBlock = formatTelemetryBlock(telemetry);
+  if (telBlock) lines.push("", telBlock);
+
+  const textBudget = surface.count >= 25 ? Math.min(maxText, 900) : maxText;
+  const text = String(obs.text || "").slice(0, textBudget);
   if (text) {
     lines.push("", "Page text (truncated):", text);
   }
 
   return lines.join("\n");
+}
+
+/** @deprecated Kept for callers that still import the old interactive dump helper. */
+export function formatLegacyInteractiveLines(interactives, goal, subgoal, maxInteractives) {
+  const ranked = scoreInteractives(interactives || [], goal, subgoal).slice(0, maxInteractives);
+  return ranked.map((el) => {
+    const rel = el.relevance != null ? ` score=${el.relevance}` : "";
+    return `- ${el.ref}: <${el.tag}> "${el.name}"${rel}`;
+  });
 }

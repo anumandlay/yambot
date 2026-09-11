@@ -2111,7 +2111,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
-              "SPEED: multi-action batches are mandatory when the snapshot already shows the next controls. Prefer 4+ actions per turn. Single-action turns are a last resort (unknown UI after navigate/submit, or finish/ask_user alone).",
+              "SPEED: multi-action batches are mandatory when ACTION SURFACE already lists the next controls. Prefer 4+ actions per turn using those [ref] ids. Single-action turns are a last resort (unknown UI after navigate/submit, or finish/ask_user alone).",
               "If RECENT ACTIONS show you only did 1 step last turn, expand: queue every remaining click/type on this page before calling the model again.",
               skillBlock,
               skillsCatalogBlock,
@@ -2123,7 +2123,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   ? "A screenshot may attach after failed verification steps."
                   : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
-              "PAGE READY: navigate already waits for domcontentloaded then snapshots — do not wait_for invented site phrases. Act on CURRENT PAGE SNAPSHOT.",
+              "PAGE READY: navigate already waits for domcontentloaded then snapshots — do not wait_for invented site phrases. Act on ACTION SURFACE refs in CURRENT PAGE SNAPSHOT.",
               formatAgentSnapshot(agentSnapshot, goal),
             ]
               .filter(Boolean)

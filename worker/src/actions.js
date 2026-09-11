@@ -108,8 +108,8 @@ Action fields:
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }
 
 Locator rules (click/type/select):
-- Prefer "ref" from the latest snapshot (fast path). Never invent refs.
-- Each snapshot line may include a stable xpath (id/aria-label based — not DevTools absolute /html/body/div paths). The runtime auto-applies it if the ref goes stale.
+- Prefer "ref" from ACTION SURFACE lines like [e12] or [e12*] (fast path). Never invent refs. * means new since last step.
+- Runtime still keeps xpath/css for stale refs; you usually only need the ref from ACTION SURFACE.
 - Also pass role+name (or label) and/or cssHint as css when available.
 - Without a ref, you MUST supply at least one of: name, label, css, xpath (optionally with role).
 - Resolution order: ref → xpath → role+name → label/name → css.

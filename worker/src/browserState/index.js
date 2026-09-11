@@ -10,6 +10,7 @@ export { diffObservations } from "./diff.js";
 export { verifyAction, enrichActionResult } from "./verify.js";
 export { checkPreconditions, attachFingerprints } from "./preconditions.js";
 export { formatStateProjection } from "./format.js";
+export { buildActionSurface, formatActionSurfaceLine, isUsefulActionTarget } from "./actionSurface.js";
 export { classifyFailure, attachFailureClass, FAILURE_CLASSES } from "./failureClass.js";
 export { detectActionLoop, actionKey } from "./loops.js";
 export {
