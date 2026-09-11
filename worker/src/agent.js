@@ -69,7 +69,6 @@ import {
   scorePageUrl,
   parseFrameRef,
   runRecoveryLadder,
-  isRecoverableAction,
   isEphemeralDismissClick,
   isElementMissingError,
   actionDisplayName,
