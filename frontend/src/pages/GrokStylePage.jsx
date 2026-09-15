@@ -58,7 +58,7 @@ function chatLabel(chat) {
 export function GrokStyleLayout() {
   // Why: layout chrome lives in GrokStylePage; this outlet host only fills the viewport.
   return (
-    <div className="flex h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-[#0b1220] text-teal-50">
+    <div className="flex h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-teal-950 text-teal-50">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Outlet />
       </div>
@@ -246,7 +246,7 @@ export function GrokStylePage() {
 
   const agentRail = (
     <aside
-      className={`flex h-full min-h-0 w-full flex-col border-teal-900/60 bg-[#0f172a] lg:w-72 lg:shrink-0 lg:border-r ${
+      className={`flex h-full min-h-0 w-full flex-col border-teal-900/60 bg-teal-950 lg:w-72 lg:shrink-0 lg:border-r ${
         agentsOpen ? "absolute inset-0 z-40 lg:static" : "hidden lg:flex"
       }`}
     >
@@ -406,7 +406,7 @@ export function GrokStylePage() {
       ) : null}
       {agentRail}
 
-      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#f4faf8] text-teal-950">
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden bg-[#f7f5fc] text-teal-950">
         <div className="flex shrink-0 items-center gap-2 border-b border-teal-100 bg-white px-3 py-2 lg:hidden">
           <button
             type="button"

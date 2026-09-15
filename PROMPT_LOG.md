@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 16:00] Apply Vughy.com brand colors to YamBot UI
+
+- **Prompt Provided:** Visit vughy.com and apply the same color code to this project.
+- **Architectural Flow:** Pulled Vughy `brand-*` palette from production CSS (`#f4f0ff`…`#4a2895`, gradient `#6941c6`→`#9e7bff`). Remapped Tailwind `teal-*` via `@theme` in `index.css` plus `--yb-*` tokens so existing teal utility classes render as Vughy purple across the app; grok shell backgrounds aligned.
+- **Impacted Files:** `frontend/src/index.css`, `frontend/src/pages/GrokStylePage.jsx`, PROMPT_LOG
+
 ## [2026-09-15 15:45] Grok left rail: agent → chats tree + delete
 
 - **Prompt Provided:** On /grok show chats as a tree under each agent; delete icon on each chat.
