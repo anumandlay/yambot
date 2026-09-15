@@ -38,7 +38,8 @@ function mask(value) {
 }
 
 /**
- * GET /api/settings — public fields + masked secrets.
+ * GET /api/settings — config for Settings → LLM.
+ * Why: operators asked to see full LLM/vision API keys on /settings/llm (not masked).
  */
 settingsRouter.get("/", async (req, res, next) => {
   try {
@@ -48,8 +49,9 @@ settingsRouter.get("/", async (req, res, next) => {
       return;
     }
     const s = user.settings || {};
-    const savedKey = decryptSecret(s.llmApiKeyEnc || "");
-    const savedDbcPass = decryptSecret(s.dbcPasswordEnc || "");
+    const savedKey = decryptSecret(s.llmApiKeyEnc || "") || "";
+    const savedVisionKey = decryptSecret(s.visionApiKeyEnc || "") || "";
+    const savedDbcPass = decryptSecret(s.dbcPasswordEnc || "") || "";
     const oauthOpenAi =
       s.llmAuthMode === "oauth" && s.llmOAuthProvider === "openai" && isLlmOAuthConnected(s);
     res.json({
@@ -62,6 +64,7 @@ settingsRouter.get("/", async (req, res, next) => {
         llmOAuthAccountLabel: s.llmOAuthAccountLabel || "",
         llmOAuthProviders: listLlmOAuthProvidersForUser(s),
         llmOAuthRedirectUri: `${env.PUBLIC_API_URL.replace(/\/$/, "")}/api/settings/llm/oauth/callback`,
+        llmApiKey: savedKey,
         llmApiKeyMasked: mask(savedKey),
         hasLlmApiKey: Boolean(savedKey),
         llmBaseUrl: oauthOpenAi
@@ -70,14 +73,16 @@ settingsRouter.get("/", async (req, res, next) => {
         llmModel: oauthOpenAi
           ? resolveOpenAiOAuthModel(s.llmModel)
           : normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL),
-        visionApiKeyMasked: mask(decryptSecret(s.visionApiKeyEnc || "")),
-        hasVisionApiKey: Boolean(decryptSecret(s.visionApiKeyEnc || "")),
+        visionApiKey: savedVisionKey,
+        visionApiKeyMasked: mask(savedVisionKey),
+        hasVisionApiKey: Boolean(savedVisionKey),
         visionBaseUrl: s.visionBaseUrl
           ? normalizeLlmBaseUrl(s.visionBaseUrl, env.DEFAULT_LLM_BASE_URL)
           : "",
         visionModel: s.visionModel ? normalizeLlmModel(s.visionModel, env.DEFAULT_LLM_MODEL) : "",
         visionProfileId: s.visionProfile ? String(s.visionProfile) : "",
         dbcUsername: s.dbcUsername || "",
+        dbcPassword: savedDbcPass,
         dbcPasswordMasked: mask(savedDbcPass),
         hasDbcPassword: Boolean(savedDbcPass),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
@@ -88,7 +93,6 @@ settingsRouter.get("/", async (req, res, next) => {
     next(err);
   }
 });
-
 /**
  * PUT /api/settings — update config; empty secret fields keep previous values.
  * Body fields: llmApiKey?, llmBaseUrl, llmModel, dbcUsername, dbcPassword?, confirmBeforeSubmit

@@ -36,7 +36,7 @@ export function SettingsPage() {
   const [testingLlm, setTestingLlm] = useState(false);
 
   /**
-   * Loads settings from API into form state (secrets left blank).
+   * Loads settings from API into form state (full API keys / secrets shown).
    */
   async function reloadSettings() {
     const [data, llmData] = await Promise.all([
@@ -49,9 +49,9 @@ export function SettingsPage() {
       ...prev,
       ...settings,
       visionProfileId: settings.visionProfileId || "",
-      llmApiKey: "",
-      visionApiKey: "",
-      dbcPassword: "",
+      llmApiKey: settings.llmApiKey || "",
+      visionApiKey: settings.visionApiKey || "",
+      dbcPassword: settings.dbcPassword || "",
     }));
   }
 
@@ -99,7 +99,6 @@ export function SettingsPage() {
         }),
       });
       setOkMsg("Settings saved. Agents use these on the next task.");
-      setForm((prev) => ({ ...prev, llmApiKey: "", visionApiKey: "", dbcPassword: "" }));
       await reloadSettings();
     } catch (err) {
       setError(err);
@@ -184,13 +183,12 @@ export function SettingsPage() {
         <h2 className="text-sm font-semibold text-teal-900/80">LLM</h2>
 
         <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.llmApiKey">
-            API key {form.hasLlmApiKey ? `(saved: ${form.llmApiKeyMasked})` : ""}
-          </FieldLabel>
+          <FieldLabel helpId="settings.llmApiKey">API key</FieldLabel>
           <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            type="password"
+            className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+            type="text"
             autoComplete="off"
+            spellCheck={false}
             placeholder="sk-…"
             value={form.llmApiKey}
             onChange={(e) => update("llmApiKey", e.target.value)}
@@ -266,13 +264,12 @@ export function SettingsPage() {
           Legacy fallback (only if no default vision profile is selected):
         </p>
         <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.visionApiKey">
-            Vision API key {form.hasVisionApiKey ? `(saved: ${form.visionApiKeyMasked})` : ""}
-          </FieldLabel>
+          <FieldLabel helpId="settings.visionApiKey">Vision API key</FieldLabel>
           <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            type="password"
+            className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+            type="text"
             autoComplete="off"
+            spellCheck={false}
             placeholder="Leave blank to use main LLM key"
             value={form.visionApiKey}
             onChange={(e) => update("visionApiKey", e.target.value)}
@@ -307,12 +304,12 @@ export function SettingsPage() {
           />
         </label>
         <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.dbcPassword">
-            Password / authtoken {form.hasDbcPassword ? `(saved: ${form.dbcPasswordMasked})` : ""}
-          </FieldLabel>
+          <FieldLabel helpId="settings.dbcPassword">Password / authtoken</FieldLabel>
           <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            type="password"
+            className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+            type="text"
+            autoComplete="off"
+            spellCheck={false}
             value={form.dbcPassword}
             onChange={(e) => update("dbcPassword", e.target.value)}
           />

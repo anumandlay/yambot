@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 14:25] Show full API keys on /settings/llm
+
+- **Prompt Provided:** On /settings/llm also always show complete API keys; do not mask.
+- **Architectural Flow:** `GET /api/settings` returns plaintext `llmApiKey`, `visionApiKey`, and `dbcPassword`. Settings page loads them into text inputs (no password dots / masked labels).
+- **Impacted Files:** `backend/src/routes/settings.js`, `frontend/src/pages/SettingsPage.jsx`, PROMPT_LOG
+
 ## [2026-09-15 14:20] Show full LLM API keys on /settings/llms
 
 - **Prompt Provided:** On /settings/llms always show the complete API keys; do not mask.
