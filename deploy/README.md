@@ -10,12 +10,12 @@
 sudo apt update && sudo apt install -y git docker.io docker-compose-v2
 sudo usermod -aG docker $USER
 # re-login
-git clone https://github.com/anumandlay/yambot.git
-cd yambot/deploy
-cp .env.example .env
-# edit .env secrets (JWT_SECRET, SETTINGS_CRYPTO_KEY)
-docker compose up -d --build
+# From your laptop (preferred): python deploy/remote-deploy.py
+# Then restore public HTTPS (host Caddy owns :80/:443 → docker :8080):
+python deploy/restore-host-caddy.py
 ```
+
+Caddyfile template: `deploy/Caddyfile.host` (`bot.vughy.com` → `127.0.0.1:8080`). Without host Caddy, only raw ports `:8080` / `:4010` work — the public URL will not open.
 
 ## After code push
 ```bash

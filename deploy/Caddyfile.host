@@ -1,0 +1,26 @@
+# Host Caddyfile for YamBot VPS (not Docker).
+# Purpose: TLS termination for bot.vughy.com → docker web:8080; optional OpenMausBot on open.vughy.com.
+# Install: sudo install -m 644 deploy/Caddyfile.host /etc/caddy/Caddyfile && sudo systemctl restart caddy
+# Or: python deploy/vps-restore-caddy.py
+
+{
+	admin off
+	email anumandlayamunesh007@gmail.com
+}
+
+bot.vughy.com {
+	request_body {
+		max_size 10MB
+	}
+	encode gzip
+	reverse_proxy 127.0.0.1:8080
+}
+
+open.vughy.com {
+	encode gzip
+	reverse_proxy 127.0.0.1:8799
+}
+
+openmaus.15.204.242.239.sslip.io {
+	redir https://open.vughy.com{uri} permanent
+}

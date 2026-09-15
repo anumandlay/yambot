@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 13:55] Restore host Caddy after VPS wipe
+
+- **Prompt Provided:** bot.vughy.com is not opening (after fresh deploy / deleted VPS files).
+- **Architectural Flow:** Docker stack was healthy on :8080/:4010 but host Caddy (TLS :80/:443) was removed in the wipe. Reinstalled Caddy, wrote `deploy/Caddyfile.host` (bot.vughy.com → 127.0.0.1:8080, open.vughy.com → :8799), started service. Added `deploy/restore-host-caddy.py` for next wipe.
+- **Impacted Files:** `deploy/Caddyfile.host`, `deploy/restore-host-caddy.py`, `deploy/README.md`, PROMPT_LOG
+
 ## [2026-09-15 13:40] Chat message intent: question vs goal
 
 - **Prompt Provided:** Can the agent understand whether the message I sent is a goal or a question?
