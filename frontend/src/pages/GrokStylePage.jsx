@@ -58,7 +58,7 @@ function chatLabel(chat) {
 export function GrokStyleLayout() {
   // Why: layout chrome lives in GrokStylePage; this outlet host only fills the viewport.
   return (
-    <div className="flex h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-teal-950 text-teal-50">
+    <div className="flex h-dvh max-h-dvh min-h-0 w-full overflow-hidden bg-[#f7f5fc] text-teal-950">
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <Outlet />
       </div>
@@ -246,20 +246,20 @@ export function GrokStylePage() {
 
   const agentRail = (
     <aside
-      className={`flex h-full min-h-0 w-full flex-col border-teal-900/60 bg-teal-950 lg:w-72 lg:shrink-0 lg:border-r ${
+      className={`flex h-full min-h-0 w-full flex-col border-teal-100 bg-white lg:w-72 lg:shrink-0 lg:border-r ${
         agentsOpen ? "absolute inset-0 z-40 lg:static" : "hidden lg:flex"
       }`}
     >
-      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-teal-900/60 px-3 py-3">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-teal-100 bg-teal-50/80 px-3 py-3">
         <div className="min-w-0">
-          <p className="truncate text-xs font-bold uppercase tracking-wider text-teal-400/80">
+          <p className="truncate text-xs font-bold uppercase tracking-wider text-teal-600">
             grok-style
           </p>
-          <p className="truncate text-sm font-semibold text-teal-50">Agents & chats</p>
+          <p className="truncate text-sm font-semibold text-teal-950">Agents & chats</p>
         </div>
         <button
           type="button"
-          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-teal-800 text-teal-100 lg:hidden"
+          className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-teal-200 bg-white text-teal-900 lg:hidden"
           onClick={() => setAgentsOpen(false)}
           aria-label="Close agents"
         >
@@ -269,11 +269,11 @@ export function GrokStylePage() {
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
         {agents.length === 0 ? (
-          <p className="px-2 py-3 text-sm text-teal-200/70">
+          <p className="px-2 py-3 text-sm text-teal-900/70">
             No agents yet.{" "}
             <Link
               to="/agents/new"
-              className="font-semibold text-teal-300 underline"
+              className="font-semibold text-teal-700 underline"
               target="_blank"
               rel="noreferrer"
             >
@@ -294,12 +294,12 @@ export function GrokStylePage() {
                 <li key={id} className="rounded-xl">
                   <div
                     className={`flex min-h-11 items-center gap-0.5 rounded-xl ${
-                      agentActive ? "bg-teal-800/80" : "hover:bg-teal-900/50"
+                      agentActive ? "bg-teal-100" : "hover:bg-teal-50"
                     }`}
                   >
                     <button
                       type="button"
-                      className="inline-flex min-h-11 min-w-9 shrink-0 items-center justify-center text-teal-300/80"
+                      className="inline-flex min-h-11 min-w-9 shrink-0 items-center justify-center text-teal-700"
                       aria-label={isOpen ? "Collapse chats" : "Expand chats"}
                       aria-expanded={isOpen}
                       onClick={() => toggleExpand(id)}
@@ -310,12 +310,12 @@ export function GrokStylePage() {
                       type="button"
                       disabled={busyId === id}
                       onClick={() => void openAgent(id)}
-                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 pr-1 text-left text-sm font-semibold text-teal-50 disabled:opacity-50"
+                      className="flex min-h-11 min-w-0 flex-1 items-center gap-2 py-2 pr-1 text-left text-sm font-semibold text-teal-950 disabled:opacity-50"
                       title="Open latest chat"
                     >
                       <span className="min-w-0 flex-1 truncate">{a.name || "Agent"}</span>
                       {anyLive ? (
-                        <span className="shrink-0 rounded-md bg-emerald-500/20 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase text-emerald-300">
+                        <span className="shrink-0 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase text-emerald-800">
                           Live
                         </span>
                       ) : null}
@@ -324,7 +324,7 @@ export function GrokStylePage() {
                       type="button"
                       disabled={Boolean(busyId)}
                       onClick={(e) => void createChat(id, e)}
-                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-teal-300 hover:bg-teal-700/50 disabled:opacity-50"
+                      className="inline-flex min-h-11 min-w-11 shrink-0 items-center justify-center rounded-lg text-lg font-bold text-teal-700 hover:bg-teal-100 disabled:opacity-50"
                       title="New chat"
                       aria-label={`New chat for ${a.name || "agent"}`}
                     >
@@ -333,9 +333,9 @@ export function GrokStylePage() {
                   </div>
 
                   {isOpen ? (
-                    <ul className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-teal-800/80 pl-2">
+                    <ul className="ml-3 mt-0.5 flex flex-col gap-0.5 border-l border-teal-200 pl-2">
                       {agentChats.length === 0 ? (
-                        <li className="px-2 py-2 text-xs text-teal-400/70">No chats yet</li>
+                        <li className="px-2 py-2 text-xs text-teal-900/50">No chats yet</li>
                       ) : (
                         agentChats.map((c) => {
                           const cid = String(c._id);
@@ -350,12 +350,16 @@ export function GrokStylePage() {
                                 className={`flex min-h-10 min-w-0 flex-1 items-center gap-1.5 rounded-lg px-2 text-left text-xs font-medium transition-colors ${
                                   selected
                                     ? "bg-teal-600 text-white"
-                                    : "text-teal-200/90 hover:bg-teal-900/60"
+                                    : "text-teal-900/80 hover:bg-teal-50"
                                 }`}
                               >
                                 <span className="min-w-0 flex-1 truncate">{chatLabel(c)}</span>
                                 {live ? (
-                                  <span className="shrink-0 text-[0.6rem] font-bold uppercase text-emerald-300">
+                                  <span
+                                    className={`shrink-0 text-[0.6rem] font-bold uppercase ${
+                                      selected ? "text-emerald-200" : "text-emerald-600"
+                                    }`}
+                                  >
                                     ·
                                   </span>
                                 ) : null}
@@ -364,7 +368,7 @@ export function GrokStylePage() {
                                 type="button"
                                 disabled={deletingId === cid}
                                 onClick={(e) => void deleteChat(c, e)}
-                                className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-lg text-teal-400/70 opacity-70 hover:bg-red-950/50 hover:text-red-300 group-hover:opacity-100 disabled:opacity-40"
+                                className="inline-flex min-h-10 min-w-10 shrink-0 items-center justify-center rounded-lg text-teal-700/50 opacity-70 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 disabled:opacity-40"
                                 title="Delete chat"
                                 aria-label={`Delete ${chatLabel(c)}`}
                               >
@@ -383,10 +387,10 @@ export function GrokStylePage() {
         )}
       </div>
 
-      <div className="shrink-0 border-t border-teal-900/60 p-3">
+      <div className="shrink-0 border-t border-teal-100 p-3">
         <Link
           to="/"
-          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-800 text-sm font-semibold text-teal-200 hover:bg-teal-900/40"
+          className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-teal-200 bg-white text-sm font-semibold text-teal-900 hover:bg-teal-50"
         >
           ← Classic YamBot
         </Link>

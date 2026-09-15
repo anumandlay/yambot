@@ -654,7 +654,7 @@ export function LiveScreen({
   function renderBody({ modal = false } = {}) {
     return (
       <>
-        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-white/10 px-3 py-2 text-xs">
+        <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-950">
           <div className="flex min-w-0 flex-wrap items-center gap-2 font-semibold tracking-wide">
             <span
               className={`inline-block h-2.5 w-2.5 rounded-full ${
@@ -663,10 +663,10 @@ export function LiveScreen({
                   : controlOn
                     ? "bg-amber-400"
                     : live?.online
-                      ? "bg-emerald-400"
+                      ? "bg-emerald-500"
                       : provisioning
                         ? "bg-amber-400"
-                        : "bg-slate-500"
+                        : "bg-slate-400"
               }`}
             />
             {agentName ? (
@@ -687,10 +687,10 @@ export function LiveScreen({
                   ? "STARTING…"
                   : "OFFLINE"}
             {live?.workerName && !agentName ? (
-              <span className="truncate font-normal text-white/60">· {live.workerName}</span>
+              <span className="truncate font-normal text-teal-900/60">· {live.workerName}</span>
             ) : null}
             {modal ? (
-              <span className="rounded-md bg-white/10 px-2 py-0.5 font-normal text-white/70">
+              <span className="rounded-md bg-white/80 px-2 py-0.5 font-normal text-teal-900/70">
                 {controlOn ? "Full screen · control" : "Full screen · live"}
               </span>
             ) : null}
@@ -703,7 +703,7 @@ export function LiveScreen({
                 onClick={() => setHumanSession(false)}
                 className={`inline-flex min-h-11 items-center rounded-xl px-3 text-xs font-bold ${
                   teachMode
-                    ? "bg-violet-500 text-white"
+                    ? "bg-violet-600 text-white"
                     : "bg-amber-500 text-slate-950"
                 }`}
               >
@@ -726,7 +726,7 @@ export function LiveScreen({
                     type="button"
                     disabled={busySession || !live?.online}
                     onClick={() => setHumanSession(true)}
-                    className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
+                    className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-900 disabled:opacity-40"
                   >
                     Take control
                   </button>
@@ -737,7 +737,7 @@ export function LiveScreen({
               type="button"
               onClick={() => void toggleZoom()}
               disabled={openingView || !live?.online}
-              className="inline-flex min-h-11 items-center rounded-xl border border-white/20 bg-white/10 px-3 text-xs font-semibold disabled:opacity-40"
+              className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-900 disabled:opacity-40"
               aria-pressed={zoomed}
               title={zoomed ? "Close live view (Esc)" : "Open live screen (real-time)"}
             >
@@ -747,7 +747,7 @@ export function LiveScreen({
         </div>
 
         {showAttention ? (
-          <p className="shrink-0 border-b border-red-500/50 bg-red-950/70 px-3 py-2 text-xs text-red-50">
+          <p className="shrink-0 border-b border-red-200 bg-red-50 px-3 py-2 text-xs text-red-900">
             {attentionReason.slice(0, 220)}
             {" — "}
             <strong>Take control</strong> to drive this machine (CAPTCHA, login, etc.).
@@ -755,21 +755,21 @@ export function LiveScreen({
         ) : null}
 
         {modal && viewError && !controlOn && !viewSrc ? (
-          <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
+          <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             Live stream unavailable ({viewError}). Showing latest screenshot instead.
           </p>
         ) : null}
 
         {modal && viewSrc && !controlOn ? (
-          <p className="shrink-0 border-b border-teal-500/30 bg-teal-950/50 px-3 py-2 text-xs text-teal-50">
+          <p className="shrink-0 border-b border-teal-100 bg-teal-50 px-3 py-2 text-xs text-teal-950">
             Watching live — the agent keeps running. Use <strong>Take control</strong> to drive the browser.
           </p>
         ) : null}
 
         {controlOn ? (
-          <p className="shrink-0 border-b border-amber-500/40 bg-amber-950/60 px-3 py-2 text-xs text-amber-50">
+          <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             {teachMode || demoRecording ? (
-              <span className="mr-2 rounded bg-violet-300 px-1.5 py-0.5 font-bold uppercase tracking-wide text-violet-950">
+              <span className="mr-2 rounded bg-violet-200 px-1.5 py-0.5 font-bold uppercase tracking-wide text-violet-950">
                 Teaching skill
               </span>
             ) : null}
@@ -784,10 +784,10 @@ export function LiveScreen({
           <p
             className={`shrink-0 border-b px-3 py-2 text-xs ${
               demoNotice.tone === "success"
-                ? "border-emerald-500/40 bg-emerald-950/70 text-emerald-50"
+                ? "border-emerald-200 bg-emerald-50 text-emerald-950"
                 : demoNotice.tone === "warn"
-                  ? "border-amber-500/40 bg-amber-950/70 text-amber-50"
-                  : "border-red-500/40 bg-red-950/70 text-red-50"
+                  ? "border-amber-200 bg-amber-50 text-amber-950"
+                  : "border-red-200 bg-red-50 text-red-950"
             }`}
           >
             {demoNotice.text}{" "}
@@ -800,7 +800,7 @@ export function LiveScreen({
         ) : null}
 
         {live?.provisionError ? (
-          <p className="shrink-0 border-b border-amber-500/30 bg-amber-950/50 px-3 py-2 text-xs text-amber-100">
+          <p className="shrink-0 border-b border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
             Provision error: {live.provisionError}
           </p>
         ) : null}
@@ -840,7 +840,7 @@ export function LiveScreen({
               className={`h-full w-full flex-1 border-0 bg-black ${fill ? "min-h-0" : "min-h-[16rem]"}`}
             />
           ) : openingView && modal ? (
-            <p className="px-4 py-10 text-center text-sm text-white/60">Connecting to live screen…</p>
+            <p className="px-4 py-10 text-center text-sm text-white/70">Connecting to live screen…</p>
           ) : src ? (
             <img
               ref={modal || !zoomed ? imgRef : undefined}
@@ -853,7 +853,7 @@ export function LiveScreen({
               } ${controlOn ? "cursor-crosshair touch-manipulation" : ""}`}
             />
           ) : (
-            <p className="px-4 py-10 text-center text-sm text-white/60">
+            <p className="px-4 py-10 text-center text-sm text-white/70">
               {error
                 ? error.detail || error.message || "Could not load live screen"
                 : provisioning
@@ -868,20 +868,20 @@ export function LiveScreen({
         </div>
 
         {controlOn && !desktopSrc ? (
-          <div className="flex shrink-0 flex-col gap-2 border-t border-white/10 bg-slate-900 px-3 py-3">
-            <p className="text-xs text-white/60">
+          <div className="flex shrink-0 flex-col gap-2 border-t border-teal-100 bg-teal-50 px-3 py-3">
+            <p className="text-xs text-teal-900/70">
               To reach Logout: click the left menu, then <strong>Menu ↓</strong> several times (or Page Down).
             </p>
             <form onSubmit={sendType} className="flex flex-col gap-2 sm:flex-row">
               <input
-                className="min-h-11 flex-1 rounded-xl border border-white/10 bg-black px-3 text-sm text-white"
+                className="min-h-11 flex-1 rounded-xl border border-teal-200 bg-white px-3 text-sm text-teal-950"
                 value={typeBuf}
                 onChange={(e) => setTypeBuf(e.target.value)}
                 placeholder="Type text into the page…"
               />
               <button
                 type="submit"
-                className="min-h-11 w-full rounded-xl bg-teal-600 px-4 text-sm font-semibold sm:w-auto"
+                className="min-h-11 w-full rounded-xl bg-teal-600 px-4 text-sm font-semibold text-white sm:w-auto"
               >
                 Send text
               </button>
@@ -892,7 +892,7 @@ export function LiveScreen({
                   key={key}
                   type="button"
                   onClick={() => sendKey(key)}
-                  className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
+                  className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-900"
                 >
                   {key}
                 </button>
@@ -900,28 +900,28 @@ export function LiveScreen({
               <button
                 type="button"
                 onClick={() => sendMenuScroll(700)}
-                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-amber-400/40 bg-amber-950/40 px-3 text-xs font-semibold"
+                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-amber-300 bg-amber-50 px-3 text-xs font-semibold text-amber-950"
               >
                 Menu ↓
               </button>
               <button
                 type="button"
                 onClick={() => sendMenuScroll(-700)}
-                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-white/15 px-3 text-xs font-semibold"
+                className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-900"
               >
                 Menu ↑
               </button>
             </div>
-            {status ? <p className="text-xs text-teal-200/80">{status}</p> : null}
+            {status ? <p className="text-xs text-teal-900/60">{status}</p> : null}
           </div>
         ) : status && modal ? (
-          <p className="shrink-0 border-t border-white/10 px-3 py-2 text-xs text-white/50">{status}</p>
+          <p className="shrink-0 border-t border-teal-100 px-3 py-2 text-xs text-teal-900/50">{status}</p>
         ) : null}
 
         {/* Why: URL strip under the screen looked like a stray bar above the mobile goal box;
             keep it only in the zoom modal (wall cards already show URL outside). */}
         {modal && live?.pageUrl ? (
-          <div className="shrink-0 truncate border-t border-white/10 px-3 py-2 text-[0.7rem] text-white/40">
+          <div className="shrink-0 truncate border-t border-teal-100 px-3 py-2 text-[0.7rem] text-teal-900/50">
             {live.pageUrl}
           </div>
         ) : null}
@@ -930,7 +930,7 @@ export function LiveScreen({
   }
 
   // Why: when zoomed, keep a compact placeholder in-flow so layout does not jump.
-  const inlineShell = `flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-sm ${
+  const inlineShell = `flex min-h-0 flex-col overflow-hidden rounded-2xl border bg-white text-teal-950 shadow-sm ${
     showAttention ? "yb-needs-attention border-red-600" : "border-teal-100"
   } ${fill ? "h-full min-h-0 flex-1" : ""} ${
     !fill && compact
@@ -946,7 +946,7 @@ export function LiveScreen({
     zoomed && typeof document !== "undefined"
       ? createPortal(
           <div
-            className="fixed inset-0 z-[100] flex items-stretch justify-center bg-black/75 p-2 sm:items-center sm:p-4 md:p-6"
+            className="fixed inset-0 z-[100] flex items-stretch justify-center bg-teal-950/40 p-2 sm:items-center sm:p-4 md:p-6"
             role="dialog"
             aria-modal="true"
             aria-label="Agent live screen full screen"
@@ -960,8 +960,8 @@ export function LiveScreen({
             }}
           >
             <div
-              className={`flex h-full max-h-[100dvh] w-full max-w-[min(96rem,100%)] flex-col overflow-hidden rounded-2xl border bg-slate-950 text-white shadow-2xl sm:max-h-[min(96dvh,100%)] ${
-                showAttention ? "yb-needs-attention border-red-600" : "border-white/15"
+              className={`flex h-full max-h-[100dvh] w-full max-w-[min(96rem,100%)] flex-col overflow-hidden rounded-2xl border bg-white text-teal-950 shadow-2xl sm:max-h-[min(96dvh,100%)] ${
+                showAttention ? "yb-needs-attention border-red-600" : "border-teal-100"
               } relative`}
               onClick={(e) => e.stopPropagation()}
             >
@@ -1006,18 +1006,18 @@ export function LiveScreen({
     <>
       <section className={inlineShell}>
         {demoNoticeBanner ? (
-          <div className="shrink-0 border-b border-white/10 px-3 py-2">{demoNoticeBanner}</div>
+          <div className="shrink-0 border-b border-teal-100 px-3 py-2">{demoNoticeBanner}</div>
         ) : null}
         {zoomed ? (
           <button
             type="button"
             onClick={() => void toggleZoom()}
-            className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-2 bg-slate-900 px-4 text-sm text-white/70"
+            className="flex min-h-[12rem] flex-1 flex-col items-center justify-center gap-2 bg-teal-50 px-4 text-sm text-teal-900/70"
           >
-            <span className="font-semibold text-white">
+            <span className="font-semibold text-teal-950">
               {agentName ? `${agentName} — ` : ""}Live view open
             </span>
-            <span className="rounded-xl border border-white/20 bg-white/10 px-3 py-2 text-xs font-semibold">
+            <span className="rounded-xl border border-teal-200 bg-white px-3 py-2 text-xs font-semibold text-teal-900">
               Click to re-open · Esc to close · Teach skill or Take control
             </span>
           </button>
