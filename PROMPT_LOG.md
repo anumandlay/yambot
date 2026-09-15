@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 11:01] Point OpenMausBot at open.vughy.com
+
+- **Prompt Provided:** use this domain open.vughy.com
+- **Architectural Flow:** DNS A already 15.204.242.239. Host Caddy now terminates TLS for `open.vughy.com` → loopback `:8799`; sslip.io 301s to the new host. systemd `OMB_PUBLIC_URL` / `--public-url` updated so pairing links match. Let's Encrypt cert issued. YamBot `bot.vughy.com` unchanged.
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/README.md` (Caddy + systemd live on the VPS)
+
 ## [2026-09-15 10:57] Install OpenMausBot sidecar on the YamBot VPS
 
 - **Prompt Provided:** in the same server, lets install openmausbot.com and lets test how it will work

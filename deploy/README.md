@@ -41,16 +41,16 @@ Installed next to YamBot so we can compare the two products. It does **not** bin
 
 - Service user: `maus` (`~/.openmausbot`)
 - systemd: `openmausbot.service` → loopback `127.0.0.1:8799` (webhooks `:8800`)
-- Public test URL: `https://openmaus.15.204.242.239.sslip.io`
+- Public URL: `https://open.vughy.com` (old sslip.io URL 301s here)
 - Sign-in: emailed code for `anumandlayamunesh007@gmail.com`, or `sudo -iu maus openmausbot pair`
 - Official `serve --tunnel` (`https://c-….openmausbot.com`) failed: control plane signed in but issued no public address
 - Caddy `admin off` means `systemctl reload caddy` fails; after Caddyfile edits use `sudo systemctl restart caddy`
-- Preserve the `openmaus.15.204.242.239.sslip.io` site block in `/etc/caddy/Caddyfile` across YamBot deploys
+- Preserve the `open.vughy.com` site block in `/etc/caddy/Caddyfile` across YamBot deploys
 
 ```bash
 sudo systemctl status openmausbot
 sudo journalctl -u openmausbot -f
-curl -s https://openmaus.15.204.242.239.sslip.io/api/health
+curl -s https://open.vughy.com/api/health
 ```
 
 ## Security
