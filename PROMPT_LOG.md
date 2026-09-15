@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 15:05] Chat-scoped session context + summarization
+
+- **Prompt Provided:** Remember chat context until the chat is deleted; when the chat is large, summarize older context.
+- **Architectural Flow:** Chat stores `contextSummary` / `contextSummarizedThrough`. Each message packs summary + last 16 eligible turns into Q&A prompts and Task `agentSnapshot.chatContext` (worker + formatAgentPrompt). When ≥24 messages or ~14k chars, older turns are LLM-summarized. Deleting the chat removes summary with the document.
+- **Impacted Files:** `backend/src/utils/chatContext.js`, `backend/src/models/Chat.js`, `backend/src/models/Agent.js`, `backend/src/utils/messageIntent.js`, `backend/src/routes/chats.js`, `worker/src/agent.js`, PROMPT_LOG
+
 ## [2026-09-15 14:55] Remove Create VPS (/admin/create-vps)
 
 - **Prompt Provided:** Remove /admin/create-vps page and all its functionality.

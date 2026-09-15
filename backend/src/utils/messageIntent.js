@@ -176,17 +176,19 @@ export async function refineMessageIntentWithLlm(text, creds) {
 }
 
 /**
- * Answers a question using the agent's profile/memory — no browser task.
+ * Answers a question using the agent's profile/memory + this chat's session context.
  * @param {{
  *   question: string,
  *   snapshot: object,
  *   creds: { apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string },
+ *   chatContext?: string,
  * }} opts
  * @returns {Promise<string>}
  */
 export async function answerChatQuestion(opts) {
-  const { question, snapshot, creds } = opts;
+  const { question, snapshot, creds, chatContext = "" } = opts;
   const context = formatAgentPrompt(snapshot);
+  const thread = String(chatContext || snapshot?.chatContext || "").trim();
   const reply = await llmChatCompletion({
     apiKey: creds.apiKey,
     baseUrl: creds.llmBaseUrl || "",
@@ -201,12 +203,16 @@ export async function answerChatQuestion(opts) {
         content: [
           `You are YamBot agent “${snapshot?.name || "Agent"}” answering in chat.`,
           "This is Q&A mode — you are NOT controlling the computer right now.",
-          "Use the agent profile, memory, day history, and saved logins below when relevant.",
+          "Use the agent profile, memory, day history, saved logins, and THIS CHAT SESSION CONTEXT below.",
+          "Treat the chat session context as conversation memory for this thread until the chat is deleted.",
           "If the user needs you to browse or click, tell them to send a goal (or prefix with /run).",
           "Be concise and direct. Do not invent credentials that are not in SAVED LOGINS.",
           "",
           context || "(no extra agent context)",
-        ].join("\n"),
+          thread ? `\n\n${thread}` : "",
+        ]
+          .filter(Boolean)
+          .join("\n"),
       },
       { role: "user", content: String(question || "").slice(0, 4000) },
     ],

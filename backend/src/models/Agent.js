@@ -683,6 +683,9 @@ export function formatAgentPrompt(snapshot) {
     formatCredentialsBlock(snapshot.credentials),
     formatDayHistoryBlock(snapshot.dayHistoryRecent, snapshot.dayHistoryRelevant),
     formatMemoryBlock(snapshot.memory),
+    snapshot.chatContext
+      ? String(snapshot.chatContext)
+      : "",
   ]
     .filter(Boolean)
     .join("\n\n");

@@ -21,6 +21,11 @@ import {
   answerChatQuestion,
 } from "../utils/messageIntent.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
+import {
+  buildChatContextPrompt,
+  refreshChatContextIfNeeded,
+  withChatContext,
+} from "../utils/chatContext.js";
 
 export const chatsRouter = Router();
 
@@ -714,20 +719,30 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
       let assistantContent;
       let answerError = null;
+      let qaCreds = null;
       try {
         const userForLlm = await User.findById(req.userId);
-        const creds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
-        if (!creds.apiKey) {
+        qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
+        if (!qaCreds.apiKey) {
           throw Object.assign(new Error("No LLM credentials configured"), {
             title: "LLM not configured",
             hint: "Add an LLM key in Settings, or send /run … to use the computer.",
           });
         }
-        const qaSnapshot = toAgentSnapshot(agentDoc, { goal: questionText });
+        // Why: fold older turns into summary before packing so Q&A sees this chat’s memory.
+        await refreshChatContextIfNeeded(chat, qaCreds);
+        const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
+          excludeIds: [String(message._id)],
+        });
+        const qaSnapshot = withChatContext(
+          toAgentSnapshot(agentDoc, { goal: questionText }),
+          chatContextBlock
+        );
         assistantContent = await answerChatQuestion({
           question: questionText,
           snapshot: qaSnapshot,
-          creds,
+          creds: qaCreds,
+          chatContext: chatContextBlock,
         });
       } catch (err) {
         answerError = err;
@@ -764,6 +779,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentName: agentDoc.name,
         },
       });
+
+      // Why: after both turns exist, refresh summary for the next message in this chat.
+      if (qaCreds?.apiKey) {
+        void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
+      }
 
       res.status(201).json({
         ok: true,
@@ -845,8 +865,20 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       meta: Object.keys(messageMeta).length ? messageMeta : null,
     });
 
-    // Why: rebuild snapshot with final goal so day-history keyword retrieval matches this chat.
+    // Why: rebuild snapshot with final goal + this chat’s session context for the worker.
     snapshot = toAgentSnapshot(agentDoc, { goal: goalText || content });
+    try {
+      const userForCtx = await User.findById(req.userId);
+      const ctxCreds = await resolveLlmCredentialsForAgent(userForCtx, agentDoc);
+      await refreshChatContextIfNeeded(chat, ctxCreds);
+      const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
+        excludeIds: [String(message._id)],
+      });
+      snapshot = withChatContext(snapshot, chatContextBlock);
+      void refreshChatContextIfNeeded(chat, ctxCreds).catch(() => {});
+    } catch (err) {
+      console.warn("[chats] chat context pack failed:", err?.message || err);
+    }
 
     const task = await Task.create({
       user: req.userId,

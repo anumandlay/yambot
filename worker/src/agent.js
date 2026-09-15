@@ -1416,6 +1416,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         ? `RELEVANT PAST WORK (matched keywords from this goal):\n${relevantDays}`
         : "",
       memory ? `AGENT MEMORY:\n${memory}` : "",
+      snapshot.chatContext ? String(snapshot.chatContext) : "",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
       "There is no step limit — call finish when the goal or success criteria are met.",
     ]

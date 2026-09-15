@@ -68,6 +68,17 @@ const chatSchema = new mongoose.Schema(
     },
     /** Phase D: LLM/heuristic auto-router when no @mention in common chat. */
     autoRoute: { type: Boolean, default: true },
+    /**
+     * Compressed earlier turns for this chat only (cleared when the chat is deleted).
+     * Why: each LLM call is stateless — we re-inject summary + recent messages every time.
+     */
+    contextSummary: { type: String, default: "", maxlength: 8000 },
+    /** Last message id folded into contextSummary (exclusive of the recent raw tail). */
+    contextSummarizedThrough: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Message",
+      default: null,
+    },
   },
   { timestamps: true }
 );
