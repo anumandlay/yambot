@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 10:57] Install OpenMausBot sidecar on the YamBot VPS
+
+- **Prompt Provided:** in the same server, lets install openmausbot.com and lets test how it will work
+- **Architectural Flow:** Official `openmausbot serve --tunnel` (`*.openmausbot.com`) signed in but their control plane did not issue a public address. Installed OpenMausBot 0.1.80 as Linux user `maus` + systemd on loopback `:8799`, reverse-proxied by host Caddy (admin API is off — use `systemctl restart caddy`, not reload). Test URL: `https://openmaus.15.204.242.239.sslip.io`. MiniMax seeded as openai-compat (chat-only). YamBot `bot.vughy.com` stays on `:8080`.
+- **Impacted Files:** `PROMPT_LOG.md`, `deploy/README.md` (docs only; runtime lives on the VPS)
+
 ## [2026-09-11 15:15] Soft-skip stale dismiss clicks (Got it / Accept)
 
 - **Prompt Provided:** click failed Element not found for Got it (stale ref/xpath) — do this without failing.
