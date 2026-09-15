@@ -90,4 +90,5 @@ export {
   recordSiteLearning,
   summarizeSessionContext,
   sessionCredentialsForAsk,
+  extractSessionCredentials,
 } from "./learn.js";

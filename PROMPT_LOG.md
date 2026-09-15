@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 15:20] Offer save-login to vault after signup (human YES)
+
+- **Prompt Provided:** After register, agent said password not retained; add human-gated save proposal.
+- **Architectural Flow:** On successful `finish` after a signup-like goal with typed email/password, worker asks YES/NO via `ask_user`. YES → `POST /api/worker/credentials` into agent vault (View memory). Never auto-saves without confirmation.
+- **Impacted Files:** `worker/src/browserState/learn.js`, `worker/src/browserState/index.js`, `worker/src/agent.js`, `backend/src/routes/worker.js`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 15:05] Chat-scoped session context + summarization
 
 - **Prompt Provided:** Remember chat context until the chat is deleted; when the chat is large, summarize older context.

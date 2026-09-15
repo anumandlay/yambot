@@ -219,6 +219,34 @@ export function summarizeSessionContext(history) {
 }
 
 /**
+ * Pulls email/username/password typed during this run (latest wins per kind).
+ * @param {object[]} history
+ * @returns {{ email?: string, username?: string, password?: string, phone?: string }}
+ */
+export function extractSessionCredentials(history) {
+  /** @type {Record<string, string>} */
+  const latest = {};
+  for (const h of history || []) {
+    const action = h?.action || {};
+    const type = String(action.type || "");
+    if (type !== "type" && type !== "fill_form") continue;
+    const fields =
+      type === "fill_form" && action.fields && typeof action.fields === "object"
+        ? Object.entries(action.fields).map(([name, text]) => ({ name, text }))
+        : [{ name: action.name || action.ref || "field", text: action.text }];
+    for (const field of fields) {
+      const text = String(field.text ?? "").trim();
+      if (!text) continue;
+      const kind = classifyTypedField(field.name, text);
+      if (kind === "email" || kind === "username" || kind === "password" || kind === "phone") {
+        latest[kind] = text.slice(0, 200);
+      }
+    }
+  }
+  return latest;
+}
+
+/**
  * Whether an ask_user question is requesting a value already typed this session.
  * @param {string} question
  * @param {object[]} history
@@ -226,17 +254,22 @@ export function summarizeSessionContext(history) {
  */
 export function sessionCredentialsForAsk(question, history) {
   const q = String(question || "").toLowerCase();
+  // Why: save-to-vault prompts mention password/email but must wait for YES/NO — never auto-skip.
+  if (
+    /save.*(login|vault|credential|password)|login vault|reply\s+yes|saved logins/i.test(q)
+  ) {
+    return null;
+  }
   const asking =
     /pass(word)?|pwd|email|e-mail|username|login|credential|account/.test(q);
   if (!asking) return null;
-  const summary = summarizeSessionContext(history);
-  if (!summary.includes("VALUES ALREADY USED")) return null;
-  const found = {};
+  const found = extractSessionCredentials(history);
+  if (!found.password && !found.email && !found.username) return null;
+  const out = {};
   for (const key of ["email", "username", "password", "phone"]) {
-    const m = summary.match(new RegExp(`- ${key}: (.+?) \\(typed`));
-    if (m) found[key] = m[1];
+    if (found[key]) out[key] = found[key];
   }
-  return Object.keys(found).length ? found : null;
+  return Object.keys(out).length ? out : null;
 }
 
 /**

@@ -8,7 +8,7 @@ import { Router } from "express";
 import { Task } from "../models/Task.js";
 import { Message } from "../models/Chat.js";
 import { User } from "../models/User.js";
-import { Agent, appendAgentMemory, appendAgentDayLog, extractMemoryKeywords, setAgentNeedsAttention, clearAgentNeedsAttention } from "../models/Agent.js";
+import { Agent, appendAgentMemory, appendAgentDayLog, extractMemoryKeywords, setAgentNeedsAttention, clearAgentNeedsAttention, encryptCredentialPassword, decryptAgentCredentials } from "../models/Agent.js";
 import { Goal, recordGoalRun } from "../models/Goal.js";
 import { applyKpiFromTaskSummary } from "../utils/kpiUpdater.js";
 import { applyAutoKpiFromTask } from "../utils/kpiAutoMap.js";
@@ -1003,6 +1003,105 @@ workerRouter.post("/site-profile", async (req, res, next) => {
     }
     await profile.save();
     res.json({ ok: true, profile: toSiteProfileSnapshot(profile) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/credentials — save a login after human YES on signup (worker-auth).
+ * Body: { agentId, label?, siteHost?, username?, email?, password?, notes? }
+ * Why: agent cannot invent passwords; this only stores values the human confirmed in chat.
+ */
+workerRouter.post("/credentials", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || "").trim();
+    if (!agentId) {
+      res.status(400).json({ ok: false, title: "Missing agent", detail: "agentId required" });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const label = String(req.body?.label || "").trim();
+    const siteHost = String(req.body?.siteHost || "").trim().toLowerCase();
+    const username = String(req.body?.username || "").trim();
+    const email = String(req.body?.email || "").trim();
+    const password = String(req.body?.password || "");
+    const notes = String(req.body?.notes || "").trim().slice(0, 500);
+    if (!password) {
+      res.status(400).json({
+        ok: false,
+        title: "Missing password",
+        detail: "Cannot save a login without the password typed during the run.",
+      });
+      return;
+    }
+    if (!label && !siteHost && !username && !email) {
+      res.status(400).json({
+        ok: false,
+        title: "Incomplete",
+        detail: "Provide at least a label, site, username, or email.",
+      });
+      return;
+    }
+    agent.credentials = agent.credentials || [];
+    if (agent.credentials.length >= 40) {
+      res.status(400).json({
+        ok: false,
+        title: "Vault full",
+        detail: "This agent already has 40 saved logins. Delete one first.",
+      });
+      return;
+    }
+    const identity = (email || username).toLowerCase();
+    const dup = agent.credentials.find((c) => {
+      const host = String(c.siteHost || "").toLowerCase();
+      const hostOk =
+        !siteHost ||
+        host === siteHost ||
+        (host && siteHost && (host.includes(siteHost) || siteHost.includes(host)));
+      const idOk =
+        (email && String(c.email || "").toLowerCase() === email.toLowerCase()) ||
+        (username && String(c.username || "").toLowerCase() === username.toLowerCase()) ||
+        (identity &&
+          (String(c.email || "").toLowerCase() === identity ||
+            String(c.username || "").toLowerCase() === identity));
+      return hostOk && idOk;
+    });
+    if (dup) {
+      dup.passwordEnc = encryptCredentialPassword(password);
+      if (label) dup.label = label.slice(0, 120);
+      if (siteHost) dup.siteHost = siteHost.slice(0, 200);
+      if (username) dup.username = username.slice(0, 200);
+      if (email) dup.email = email.slice(0, 200);
+      if (notes) dup.notes = notes;
+      dup.at = new Date();
+      await agent.save();
+      res.json({
+        ok: true,
+        updated: true,
+        credentials: decryptAgentCredentials(agent.credentials),
+      });
+      return;
+    }
+    agent.credentials.push({
+      label: (label || `${siteHost || "site"} account`).slice(0, 120),
+      siteHost: siteHost.slice(0, 200),
+      username: username.slice(0, 200),
+      email: email.slice(0, 200),
+      passwordEnc: encryptCredentialPassword(password),
+      notes,
+      at: new Date(),
+    });
+    await agent.save();
+    res.status(201).json({
+      ok: true,
+      created: true,
+      credentials: decryptAgentCredentials(agent.credentials),
+    });
   } catch (err) {
     next(err);
   }

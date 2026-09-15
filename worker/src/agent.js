@@ -101,6 +101,7 @@ import {
   recordSiteLearning,
   summarizeSessionContext,
   sessionCredentialsForAsk,
+  extractSessionCredentials,
 } from "./browserState/index.js";
 
 const execFileAsync = promisify(execFile);
@@ -131,6 +132,32 @@ function goalIncludesLoginCredentials(text) {
     /login with/i.test(g) ||
     /provided credentials/i.test(g)
   );
+}
+
+/**
+ * Whether this run looks like account registration / signup.
+ * @param {string} goal
+ * @param {string} [summary]
+ * @returns {boolean}
+ */
+function looksLikeSignupRun(goal, summary = "") {
+  const blob = `${goal || ""}\n${summary || ""}`;
+  return /sign\s*up|register|create\s+(an?\s+)?account|onboard|join\s+(as|now)|new\s+account/i.test(
+    blob
+  );
+}
+
+/**
+ * User confirmed saving the login (YES / save / ok).
+ * @param {string} answer
+ * @returns {boolean}
+ */
+function isAffirmativeSaveAnswer(answer) {
+  const a = String(answer || "")
+    .trim()
+    .toLowerCase();
+  if (!a || /^(n|no|skip|cancel|don't|do not)\b/.test(a)) return false;
+  return /^(y|yes|save|ok|sure|please|yep|yeah)\b/.test(a) || /\bsave\b/.test(a);
 }
 
 /**
@@ -1407,8 +1434,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         ? "LOGIN: credentials are in the task GOAL — enter them without ask_user confirmation."
         : "",
       vaultLines
-        ? `SAVED LOGINS (use when the site matches; do NOT invent or store new passwords):\n${vaultLines}`
-        : "",
+        ? `SAVED LOGINS (use when the site matches; do NOT invent new passwords):\n${vaultLines}`
+        : "SAVED LOGINS: none yet. After signup, the product will ask the human YES/NO to save typed credentials — you do not invent passwords.",
       recentDays
         ? `RECENT DAY HISTORY (always use to avoid repeating work):\n${recentDays}`
         : "",
@@ -1580,6 +1607,104 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
+   * After a successful signup, ask the human once to save typed credentials into the vault.
+   * Why: agents cannot invent passwords — but typed signup values should be reusable after YES.
+   * @param {{
+   *   taskId: string,
+   *   agentId: string,
+   *   goal: string,
+   *   summary: string,
+   *   history: object[],
+   *   pageUrl: string,
+   *   vault: object[],
+   * }} opts
+   */
+  async function maybeOfferSaveLoginAfterSignup(opts) {
+    const { taskId, agentId, goal, summary, history, pageUrl, vault } = opts;
+    if (!agentId) return;
+    const typed = extractSessionCredentials(history);
+    if (!typed.password || !(typed.email || typed.username)) return;
+    if (!looksLikeSignupRun(goal, summary)) return;
+
+    let siteHost = "";
+    try {
+      siteHost = extractDomain(pageUrl) || "";
+    } catch {
+      siteHost = "";
+    }
+    if (!siteHost && pageUrl) {
+      try {
+        siteHost = new URL(pageUrl).hostname.replace(/^www\./i, "");
+      } catch {
+        /* ignore */
+      }
+    }
+
+    const identity = String(typed.email || typed.username || "").toLowerCase();
+    const already = (vault || []).some((c) => {
+      const hostOk =
+        !siteHost ||
+        String(c.siteHost || "")
+          .toLowerCase()
+          .includes(siteHost.toLowerCase()) ||
+        siteHost.toLowerCase().includes(String(c.siteHost || "").toLowerCase());
+      const idOk =
+        (c.email && String(c.email).toLowerCase() === identity) ||
+        (c.username && String(c.username).toLowerCase() === identity);
+      return hostOk && idOk;
+    });
+    if (already) {
+      await mirror(taskId, "info", {
+        appendMessage:
+          "Login already in this agent’s vault for that site/account — skipped save prompt.",
+        payload: { kind: "save_login_skipped", reason: "already_saved" },
+      }).catch(() => {});
+      return;
+    }
+
+    const question = [
+      "Registration typed a password this run. Save it to this agent’s login vault for future logins?",
+      siteHost ? `Site: ${siteHost}` : "",
+      typed.email ? `Email: ${typed.email}` : "",
+      typed.username && !typed.email ? `Username: ${typed.username}` : "",
+      "Password: (the one typed during this run — will be encrypted in View memory)",
+      "",
+      "Reply YES to save, or NO to skip.",
+    ]
+      .filter(Boolean)
+      .join("\n");
+
+    const answer = await waitForUserAnswer(taskId, question);
+    if (!isAffirmativeSaveAnswer(answer)) {
+      await mirror(taskId, "info", {
+        appendMessage: "Skipped saving login to vault.",
+        payload: { kind: "save_login_declined" },
+      }).catch(() => {});
+      return;
+    }
+
+    const label = siteHost
+      ? `${siteHost} account`
+      : `Signup ${typed.email || typed.username || "login"}`.slice(0, 120);
+    await api("/api/worker/credentials", {
+      method: "POST",
+      body: JSON.stringify({
+        agentId: String(agentId),
+        label,
+        siteHost: siteHost || "",
+        email: typed.email || "",
+        username: typed.username || "",
+        password: typed.password,
+        notes: "Saved after signup (human confirmed YES)",
+      }),
+    });
+    await mirror(taskId, "info", {
+      appendMessage: `Saved login to vault${siteHost ? ` for ${siteHost}` : ""}. Open Agents → View memory to edit.`,
+      payload: { kind: "save_login_saved", siteHost },
+    }).catch(() => {});
+  }
+
+  /**
    * Runs one cloud task to completion on this agent's browser.
    * @param {object} task
    */
@@ -1596,6 +1721,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const notes = [];
     const history = [];
     let siteDomain = "";
+    /** Why: offer save-to-vault at most once per run after signup typed credentials. */
+    let saveLoginOffered = false;
     const llmUsage = createLlmUsageTracker();
     const metrics = createStepMetrics();
     const speedProfile = getFastModeProfile();
@@ -2567,6 +2694,23 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (actionToRun.type === "finish" || result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
+          // Why: after signup, ask once to save typed email/password into View memory vault.
+          if (success && !saveLoginOffered) {
+            saveLoginOffered = true;
+            await maybeOfferSaveLoginAfterSignup({
+              taskId,
+              agentId: String(agentSnapshot?.id || task.agent || ""),
+              goal,
+              summary,
+              history,
+              pageUrl: page?.url?.() || "",
+              vault: agentSnapshot?.credentials || [],
+            }).catch((err) => {
+              log(
+                `[${config.workerName}] save-login offer failed: ${err?.message || err}`
+              );
+            });
+          }
           await complete(taskId, { success, summary, history, siteDomain, llmUsage });
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           finishedTask = true;
