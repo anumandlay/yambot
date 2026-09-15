@@ -176,6 +176,16 @@ async function claimNextTask(userId, opts = {}) {
     },
   });
 
+  // Why: one agent computer — do not claim another task while this agent still has a live run.
+  if (opts.agentId) {
+    const busy = await Task.exists({
+      user: userId,
+      agent: opts.agentId,
+      status: { $in: ["running", "waiting_user"] },
+    });
+    if (busy) return null;
+  }
+
   const claimFilter = buildClaimFilter(userId, opts);
   const candidates = await Task.find(claimFilter).sort({ createdAt: 1 }).limit(30).lean();
   const pick = pickHighestPriorityTask(candidates);

@@ -717,6 +717,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         meta: messageMeta,
       });
 
+      const busyRun = await Task.findOne({
+        agent: agentDoc._id,
+        user: req.userId,
+        status: { $in: ["running", "waiting_user"] },
+      })
+        .select("_id status")
+        .lean();
+
       let assistantContent;
       let answerError = null;
       let qaCreds = null;
@@ -762,6 +770,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           intentConfidence: classification.confidence,
           agentId: String(agentDoc._id),
           agentName: agentDoc.name,
+          answeredWhileBusy: Boolean(busyRun),
           error: answerError ? String(answerError.message || answerError) : undefined,
         },
       });
@@ -769,14 +778,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       const systemMessage = await Message.create({
         chat: chat._id,
         role: "system",
-        content:
-          `Answered as a question (no computer). Prefix with /run to force a browser goal, or /ask to force Q&A.`,
+        content: busyRun
+          ? `Answered as a question from memory (no computer). The current browser run continues — this did not stop or pause it. Prefix with /run to queue a browser goal.`
+          : `Answered as a question (no computer). Prefix with /run to force a browser goal, or /ask to force Q&A.`,
         meta: {
           kind: "intent_question",
           intentReason: classification.reason,
           intentConfidence: classification.confidence,
           agentId: String(agentDoc._id),
           agentName: agentDoc.name,
+          answeredWhileBusy: Boolean(busyRun),
         },
       });
 
@@ -796,33 +807,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       return;
     }
 
-    // Why: one computer per agent — active runs block the box; a new goal must take over.
-    const now = new Date();
-    const active = await Task.find({
+    // Why: one computer per agent — keep the active run; new goals wait in the pending FIFO queue.
+    const activeRun = await Task.findOne({
       agent: agentDoc._id,
       user: req.userId,
       status: { $in: ["waiting_user", "running"] },
-    });
-    for (const blocked of active) {
-      blocked.status = "cancelled";
-      blocked.completedAt = now;
-      blocked.resultSummary = "Superseded by a newer goal";
-      blocked.events.push({
-        type: "cancelled",
-        payload: { reason: "superseded_by_new_goal", byChat: String(chat._id) },
-      });
-      await blocked.save();
-      await Message.create({
-        chat: blocked.chat,
-        role: "system",
-        content: "Previous run cancelled — a newer goal was sent for this agent.",
-        meta: { kind: "superseded", taskId: blocked._id },
-      }).catch(() => {});
-    }
-    if (active.length) {
-      await clearAgentNeedsAttention(agentDoc._id);
-      await clearAgentHumanControl(agentDoc._id);
-    }
+    })
+      .select("_id status goal")
+      .lean();
 
     const defaultTitles = ["Chat ·", "New chat", "Common chat"];
     if (defaultTitles.some((prefix) => chat.title === prefix || chat.title.startsWith("Chat ·"))) {
@@ -919,8 +911,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     const slashPickHint = skillSlashMeta?.pickReason
       ? ` ${skillSlashMeta.pickReason}`
       : "";
-    const queueHint =
-      "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
+    const queueHint = activeRun
+      ? `Agent is busy (${activeRun.status}) — this goal is pending and will start when the current run finishes.`
+      : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
@@ -933,6 +926,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         intentConfidence: classification.confidence,
         agentId: snapshot?.id || null,
         agentName: snapshot?.name || null,
+        queuedBehindActive: Boolean(activeRun),
+        activeTaskId: activeRun?._id || null,
         invokedSkillId: invokedSkillDoc?._id || null,
         invokedSkillName: invokedSkillDoc?.name || null,
         skillSlug: skillSlashMeta?.slug || null,

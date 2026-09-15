@@ -205,6 +205,7 @@ export async function answerChatQuestion(opts) {
           "This is Q&A mode — you are NOT controlling the computer right now.",
           "Use the agent profile, memory, day history, saved logins, and THIS CHAT SESSION CONTEXT below.",
           "Treat the chat session context as conversation memory for this thread until the chat is deleted.",
+          "You may be answering while a browser run is also in progress — answer from memory only; do not claim to control the computer right now.",
           "If the user needs you to browse or click, tell them to send a goal (or prefix with /run).",
           "Be concise and direct. Do not invent credentials that are not in SAVED LOGINS.",
           "",

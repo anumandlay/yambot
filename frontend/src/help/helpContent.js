@@ -1295,14 +1295,15 @@ export const HELP = {
     title: "Message (question or goal)",
     body: helpBody(
       "YamBot classifies each message: questions answer in chat from agent memory (no computer); goals enqueue a browser Task.",
-      "Examples: 'What password did we save for Gmail?' (question) vs 'Open gmail.com and check unread' (goal).",
+      "You can ask questions while a run is in progress — the answer comes from memory and the browser keeps working.",
+      "If you send a new goal while the agent is busy, it stays pending until the current run finishes (it does not cancel the active task).",
       "Force with /ask … or /run … if the classifier gets it wrong."
     ),
   },
   "chat.send": {
     title: "Send",
     body: helpBody(
-      "Posts your message. Questions get an assistant reply immediately. Goals enqueue a browser task for this agent's cloud computer."
+      "Posts your message. Questions get an assistant reply immediately (even mid-run). Goals enqueue a browser task; if the agent is already working, the new goal waits in the queue."
     ),
   },
   "chat.stop": {
