@@ -336,14 +336,21 @@ export const HELP = {
     title: "Platform admin console",
     body: helpBody(
       "Cross-tenant dashboard for YamBot as a SaaS product. See all sign-ups, their usage, and total platform LLM cost.",
-      "Regular tenant users never see other accounts — this view is operator-only."
+      "You can delete a tenant account — that also removes all of their agents, chats, and tasks. Regular tenant users never see other accounts."
     ),
   },
   "admin.users.table": {
     title: "Users table",
     body: helpBody(
       "Each row is one tenant account. Wallet = prepaid USD balance. Agents = browser workers they created. Tasks = all queued/running/completed jobs. LLM USD = sum of estimated cost on completed tasks.",
-      "Use Grant credits to add promotional balance without Stripe."
+      "Use Grant credits to add promotional balance without Stripe. Delete permanently removes the user and all agents under that account."
+    ),
+  },
+  "admin.users.delete": {
+    title: "Delete user",
+    body: helpBody(
+      "Permanently deletes this registered account and cascades: all agents (and their cloud computers), chats, tasks, credentials, and company data owned by the user.",
+      "You cannot delete the account you are currently signed in with. This cannot be undone."
     ),
   },
   "admin.pricing.agentPrice": {

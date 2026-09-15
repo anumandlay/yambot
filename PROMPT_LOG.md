@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 14:00] Super-admin delete registered users (cascade agents)
+
+- **Prompt Provided:** In super admin, page to see all registered users and delete a user including all agents in that account.
+- **Architectural Flow:** `AdminUsersPage` already listed users via `GET /api/admin/users`. Added `DELETE /api/admin/users/:userId` with `deleteUserCascade` — stops agent computers, then removes chats/messages/tasks/agents and other tenant-owned collections, then the User. UI shows role + Delete (blocked for self) with confirm.
+- **Impacted Files:** `backend/src/utils/deleteUserCascade.js`, `backend/src/routes/admin.js`, `frontend/src/pages/AdminUsersPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 13:55] Restore host Caddy after VPS wipe
 
 - **Prompt Provided:** bot.vughy.com is not opening (after fresh deploy / deleted VPS files).

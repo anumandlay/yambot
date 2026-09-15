@@ -11,6 +11,7 @@ import { Task } from "../models/Task.js";
 import { toUserPublic } from "../utils/userPublic.js";
 import { getPlatformSettings, toPlatformSettingsPublic } from "../models/PlatformSettings.js";
 import { creditWallet } from "../utils/wallet.js";
+import { deleteUserCascade } from "../utils/deleteUserCascade.js";
 
 export const adminRouter = Router();
 
@@ -144,6 +145,30 @@ adminRouter.get("/users", async (req, res, next) => {
       users: rows,
     });
   } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/admin/users/:userId — remove a tenant and all agents/data.
+ * Why: Super-admin operator cleanup after wipe/test accounts.
+ */
+adminRouter.delete("/users/:userId", async (req, res, next) => {
+  try {
+    const result = await deleteUserCascade(req.params.userId, {
+      actorUserId: req.userId,
+    });
+    res.json(result);
+  } catch (err) {
+    if (err?.status) {
+      res.status(err.status).json({
+        ok: false,
+        title: err.title || "Delete failed",
+        detail: err.message,
+        hint: err.hint,
+      });
+      return;
+    }
     next(err);
   }
 });
