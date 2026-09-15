@@ -1,7 +1,7 @@
 /**
- * @fileoverview Super-admin users dashboard — tenants, pricing, wallet credits.
- * Purpose: Platform operator view; set agent price and grant free credits.
- * Downstream: GET/PUT /api/admin/settings, POST /api/admin/users/:id/credits.
+ * @fileoverview Super-admin users dashboard — tenants, pricing, wallet credits, delete.
+ * Purpose: Platform operator view; set agent price, grant credits, remove accounts.
+ * Downstream: GET/PUT /api/admin/settings, POST/DELETE /api/admin/users/:id.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -27,6 +27,7 @@ export function AdminUsersPage() {
   const [grantAmount, setGrantAmount] = useState("10");
   const [grantNote, setGrantNote] = useState("Promotional credit");
   const [grantBusy, setGrantBusy] = useState(false);
+  const [deletingId, setDeletingId] = useState("");
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(true);
@@ -99,6 +100,43 @@ export function AdminUsersPage() {
     }
   }
 
+  /**
+   * Permanently deletes a tenant and all of their agents / chats / tasks.
+   * @param {{ id: string, email: string, name: string, role?: string, stats?: object }} row
+   */
+  async function deleteUser(row) {
+    if (!row?.id) return;
+    if (String(row.id) === String(user?.id)) {
+      setError({
+        title: "Cannot delete self",
+        detail: "You cannot delete the account you are signed in with.",
+      });
+      return;
+    }
+    const agents = row.stats?.agents ?? 0;
+    const ok = window.confirm(
+      `Delete ${row.name} (${row.email})?\n\nThis permanently removes the user and all ${agents} agent(s), chats, tasks, and related data. This cannot be undone.`
+    );
+    if (!ok) return;
+    setDeletingId(row.id);
+    setOkMsg("");
+    setError(null);
+    try {
+      const result = await api(`/api/admin/users/${row.id}`, { method: "DELETE" });
+      setOkMsg(
+        `Deleted ${result.email || row.email} — ${result.deletedAgents ?? 0} agent(s), ${
+          result.deletedChats ?? 0
+        } chat(s).`
+      );
+      if (grantUserId === row.id) setGrantUserId("");
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setDeletingId("");
+    }
+  }
+
   if (authLoading) {
     return <div className="p-6 text-sm text-teal-900/70">Loading…</div>;
   }
@@ -114,7 +152,9 @@ export function AdminUsersPage() {
           <h1 className="text-xl font-bold tracking-tight text-violet-950 sm:text-2xl">
             Platform admin
           </h1>
-          <p className="text-sm text-teal-900/70">Tenants, wallet pricing, and free credits.</p>
+          <p className="text-sm text-teal-900/70">
+            Tenants, wallet pricing, free credits, and account deletion.
+          </p>
         </div>
         <Link
           to="/"
@@ -238,47 +278,76 @@ export function AdminUsersPage() {
           <SectionTitle helpId="admin.users.table">Registered users</SectionTitle>
         </div>
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px] text-left text-sm">
+          <table className="w-full min-w-[820px] text-left text-sm">
             <thead>
               <tr className="border-b border-teal-50 bg-teal-50/40 text-xs uppercase tracking-wide text-teal-900/60">
                 <th className="px-4 py-2 font-semibold">Name</th>
                 <th className="px-4 py-2 font-semibold">Email</th>
+                <th className="px-4 py-2 font-semibold">Role</th>
                 <th className="px-4 py-2 font-semibold">Wallet</th>
                 <th className="px-4 py-2 font-semibold">Agents</th>
                 <th className="px-4 py-2 font-semibold">Tasks</th>
                 <th className="px-4 py-2 font-semibold">LLM USD</th>
                 <th className="px-4 py-2 font-semibold">Joined</th>
+                <th className="px-4 py-2 font-semibold">Actions</th>
               </tr>
             </thead>
             <tbody>
               {busy ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-teal-900/50">
+                  <td colSpan={9} className="px-4 py-8 text-center text-teal-900/50">
                     Loading users…
                   </td>
                 </tr>
               ) : users.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="px-4 py-8 text-center text-teal-900/50">
+                  <td colSpan={9} className="px-4 py-8 text-center text-teal-900/50">
                     No users registered yet.
                   </td>
                 </tr>
               ) : (
-                users.map((u) => (
-                  <tr key={u.id} className="border-b border-teal-50 last:border-0">
-                    <td className="px-4 py-3 font-medium">{u.name}</td>
-                    <td className="px-4 py-3 font-mono text-xs">{u.email}</td>
-                    <td className="px-4 py-3 font-semibold text-teal-800">
-                      ${(u.wallet?.balanceUsd ?? 0).toFixed(2)}
-                    </td>
-                    <td className="px-4 py-3">{u.stats?.agents ?? 0}</td>
-                    <td className="px-4 py-3">{u.stats?.tasks ?? 0}</td>
-                    <td className="px-4 py-3">${(u.stats?.estimatedUsd ?? 0).toFixed(4)}</td>
-                    <td className="px-4 py-3 text-xs text-teal-900/60">
-                      {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
-                    </td>
-                  </tr>
-                ))
+                users.map((u) => {
+                  const isSelf = String(u.id) === String(user?.id);
+                  return (
+                    <tr key={u.id} className="border-b border-teal-50 last:border-0">
+                      <td className="px-4 py-3 font-medium">{u.name}</td>
+                      <td className="px-4 py-3 font-mono text-xs">{u.email}</td>
+                      <td className="px-4 py-3">
+                        <span
+                          className={`rounded-md px-1.5 py-0.5 text-[0.7rem] font-semibold uppercase ${
+                            u.role === "superadmin"
+                              ? "bg-violet-100 text-violet-900"
+                              : "bg-slate-100 text-slate-700"
+                          }`}
+                        >
+                          {u.role || "user"}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 font-semibold text-teal-800">
+                        ${(u.wallet?.balanceUsd ?? 0).toFixed(2)}
+                      </td>
+                      <td className="px-4 py-3">{u.stats?.agents ?? 0}</td>
+                      <td className="px-4 py-3">{u.stats?.tasks ?? 0}</td>
+                      <td className="px-4 py-3">${(u.stats?.estimatedUsd ?? 0).toFixed(4)}</td>
+                      <td className="px-4 py-3 text-xs text-teal-900/60">
+                        {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
+                      </td>
+                      <td className="px-4 py-3">
+                        <ButtonWithHelp helpId="admin.users.delete">
+                          <button
+                            type="button"
+                            disabled={isSelf || deletingId === u.id}
+                            onClick={() => deleteUser(u)}
+                            className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
+                            title={isSelf ? "Cannot delete your own account" : "Delete user"}
+                          >
+                            {deletingId === u.id ? "Deleting…" : isSelf ? "You" : "Delete"}
+                          </button>
+                        </ButtonWithHelp>
+                      </td>
+                    </tr>
+                  );
+                })
               )}
             </tbody>
           </table>
