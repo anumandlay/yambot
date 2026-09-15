@@ -5,6 +5,7 @@
  */
 
 import mongoose from "mongoose";
+import { decryptSecret } from "../utils/crypto.js";
 
 const llmProfileSchema = new mongoose.Schema(
   {
@@ -35,20 +36,22 @@ const llmProfileSchema = new mongoose.Schema(
 llmProfileSchema.index({ user: 1, name: 1 }, { unique: true });
 
 /**
- * Safe API shape (no raw key).
+ * API shape for Settings → LLM profiles.
+ * Why: operators asked to see full API keys on /settings/llms (not masked).
  * @param {object} doc
  * @returns {object}
  */
 export function publicLlmProfile(doc) {
   if (!doc) return doc;
   const p = typeof doc.toObject === "function" ? doc.toObject() : { ...doc };
-  const hasApiKey = Boolean(p.apiKeyEnc);
+  const apiKey = decryptSecret(p.apiKeyEnc || "") || "";
+  const hasApiKey = Boolean(apiKey);
   delete p.apiKeyEnc;
   return {
     ...p,
     id: String(p._id),
     hasApiKey,
-    apiKeyMasked: hasApiKey ? "••••••••" : "",
+    apiKey,
     tier: p.tier || "standard",
     costPer1kUsd: Number(p.costPer1kUsd) || 0,
   };
