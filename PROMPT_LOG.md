@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 16:10] Architect: defer Details needed, keep chatting
+
+- **Prompt Provided:** On /architect after discussion it asks questions; sometimes don’t want to answer yet but continue chat and answer later.
+- **Architectural Flow:** Pending requirements no longer hard-lock the chat composer. **Answer later** parks the amber form (compact banner + **Answer details** to reopen); parked forms survive free-chat turns that omit `pendingRequirements`. Submit still clears and resumes design.
+- **Impacted Files:** `frontend/src/pages/BusinessArchitectPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 16:05] Lighten grok sidebar + agent screen chrome
 
 - **Prompt Provided:** On /grok page, dislike black color on sidebar menu and agent screen header.

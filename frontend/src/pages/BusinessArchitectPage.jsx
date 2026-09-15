@@ -467,6 +467,9 @@ export function BusinessArchitectPage() {
   const [draft, setDraft] = useState("");
   const [answers, setAnswers] = useState({});
   const [pendingRequirements, setPendingRequirements] = useState([]);
+  /** Why: user may park secrets/details and keep chatting; form stays available until filled or cleared. */
+  const [detailsDeferred, setDetailsDeferred] = useState(false);
+  const detailsDeferredRef = useRef(false);
   const [reqDraft, setReqDraft] = useState({});
   const [stage, setStage] = useState("gathering");
   const [understanding, setUnderstanding] = useState(null);
@@ -638,13 +641,46 @@ export function BusinessArchitectPage() {
 
     if (nextBp?.plan?.agents?.length) nextStage = "ready";
     setStage(nextStage);
-    setPendingRequirements(Array.isArray(data.pendingRequirements) ? data.pendingRequirements : []);
-    setReqDraft({});
+
+    const incoming = Array.isArray(data.pendingRequirements) ? data.pendingRequirements : [];
+    const prevIds = pendingRequirements.map((r) => r.id).join("|");
+    const nextIds = incoming.map((r) => r.id).join("|");
+    if (incoming.length) {
+      setPendingRequirements(incoming);
+      // Why: keep typed values when the same form comes back after a free-chat turn.
+      if (prevIds !== nextIds) setReqDraft({});
+    } else if (detailsDeferredRef.current && pendingRequirements.length && nextStage !== "ready") {
+      // Why: while details are parked, do not drop them just because the LLM omitted the form this turn.
+    } else {
+      if (pendingRequirements.length) setReqDraft({});
+      setPendingRequirements([]);
+    }
+    if (nextStage === "ready") {
+      detailsDeferredRef.current = false;
+      setDetailsDeferred(false);
+    }
+
     setUnderstanding(nextStage === "understanding" ? data.understanding || null : null);
     setBlueprint(nextBp);
     if (nextStage === "ready" && nextBp) {
       setTimeout(() => scrollToBlueprint(), 120);
     }
+  }
+
+  /**
+   * Park the details form so chat can continue; requirements stay in state for later.
+   */
+  function deferPendingDetails() {
+    detailsDeferredRef.current = true;
+    setDetailsDeferred(true);
+  }
+
+  /**
+   * Re-open the parked details form without clearing typed values.
+   */
+  function reopenPendingDetails() {
+    detailsDeferredRef.current = false;
+    setDetailsDeferred(false);
   }
 
   /**
@@ -713,6 +749,9 @@ export function BusinessArchitectPage() {
     ];
     setMessages(next);
     setPendingRequirements([]);
+    detailsDeferredRef.current = false;
+    setDetailsDeferred(false);
+    setReqDraft({});
     await runChat(next, { answers: merged });
   }
 
@@ -1113,11 +1152,13 @@ export function BusinessArchitectPage() {
                 className="min-h-11 min-w-0 flex-1 resize-y rounded-xl border border-teal-100 px-3 py-2 text-sm outline-none focus:border-teal-300"
                 rows={2}
                 value={draft}
-                disabled={busy || pendingRequirements.length > 0}
+                disabled={busy}
                 placeholder={
-                  pendingRequirements.length
-                    ? "Fill the details form below first…"
-                    : "e.g. Contact travel agencies with promo emails and process interested replies…"
+                  pendingRequirements.length && !detailsDeferred
+                    ? "Or keep chatting — you can answer the details form later…"
+                    : pendingRequirements.length && detailsDeferred
+                      ? "Details parked — keep chatting, or open them when ready…"
+                      : "e.g. Contact travel agencies with promo emails and process interested replies…"
                 }
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={(e) => {
@@ -1129,7 +1170,7 @@ export function BusinessArchitectPage() {
               />
               <button
                 type="button"
-                disabled={busy || !draft.trim() || pendingRequirements.length > 0}
+                disabled={busy || !draft.trim()}
                 onClick={() => void onSend()}
                 className="inline-flex min-h-11 shrink-0 items-center rounded-xl bg-teal-800 px-4 text-sm font-semibold text-white disabled:opacity-50"
               >
@@ -1139,14 +1180,49 @@ export function BusinessArchitectPage() {
           </section>
           </details>
 
-          {pendingRequirements.length ? (
+          {pendingRequirements.length && detailsDeferred ? (
+            <section className="rounded-2xl border border-amber-200 bg-amber-50/80 px-4 py-3 shadow-sm">
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-sm text-amber-950">
+                  <span className="font-semibold">
+                    {pendingRequirements.length} detail
+                    {pendingRequirements.length === 1 ? "" : "s"} parked
+                  </span>
+                  <span className="text-amber-900/75">
+                    {" "}
+                    — answer whenever you’re ready; chat stays open.
+                  </span>
+                </p>
+                <button
+                  type="button"
+                  onClick={reopenPendingDetails}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950"
+                >
+                  Answer details
+                </button>
+              </div>
+            </section>
+          ) : null}
+
+          {pendingRequirements.length && !detailsDeferred ? (
             <section className="rounded-2xl border border-amber-200 bg-amber-50 p-4 shadow-sm">
-              <p className="text-xs font-bold uppercase tracking-wide text-amber-950">
-                Details needed
-              </p>
-              <p className="mt-1 text-xs text-amber-900/75">
-                Answer these so the plan can continue — chat stays above.
-              </p>
+              <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+                <div>
+                  <p className="text-xs font-bold uppercase tracking-wide text-amber-950">
+                    Details needed
+                  </p>
+                  <p className="mt-1 text-xs text-amber-900/75">
+                    Optional for now — fill these when you can, or keep chatting above.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={deferPendingDetails}
+                  className="inline-flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-amber-300 bg-white px-4 text-sm font-semibold text-amber-950"
+                >
+                  Answer later
+                </button>
+              </div>
               <div className="mt-3 flex max-h-[min(20rem,40vh)] flex-col gap-4 overflow-y-auto">
                 {pendingRequirements.map((req) => (
                   <div
