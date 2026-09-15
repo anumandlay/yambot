@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 14:55] Remove Create VPS (/admin/create-vps)
+
+- **Prompt Provided:** Remove /admin/create-vps page and all its functionality.
+- **Architectural Flow:** Deleted AdminPersonalVps UI/nav/route, API proxy `/api/admin/personal-vps`, `personal-vps` microservice, Compose service, and env knobs. Super-admin nav keeps Users only.
+- **Impacted Files:** `frontend/src/pages/AdminPersonalVpsPage.jsx` (deleted), `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `backend/src/routes/adminPersonalVps.js` (deleted), `backend/src/index.js`, `backend/src/utils/env.js`, `personal-vps/**` (deleted), `deploy/Dockerfile.personal-vps` (deleted), `deploy/docker-compose.yml`, `deploy/.env.example`, PROMPT_LOG
+
 ## [2026-09-15 14:30] Grok-style workspace (new tab)
 
 - **Prompt Provided:** Add a “grok-style” menu that opens a new tab: left = all agents, middle = chat, right = same as the classic chat page rail.

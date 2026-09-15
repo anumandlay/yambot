@@ -98,7 +98,6 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       {user?.isSuperAdmin || user?.role === "superadmin" ? (
         <>
           <NavItem to="/admin/users" helpId="admin.nav" letter="SA" label="Super admin" />
-          <NavItem to="/admin/create-vps" helpId="admin.personalVps.nav" letter="VPS" label="Create VPS" />
         </>
       ) : null}
 
