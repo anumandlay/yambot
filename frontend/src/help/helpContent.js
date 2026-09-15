@@ -353,6 +353,13 @@ export const HELP = {
       "You cannot delete the account you are currently signed in with. This cannot be undone."
     ),
   },
+  "admin.users.setPassword": {
+    title: "Set password",
+    body: helpBody(
+      "Sets a new login password for this user (including your own super-admin account). Minimum 6 characters.",
+      "They can sign in immediately with the new password. The old password stops working."
+    ),
+  },
   "admin.pricing.agentPrice": {
     title: "Price per new agent",
     body: helpBody(

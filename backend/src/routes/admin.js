@@ -46,6 +46,43 @@ adminRouter.put("/settings/pricing", async (req, res, next) => {
 });
 
 /**
+ * POST /api/admin/users/:userId/password — set a new password for a tenant (super-admin).
+ * Body: { password: string } — min 6 characters.
+ */
+adminRouter.post("/users/:userId/password", async (req, res, next) => {
+  try {
+    const target = await User.findById(req.params.userId);
+    if (!target) {
+      res.status(404).json({
+        ok: false,
+        title: "Not found",
+        detail: "User missing",
+      });
+      return;
+    }
+    const password = String(req.body?.password || "");
+    if (password.length < 6) {
+      res.status(400).json({
+        ok: false,
+        title: "Invalid password",
+        detail: "Password must be at least 6 characters.",
+      });
+      return;
+    }
+    target.passwordHash = await User.hashPassword(password);
+    await target.save();
+    res.json({
+      ok: true,
+      userId: String(target._id),
+      email: target.email,
+      detail: `Password updated for ${target.email}.`,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/admin/users/:userId/credits — grant free wallet credits.
  * Body: { amountUsd: number, note?: string }
  */

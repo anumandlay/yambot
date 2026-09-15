@@ -1,7 +1,7 @@
 /**
  * @fileoverview Super-admin users dashboard — tenants, pricing, wallet credits, delete.
  * Purpose: Platform operator view; set agent price, grant credits, remove accounts.
- * Downstream: GET/PUT /api/admin/settings, POST/DELETE /api/admin/users/:id.
+ * Downstream: GET/PUT /api/admin/settings, POST/DELETE /api/admin/users/:id, POST .../password.
  */
 
 import { useCallback, useEffect, useState } from "react";
@@ -28,6 +28,7 @@ export function AdminUsersPage() {
   const [grantNote, setGrantNote] = useState("Promotional credit");
   const [grantBusy, setGrantBusy] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [passwordBusyId, setPasswordBusyId] = useState("");
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(true);
@@ -134,6 +135,49 @@ export function AdminUsersPage() {
       setError(err);
     } finally {
       setDeletingId("");
+    }
+  }
+
+  /**
+   * Sets a new login password for a registered user (including yourself).
+   * @param {{ id: string, email: string, name: string }} row
+   */
+  async function setUserPassword(row) {
+    if (!row?.id) return;
+    const password = window.prompt(
+      `New password for ${row.name} (${row.email})\n\nMin 6 characters:`,
+      ""
+    );
+    if (password == null) return;
+    if (String(password).length < 6) {
+      setError({
+        title: "Invalid password",
+        detail: "Password must be at least 6 characters.",
+      });
+      return;
+    }
+    const confirmPw = window.prompt("Confirm new password:", "");
+    if (confirmPw == null) return;
+    if (confirmPw !== password) {
+      setError({
+        title: "Passwords do not match",
+        detail: "Try Set password again.",
+      });
+      return;
+    }
+    setPasswordBusyId(row.id);
+    setOkMsg("");
+    setError(null);
+    try {
+      const result = await api(`/api/admin/users/${row.id}/password`, {
+        method: "POST",
+        body: JSON.stringify({ password }),
+      });
+      setOkMsg(result.detail || `Password updated for ${row.email}.`);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setPasswordBusyId("");
     }
   }
 
@@ -333,17 +377,29 @@ export function AdminUsersPage() {
                         {u.createdAt ? new Date(u.createdAt).toLocaleString() : "—"}
                       </td>
                       <td className="px-4 py-3">
-                        <ButtonWithHelp helpId="admin.users.delete">
-                          <button
-                            type="button"
-                            disabled={isSelf || deletingId === u.id}
-                            onClick={() => deleteUser(u)}
-                            className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
-                            title={isSelf ? "Cannot delete your own account" : "Delete user"}
-                          >
-                            {deletingId === u.id ? "Deleting…" : isSelf ? "You" : "Delete"}
-                          </button>
-                        </ButtonWithHelp>
+                        <div className="flex flex-wrap items-center gap-1.5">
+                          <ButtonWithHelp helpId="admin.users.setPassword">
+                            <button
+                              type="button"
+                              disabled={passwordBusyId === u.id}
+                              onClick={() => setUserPassword(u)}
+                              className="min-h-9 rounded-lg border border-teal-200 bg-teal-50 px-2.5 text-xs font-semibold text-teal-900 disabled:opacity-50"
+                            >
+                              {passwordBusyId === u.id ? "Saving…" : "Set password"}
+                            </button>
+                          </ButtonWithHelp>
+                          <ButtonWithHelp helpId="admin.users.delete">
+                            <button
+                              type="button"
+                              disabled={isSelf || deletingId === u.id}
+                              onClick={() => deleteUser(u)}
+                              className="min-h-9 rounded-lg border border-rose-200 bg-rose-50 px-2.5 text-xs font-semibold text-rose-800 disabled:cursor-not-allowed disabled:opacity-40"
+                              title={isSelf ? "Cannot delete your own account" : "Delete user"}
+                            >
+                              {deletingId === u.id ? "Deleting…" : isSelf ? "You" : "Delete"}
+                            </button>
+                          </ButtonWithHelp>
+                        </div>
                       </td>
                     </tr>
                   );

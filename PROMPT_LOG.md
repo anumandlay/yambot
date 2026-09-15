@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 14:10] Super-admin set user password
+
+- **Prompt Provided:** Option to change the password for a user once logged in (super admin).
+- **Architectural Flow:** `POST /api/admin/users/:userId/password` with `{ password }` (min 6). Admin users table gets **Set password** (works for any user including self). Prompts for new + confirm; does not expose the hash.
+- **Impacted Files:** `backend/src/routes/admin.js`, `frontend/src/pages/AdminUsersPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 14:00] Super-admin delete registered users (cascade agents)
 
 - **Prompt Provided:** In super admin, page to see all registered users and delete a user including all agents in that account.
