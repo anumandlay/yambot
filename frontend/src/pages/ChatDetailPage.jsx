@@ -731,16 +731,16 @@ export function ChatDetailPage() {
           </div>
         ) : null}
         <FieldLabel helpId="chat.goalInput" className="text-sm">
-          Goal / instructions
+          Message (question or goal)
         </FieldLabel>
         <textarea
           className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
           placeholder={
             isCommon
               ? autoRoute
-                ? "Type your goal — auto-routes to the best agent"
-                : "@Agent /skill-slug goal… or /learn"
-              : "/skill-slug goal… or /learn"
+                ? "Ask a question or send a goal — /ask · /run · auto-routes"
+                : "@Agent question or goal… · /ask · /run · /learn"
+              : "Ask a question or send a goal… · /ask · /run · /learn"
           }
           value={input}
           onChange={(e) => setInput(e.target.value)}
@@ -752,9 +752,14 @@ export function ChatDetailPage() {
             disabled={busy}
             className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
           >
-            {busy ? "Sending…" : activeRun ? "Queue goal" : "Send goal"}
+            {busy ? "Sending…" : activeRun ? "Send" : "Send"}
           </button>
         </ButtonWithHelp>
+        <p className="text-[0.7rem] leading-snug text-teal-900/55">
+          Questions answer in chat (no computer). Goals use the live browser. Force with{" "}
+          <code className="rounded bg-teal-50 px-1">/ask</code> or{" "}
+          <code className="rounded bg-teal-50 px-1">/run</code>.
+        </p>
       </form>
     </section>
   );
@@ -897,7 +902,9 @@ export function ChatDetailPage() {
             <p className="text-center text-xs text-teal-900/40">Beginning of this chat</p>
           ) : null}
           {messages.length === 0 && !loadingOlder ? (
-            <p className="text-sm text-teal-900/60">No messages yet. Send a goal on the right.</p>
+            <p className="text-sm text-teal-900/60">
+              No messages yet. Ask a question or send a goal on the right.
+            </p>
           ) : null}
           {messages.map((m) => {
             const agentLabel = messageAgentLabel(m);

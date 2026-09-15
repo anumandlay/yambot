@@ -1271,16 +1271,17 @@ export const HELP = {
     ),
   },
   "chat.goalInput": {
-    title: "Goal message",
+    title: "Message (question or goal)",
     body: helpBody(
-      "Type what you want the browser agent to do in plain English. Sending enqueues a Task (status pending → running on cloud worker).",
-      "Examples: 'Go to example.com and find pricing', 'Fill the contact form with …' Be explicit about constraints."
+      "YamBot classifies each message: questions answer in chat from agent memory (no computer); goals enqueue a browser Task.",
+      "Examples: 'What password did we save for Gmail?' (question) vs 'Open gmail.com and check unread' (goal).",
+      "Force with /ask … or /run … if the classifier gets it wrong."
     ),
   },
   "chat.send": {
-    title: "Send goal",
+    title: "Send",
     body: helpBody(
-      "Posts your message and enqueues a browser task at the back of this agent's queue (or runs next if queue empty)."
+      "Posts your message. Questions get an assistant reply immediately. Goals enqueue a browser task for this agent's cloud computer."
     ),
   },
   "chat.stop": {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 13:40] Chat message intent: question vs goal
+
+- **Prompt Provided:** Can the agent understand whether the message I sent is a goal or a question?
+- **Architectural Flow:** New `messageIntent.js` classifies messages (heuristics + optional LLM refine). Questions get an in-chat assistant reply from agent memory/profile — no Task, no computer boot, no cancel of running goals. Goals keep the existing queue path. Overrides: `/ask` and `/run` (or `goal:` / `question:`). Chat UI placeholder explains both modes.
+- **Impacted Files:** `backend/src/utils/messageIntent.js`, `backend/src/routes/chats.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 12:24] Optional Cua XFCE desktop for YamBot agents
 
 - **Prompt Provided:** can we use Cua desktop for yambot project

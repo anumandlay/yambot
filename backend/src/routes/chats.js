@@ -15,6 +15,12 @@ import { resolveAgentMention } from "../utils/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../utils/skillSlash.js";
 import { createLearnedSkillDraft } from "../utils/skillLearn.js";
 import { routeCommonChat } from "../utils/chatRouter.js";
+import {
+  classifyMessageIntent,
+  refineMessageIntentWithLlm,
+  answerChatQuestion,
+} from "../utils/messageIntent.js";
+import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 
 export const chatsRouter = Router();
 
@@ -639,6 +645,137 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       return;
     }
 
+    // Why: questions answer from memory/LLM without booting the computer or cancelling runs.
+    const forceGoal = Boolean(req.body?.forceGoal) || Boolean(req.body?.asGoal);
+    const forceAsk = Boolean(req.body?.forceAsk) || Boolean(req.body?.asQuestion);
+    let classification = classifyMessageIntent(goalText || content, {
+      forceGoal,
+      forceAsk,
+      hasSkillSlash: Boolean(invokedSkillDoc),
+    });
+
+    if (classification.intent === "ambiguous") {
+      try {
+        const userForLlm = await User.findById(req.userId);
+        const classifyCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
+        if (classifyCreds.apiKey) {
+          classification = await refineMessageIntentWithLlm(
+            classification.text || goalText,
+            classifyCreds
+          );
+        } else {
+          classification = {
+            intent: "goal",
+            confidence: 0.5,
+            reason: "ambiguous_no_llm_default_goal",
+            text: classification.text,
+          };
+        }
+      } catch {
+        classification = {
+          intent: "goal",
+          confidence: 0.5,
+          reason: "classify_failed_default_goal",
+          text: classification.text,
+        };
+      }
+    }
+
+    if (classification.intent === "question") {
+      const questionText = classification.text || goalText || content;
+      const defaultTitles = ["Chat ·", "New chat", "Common chat"];
+      if (defaultTitles.some((prefix) => chat.title === prefix || chat.title.startsWith("Chat ·"))) {
+        chat.title = questionText.slice(0, 60);
+      }
+      chat.updatedAt = new Date();
+      await chat.save();
+
+      const messageMeta = {
+        intent: "question",
+        intentReason: classification.reason,
+        intentConfidence: classification.confidence,
+      };
+      if (common) {
+        Object.assign(messageMeta, {
+          dispatchAgentId: String(agentDoc._id),
+          dispatchAgentName: agentDoc.name,
+          goalText: questionText,
+          mention: mentionMeta,
+          router: routerMeta,
+        });
+      }
+
+      const message = await Message.create({
+        chat: chat._id,
+        role: "user",
+        content,
+        meta: messageMeta,
+      });
+
+      let assistantContent;
+      let answerError = null;
+      try {
+        const userForLlm = await User.findById(req.userId);
+        const creds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
+        if (!creds.apiKey) {
+          throw Object.assign(new Error("No LLM credentials configured"), {
+            title: "LLM not configured",
+            hint: "Add an LLM key in Settings, or send /run … to use the computer.",
+          });
+        }
+        const qaSnapshot = toAgentSnapshot(agentDoc, { goal: questionText });
+        assistantContent = await answerChatQuestion({
+          question: questionText,
+          snapshot: qaSnapshot,
+          creds,
+        });
+      } catch (err) {
+        answerError = err;
+        assistantContent =
+          `I treated that as a question (no computer). ${String(err?.message || err)}\n\n` +
+          `Send the same request with /run … to use the browser, or fix LLM settings.`;
+      }
+
+      const assistantMessage = await Message.create({
+        chat: chat._id,
+        role: "assistant",
+        content: assistantContent,
+        meta: {
+          kind: "chat_qa",
+          intent: "question",
+          intentReason: classification.reason,
+          intentConfidence: classification.confidence,
+          agentId: String(agentDoc._id),
+          agentName: agentDoc.name,
+          error: answerError ? String(answerError.message || answerError) : undefined,
+        },
+      });
+
+      const systemMessage = await Message.create({
+        chat: chat._id,
+        role: "system",
+        content:
+          `Answered as a question (no computer). Prefix with /run to force a browser goal, or /ask to force Q&A.`,
+        meta: {
+          kind: "intent_question",
+          intentReason: classification.reason,
+          intentConfidence: classification.confidence,
+          agentId: String(agentDoc._id),
+          agentName: agentDoc.name,
+        },
+      });
+
+      res.status(201).json({
+        ok: true,
+        intent: "question",
+        message,
+        assistantMessage,
+        systemMessage,
+        task: null,
+      });
+      return;
+    }
+
     // Why: one computer per agent — active runs block the box; a new goal must take over.
     const now = new Date();
     const active = await Task.find({
@@ -759,6 +896,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       meta: {
         taskId: task._id,
         status: "pending",
+        intent: "goal",
+        intentReason: classification.reason,
+        intentConfidence: classification.confidence,
         agentId: snapshot?.id || null,
         agentName: snapshot?.name || null,
         invokedSkillId: invokedSkillDoc?._id || null,
@@ -777,7 +917,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       },
     });
 
-    res.status(201).json({ ok: true, message, task, systemMessage: agentNote });
+    res.status(201).json({
+      ok: true,
+      intent: "goal",
+      message,
+      task,
+      systemMessage: agentNote,
+    });
   } catch (err) {
     next(err);
   }
