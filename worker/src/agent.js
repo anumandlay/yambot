@@ -148,19 +148,6 @@ function looksLikeSignupRun(goal, summary = "") {
 }
 
 /**
- * User confirmed saving the login (YES / save / ok).
- * @param {string} answer
- * @returns {boolean}
- */
-function isAffirmativeSaveAnswer(answer) {
-  const a = String(answer || "")
-    .trim()
-    .toLowerCase();
-  if (!a || /^(n|no|skip|cancel|don't|do not)\b/.test(a)) return false;
-  return /^(y|yes|save|ok|sure|please|yep|yeah)\b/.test(a) || /\bsave\b/.test(a);
-}
-
-/**
  * Normalizes a preferred/start URL string to https URL or "".
  * @param {string} preferredStart
  * @returns {string}
@@ -1435,7 +1422,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         : "",
       vaultLines
         ? `SAVED LOGINS (use when the site matches; do NOT invent new passwords):\n${vaultLines}`
-        : "SAVED LOGINS: none yet. After signup, the product will ask the human YES/NO to save typed credentials — you do not invent passwords.",
+        : "SAVED LOGINS: none yet. After signup, typed credentials are auto-saved to this vault for later logins.",
       recentDays
         ? `RECENT DAY HISTORY (always use to avoid repeating work):\n${recentDays}`
         : "",
@@ -1607,8 +1594,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   }
 
   /**
-   * After a successful signup, ask the human once to save typed credentials into the vault.
-   * Why: agents cannot invent passwords — but typed signup values should be reusable after YES.
+   * After a successful signup, auto-save typed credentials into the agent vault.
+   * Why: operators asked to skip the YES/NO chat prompt — typed signup values are saved for later logins.
    * @param {{
    *   taskId: string,
    *   agentId: string,
@@ -1656,29 +1643,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
     if (already) {
       await mirror(taskId, "info", {
         appendMessage:
-          "Login already in this agent’s vault for that site/account — skipped save prompt.",
+          "Login already in this agent’s vault for that site/account — skipped auto-save.",
         payload: { kind: "save_login_skipped", reason: "already_saved" },
-      }).catch(() => {});
-      return;
-    }
-
-    const question = [
-      "Registration typed a password this run. Save it to this agent’s login vault for future logins?",
-      siteHost ? `Site: ${siteHost}` : "",
-      typed.email ? `Email: ${typed.email}` : "",
-      typed.username && !typed.email ? `Username: ${typed.username}` : "",
-      "Password: (the one typed during this run — will be encrypted in View memory)",
-      "",
-      "Reply YES to save, or NO to skip.",
-    ]
-      .filter(Boolean)
-      .join("\n");
-
-    const answer = await waitForUserAnswer(taskId, question);
-    if (!isAffirmativeSaveAnswer(answer)) {
-      await mirror(taskId, "info", {
-        appendMessage: "Skipped saving login to vault.",
-        payload: { kind: "save_login_declined" },
       }).catch(() => {});
       return;
     }
@@ -1695,12 +1661,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
         email: typed.email || "",
         username: typed.username || "",
         password: typed.password,
-        notes: "Saved after signup (human confirmed YES)",
+        notes: "Auto-saved after signup",
       }),
     });
     await mirror(taskId, "info", {
-      appendMessage: `Saved login to vault${siteHost ? ` for ${siteHost}` : ""}. Open Agents → View memory to edit.`,
-      payload: { kind: "save_login_saved", siteHost },
+      appendMessage: `Auto-saved login to vault${siteHost ? ` for ${siteHost}` : ""}. Open Agents → View memory to edit or delete.`,
+      payload: { kind: "save_login_saved", siteHost, auto: true },
     }).catch(() => {});
   }
 
@@ -2694,7 +2660,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (actionToRun.type === "finish" || result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
-          // Why: after signup, ask once to save typed email/password into View memory vault.
+          // Why: after signup, auto-save typed email/password into View memory vault (no chat prompt).
           if (success && !saveLoginOffered) {
             saveLoginOffered = true;
             await maybeOfferSaveLoginAfterSignup({

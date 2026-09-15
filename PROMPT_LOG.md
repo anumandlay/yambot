@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 15:25] Auto-save signup credentials (no YES/NO)
+
+- **Prompt Provided:** Auto-save after signup instead of asking YES/NO in chat.
+- **Architectural Flow:** On successful signup finish, worker posts typed email/password to `/api/worker/credentials` immediately and posts an info line in chat. Skips if vault already has that site/account.
+- **Impacted Files:** `worker/src/agent.js`, `backend/src/models/Agent.js`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 15:20] Offer save-login to vault after signup (human YES)
 
 - **Prompt Provided:** After register, agent said password not retained; add human-gated save proposal.

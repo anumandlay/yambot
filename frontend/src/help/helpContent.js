@@ -904,7 +904,7 @@ export const HELP = {
     title: "Saved logins",
     body: helpBody(
       "You enter usernames, emails, and passwords for sites this agent uses. Passwords are encrypted in the database and shown in plain text here.",
-      "The agent may reuse these when the site matches. After a successful signup, it asks YES/NO to save the typed password here — it never auto-saves without your OK."
+      "The agent may reuse these when the site matches. After a successful signup, typed email/password are auto-saved here for later logins (edit/delete anytime)."
     ),
   },
   "agent.memory.credLabel": {

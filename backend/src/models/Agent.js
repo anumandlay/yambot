@@ -712,7 +712,7 @@ function formatCredentialsBlock(credentials) {
     })
     .join("\n");
   return (
-    "SAVED LOGINS (use when the site matches; do NOT invent passwords — after signup the human may confirm saving typed credentials to this vault):\n" +
+    "SAVED LOGINS (use when the site matches; do NOT invent passwords — signup runs auto-save typed credentials to this vault):\n" +
     lines
   );
 }
