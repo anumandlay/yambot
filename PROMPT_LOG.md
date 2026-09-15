@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 15:35] Mid-run Q&A + queue goals (no supersede)
+
+- **Prompt Provided:** Ask questions while agent is working (answer from memory); new tasks stay pending until current run completes.
+- **Architectural Flow:** Question path unchanged for computer (no cancel) + clearer “run continues” system note. Goal path no longer cancels running/waiting_user tasks — new goals stay `pending`. Worker claim refuses another task while agent is busy. Help copy updated.
+- **Impacted Files:** `backend/src/routes/chats.js`, `backend/src/routes/worker.js`, `backend/src/utils/messageIntent.js`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 15:25] Auto-save signup credentials (no YES/NO)
 
 - **Prompt Provided:** Auto-save after signup instead of asking YES/NO in chat.
