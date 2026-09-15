@@ -112,8 +112,29 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       <NavItem to="/architect" helpId="nav.architect" letter="BA" label="Business Architect" />
       <NavItem to="/business" helpId="nav.business" letter="B" label="Business setup" />
       <NavItem to="/agent-actions" helpId="nav.agentActions" letter="⚡" label="Agent actions" />
+      <a
+        href="/grok"
+        target="_blank"
+        rel="noopener noreferrer"
+        onClick={onClose}
+        className={`flex min-h-11 items-center gap-3 rounded-xl border border-transparent px-3 text-sm font-semibold text-teal-950 transition-colors hover:border-teal-100 hover:bg-teal-50 ${
+          collapsed ? "justify-center px-2 lg:px-2" : ""
+        }`}
+        title="grok-style (opens new tab)"
+      >
+        <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-teal-100 text-xs font-bold text-teal-800">
+          Gx
+        </span>
+        {!collapsed ? (
+          <span className="inline-flex min-w-0 flex-1 items-center gap-1">
+            <span className="truncate">grok-style</span>
+            <HelpTooltip helpId="nav.grok" size="sm" />
+          </span>
+        ) : null}
+      </a>
       <NavItem to="/" helpId="nav.chats" letter="C" label="Chats" end />
       <NavItem to="/agents" helpId="nav.agents" letter="A" label="Agents" />
+
       <NavItem to="/runs" helpId="nav.runs" letter="R" label="Agent runs" />
       <NavItem to="/live" helpId="nav.live" letter="L" label="Live Wall" />
       <NavItem to="/goals" helpId="nav.goals" letter="G" label="Scheduled goals" />

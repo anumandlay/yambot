@@ -1,13 +1,14 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
  * Purpose: Left thread scrolls on desktop; agent rail (screen + snapshot + goal) beside or below on mobile.
+ * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
 /** Newest messages shown on first paint; scroll-up loads the previous page. */
 const MESSAGE_PAGE = 100;
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api, isTimeoutError } from "../lib/api.js";
 import { resolveAgentMention } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
@@ -24,6 +25,10 @@ import { LlmTraceMessage } from "../components/LlmTraceMessage.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
+  const location = useLocation();
+  /** Why: /grok/:chatId fills the workspace panes — drop classic chrome and max-width. */
+  const grokMode = location.pathname.startsWith("/grok/");
+  const chatPathPrefix = grokMode ? "/grok" : "/chats";
   const [chat, setChat] = useState(null);
   const [isCommon, setIsCommon] = useState(false);
   const [agents, setAgents] = useState([]);
@@ -781,14 +786,22 @@ export function ChatDetailPage() {
   );
 
   return (
-    <div className="mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 md:px-6 lg:flex lg:h-full lg:min-h-0 lg:min-h-full lg:flex-1 lg:overflow-hidden">
+    <div
+      className={
+        grokMode
+          ? "flex h-full min-h-0 w-full flex-col gap-2 overflow-hidden px-2 py-2 sm:gap-3 sm:px-3 sm:py-3"
+          : "mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 md:px-6 lg:flex lg:h-full lg:min-h-0 lg:min-h-full lg:flex-1 lg:overflow-hidden"
+      }
+    >
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
-        <Link
-          to="/"
-          className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
-        >
-          ← Chats
-        </Link>
+        {grokMode ? null : (
+          <Link
+            to="/"
+            className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
+          >
+            ← Chats
+          </Link>
+        )}
         <h1 className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight sm:text-xl">
           {chat?.title || "Chat"}
         </h1>
@@ -805,7 +818,7 @@ export function ChatDetailPage() {
         ) : null}
       </div>
 
-      <PageGuideBanner helpId="chats.page" />
+      {grokMode ? null : <PageGuideBanner helpId="chats.page" />}
 
       {isOpsTriggerChat ? (
         <p className="shrink-0 rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-sm text-violet-950">
@@ -823,7 +836,7 @@ export function ChatDetailPage() {
             {opsTriggerChats.map((c) => (
               <li key={c._id}>
                 <Link
-                  to={`/chats/${c._id}`}
+                  to={`${chatPathPrefix}/${c._id}`}
                   className="font-semibold text-violet-900 underline"
                 >
                   {c.title}

@@ -50,8 +50,62 @@ import { DecisionsPage } from "./pages/DecisionsPage.jsx";
 import { AgentActionsPage } from "./pages/AgentActionsPage.jsx";
 import { AgentRunsPage } from "./pages/AgentRunsPage.jsx";
 import { AgentMemoryPage } from "./pages/AgentMemoryPage.jsx";
+import { GrokStyleLayout, GrokStylePage } from "./pages/GrokStylePage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
+
+/**
+ * Auth gate for full-bleed workspaces (no AppSidebar).
+ */
+function AuthOnlyLayout() {
+  const { user, loading, logout, refresh } = useAuth();
+  const [loadingSlow, setLoadingSlow] = useState(false);
+
+  useEffect(() => {
+    if (!loading) {
+      setLoadingSlow(false);
+      return undefined;
+    }
+    const timer = window.setTimeout(() => setLoadingSlow(true), 8000);
+    return () => window.clearTimeout(timer);
+  }, [loading]);
+
+  if (loading && !user) {
+    return (
+      <div className="flex min-h-[50vh] flex-col items-center justify-center gap-3 p-6 text-sm text-teal-900/70">
+        <p>Loading session…</p>
+        {loadingSlow ? (
+          <div className="flex flex-col items-center gap-2 text-center">
+            <p className="max-w-sm text-xs text-teal-900/60">
+              Session restore is taking longer than expected. You can retry or sign in again.
+            </p>
+            <div className="flex flex-wrap justify-center gap-2">
+              <button
+                type="button"
+                className="min-h-10 rounded-xl border border-teal-200 px-3 font-semibold text-teal-800"
+                onClick={() => void refresh()}
+              >
+                Retry
+              </button>
+              <button
+                type="button"
+                className="min-h-10 rounded-xl bg-teal-700 px-3 font-semibold text-white"
+                onClick={() => {
+                  logout();
+                  window.location.href = "/login";
+                }}
+              >
+                Sign in again
+              </button>
+            </div>
+          </div>
+        ) : null}
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  return <Outlet />;
+}
 
 /**
  * Requires an authenticated user before rendering child routes.
@@ -168,6 +222,14 @@ export default function App() {
         <Route path="/register" element={<RegisterPage />} />
         <Route path="/portal/ticket/:token" element={<PortalTicketPage />} />
         <Route path="/admin/login" element={<AdminLoginPage />} />
+        <Route element={<AuthOnlyLayout />}>
+          <Route path="/grok" element={<GrokStyleLayout />}>
+            <Route element={<GrokStylePage />}>
+              <Route index element={null} />
+              <Route path=":chatId" element={<ChatDetailPage />} />
+            </Route>
+          </Route>
+        </Route>
         <Route element={<ProtectedLayout />}>
           <Route path="/agent-actions" element={<AgentActionsPage />} />
           <Route path="/start" element={<StartPage />} />

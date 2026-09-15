@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 14:30] Grok-style workspace (new tab)
+
+- **Prompt Provided:** Add a “grok-style” menu that opens a new tab: left = all agents, middle = chat, right = same as the classic chat page rail.
+- **Architectural Flow:** Auth-only `/grok` layout (no AppSidebar). `GrokStylePage` lists agents and find-or-creates agent chats; nested `ChatDetailPage` at `/grok/:chatId` fills middle+right with grokMode chrome. Sidebar link uses `target=_blank`.
+- **Impacted Files:** `frontend/src/pages/GrokStylePage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/App.jsx`, `frontend/src/components/AppSidebar.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-15 14:25] Show full API keys on /settings/llm
 
 - **Prompt Provided:** On /settings/llm also always show complete API keys; do not mask.

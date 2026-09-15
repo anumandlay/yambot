@@ -152,6 +152,13 @@ export const HELP = {
     ),
     learnMore: "howto-live",
   },
+  "nav.grok": {
+    title: "grok-style",
+    body: helpBody(
+      "Opens a full-screen workspace in a new tab: agents on the left, chat in the middle, live screen and goal composer on the right (same as the classic chat page).",
+      "Pick an agent to open or create its chat. Use Classic YamBot in that tab to return to the normal app."
+    ),
+  },
   "nav.chats": {
     title: "Chats",
     body: helpBody(
