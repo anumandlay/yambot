@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 14:20] Show full LLM API keys on /settings/llms
+
+- **Prompt Provided:** On /settings/llms always show the complete API keys; do not mask.
+- **Architectural Flow:** `publicLlmProfile` decrypts and returns plaintext `apiKey`. Settings LLM profiles UI uses `type=text`, loads the key into the edit form, and shows the full key on each saved profile row.
+- **Impacted Files:** `backend/src/models/LlmProfile.js`, `frontend/src/pages/SettingsLlmProfilesPage.jsx`, PROMPT_LOG
+
 ## [2026-09-15 14:10] Super-admin set user password
 
 - **Prompt Provided:** Option to change the password for a user once logged in (super admin).

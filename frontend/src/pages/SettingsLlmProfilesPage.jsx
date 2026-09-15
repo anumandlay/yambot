@@ -93,12 +93,12 @@ export function SettingsLlmProfilesPage() {
     setEditingId(p._id || p.id);
     setForm({
       name: p.name || "",
-      apiKey: "",
+      apiKey: p.apiKey || "",
       baseUrl: p.baseUrl || "",
       model: p.model || "",
       tier: p.tier || "standard",
       costPer1kUsd: p.costPer1kUsd != null && p.costPer1kUsd !== 0 ? String(p.costPer1kUsd) : "",
-      hasApiKey: Boolean(p.hasApiKey),
+      hasApiKey: Boolean(p.hasApiKey || p.apiKey),
     });
     setOkMsg("");
     setError(null);
@@ -138,10 +138,15 @@ export function SettingsLlmProfilesPage() {
       setEditingId(saved._id || saved.id);
       setForm({
         name: saved.name || "",
-        apiKey: "",
+        apiKey: saved.apiKey || form.apiKey || "",
         baseUrl: saved.baseUrl || "",
         model: saved.model || "",
-        hasApiKey: Boolean(saved.hasApiKey),
+        tier: saved.tier || form.tier || "standard",
+        costPer1kUsd:
+          saved.costPer1kUsd != null && saved.costPer1kUsd !== 0
+            ? String(saved.costPer1kUsd)
+            : "",
+        hasApiKey: Boolean(saved.hasApiKey || saved.apiKey || form.apiKey),
       });
       await reload();
     } catch (err) {
@@ -274,6 +279,11 @@ export function SettingsLlmProfilesPage() {
                       <span className="text-xs text-teal-900/60">
                         {p.model || "—"} · {p.tier || "standard"} · {p.baseUrl || "default base URL"}
                       </span>
+                      {p.apiKey ? (
+                        <span className="mt-0.5 break-all font-mono text-[0.7rem] text-teal-900/80">
+                          {p.apiKey}
+                        </span>
+                      ) : null}
                     </button>
                   </li>
                 );
@@ -328,16 +338,15 @@ export function SettingsLlmProfilesPage() {
             />
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="settings.llmApiKey">
-              API key{form.hasApiKey ? " (saved — leave blank to keep)" : ""}
-            </FieldLabel>
+            <FieldLabel helpId="settings.llmApiKey">API key</FieldLabel>
             <input
-              className="min-h-11 rounded-xl border border-teal-100 px-3"
-              type="password"
+              className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
+              type="text"
               autoComplete="off"
+              spellCheck={false}
               value={form.apiKey}
               onChange={(e) => update("apiKey", e.target.value)}
-              placeholder={form.hasApiKey ? "••••••••" : "sk-… or provider key"}
+              placeholder="sk-… or provider key"
               required={!editingId}
             />
           </label>
