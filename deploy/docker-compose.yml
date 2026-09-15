@@ -54,6 +54,15 @@ services:
     entrypoint: ["/bin/true"]
     restart: "no"
 
+  # Optional Cua XFCE desktop image (Agent → Desktop engine = Cua). ~4GB RAM per box.
+  worker-cua-image:
+    image: yambot-cua:local
+    build:
+      context: ..
+      dockerfile: deploy/Dockerfile.cua-worker
+    entrypoint: ["/bin/true"]
+    restart: "no"
+
   # Watches Mongo and starts/stops one Chromium worker container per cloud agent.
   computer-manager:
     build:
@@ -66,6 +75,8 @@ services:
       MONGODB_URI: mongodb://mongo:27017/yambot
       YAMBOT_API_BASE_URL: http://api:4000
       WORKER_IMAGE: yambot-worker:local
+      CUA_WORKER_IMAGE: yambot-cua:local
+      CUA_WORKER_MEM_LIMIT: "4294967296"
       # Compose project directory name is `deploy` → network `deploy_default`
       DOCKER_NETWORK: ${DOCKER_NETWORK:-deploy_default}
       MANAGER_POLL_MS: "8000"
@@ -78,6 +89,8 @@ services:
       api:
         condition: service_started
       worker-image:
+        condition: service_completed_successfully
+      worker-cua-image:
         condition: service_completed_successfully
 
   # Isolated super-admin personal Linux containers (not YamBot agents).

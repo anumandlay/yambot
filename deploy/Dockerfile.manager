@@ -1,4 +1,4 @@
-# Auto-provisions per-agent Playwright containers via Docker socket.
+# Auto-provisions per-agent Playwright or Cua desktop containers via Docker socket.
 FROM node:24-bookworm-slim
 WORKDIR /app
 COPY computer-manager/package.json ./

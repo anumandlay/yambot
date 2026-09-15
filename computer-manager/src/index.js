@@ -1,10 +1,11 @@
 /**
- * @fileoverview YamBot computer-manager — auto-starts/stops per-agent Playwright containers.
- * Purpose: When an agent is created with runner=cloud, spin up its own Chromium box on the VPS.
- * Inputs: Mongo agents + Docker socket; Downstream: yambot-worker containers on the Compose network.
+ * @fileoverview YamBot computer-manager — auto-starts/stops per-agent cloud computers.
+ * Purpose: When an agent is created, spin up its own Chromium box on the VPS.
+ * Inputs: Mongo agents + Docker socket; Downstream: yambot-worker or yambot-cua containers
+ *          on the Compose network.
  *
- * Env: MONGODB_URI, SETTINGS_CRYPTO_KEY, DOCKER_NETWORK, WORKER_IMAGE,
- *      YAMBOT_API_BASE_URL, MANAGER_POLL_MS, WORKER_MEM_LIMIT
+ * Env: MONGODB_URI, SETTINGS_CRYPTO_KEY, DOCKER_NETWORK, WORKER_IMAGE, CUA_WORKER_IMAGE,
+ *      YAMBOT_API_BASE_URL, MANAGER_POLL_MS, WORKER_MEM_LIMIT, CUA_WORKER_MEM_LIMIT
  */
 
 import Docker from "dockerode";
@@ -16,9 +17,11 @@ const MONGODB_URI = process.env.MONGODB_URI || "mongodb://mongo:27017/yambot";
 const SETTINGS_CRYPTO_KEY = process.env.SETTINGS_CRYPTO_KEY || "";
 const DOCKER_NETWORK = process.env.DOCKER_NETWORK || "deploy_default";
 const WORKER_IMAGE = process.env.WORKER_IMAGE || "yambot-worker:local";
+const CUA_IMAGE = process.env.CUA_WORKER_IMAGE || "yambot-cua:local";
 const API_BASE = (process.env.YAMBOT_API_BASE_URL || "http://api:4000").replace(/\/$/, "");
 const POLL_MS = Math.max(5000, Number(process.env.MANAGER_POLL_MS) || 10000);
 const MEM_LIMIT = Number(process.env.WORKER_MEM_LIMIT) || 3072 * 1024 * 1024;
+const CUA_MEM_LIMIT = Number(process.env.CUA_WORKER_MEM_LIMIT) || 4 * 1024 * 1024 * 1024;
 const MANAGER_HTTP_PORT = Number(process.env.MANAGER_HTTP_PORT) || 4050;
 
 const agentSchema = new mongoose.Schema(
@@ -48,6 +51,30 @@ const docker = new Docker({ socketPath: "/var/run/docker.sock" });
 function containerNameFor(agentId) {
   const id = String(agentId).replace(/[^a-zA-Z0-9]/g, "").slice(-16).toLowerCase();
   return `yambot-agent-${id || "box"}`;
+}
+
+/**
+ * @param {object} agent
+ * @returns {"playwright"|"cua"}
+ */
+function engineFor(agent) {
+  return String(agent.computer?.engine || "playwright") === "cua" ? "cua" : "playwright";
+}
+
+/**
+ * @param {object} agent
+ * @returns {string}
+ */
+function imageFor(agent) {
+  return engineFor(agent) === "cua" ? CUA_IMAGE : WORKER_IMAGE;
+}
+
+/**
+ * @param {object} agent
+ * @returns {number}
+ */
+function memFor(agent) {
+  return engineFor(agent) === "cua" ? CUA_MEM_LIMIT : MEM_LIMIT;
 }
 
 /**
@@ -88,15 +115,21 @@ async function ensureRunning(agent) {
       const restarting = Boolean(info.State?.Restarting);
       const exitCode = info.State?.ExitCode;
 
-      // Why: after rebuilding yambot-worker:local, old agent boxes keep stale code (JSON parse bugs, etc.).
+      // Why: after rebuilding worker images, old boxes keep stale code; engine switch also recreates.
+      const wantImage = imageFor(agent);
+      const wantEngine = engineFor(agent);
       let imageStale = false;
       try {
-        const want = await docker.getImage(WORKER_IMAGE).inspect();
+        const want = await docker.getImage(wantImage).inspect();
         if (want?.Id && info.Image && want.Id !== info.Image) {
           imageStale = true;
         }
       } catch {
         /* ignore — create path will fail loudly if image missing */
+      }
+      const haveEngine = String(info.Config?.Labels?.["yambot.engine"] || "playwright");
+      if (haveEngine !== wantEngine) {
+        imageStale = true;
       }
 
       if (running && !restarting && !imageStale) {
@@ -147,11 +180,17 @@ async function ensureRunning(agent) {
     }
   }
 
-  // Ensure image exists
+  const wantImage = imageFor(agent);
+  const wantEngine = engineFor(agent);
+  const display = wantEngine === "cua" ? ":1" : ":99";
   try {
-    await docker.getImage(WORKER_IMAGE).inspect();
+    await docker.getImage(wantImage).inspect();
   } catch {
-    throw new Error(`Worker image missing: ${WORKER_IMAGE}. Run: docker compose build worker-image`);
+    const hint =
+      wantEngine === "cua"
+        ? `Cua worker image missing: ${wantImage}. Run: docker compose build worker-cua-image`
+        : `Worker image missing: ${wantImage}. Run: docker compose build worker-image`;
+    throw new Error(hint);
   }
 
   const volumeName = profileVolumeName(name);
@@ -165,7 +204,7 @@ async function ensureRunning(agent) {
   }
 
   const created = await docker.createContainer({
-    Image: WORKER_IMAGE,
+    Image: wantImage,
     name,
     Env: [
       `YAMBOT_API_BASE_URL=${API_BASE}`,
@@ -177,9 +216,10 @@ async function ensureRunning(agent) {
       "YAMBOT_SCREEN_MS=1200",
       "YAMBOT_HEADED=1",
       "YAMBOT_BROWSER_CHANNEL=chrome",
-      "DISPLAY=:99",
+      `DISPLAY=${display}`,
       "YAMBOT_NOVNC_PORT=6080",
       "YAMBOT_VNC_PORT=5900",
+      ...(wantEngine === "cua" ? ["YAMBOT_CUA=1"] : []),
       // Why: experiment branch — set YAMBOT_FAST_MODE=1 on the manager to speed agent boxes.
       ...(process.env.YAMBOT_FAST_MODE
         ? [`YAMBOT_FAST_MODE=${process.env.YAMBOT_FAST_MODE}`]
@@ -191,14 +231,15 @@ async function ensureRunning(agent) {
     HostConfig: {
       NetworkMode: DOCKER_NETWORK,
       Binds: [`${volumeName}:/data/browser-profile`],
-      Memory: MEM_LIMIT,
-      // Why: Chromium + Xvfb need shared memory; default 64MB causes tab crashes.
+      Memory: memFor(agent),
+      // Why: Chromium + desktop session need shared memory; default 64MB causes tab crashes.
       ShmSize: 1 * 1024 * 1024 * 1024,
       RestartPolicy: { Name: "unless-stopped" },
     },
     Labels: {
       "yambot.role": "agent-computer",
       "yambot.agentId": agentId,
+      "yambot.engine": wantEngine,
     },
   });
   await created.start();
@@ -399,7 +440,7 @@ async function reconcile() {
 
 async function main() {
   console.log(
-    `[manager] starting — image=${WORKER_IMAGE} network=${DOCKER_NETWORK} api=${API_BASE}`
+    `[manager] starting — image=${WORKER_IMAGE} cua=${CUA_IMAGE} network=${DOCKER_NETWORK} api=${API_BASE}`
   );
   await mongoose.connect(MONGODB_URI);
   console.log("[manager] mongo connected");

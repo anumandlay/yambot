@@ -589,6 +589,13 @@ export const HELP = {
       "Take control in chat streams your mouse/keyboard to that browser. One agent = one box — tasks for the same agent never run in parallel on different machines."
     ),
   },
+  "agent.cloudComputerEngine": {
+    title: "Desktop engine",
+    body: helpBody(
+      "Playwright (default): headed Chrome on a virtual X display. Cua: the same Chrome on a Cua XFCE Linux desktop (the image used by OpenMausBot).",
+      "Cua uses more RAM (~4 GB). Keep existing agents on Playwright unless you need a full desktop. Switching engines recreates the container; the browser profile volume is reused."
+    ),
+  },
   "agent.clearBrowserData": {
     title: "Clear cookies, cache & downloads",
     body: helpBody(

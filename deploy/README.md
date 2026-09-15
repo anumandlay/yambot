@@ -26,11 +26,13 @@ cd deploy && docker compose up -d --build
 ## How agent computers work
 1. Create an agent on the website (default runner = **cloud**)
 2. API stores a worker token + `computer.desired=running`
-3. `computer-manager` creates `yambot-agent-<id>` from image `yambot-worker:local`
+3. `computer-manager` creates `yambot-agent-<id>` from `yambot-worker:local` (Playwright) or `yambot-cua:local` (Cua XFCE) based on `computer.engine`
 4. Worker logs in with the token, streams screenshots, claims that agent’s tasks
 5. Dashboard → Live screen → enable **Take control** to click/type (captchas, recovery)
 
-RAM: budget ~1–1.5 GB per agent box.
+RAM: Playwright boxes ~3 GB limit each. Cua boxes ~4 GB — enable on **one or two** agents only on the current VPS. Existing agents stay on Playwright unless you change **Desktop engine** on the agent page.
+
+Cua is a per-agent YamBot container, not the shared OpenMausBot `openmausbot-computer` VM. The LLM still drives Chrome with Playwright; cua-driver MCP is not wired yet.
 
 ## Manual worker (optional override)
 See `docker-compose.workers.yml` / `worker/` if you need a one-off box without the manager.

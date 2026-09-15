@@ -253,6 +253,17 @@ const agentSchema = new mongoose.Schema(
      * Why: dashboard shows online/offline without a separate registry service.
      */
     computer: {
+      /**
+       * Which desktop image the manager starts for this agent.
+       * playwright = Xvfb + fluxbox + Chrome (default, ~3GB).
+       * cua = Cua XFCE desktop (trycua/xfce-cua) with the same Playwright worker on DISPLAY=:1 (~4GB).
+       * Why: optional OS desktop for Take control without migrating existing Chromium boxes.
+       */
+      engine: {
+        type: String,
+        enum: ["playwright", "cua"],
+        default: "playwright",
+      },
       /** Manager should keep a container running when desired === "running". */
       desired: {
         type: String,

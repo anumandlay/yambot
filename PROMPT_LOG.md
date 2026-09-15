@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 12:24] Optional Cua XFCE desktop for YamBot agents
+
+- **Prompt Provided:** can we use Cua desktop for yambot project
+- **Architectural Flow:** Per-agent `computer.engine` (`playwright` default | `cua`). Cua agents use image `yambot-cua:local` (`trycua/xfce-cua` + Node/Playwright worker on DISPLAY=:1, YamBot noVNC on :6080). computer-manager recreates the box on engine/image mismatch (4GB RAM). Existing Playwright agents are unchanged. Not the shared OpenMausBot `openmausbot-computer` container; cua-driver MCP is out of scope for this v1.
+- **Impacted Files:** `backend/src/models/Agent.js`, `backend/src/routes/agents.js`, `backend/src/utils/desktopProxy.js`, `computer-manager/src/index.js`, `deploy/Dockerfile.cua-worker`, `deploy/docker-compose.yml`, `deploy/README.md`, `worker/entrypoint-cua.sh`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`, `PROMPT_LOG.md`
+
 ## [2026-09-15 11:01] Point OpenMausBot at open.vughy.com
 
 - **Prompt Provided:** use this domain open.vughy.com

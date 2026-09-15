@@ -1,7 +1,8 @@
 /**
  * @fileoverview Authenticated reverse-proxy to each agent container's noVNC (port 6080).
  * Purpose: Take control embeds a real remote desktop (mouse/keyboard) for that agent's X display.
- * Downstream: worker entrypoint websockify → x11vnc → Xvfb + headed Chromium.
+ * Downstream: worker entrypoint websockify → VNC → X display + headed Chromium
+ * (Playwright Xvfb :99 or Cua XFCE :1; both expose noVNC on container :6080).
  */
 
 import httpProxy from "http-proxy";
