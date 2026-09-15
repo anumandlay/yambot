@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-15 15:45] Grok left rail: agent → chats tree + delete
+
+- **Prompt Provided:** On /grok show chats as a tree under each agent; delete icon on each chat.
+- **Architectural Flow:** `GrokStylePage` left rail nests chats under agents (expand/collapse), + creates a new chat, trash calls `DELETE /api/chats/:id` with confirm; deleting the open chat navigates to another sibling or `/grok`.
+- **Impacted Files:** `frontend/src/pages/GrokStylePage.jsx`, PROMPT_LOG
+
 ## [2026-09-15 15:35] Mid-run Q&A + queue goals (no supersede)
 
 - **Prompt Provided:** Ask questions while agent is working (answer from memory); new tasks stay pending until current run completes.
