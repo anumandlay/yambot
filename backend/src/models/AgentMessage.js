@@ -1,7 +1,7 @@
 /**
- * @fileoverview AgentMessage — durable agent-to-agent hop (v1 bus).
- * Purpose: Audit A→B task/question messages and B→A results without a separate service.
- * Downstream: agentMessageBus; worker/API message_agent tool; chat system lines.
+ * @fileoverview AgentMessage — durable agent-to-agent hop (v2 bus).
+ * Purpose: Audit A→B task/question messages and results with structured payloads.
+ * Downstream: agentMessageBus; worker/API message_agent tool; chat system lines; Operations.
  */
 
 import mongoose from "mongoose";
@@ -64,6 +64,8 @@ const agentMessageSchema = new mongoose.Schema(
     conversationKey: { type: String, default: "", index: true },
     hopDepth: { type: Number, default: 1, min: 1, max: 8 },
     resultSummary: { type: String, default: "", maxlength: 8000 },
+    /** Structured return for callers (success, childTaskId, hopDepth, …). */
+    resultPayload: { type: mongoose.Schema.Types.Mixed, default: null },
     lastError: { type: String, default: "", maxlength: 2000 },
     wait: { type: Boolean, default: true },
   },
@@ -71,5 +73,6 @@ const agentMessageSchema = new mongoose.Schema(
 );
 
 agentMessageSchema.index({ user: 1, parentTask: 1, createdAt: -1 });
+agentMessageSchema.index({ user: 1, conversationKey: 1, createdAt: -1 });
 
 export const AgentMessage = mongoose.model("AgentMessage", agentMessageSchema);

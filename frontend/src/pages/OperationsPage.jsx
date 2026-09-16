@@ -28,6 +28,7 @@ const EMPTY_COMPLETION_ACTION = {
 export function OperationsPage() {
   const [tab, setTab] = useState("events");
   const [events, setEvents] = useState([]);
+  const [agentHops, setAgentHops] = useState([]);
   const [triggers, setTriggers] = useState([]);
   const [watchers, setWatchers] = useState([]);
   const [agents, setAgents] = useState([]);
@@ -66,14 +67,16 @@ export function OperationsPage() {
   const [watcherAgentId, setWatcherAgentId] = useState("");
 
   const load = useCallback(async () => {
-    const [ev, tr, wa, agentData, goalData] = await Promise.all([
+    const [ev, hops, tr, wa, agentData, goalData] = await Promise.all([
       api("/api/events?limit=40"),
+      api("/api/agent-messages?limit=40"),
       api("/api/triggers"),
       api("/api/watchers"),
       api("/api/agents"),
       api("/api/goals"),
     ]);
     setEvents(ev.events || []);
+    setAgentHops(hops.messages || []);
     setTriggers(tr.triggers || []);
     setWatchers(wa.watchers || []);
     setAgents(agentData.agents || []);
@@ -304,6 +307,7 @@ export function OperationsPage() {
 
   const tabs = [
     ["events", "Events"],
+    ["agentHops", "Agent hops"],
     ["triggers", "Triggers"],
     ["watchers", "Watchers"],
   ];
@@ -313,7 +317,7 @@ export function OperationsPage() {
       <div>
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Operations</h1>
         <p className="text-sm text-teal-900/70">
-          Company event bus, automation triggers, and URL watchers.
+          Company event bus, agent-to-agent hops, automation triggers, and URL watchers.
         </p>
       </div>
 
@@ -418,6 +422,49 @@ export function OperationsPage() {
             );
             })}
             {!events.length ? <p className="text-sm text-teal-900/60">No events yet.</p> : null}
+          </ul>
+        </div>
+      ) : null}
+
+      {tab === "agentHops" ? (
+        <div className="flex flex-col gap-3">
+          <PageGuideBanner helpId="ops.agentHops" />
+          <p className="text-sm text-teal-900/70">
+            Recent <code className="text-xs">message_agent</code> hops (A→B, up to depth 2). Same data
+            appears as <span className="font-mono text-xs">agent.message.*</span> events.
+          </p>
+          <ul className="flex flex-col gap-2">
+            {agentHops.map((m) => (
+              <li key={m.id} className="rounded-xl border border-teal-100 bg-white p-3 text-sm">
+                <div className="flex flex-wrap items-center gap-2 font-semibold text-teal-950">
+                  <span>
+                    {m.fromAgent?.name || "?"} → {m.toAgent?.name || "?"}
+                  </span>
+                  <span className="rounded-md bg-teal-50 px-1.5 py-0.5 text-xs font-mono text-teal-800">
+                    {m.type}
+                  </span>
+                  <span className="rounded-md bg-slate-50 px-1.5 py-0.5 text-xs text-slate-700">
+                    {m.status}
+                  </span>
+                  <span className="text-xs font-normal text-teal-900/50">
+                    hop {m.hopDepth}/2
+                  </span>
+                </div>
+                <div className="mt-1 text-teal-900/80">
+                  {(m.resultSummary || m.content || "").slice(0, 280)}
+                  {(m.resultSummary || m.content || "").length > 280 ? "…" : ""}
+                </div>
+                <div className="mt-1 text-xs text-teal-900/50">
+                  {m.createdAt ? new Date(m.createdAt).toLocaleString() : ""}
+                  {m.conversationKey ? ` · ${m.conversationKey}` : ""}
+                </div>
+              </li>
+            ))}
+            {!agentHops.length ? (
+              <p className="text-sm text-teal-900/60">
+                No agent-to-agent messages yet. Use message_agent in a chat run.
+              </p>
+            ) : null}
           </ul>
         </div>
       ) : null}

@@ -107,7 +107,7 @@ Action fields:
 - crm_sync: { "type":"crm_sync", "provider":"hubspot|salesforce", "email":"...", "name":"...", "company":"..." }
 - send_sms: { "type":"send_sms", "to":"+1...", "body":"..." }
 - http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://api.example.com/...", "headers":{ "Authorization":"Bearer ..." }, "body":"..." } — server-side HTTP (host must be in Policies httpAllowHosts when configured)
-- message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question", "content":"...", "wait": true } — ask another of your agents to do work or answer; wait:true blocks until they finish (max ~8m). Prefer peers listed under PEER AGENTS. Depth limit: one hop.
+- message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question", "content":"...", "wait": true } — ask another of your agents to do work or answer; wait:true blocks until they finish (max ~8m). Prefer peers listed under PEER AGENTS. Max hop depth 2 (A→B→C).
 - investigate: { "type":"investigate", "question":"...", "sources":["https://..."], "evidence":[{ "source":"site A", "claim":"...", "confidence":0.8 }] } — multi-source research; pass evidence when synthesizing before finish
 - request_training: { "type":"request_training", "workflow":"...", "observation":"what failed", "recommendation":"..." } — file a human training request when stuck on a workflow
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }

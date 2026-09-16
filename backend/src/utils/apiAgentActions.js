@@ -56,7 +56,7 @@ export function buildApiActionSchemaForPrompt() {
     '- investigate / update_kpi / tickets / slack / webhook / sms / crm_sync: use fields matching the worker catalog when needed',
     "",
     "Rules: Prefer http_request for external APIs. Never invent browser actions (navigate/click/type).",
-    "Use message_agent to collaborate with peer agents listed under PEER AGENTS (one hop only).",
+    "Use message_agent to collaborate with peer agents listed under PEER AGENTS (max hop depth 2: A→B→C).",
     "Call finish when the goal is done or clearly impossible.",
   ].join("\n");
 }

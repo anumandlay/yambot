@@ -504,7 +504,7 @@ export const AGENT_ACTION_SECTIONS = [
         title: "message_agent",
         summary: "Ask another of your agents to do work or answer a question (agent-to-agent v1).",
         whenToUse:
-          "Delegate a sub-task to a peer (same account). Prefer wait:true when you need their result before continuing. One hop only — peers must not re-delegate.",
+          "Delegate a sub-task to a peer (same account). Prefer wait:true when you need their result before continuing. Max hop depth 2 (A→B→C).",
         savesTo: "Child task on peer agent + system lines in this chat (→ / ←). Audit rows in AgentMessage.",
         exampleInstruction:
           "Ask Research Bot whether ABC Travel is in CRM and return id/status; wait for the answer then finish.",

@@ -162,6 +162,11 @@ app.use("/api/settings", authRequired, settingsRouter);
 app.use("/api/llm-profiles", authRequired, (await import("./routes/llmProfiles.js")).llmProfilesRouter);
 app.use("/api/wallet", authRequired, (await import("./routes/wallet.js")).walletRouter);
 app.use("/api/agents", authRequired, (await import("./routes/agents.js")).agentsRouter);
+app.use(
+  "/api/agent-messages",
+  authRequired,
+  (await import("./routes/agentMessages.js")).agentMessagesRouter
+);
 app.use("/api/groups", authRequired, (await import("./routes/groups.js")).groupsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
 app.use("/api/goals", authRequired, (await import("./routes/goals.js")).goalsRouter);

@@ -1,7 +1,7 @@
 /**
- * @fileoverview Agent-to-agent message bus (v1).
- * Purpose: Enqueue work from Agent A to Agent B with budgets, optional wait, chat logging.
- * Downstream: POST /api/worker/tools/message-agent; apiAgentRunner; browser worker.
+ * @fileoverview Agent-to-agent message bus (v2).
+ * Purpose: Enqueue work from Agent A to peer B (up to depth 2), wait, chat + event logging.
+ * Downstream: POST /api/worker/tools/message-agent; apiAgentRunner; browser worker; Operations.
  */
 
 import crypto from "node:crypto";
@@ -10,9 +10,10 @@ import { AgentMessage } from "../models/AgentMessage.js";
 import { Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { enqueueTask } from "./enqueueTask.js";
+import { emitEvent } from "./eventBus.js";
 
-/** v1: A→B only (child cannot message further). */
-export const MAX_AGENT_MESSAGE_HOP_DEPTH = 1;
+/** v2: A→B→C allowed (depth 2); further hops rejected. */
+export const MAX_AGENT_MESSAGE_HOP_DEPTH = 2;
 /** Max wait for B when wait:true (ms). */
 export const AGENT_MESSAGE_WAIT_MS = 8 * 60 * 1000;
 const POLL_MS = 2_000;
@@ -55,7 +56,7 @@ export async function resolvePeerAgent(userId, to) {
 }
 
 /**
- * Hop depth of the current task (1 if this task was spawned by an agent message).
+ * Hop depth of the current task (1+ if this task was spawned by an agent message).
  * @param {string|null|undefined} taskId
  * @returns {Promise<number>}
  */
@@ -79,7 +80,7 @@ export async function hopDepthForTask(taskId) {
  * @param {string} opts.content
  * @param {string} [opts.parentTaskId]
  * @param {boolean} [opts.wait]
- * @returns {Promise<{ ok: boolean, note: string, agentMessageId?: string, childTaskId?: string, resultSummary?: string }>}
+ * @returns {Promise<{ ok: boolean, note: string, agentMessageId?: string, childTaskId?: string, resultSummary?: string, resultPayload?: object }>}
  */
 export async function sendAgentMessage(opts) {
   const userId = String(opts.userId || "").trim();
@@ -116,12 +117,13 @@ export async function sendAgentMessage(opts) {
   if (parentDepth >= MAX_AGENT_MESSAGE_HOP_DEPTH) {
     return {
       ok: false,
-      note: `Agent-message depth limit (${MAX_AGENT_MESSAGE_HOP_DEPTH}): this run was already delegated — finish with your own result instead of messaging another agent.`,
+      note: `Agent-message depth limit (${MAX_AGENT_MESSAGE_HOP_DEPTH}): this run is already at max hop depth — finish with your own result instead of messaging another agent.`,
     };
   }
 
   const conversationKey = `am-${crypto.randomBytes(8).toString("hex")}`;
   const hopDepth = parentDepth + 1;
+  const canRelayFurther = hopDepth < MAX_AGENT_MESSAGE_HOP_DEPTH;
 
   const outbound = await AgentMessage.create({
     user: userId,
@@ -148,7 +150,7 @@ export async function sendAgentMessage(opts) {
     await Message.create({
       chat: parentChatId,
       role: "system",
-      content: `→ ${toAgent.name}: ${content.slice(0, 500)}${content.length > 500 ? "…" : ""}`,
+      content: `→ ${toAgent.name} (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}): ${content.slice(0, 500)}${content.length > 500 ? "…" : ""}`,
       meta: {
         kind: "agent_message_out",
         agentMessageId: String(outbound._id),
@@ -156,15 +158,22 @@ export async function sendAgentMessage(opts) {
         toAgentId: String(toAgent._id),
         parentTaskId,
         mode,
+        hopDepth,
       },
     }).catch(() => null);
   }
 
+  const depthNote = canRelayFurther
+    ? `You may message_agent one more peer if needed (current hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}).`
+    : `Do NOT call message_agent again — depth limit (${MAX_AGENT_MESSAGE_HOP_DEPTH}) reached. Finish with your own result.`;
+
   const goalText = [
     `[AGENT MESSAGE from “${fromAgent.name}”]`,
     `Type: ${mode}`,
+    `Hop depth: ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}`,
     parentTaskId ? `Parent task: ${parentTaskId}` : "",
-    "Reply with finish when done. Do NOT call message_agent to another agent (depth limit).",
+    depthNote,
+    "Reply with finish when done.",
     "",
     content,
   ]
@@ -200,7 +209,6 @@ export async function sendAgentMessage(opts) {
   outbound.status = "running";
   await outbound.save();
 
-  // Why: stamp hop on child events for debugging / future filters.
   await Task.findByIdAndUpdate(enq.task._id, {
     $push: {
       events: {
@@ -216,12 +224,43 @@ export async function sendAgentMessage(opts) {
     },
   }).catch(() => null);
 
+  await emitEvent({
+    userId,
+    type: "agent.message.sent",
+    source: "system",
+    agentId: String(fromAgent._id),
+    taskId: parentTaskId,
+    significance: "medium",
+    summary: `${fromAgent.name} → ${toAgent.name}: ${content.slice(0, 240)}`,
+    correlationId: conversationKey,
+    payload: {
+      agentMessageId: String(outbound._id),
+      fromAgentId: String(fromAgent._id),
+      fromAgentName: fromAgent.name,
+      toAgentId: String(toAgent._id),
+      toAgentName: toAgent.name,
+      mode,
+      hopDepth,
+      wait,
+      childTaskId: String(enq.task._id),
+      conversationKey,
+    },
+    dedupeKey: `agent.message.sent:${outbound._id}`,
+  }).catch(() => null);
+
   if (!wait) {
     return {
       ok: true,
       note: `Queued for ${toAgent.name} (not waiting). Child task ${enq.task._id}.`,
       agentMessageId: String(outbound._id),
       childTaskId: String(enq.task._id),
+      resultPayload: {
+        success: true,
+        queued: true,
+        hopDepth,
+        conversationKey,
+        childTaskId: String(enq.task._id),
+      },
     };
   }
 
@@ -243,9 +282,19 @@ export async function sendAgentMessage(opts) {
         success ? child.resultSummary || "Done." : child.lastError || child.resultSummary || "Failed."
       ).slice(0, 6000);
 
+      const resultPayload = {
+        success,
+        hopDepth,
+        conversationKey,
+        childTaskId: String(enq.task._id),
+        status: child.status,
+        summary,
+      };
+
       outbound.status = success ? "done" : "error";
       outbound.resultSummary = summary;
       outbound.lastError = success ? "" : summary;
+      outbound.resultPayload = resultPayload;
       await outbound.save();
 
       await AgentMessage.create({
@@ -260,6 +309,7 @@ export async function sendAgentMessage(opts) {
         conversationKey,
         hopDepth,
         resultSummary: summary,
+        resultPayload,
         lastError: success ? "" : summary,
         wait: false,
       }).catch(() => null);
@@ -277,9 +327,31 @@ export async function sendAgentMessage(opts) {
             parentTaskId,
             childTaskId: String(enq.task._id),
             success,
+            hopDepth,
           },
         }).catch(() => null);
       }
+
+      await emitEvent({
+        userId,
+        type: success ? "agent.message.result" : "agent.message.failed",
+        source: "system",
+        agentId: String(toAgent._id),
+        taskId: String(enq.task._id),
+        significance: success ? "medium" : "high",
+        summary: `${toAgent.name} → ${fromAgent.name}: ${summary.slice(0, 240)}`,
+        correlationId: conversationKey,
+        payload: {
+          agentMessageId: String(outbound._id),
+          fromAgentId: String(toAgent._id),
+          toAgentId: String(fromAgent._id),
+          hopDepth,
+          success,
+          childTaskId: String(enq.task._id),
+          conversationKey,
+        },
+        dedupeKey: `agent.message.result:${outbound._id}`,
+      }).catch(() => null);
 
       return {
         ok: success,
@@ -289,6 +361,7 @@ export async function sendAgentMessage(opts) {
         agentMessageId: String(outbound._id),
         childTaskId: String(enq.task._id),
         resultSummary: summary,
+        resultPayload,
       };
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
@@ -296,6 +369,13 @@ export async function sendAgentMessage(opts) {
 
   outbound.status = "timeout";
   outbound.lastError = `Timed out waiting for ${toAgent.name} after ${Math.round(AGENT_MESSAGE_WAIT_MS / 60000)}m`;
+  outbound.resultPayload = {
+    success: false,
+    timedOut: true,
+    hopDepth,
+    conversationKey,
+    childTaskId: String(enq.task._id),
+  };
   await outbound.save();
 
   if (parentChatId) {
@@ -309,15 +389,36 @@ export async function sendAgentMessage(opts) {
         toAgentId: String(toAgent._id),
         parentTaskId,
         childTaskId: String(enq.task._id),
+        hopDepth,
       },
     }).catch(() => null);
   }
+
+  await emitEvent({
+    userId,
+    type: "agent.message.timeout",
+    source: "system",
+    agentId: String(fromAgent._id),
+    taskId: parentTaskId,
+    significance: "high",
+    summary: `${fromAgent.name} timed out waiting for ${toAgent.name}`,
+    correlationId: conversationKey,
+    payload: {
+      agentMessageId: String(outbound._id),
+      toAgentId: String(toAgent._id),
+      hopDepth,
+      childTaskId: String(enq.task._id),
+      conversationKey,
+    },
+    dedupeKey: `agent.message.timeout:${outbound._id}`,
+  }).catch(() => null);
 
   return {
     ok: false,
     note: `Timed out waiting for ${toAgent.name}. Child task ${enq.task._id} may still finish.`,
     agentMessageId: String(outbound._id),
     childTaskId: String(enq.task._id),
+    resultPayload: outbound.resultPayload,
   };
 }
 
@@ -347,7 +448,36 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
   return [
     "PEER AGENTS (same account — collaborate via message_agent, do not invent names):",
     'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question", "content":"...", "wait": true }',
-    "Use wait:true when you need B’s result before continuing. Depth limit: one hop (peers must not re-delegate).",
+    `Use wait:true when you need B’s result before continuing. Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C). Do not invent endless chains.`,
     ...lines,
   ].join("\n");
+}
+
+/**
+ * List recent agent messages for the tenant (Operations / audit).
+ * @param {string} userId
+ * @param {{ limit?: number, taskId?: string, agentId?: string, conversationKey?: string }} [opts]
+ * @returns {Promise<object[]>}
+ */
+export async function listAgentMessages(userId, opts = {}) {
+  const filter = { user: userId };
+  /** @type {object[]} */
+  const and = [];
+  if (opts.taskId) {
+    and.push({ $or: [{ parentTask: opts.taskId }, { childTask: opts.taskId }] });
+  }
+  if (opts.agentId) {
+    and.push({ $or: [{ fromAgent: opts.agentId }, { toAgent: opts.agentId }] });
+  }
+  if (opts.conversationKey) {
+    and.push({ conversationKey: String(opts.conversationKey) });
+  }
+  if (and.length) filter.$and = and;
+  const limit = Math.min(100, Math.max(1, Number(opts.limit) || 40));
+  return AgentMessage.find(filter)
+    .sort({ createdAt: -1 })
+    .limit(limit)
+    .populate("fromAgent", "name mode")
+    .populate("toAgent", "name mode")
+    .lean();
 }

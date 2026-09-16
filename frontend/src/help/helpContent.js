@@ -123,7 +123,7 @@ export const HELP = {
     title: "Agent actions",
     body: helpBody(
       "Reference catalog of every command agents can run: navigate, create_entity, update_kpi, send_email, message_agent, and more.",
-      "Copy example instructions into Goals or chats — the LLM picks actions; YamBot saves to chat or database as documented. message_agent lets Agent A ask Agent B mid-run (same account, one hop)."
+      "Copy example instructions into Goals or chats — the LLM picks actions; YamBot saves to chat or database as documented. message_agent lets Agent A ask Agent B (and B→C) mid-run — max hop depth 2."
     ),
   },
   "nav.agents": {
@@ -1610,7 +1610,7 @@ export const HELP = {
   "ops.page": {
     title: "Operations",
     body: helpBody(
-      "Monitor and configure the company event bus, automation triggers, and URL watchers.",
+      "Monitor the company event bus, agent-to-agent hops, automation triggers, and URL watchers.",
       "Foundation for reactive AI workforce: something happens → trigger fires → task or event."
     ),
     learnMore: "howto-operations",
@@ -1618,8 +1618,15 @@ export const HELP = {
   "ops.events": {
     title: "Events tab",
     body: helpBody(
-      "Chronological feed of CompanyEvent records: task.completed, watcher.change, training.requested, user.note, etc.",
+      "Chronological feed of CompanyEvent records: task.completed, agent.message.sent, watcher.change, training.requested, user.note, etc.",
       "Emit manually for testing or receive via webhook from CRM, Zapier, your app."
+    ),
+  },
+  "ops.agentHops": {
+    title: "Agent hops",
+    body: helpBody(
+      "Audit list of message_agent hops between your agents (A→B, optionally B→C). Max depth 2.",
+      "Each hop also emits agent.message.sent / .result / .failed / .timeout on the Events tab."
     ),
   },
   "ops.emitType": {
@@ -2131,7 +2138,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "Set agent role Manager, select managedAgents (workers). Create parent goal owned by manager. Workforce page: pick parent, assign worker, add instructions → Delegate creates child goal for worker agent.",
       "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers.",
-      "For mid-run handoffs, use the message_agent action (not this page): A enqueues a child task for B, can wait for B’s result, and chat shows → / ← system lines. Depth is one hop."
+      "For mid-run handoffs, use the message_agent action (not this page): A enqueues a child task for B, can wait for B’s result, and chat shows → / ← system lines. Max hop depth 2 (A→B→C). Operations → Agent hops lists recent messages."
     ),
   },
   {

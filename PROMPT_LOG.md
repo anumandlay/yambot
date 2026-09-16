@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 15:30] Agent-to-agent v2 — depth 2, events, Operations hops
+
+- **Prompt Provided:** Start v2; explain what v2 does.
+- **Architectural Flow:** Raise hop depth to 2 (A→B→C). Emit `agent.message.sent|result|failed|timeout` on the company event bus. Persist structured `resultPayload` on AgentMessage. Add `GET /api/agent-messages` and Operations **Agent hops** tab. Prompts/help updated for depth 2.
+- **Impacted Files:** `agentMessageBus.js`, `AgentMessage.js`, `eventCatalog.js`, `agentMessages.js`, `index.js`, `apiAgentActions.js`, `worker/actions.js`, `OperationsPage.jsx`, help, PROMPT_LOG
+
 ## [2026-09-16 15:25] Remove LLM spend budget caps (unlimited)
 
 - **Prompt Provided:** Remove all functionality related to budgets; unlimited LLM.
