@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 10:25] Agent cloud computer: Playwright only (no CUA)
+
+- **Prompt Provided:** While creating a new agent, in Cloud computer / Desktop engine, only Playwright Chromium — do not want CUA.
+- **Architectural Flow:** Removed CUA option from agent create/edit UI; always persist `computer.engine=playwright`. API create/update/clone ignore CUA overrides. Help copy updated.
+- **Impacted Files:** `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`, `backend/src/routes/agents.js`, PROMPT_LOG
+
 ## [2026-09-15 16:10] Architect: defer Details needed, keep chatting
 
 - **Prompt Provided:** On /architect after discussion it asks questions; sometimes don’t want to answer yet but continue chat and answer later.

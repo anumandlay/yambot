@@ -214,13 +214,10 @@ function pickAgentFields(body, opts = {}) {
   if (!opts.partial) set("runner", "cloud");
   // Why: maxSteps removed from product — agents run until finish; ignore legacy clients.
   if (body.active != null) set("active", Boolean(body.active));
-  // Why: computer.engine is nested; Object.assign must not replace the whole computer object.
-  const engineIn = body.computerEngine ?? body.computer?.engine;
-  if (engineIn != null || !opts.partial) {
-    set(
-      "computerEngine",
-      String(engineIn || "playwright").toLowerCase() === "cua" ? "cua" : "playwright"
-    );
+  // Why: Playwright Chromium only — CUA engine removed from product; ignore client overrides.
+  if (!opts.partial) set("computerEngine", "playwright");
+  else if (body.computerEngine != null || body.computer?.engine != null) {
+    set("computerEngine", "playwright");
   }
   if (body.memory != null && Array.isArray(body.memory)) {
     set(
@@ -1541,7 +1538,7 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
     const agentPriceCents = Math.max(0, Number(settings.agentPriceCents) || 0);
 
     const agent = new Agent({ ...fields, user: req.userId });
-    agent.computer.engine = src.computer?.engine === "cua" ? "cua" : "playwright";
+    agent.computer.engine = "playwright";
     ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
 

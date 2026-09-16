@@ -79,8 +79,7 @@ const EMPTY = {
     hasSmtpPassword: false,
   },
   /**
-   * playwright = default Xvfb Chromium box.
-   * cua = Cua XFCE desktop (same Playwright Chrome on DISPLAY=:1).
+   * Desktop engine is always Playwright Chromium (CUA removed from product UI).
    */
   computerEngine: "playwright",
 };
@@ -222,7 +221,7 @@ export function AgentEditPage() {
               imapSecure: a.email?.imapSecure !== false,
               hasSmtpPassword: Boolean(a.email?.hasSmtpPassword),
             },
-            computerEngine: a.computer?.engine === "cua" ? "cua" : "playwright",
+            computerEngine: "playwright",
           });
           setMemory(a.memory || []);
           if (a.computer?.browserData) {
@@ -348,6 +347,8 @@ export function AgentEditPage() {
     setOkMsg("");
     const payload = {
       ...form,
+      // Why: product is Playwright-only — never persist CUA from legacy clients/forms.
+      computerEngine: "playwright",
       group: form.group || null,
       facts: form.facts.filter((f) => f.key.trim()),
       allowedDomains: form.allowedDomains,
@@ -665,7 +666,7 @@ export function AgentEditPage() {
             Cloud computer
           </SectionTitle>
           <p className="mt-1 text-xs text-teal-900/70">
-            Each agent gets a dedicated cloud box on the VPS. Use{" "}
+            Each agent gets a dedicated Playwright Chromium box on the VPS. Use{" "}
             <strong>Take control</strong> on the live screen to click, type, or solve captchas.
             {!isNew ? (
               <>
@@ -678,21 +679,10 @@ export function AgentEditPage() {
               </span>
             )}
           </p>
-          <label className="mt-3 flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="agent.cloudComputerEngine">Desktop engine</FieldLabel>
-            <select
-              className="min-h-11 rounded-xl border border-amber-300 bg-white px-3 py-2 text-sm"
-              value={form.computerEngine || "playwright"}
-              onChange={(e) => update("computerEngine", e.target.value)}
-            >
-              <option value="playwright">Playwright Chromium box (default, ~3 GB)</option>
-              <option value="cua">Cua XFCE desktop (~4 GB — one or two agents max on this VPS)</option>
-            </select>
-            <p className="text-xs text-amber-900/70">
-              Cua shows a full Linux desktop behind Chrome. Changing engine recreates the container
-              (profile cookies are kept). Do not switch every agent — RAM is limited.
-            </p>
-          </label>
+          <p className="mt-3 rounded-xl border border-amber-200 bg-white/80 px-3 py-2 text-xs text-amber-950">
+            <span className="font-semibold">Desktop engine:</span> Playwright Chromium only
+            (~3 GB). CUA is not available.
+          </p>
           {!isNew ? (
             <div className="mt-3 flex flex-col gap-2 border-t border-amber-200/80 pt-3">
               <p className="text-xs font-semibold uppercase tracking-wide text-amber-950">

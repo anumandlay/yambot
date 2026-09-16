@@ -613,8 +613,8 @@ export const HELP = {
   "agent.cloudComputerEngine": {
     title: "Desktop engine",
     body: helpBody(
-      "Playwright (default): headed Chrome on a virtual X display. Cua: the same Chrome on a Cua XFCE Linux desktop (the image used by OpenMausBot).",
-      "Cua uses more RAM (~4 GB). Keep existing agents on Playwright unless you need a full desktop. Switching engines recreates the container; the browser profile volume is reused."
+      "Agents always use Playwright Chromium on a virtual display (~3 GB). CUA / full XFCE desktops are not offered.",
+      "The browser profile (cookies) persists across restarts of the same agent box."
     ),
   },
   "agent.clearBrowserData": {
