@@ -5,7 +5,7 @@
  */
 
 /**
- * @typedef {{ _id: string, name: string }} AgentRef
+ * @typedef {{ _id: string, name: string, skill?: string, mode?: string }} AgentRef
  * @typedef {{ agentId: string|null, agentName: string|null, strippedContent: string, matched: boolean }} MentionResult
  */
 
@@ -17,6 +17,47 @@ function normalizeToken(value) {
   return String(value || "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "");
+}
+
+/**
+ * Whether the compose box is mid-@mention (show agent list).
+ * Why: open on `@` / `@partial` before a space; hide once the user typed the rest of the goal.
+ * @param {string} content
+ * @returns {{ open: boolean, query: string }}
+ */
+export function getMentionComposeState(content) {
+  const raw = String(content || "");
+  // Why: only suggest at the start of the message (same as resolveAgentMention).
+  const m = raw.match(/^@([^\s]*)$/);
+  if (!m) return { open: false, query: "" };
+  return { open: true, query: m[1] || "" };
+}
+
+/**
+ * Agents matching the in-progress @query (empty query = all).
+ * @param {string} content
+ * @param {AgentRef[]} agents
+ * @returns {AgentRef[]}
+ */
+export function listMentionSuggestions(content, agents) {
+  const { open, query } = getMentionComposeState(content);
+  if (!open || !agents?.length) return [];
+  const q = normalizeToken(query);
+  const list = [...agents].sort((a, b) =>
+    String(a.name || "").localeCompare(String(b.name || ""), undefined, { sensitivity: "base" })
+  );
+  if (!q) return list;
+  return list.filter((agent) => {
+    const nameNorm = normalizeToken(agent.name);
+    const firstWord = normalizeToken(String(agent.name || "").split(/\s+/)[0]);
+    const skillNorm = normalizeToken(agent.skill);
+    return (
+      nameNorm.includes(q) ||
+      nameNorm.startsWith(q) ||
+      firstWord.startsWith(q) ||
+      skillNorm.includes(q)
+    );
+  });
 }
 
 /**

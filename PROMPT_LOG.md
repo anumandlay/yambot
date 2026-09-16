@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 14:55] Common chat @ agent autocomplete
+
+- **Prompt Provided:** In common chat when typing @, show all agents to choose easily.
+- **Architectural Flow:** `listMentionSuggestions` opens while compose is `@` / `@partial`. ChatDetailPage shows a dropdown above the textarea; click or arrows+Enter/Tab inserts `@Name `. Esc clears.
+- **Impacted Files:** `frontend/src/lib/mentionAgent.js`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 14:20] API-only agents (no live computer / save RAM)
 
 - **Prompt Provided:** While creating an agent, choose whether it needs a live computer; if not, no Chromium box but still HTTP/API-style work (browser agents keep API tools too — this option saves RAM).

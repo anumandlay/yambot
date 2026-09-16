@@ -10,7 +10,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const MESSAGE_PAGE = 100;
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api, isTimeoutError } from "../lib/api.js";
-import { resolveAgentMention } from "../lib/mentionAgent.js";
+import { resolveAgentMention, listMentionSuggestions } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
 import { skillPickFromMessage, skillPickFromTask } from "../lib/skillPick.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
@@ -46,6 +46,9 @@ export function ChatDetailPage() {
   const [tasks, setTasks] = useState([]);
   const [agentQueue, setAgentQueue] = useState({ pending: [], active: null });
   const [input, setInput] = useState("");
+  /** Highlight index in the @mention agent dropdown (−1 = none). */
+  const [mentionHighlight, setMentionHighlight] = useState(0);
+  const composeRef = useRef(null);
   const [answer, setAnswer] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -247,6 +250,59 @@ export function ChatDetailPage() {
     if (!isCommon || !input.trim().startsWith("@")) return null;
     return resolveAgentMention(input, agents);
   }, [agents, input, isCommon]);
+
+  const mentionSuggestions = useMemo(() => {
+    if (!isCommon) return [];
+    return listMentionSuggestions(input, agents);
+  }, [agents, input, isCommon]);
+
+  useEffect(() => {
+    setMentionHighlight(0);
+  }, [input, mentionSuggestions.length]);
+
+  /**
+   * Inserts `@AgentName ` into the compose box and syncs the dispatch picker.
+   * @param {{ _id: string, name: string }} agent
+   */
+  function pickMentionAgent(agent) {
+    if (!agent?._id || !agent?.name) return;
+    setInput(`@${agent.name} `);
+    setDispatchAgentId(String(agent._id));
+    setMentionHighlight(0);
+    requestAnimationFrame(() => {
+      composeRef.current?.focus();
+    });
+  }
+
+  /**
+   * Keyboard nav for the @ agent list (arrows / Enter / Tab / Esc).
+   * @param {React.KeyboardEvent<HTMLTextAreaElement>} e
+   */
+  function onComposeKeyDown(e) {
+    if (!isCommon || !mentionSuggestions.length) return;
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      setMentionHighlight((i) => (i + 1) % mentionSuggestions.length);
+      return;
+    }
+    if (e.key === "ArrowUp") {
+      e.preventDefault();
+      setMentionHighlight((i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length);
+      return;
+    }
+    if (e.key === "Escape") {
+      e.preventDefault();
+      setInput("");
+      return;
+    }
+    if (e.key === "Enter" || e.key === "Tab") {
+      // Why: Enter alone usually submits the form — only intercept while picking an agent.
+      if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) return;
+      e.preventDefault();
+      const agent = mentionSuggestions[mentionHighlight] || mentionSuggestions[0];
+      if (agent) pickMentionAgent(agent);
+    }
+  }
 
   const textAfterMention = useMemo(() => {
     if (mentionPreview?.matched) return mentionPreview.strippedContent;
@@ -750,19 +806,60 @@ export function ChatDetailPage() {
         <FieldLabel helpId="chat.goalInput" className="text-sm">
           Message (question or goal)
         </FieldLabel>
-        <textarea
-          className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
-          placeholder={
-            isCommon
-              ? autoRoute
-                ? "Ask a question or send a goal — /ask · /run · auto-routes"
-                : "@Agent question or goal… · /ask · /run · /learn"
-              : "Ask a question or send a goal… · /ask · /run · /learn"
-          }
-          value={input}
-          onChange={(e) => setInput(e.target.value)}
-          rows={3}
-        />
+        <div className="relative">
+          {isCommon && mentionSuggestions.length ? (
+            <ul
+              className="absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full overflow-y-auto rounded-2xl border border-violet-200 bg-white py-1 shadow-lg"
+              role="listbox"
+              aria-label="Mention an agent"
+            >
+              <li className="px-3 py-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-800/55">
+                Agents — pick one
+              </li>
+              {mentionSuggestions.map((a, idx) => {
+                const active = idx === mentionHighlight;
+                return (
+                  <li key={a._id} role="option" aria-selected={active}>
+                    <button
+                      type="button"
+                      className={`flex min-h-11 w-full flex-col items-start px-3 py-2 text-left text-sm ${
+                        active ? "bg-violet-100 text-violet-950" : "text-teal-950 hover:bg-violet-50"
+                      }`}
+                      onMouseDown={(ev) => {
+                        // Why: mousedown before blur so click inserts before textarea loses focus.
+                        ev.preventDefault();
+                        pickMentionAgent(a);
+                      }}
+                      onMouseEnter={() => setMentionHighlight(idx)}
+                    >
+                      <span className="font-semibold">@{a.name}</span>
+                      <span className="text-xs text-teal-800/65">
+                        {[a.skill, a.mode === "api" ? "API only" : "browser"]
+                          .filter(Boolean)
+                          .join(" · ")}
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : null}
+          <textarea
+            ref={composeRef}
+            className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
+            placeholder={
+              isCommon
+                ? autoRoute
+                  ? "Type @ to pick an agent, or send a goal — /ask · /run · auto-routes"
+                  : "Type @ to pick an agent… · /ask · /run · /learn"
+                : "Ask a question or send a goal… · /ask · /run · /learn"
+            }
+            value={input}
+            onChange={(e) => setInput(e.target.value)}
+            onKeyDown={onComposeKeyDown}
+            rows={3}
+          />
+        </div>
         <ButtonWithHelp helpId="chat.send" className="flex w-full items-center gap-1.5">
           <button
             type="submit"

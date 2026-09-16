@@ -1273,8 +1273,8 @@ export const HELP = {
   "chat.mention": {
     title: "@mention routing",
     body: helpBody(
-      "Start a goal with @AgentName — for example @CRM Bot check Aanya. The @prefix is stripped from the task goal but kept in the chat history.",
-      "Multi-word names work: @CRM Bot goal here. Single-token shortcuts match the first unique agent (e.g. @crm → CRM Bot)."
+      "In common chat, type @ to open the agent list — pick one, then type your question or goal. Example: @CRM Bot check Aanya.",
+      "Multi-word names work. Filter by typing after @: @crm. Arrows + Enter/Tab select; Esc clears."
     ),
   },
   "chat.skillSlash": {
