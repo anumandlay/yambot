@@ -108,7 +108,7 @@ export const HELP = {
   "architect.page": {
     title: "Business Architect",
     body: helpBody(
-      "1) Chat in plain English. 2) Confirm understanding. 3) Review blueprint (amber panel + sticky Approve & Build). 4) Approve & Build (runs simulation first). 5) Ops hub after build.",
+      "1) Chat in plain English. 2) Confirm understanding. 3) Review blueprint (amber panel + sticky Approve & Build; use Full page to zoom). 4) Approve & Build (runs simulation first). 5) Ops hub after build.",
       "If Details needed appears, you can Answer later and keep chatting — reopen Answer details when ready. Drafts stay listed until you build."
     ),
   },

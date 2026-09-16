@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 14:05] Architect blueprint full-page zoom
+
+- **Prompt Provided:** On /architect, Architecture blueprint section — zoom to full page.
+- **Architectural Flow:** Amber blueprint header gains **Full page**; opens a fixed full-viewport overlay with the same BlueprintPanel, Approve & Build, Close / Esc, body scroll lock.
+- **Impacted Files:** `frontend/src/pages/BusinessArchitectPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 11:55] Reserve /ask /run — not skill slugs
 
 - **Prompt Provided:** `/ask …` returned Skill not found (No production skill matches /ask).

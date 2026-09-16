@@ -485,7 +485,23 @@ export function BusinessArchitectPage() {
   const [progressSteps, setProgressSteps] = useState([]);
   const [progressPct, setProgressPct] = useState(0);
   const [learningMode, setLearningMode] = useState(false);
+  /** Why: blueprint is capped at ~70vh in-page — full-page zoom for long reviews. */
+  const [blueprintFullPage, setBlueprintFullPage] = useState(false);
   const bottomRef = useRef(null);
+
+  useEffect(() => {
+    if (!blueprintFullPage) return undefined;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    function onKey(e) {
+      if (e.key === "Escape") setBlueprintFullPage(false);
+    }
+    window.addEventListener("keydown", onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [blueprintFullPage]);
 
   const showOps = Boolean(
     blueprintId &&
@@ -898,6 +914,10 @@ export function BusinessArchitectPage() {
     Boolean(blueprint) &&
     (stage === "ready" || Boolean(blueprint?.plan?.agents?.length));
 
+  useEffect(() => {
+    if (!showBlueprintPanel && blueprintFullPage) setBlueprintFullPage(false);
+  }, [showBlueprintPanel, blueprintFullPage]);
+
   /** Scroll blueprint into view after generate / design completes. */
   function scrollToBlueprint() {
     setTimeout(() => {
@@ -910,13 +930,23 @@ export function BusinessArchitectPage() {
       id="architect-blueprint"
       className="scroll-mt-4 rounded-2xl border-2 border-amber-300 bg-white shadow-sm"
     >
-      <div className="sticky top-0 z-10 rounded-t-2xl border-b border-amber-200 bg-amber-50/95 px-4 py-3 backdrop-blur">
-        <h2 className="text-sm font-bold uppercase tracking-wide text-amber-950">
-          Architecture blueprint — scroll to review
-        </h2>
-        <p className="mt-0.5 text-xs text-amber-950/70">
-          Diagram, checklist, and setup map — scroll inside this panel on mobile.
-        </p>
+      <div className="sticky top-0 z-10 flex flex-wrap items-start justify-between gap-2 rounded-t-2xl border-b border-amber-200 bg-amber-50/95 px-4 py-3 backdrop-blur">
+        <div className="min-w-0 flex-1">
+          <h2 className="text-sm font-bold uppercase tracking-wide text-amber-950">
+            Architecture blueprint — scroll to review
+          </h2>
+          <p className="mt-0.5 text-xs text-amber-950/70">
+            Diagram, checklist, and setup map — scroll inside this panel on mobile.
+          </p>
+        </div>
+        <button
+          type="button"
+          className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-amber-400 bg-white px-3 text-sm font-semibold text-amber-950"
+          onClick={() => setBlueprintFullPage(true)}
+          aria-label="Zoom architecture blueprint to full page"
+        >
+          Full page
+        </button>
       </div>
       <div className="max-h-[min(70vh,42rem)] overflow-y-auto overscroll-y-contain px-4 py-4">
         <BlueprintPanel blueprint={blueprint} learningMode={learningMode} />
@@ -1369,6 +1399,46 @@ export function BusinessArchitectPage() {
             >
               {applyBusy || simBusy ? "Building…" : "Approve & Build"}
             </button>
+          </div>
+        </div>
+      ) : null}
+
+      {blueprintFullPage && showBlueprintPanel && blueprint ? (
+        <div
+          className="fixed inset-0 z-[80] flex flex-col bg-white"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Architecture blueprint full page"
+        >
+          <div className="flex shrink-0 flex-wrap items-center justify-between gap-2 border-b border-amber-200 bg-amber-50 px-3 py-3 sm:px-5">
+            <div className="min-w-0">
+              <h2 className="text-sm font-bold uppercase tracking-wide text-amber-950 sm:text-base">
+                Architecture blueprint
+              </h2>
+              <p className="text-xs text-amber-950/70">Full page review — Esc or Close to exit</p>
+            </div>
+            <div className="flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={applyBusy || simBusy || !blueprintId}
+                onClick={() => void onApply()}
+                className="inline-flex min-h-11 items-center rounded-xl bg-amber-600 px-4 text-sm font-bold text-white disabled:opacity-50"
+              >
+                {applyBusy || simBusy ? "Building…" : "Approve & Build"}
+              </button>
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center rounded-xl border border-amber-400 bg-white px-4 text-sm font-semibold text-amber-950"
+                onClick={() => setBlueprintFullPage(false)}
+              >
+                Close
+              </button>
+            </div>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-3 py-4 sm:px-6 sm:py-6">
+            <div className="mx-auto w-full max-w-4xl">
+              <BlueprintPanel blueprint={blueprint} learningMode={learningMode} />
+            </div>
           </div>
         </div>
       ) : null}
