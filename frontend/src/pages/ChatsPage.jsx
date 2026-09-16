@@ -568,16 +568,16 @@ export function ChatsPage() {
                           {open ? "▾" : "▸"}
                         </span>
                         <span className="min-w-0 flex-1 truncate text-sm font-bold text-teal-950">
-                          {group.name}
+                          {group.name}{" "}
+                          <span className="font-semibold text-teal-800/70">
+                            ({group.chats.length})
+                          </span>
                         </span>
                         {anyLive ? (
                           <span className="shrink-0 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-emerald-900">
                             Live
                           </span>
                         ) : null}
-                        <span className="shrink-0 text-xs tabular-nums text-teal-800/60">
-                          {group.chats.length}
-                        </span>
                       </button>
                       {open ? (
                         <ul className="flex flex-col gap-2 border-t border-teal-100/80 bg-white/80 p-2">

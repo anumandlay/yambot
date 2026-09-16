@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 15:10] Chats tree: count in brackets after agent name
+
+- **Prompt Provided:** After agent name show number of chats in a bracket.
+- **Architectural Flow:** Agent folder headers render as `Name (N)` instead of a separate trailing count.
+- **Impacted Files:** `frontend/src/pages/ChatsPage.jsx`, PROMPT_LOG
+
 ## [2026-09-16 15:05] Chats page: tree by agent name
 
 - **Prompt Provided:** On chats page, create a tree by agent name; recent chat first.
