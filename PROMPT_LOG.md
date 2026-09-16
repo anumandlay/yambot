@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 15:05] Chats page: tree by agent name
+
+- **Prompt Provided:** On chats page, create a tree by agent name; recent chat first.
+- **Architectural Flow:** Agent chats grouped under expandable agent folders. Folders ordered by most recent chat activity; chats inside each folder newest-first. Shared inbox unchanged.
+- **Impacted Files:** `frontend/src/pages/ChatsPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 14:55] Common chat @ agent autocomplete
 
 - **Prompt Provided:** In common chat when typing @, show all agents to choose easily.

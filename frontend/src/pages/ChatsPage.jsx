@@ -83,6 +83,58 @@ export function ChatsPage() {
     return { commonChats: common, agentChats: agent };
   }, [chats]);
 
+  /**
+   * Agent → chats tree. Groups ordered by most recent chat; chats inside each group newest first.
+   */
+  const agentChatTree = useMemo(() => {
+    /** @type {Map<string, { key: string, agentId: string, name: string, chats: object[], latest: number }>} */
+    const map = new Map();
+    for (const c of agentChats) {
+      const agentId = c.agent?._id
+        ? String(c.agent._id)
+        : c.agent
+          ? String(c.agent)
+          : "";
+      const name = String(c.agent?.name || "").trim() || (agentId ? "Agent" : "Unknown agent");
+      const key = agentId || `name:${name.toLowerCase()}`;
+      let row = map.get(key);
+      if (!row) {
+        row = { key, agentId, name, chats: [], latest: 0 };
+        map.set(key, row);
+      }
+      row.chats.push(c);
+      const t = new Date(c.updatedAt || c.createdAt || 0).getTime() || 0;
+      if (t > row.latest) row.latest = t;
+    }
+    for (const row of map.values()) {
+      row.chats.sort((a, b) => {
+        const ta = new Date(a.updatedAt).getTime();
+        const tb = new Date(b.updatedAt).getTime();
+        if (tb !== ta) return tb - ta;
+        return String(b._id).localeCompare(String(a._id));
+      });
+    }
+    return [...map.values()].sort((a, b) => {
+      if (b.latest !== a.latest) return b.latest - a.latest;
+      return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
+    });
+  }, [agentChats]);
+
+  /** Collapsed agent folders (missing key = expanded). */
+  const [collapsedAgents, setCollapsedAgents] = useState(() => new Set());
+
+  /**
+   * @param {string} key
+   */
+  function toggleAgentFolder(key) {
+    setCollapsedAgents((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
   const workingCount = useMemo(
     () => chats.filter((c) => c.live?.status === "running" || c.live?.status === "waiting_user").length,
     [chats]
@@ -335,7 +387,7 @@ export function ChatsPage() {
               <span className="truncate">{c.title}</span>
             </span>
             <span className="shrink-0 text-xs text-teal-900/60">
-              {isCommonChat(c) ? "Common · " : c.agent?.name ? `${c.agent.name} · ` : ""}
+              {isCommonChat(c) ? "Common · " : ""}
               {new Date(c.updatedAt).toLocaleString()}
             </span>
           </Link>
@@ -490,9 +542,53 @@ export function ChatsPage() {
 
           <section className="flex flex-col gap-2">
             <h2 className="text-sm font-bold text-teal-900/80">Agent chats</h2>
-            <ul className="flex flex-col gap-2">
-              {renderChatList(agentChats, "No agent chats yet. Pick an agent and start a chat.")}
-            </ul>
+            {agentChatTree.length === 0 ? (
+              <ul className="flex flex-col gap-2">
+                {renderChatList([], "No agent chats yet. Pick an agent and start a chat.")}
+              </ul>
+            ) : (
+              <ul className="flex flex-col gap-3">
+                {agentChatTree.map((group) => {
+                  const open = !collapsedAgents.has(group.key);
+                  const anyLive = group.chats.some(
+                    (c) => c.live?.status === "running" || c.live?.status === "waiting_user"
+                  );
+                  return (
+                    <li
+                      key={group.key}
+                      className="overflow-hidden rounded-2xl border border-teal-100 bg-teal-50/30"
+                    >
+                      <button
+                        type="button"
+                        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left"
+                        aria-expanded={open}
+                        onClick={() => toggleAgentFolder(group.key)}
+                      >
+                        <span className="w-4 shrink-0 text-teal-700" aria-hidden>
+                          {open ? "▾" : "▸"}
+                        </span>
+                        <span className="min-w-0 flex-1 truncate text-sm font-bold text-teal-950">
+                          {group.name}
+                        </span>
+                        {anyLive ? (
+                          <span className="shrink-0 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-emerald-900">
+                            Live
+                          </span>
+                        ) : null}
+                        <span className="shrink-0 text-xs tabular-nums text-teal-800/60">
+                          {group.chats.length}
+                        </span>
+                      </button>
+                      {open ? (
+                        <ul className="flex flex-col gap-2 border-t border-teal-100/80 bg-white/80 p-2">
+                          {renderChatList(group.chats, "")}
+                        </ul>
+                      ) : null}
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
             {loadingMore ? (
               <p className="py-2 text-center text-xs text-teal-900/60">Loading earlier threads…</p>
             ) : hasMoreChats ? (
