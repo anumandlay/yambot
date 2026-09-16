@@ -14,11 +14,12 @@ import {
   resolveOpenAiOAuthModel,
 } from "./openaiCodex.js";
 import { LlmProfile } from "../models/LlmProfile.js";
+import { normalizeContextTokens, resolveContextTokens } from "./llmContextWindow.js";
 
 /**
  * @param {object} user — Mongoose user document or plain object with settings
  * @param {{ bodyApiKey?: string }} [opts]
- * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }>}
+ * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, contextTokens?: number }>}
  */
 export async function resolveLlmCredentials(user, opts = {}) {
   const s = user?.settings || {};
@@ -42,6 +43,10 @@ export async function resolveLlmCredentials(user, opts = {}) {
         openAiAccountId: s.llmOAuthOpenAiAccountId || "",
         llmBaseUrl: baseUrl,
         llmModel: model,
+        contextTokens: resolveContextTokens({
+          contextTokens: s.llmContextTokens,
+          llmModel: model,
+        }),
       };
     }
   }
@@ -49,12 +54,17 @@ export async function resolveLlmCredentials(user, opts = {}) {
   const bodyKey = String(opts.bodyApiKey ?? "").trim();
   const apiKey =
     bodyKey || decryptSecret(s.llmApiKeyEnc || "") || env.DEFAULT_LLM_API_KEY || "";
+  const model = normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL);
 
   return {
     apiKey,
     authMode: "api_key",
     llmBaseUrl: normalizeLlmBaseUrl(s.llmBaseUrl, env.DEFAULT_LLM_BASE_URL),
-    llmModel: normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL),
+    llmModel: model,
+    contextTokens: resolveContextTokens({
+      contextTokens: s.llmContextTokens,
+      llmModel: model,
+    }),
   };
 }
 
@@ -63,7 +73,7 @@ export async function resolveLlmCredentials(user, opts = {}) {
  * Why: agents pick a named profile from a dropdown without re-entering keys.
  * @param {object} user
  * @param {object|null|undefined} agent
- * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, source: "profile"|"agent"|"settings", profileId?: string, profileName?: string }>}
+ * @returns {Promise<{ apiKey: string, authMode: string, oauthProvider?: string, oauthAccount?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, contextTokens?: number, source: "profile"|"agent"|"settings", profileId?: string, profileName?: string }>}
  */
 export async function resolveLlmCredentialsForAgent(user, agent) {
   const main = await resolveLlmCredentials(user);
@@ -82,11 +92,19 @@ export async function resolveLlmCredentialsForAgent(user, agent) {
       const model = String(profile.model || "").trim()
         ? normalizeLlmModel(profile.model, main.llmModel || env.DEFAULT_LLM_MODEL)
         : main.llmModel || env.DEFAULT_LLM_MODEL;
+      const explicit =
+        normalizeContextTokens(profile.contextTokens) ||
+        normalizeContextTokens(user?.settings?.llmContextTokens) ||
+        0;
       return {
         apiKey,
         authMode: "api_key",
         llmBaseUrl: baseUrl,
         llmModel: model,
+        contextTokens: resolveContextTokens({
+          contextTokens: explicit,
+          llmModel: model,
+        }),
         source: "profile",
         profileId: String(profile._id),
         profileName: profile.name || "",
@@ -113,6 +131,10 @@ export async function resolveLlmCredentialsForAgent(user, agent) {
     authMode: "api_key",
     llmBaseUrl: baseUrl,
     llmModel: model,
+    contextTokens: resolveContextTokens({
+      contextTokens: user?.settings?.llmContextTokens,
+      llmModel: model,
+    }),
     source: "agent",
   };
 }

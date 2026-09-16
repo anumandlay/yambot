@@ -21,6 +21,11 @@ const llmProfileSchema = new mongoose.Schema(
     apiKeyEnc: { type: String, default: "" },
     baseUrl: { type: String, default: "", trim: true, maxlength: 500 },
     model: { type: String, default: "", trim: true, maxlength: 200 },
+    /**
+     * Context window in tokens (optional). Empty/0 → infer from model name.
+     * Why: chat packing scales recent turns / summarize thresholds to this size.
+     */
+    contextTokens: { type: Number, default: 0, min: 0, max: 2_000_000 },
     /** Cost routing hint for automatic model selection. */
     tier: {
       type: String,
@@ -54,6 +59,7 @@ export function publicLlmProfile(doc) {
     apiKey,
     tier: p.tier || "standard",
     costPer1kUsd: Number(p.costPer1kUsd) || 0,
+    contextTokens: Number(p.contextTokens) > 0 ? Math.floor(Number(p.contextTokens)) : 0,
   };
 }
 

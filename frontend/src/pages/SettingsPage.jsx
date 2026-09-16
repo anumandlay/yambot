@@ -14,6 +14,7 @@ export function SettingsPage() {
     llmApiKey: "",
     llmBaseUrl: "https://api.minimax.io/v1",
     llmModel: "MiniMax-M2.7",
+    llmContextTokens: "",
     visionProfileId: "",
     visionApiKey: "",
     visionBaseUrl: "",
@@ -52,6 +53,8 @@ export function SettingsPage() {
       llmApiKey: settings.llmApiKey || "",
       visionApiKey: settings.visionApiKey || "",
       dbcPassword: settings.dbcPassword || "",
+      llmContextTokens:
+        settings.llmContextTokens > 0 ? String(settings.llmContextTokens) : "",
     }));
   }
 
@@ -89,6 +92,8 @@ export function SettingsPage() {
           llmApiKey: form.llmApiKey,
           llmBaseUrl: form.llmBaseUrl,
           llmModel: form.llmModel,
+          llmContextTokens:
+            form.llmContextTokens === "" ? 0 : Number(form.llmContextTokens) || 0,
           visionProfileId: form.visionProfileId || "",
           visionApiKey: form.visionApiKey,
           visionBaseUrl: form.visionBaseUrl,
@@ -211,6 +216,21 @@ export function SettingsPage() {
             value={form.llmModel}
             onChange={(e) => update("llmModel", e.target.value)}
           />
+        </label>
+        <label className="flex flex-col gap-1 text-sm">
+          <FieldLabel helpId="settings.llmContextTokens">Context size (tokens)</FieldLabel>
+          <input
+            className="min-h-11 rounded-xl border border-teal-100 px-3"
+            type="number"
+            min="8000"
+            step="1000"
+            value={form.llmContextTokens}
+            onChange={(e) => update("llmContextTokens", e.target.value)}
+            placeholder="Leave blank to infer from model (e.g. 128000)"
+          />
+          <span className="text-xs text-teal-900/60">
+            Chat memory scales to this window. Blank = guess from the model name.
+          </span>
         </label>
         <ButtonWithHelp helpId="settings.testLlm">
           <button

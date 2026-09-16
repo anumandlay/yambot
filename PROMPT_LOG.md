@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 10:30] Chat context scales to LLM context window
+
+- **Prompt Provided:** Can we use the LLM context size for chat memory so it is nicer than fixed 16/24/14k.
+- **Architectural Flow:** Added `contextTokens` on LlmProfile + `settings.llmContextTokens` (optional UI). Credentials resolve effective tokens (override → infer from model → 128k default). `chatContext.js` packs recent turns / summarize thresholds / summary size from that budget (~22% of the window for chat memory, char-capped).
+- **Impacted Files:** `backend/src/utils/llmContextWindow.js`, `backend/src/utils/chatContext.js`, `backend/src/utils/llmCredentials.js`, `backend/src/models/LlmProfile.js`, `backend/src/models/User.js`, `backend/src/routes/{settings,llmProfiles,chats}.js`, `frontend/src/pages/{SettingsPage,SettingsLlmProfilesPage}.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 10:25] Agent cloud computer: Playwright only (no CUA)
 
 - **Prompt Provided:** While creating a new agent, in Cloud computer / Desktop engine, only Playwright Chromium — do not want CUA.

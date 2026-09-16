@@ -52,6 +52,11 @@ const settingsSchema = new mongoose.Schema(
     llmOAuthApps: { type: mongoose.Schema.Types.Mixed, default: {} },
     llmBaseUrl: { type: String, default: DEFAULT_LLM_BASE_URL },
     llmModel: { type: String, default: DEFAULT_LLM_MODEL },
+    /**
+     * Default LLM context window (tokens). 0 = infer from llmModel.
+     * Why: chat session packing uses this when the agent has no profile override.
+     */
+    llmContextTokens: { type: Number, default: 0, min: 0, max: 2_000_000 },
     /** Optional separate credentials for multimodal (viewport screenshot) steps. */
     visionApiKeyEnc: { type: String, default: "" },
     visionBaseUrl: { type: String, default: "" },

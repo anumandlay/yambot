@@ -741,6 +741,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         await refreshChatContextIfNeeded(chat, qaCreds);
         const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
           excludeIds: [String(message._id)],
+          creds: qaCreds,
         });
         const qaSnapshot = withChatContext(
           toAgentSnapshot(agentDoc, { goal: questionText }),
@@ -865,6 +866,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       await refreshChatContextIfNeeded(chat, ctxCreds);
       const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
         excludeIds: [String(message._id)],
+        creds: ctxCreds,
       });
       snapshot = withChatContext(snapshot, chatContextBlock);
       void refreshChatContextIfNeeded(chat, ctxCreds).catch(() => {});

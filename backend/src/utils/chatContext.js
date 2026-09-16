@@ -1,21 +1,32 @@
 /**
  * @fileoverview Per-chat conversation context — remember until the chat is deleted.
  * Purpose: Pack summary + recent turns into LLM prompts; compress older turns when the
- * thread grows so each API call stays bounded without losing session memory.
+ * thread grows. Budgets scale to the agent’s LLM context window (settings / profile).
  * Downstream: chats routes (Q&A + Task.agentSnapshot); worker formatAgentSnapshot.
  */
 
 import { Message } from "../models/Chat.js";
 import { llmChatCompletion } from "./llmChat.js";
+import {
+  chatContextBudgetFromTokens,
+  DEFAULT_CONTEXT_TOKENS,
+} from "./llmContextWindow.js";
 
-/** Raw turns kept verbatim at the end of the thread. */
+/** Fallback constants when no creds are passed (legacy / tests). */
 export const CHAT_CONTEXT_RECENT = 16;
-/** Summarize older turns once the thread exceeds this many eligible messages. */
 export const CHAT_CONTEXT_SUMMARIZE_MIN = 24;
-/** Also summarize when eligible raw text exceeds this size (chars). */
 export const CHAT_CONTEXT_SUMMARIZE_CHARS = 14_000;
-/** Cap stored summary length. */
 export const CHAT_CONTEXT_SUMMARY_MAX = 3_500;
+
+/**
+ * @param {{ contextTokens?: number, llmModel?: string, model?: string }|null|undefined} creds
+ */
+function budgetFor(creds) {
+  if (!creds) {
+    return chatContextBudgetFromTokens(DEFAULT_CONTEXT_TOKENS);
+  }
+  return chatContextBudgetFromTokens(creds);
+}
 
 /**
  * Whether a message belongs in chat memory (skip LLM traces / noise).
@@ -38,14 +49,15 @@ export function isContextEligibleMessage(m) {
 
 /**
  * @param {object} m
+ * @param {number} [lineMax]
  * @returns {string}
  */
-export function formatContextMessageLine(m) {
+export function formatContextMessageLine(m, lineMax = 1200) {
   const role = String(m.role || "unknown").toUpperCase();
   const text = String(m.content || "")
     .replace(/\s+/g, " ")
     .trim()
-    .slice(0, 1200);
+    .slice(0, Math.max(200, lineMax));
   return `${role}: ${text}`;
 }
 
@@ -63,23 +75,44 @@ export async function loadEligibleChatMessages(chatId, opts = {}) {
 
 /**
  * Builds the prompt block: optional summary + recent raw turns.
+ * Why: take from the end until count OR char budget is hit so large windows stay usable.
  * @param {object} chat — Chat doc (needs contextSummary)
  * @param {object[]} eligible — oldest → newest
+ * @param {{ recent?: number, lineMax?: number, chatChars?: number, summaryMax?: number }|null} [budget]
  * @returns {string}
  */
-export function formatChatContextBlock(chat, eligible) {
-  const recent = eligible.slice(-CHAT_CONTEXT_RECENT);
+export function formatChatContextBlock(chat, eligible, budget = null) {
+  const recentN = budget?.recent || CHAT_CONTEXT_RECENT;
+  const lineMax = budget?.lineMax || 1200;
+  const chatChars = budget?.chatChars || CHAT_CONTEXT_SUMMARIZE_CHARS;
+  const summaryMax = budget?.summaryMax || CHAT_CONTEXT_SUMMARY_MAX;
+
+  const summary = String(chat?.contextSummary || "").trim().slice(0, summaryMax);
+  const summaryRoom = summary ? summary.length + 120 : 0;
+  const recentBudget = Math.max(2_000, chatChars - summaryRoom);
+
+  /** @type {object[]} */
+  const picked = [];
+  let used = 0;
+  for (let i = eligible.length - 1; i >= 0 && picked.length < recentN; i--) {
+    const line = formatContextMessageLine(eligible[i], lineMax);
+    if (picked.length && used + line.length + 1 > recentBudget) break;
+    picked.push(eligible[i]);
+    used += line.length + 1;
+  }
+  picked.reverse();
+
   const parts = [];
-  const summary = String(chat?.contextSummary || "").trim();
   if (summary) {
     parts.push(
       "EARLIER IN THIS CHAT (running summary — remember for this chat until it is deleted):\n" +
         summary
     );
   }
-  if (recent.length) {
+  if (picked.length) {
     parts.push(
-      "RECENT MESSAGES IN THIS CHAT:\n" + recent.map(formatContextMessageLine).join("\n")
+      "RECENT MESSAGES IN THIS CHAT:\n" +
+        picked.map((m) => formatContextMessageLine(m, lineMax)).join("\n")
     );
   }
   if (!parts.length) return "";
@@ -92,16 +125,18 @@ export function formatChatContextBlock(chat, eligible) {
 /**
  * Loads messages and formats the context block for prompts.
  * @param {object} chat
- * @param {{ excludeIds?: string[] }} [opts]
- * @returns {Promise<{ block: string, eligible: object[], recent: object[] }>}
+ * @param {{ excludeIds?: string[], creds?: object|null }} [opts]
+ * @returns {Promise<{ block: string, eligible: object[], recent: object[], budget: object }>}
  */
 export async function buildChatContextPrompt(chat, opts = {}) {
+  const budget = budgetFor(opts.creds);
   const eligible = await loadEligibleChatMessages(chat._id, opts);
-  const recent = eligible.slice(-CHAT_CONTEXT_RECENT);
+  const recent = eligible.slice(-budget.recent);
   return {
-    block: formatChatContextBlock(chat, eligible),
+    block: formatChatContextBlock(chat, eligible, budget),
     eligible,
     recent,
+    budget,
   };
 }
 
@@ -116,20 +151,22 @@ function totalChars(messages) {
 /**
  * When the thread is large, compress older turns into chat.contextSummary.
  * Why: full transcript would blow the LLM context; summary + recent tail keeps memory.
+ * Budgets come from the agent’s LLM contextTokens / model.
  * @param {object} chat — mongoose Chat document
- * @param {{ apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} creds
+ * @param {{ apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, contextTokens?: number }|null} creds
  * @returns {Promise<object>} updated chat
  */
 export async function refreshChatContextIfNeeded(chat, creds) {
   if (!chat?._id) return chat;
+  const budget = budgetFor(creds);
   const eligible = await loadEligibleChatMessages(chat._id);
   const chars = totalChars(eligible);
   const needs =
-    eligible.length >= CHAT_CONTEXT_SUMMARIZE_MIN || chars >= CHAT_CONTEXT_SUMMARIZE_CHARS;
+    eligible.length >= budget.summarizeMin || chars >= budget.summarizeChars;
   if (!needs) return chat;
 
-  const recent = eligible.slice(-CHAT_CONTEXT_RECENT);
-  const older = eligible.slice(0, Math.max(0, eligible.length - CHAT_CONTEXT_RECENT));
+  const recent = eligible.slice(-budget.recent);
+  const older = eligible.slice(0, Math.max(0, eligible.length - budget.recent));
   if (!older.length) return chat;
 
   const lastOlderId = String(older[older.length - 1]._id);
@@ -143,9 +180,9 @@ export async function refreshChatContextIfNeeded(chat, creds) {
   if (!creds?.apiKey) {
     // Why: no LLM — keep a crude truncation so something still lands in prompts.
     const crude = older
-      .map(formatContextMessageLine)
+      .map((m) => formatContextMessageLine(m, budget.lineMax))
       .join("\n")
-      .slice(-CHAT_CONTEXT_SUMMARY_MAX);
+      .slice(-budget.summaryMax);
     chat.contextSummary = crude;
     chat.contextSummarizedThrough = older[older.length - 1]._id;
     await chat.save();
@@ -153,7 +190,12 @@ export async function refreshChatContextIfNeeded(chat, creds) {
   }
 
   const prior = String(chat.contextSummary || "").trim();
-  const olderText = older.map(formatContextMessageLine).join("\n").slice(0, 24_000);
+  const olderCap = Math.min(48_000, Math.max(12_000, budget.chatChars * 2));
+  const olderText = older
+    .map((m) => formatContextMessageLine(m, budget.lineMax))
+    .join("\n")
+    .slice(0, olderCap);
+  const summaryMaxTokens = clamp(Math.floor(budget.summaryMax / 4), 400, 4_000);
   try {
     const reply = await llmChatCompletion({
       apiKey: creds.apiKey,
@@ -161,7 +203,7 @@ export async function refreshChatContextIfNeeded(chat, creds) {
       model: creds.llmModel || "",
       openAiAccountId: creds.openAiAccountId,
       temperature: 0.2,
-      maxTokens: 900,
+      maxTokens: summaryMaxTokens,
       timeoutMs: 45_000,
       messages: [
         {
@@ -170,7 +212,7 @@ export async function refreshChatContextIfNeeded(chat, creds) {
             "You maintain a running summary of a YamBot agent chat thread.",
             "Write a concise third-person summary of goals, decisions, sites visited, outcomes, and open follow-ups.",
             "Keep facts the agent must remember later. Omit UI chrome and repeated fluff.",
-            `Max ~${CHAT_CONTEXT_SUMMARY_MAX} characters. Plain text only.`,
+            `Max ~${budget.summaryMax} characters. Plain text only.`,
           ].join(" "),
         },
         {
@@ -190,7 +232,7 @@ export async function refreshChatContextIfNeeded(chat, creds) {
     });
     const next = String(reply || "")
       .trim()
-      .slice(0, CHAT_CONTEXT_SUMMARY_MAX);
+      .slice(0, budget.summaryMax);
     if (next) {
       chat.contextSummary = next;
       chat.contextSummarizedThrough = older[older.length - 1]._id;
@@ -200,6 +242,15 @@ export async function refreshChatContextIfNeeded(chat, creds) {
     console.warn("[chatContext] summarize failed:", err?.message || err);
   }
   return chat;
+}
+
+/**
+ * @param {number} n
+ * @param {number} lo
+ * @param {number} hi
+ */
+function clamp(n, lo, hi) {
+  return Math.min(hi, Math.max(lo, n));
 }
 
 /**

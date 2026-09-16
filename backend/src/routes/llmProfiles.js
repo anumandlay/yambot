@@ -11,6 +11,7 @@ import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 import { normalizeLlmBaseUrl, normalizeLlmModel } from "../utils/llmDefaults.js";
 import { probeLlmConnection } from "../utils/llmTest.js";
+import { normalizeContextTokens } from "../utils/llmContextWindow.js";
 
 export const llmProfilesRouter = Router();
 
@@ -52,6 +53,11 @@ function pickProfileFields(body, opts = {}) {
   }
   if (body.costPer1kUsd != null) {
     fields.costPer1kUsd = Math.max(0, Number(body.costPer1kUsd) || 0);
+  }
+  if (body.contextTokens != null || !opts.partial) {
+    fields.contextTokens = normalizeContextTokens(
+      body.contextTokens ?? existing.contextTokens ?? 0
+    );
   }
 
   const key = String(body.apiKey ?? "").replace(/\s+/g, "").trim();

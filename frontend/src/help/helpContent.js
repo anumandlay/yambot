@@ -1392,6 +1392,13 @@ export const HELP = {
       "Model id sent in chat completions (MiniMax-M2.7, gpt-4o, etc.). Affects quality, speed, and cost."
     ),
   },
+  "settings.llmContextTokens": {
+    title: "Context size (tokens)",
+    body: helpBody(
+      "Your model’s context window in tokens (e.g. 128000, 200000). Chat memory keeps more recent turns and summarizes later based on this size.",
+      "Leave blank to infer from the model name (Claude ≈ 200k, GPT-4o ≈ 128k, MiniMax ≈ 200k). Profile value overrides Settings when the agent uses that profile."
+    ),
+  },
   "settings.visionProfile": {
     title: "Default vision LLM profile",
     body: helpBody(

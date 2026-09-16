@@ -9,6 +9,7 @@ import { User } from "../models/User.js";
 import { encryptSecret, decryptSecret } from "../utils/crypto.js";
 import { env } from "../utils/env.js";
 import { normalizeLlmBaseUrl, normalizeLlmModel } from "../utils/llmDefaults.js";
+import { normalizeContextTokens } from "../utils/llmContextWindow.js";
 import { resolveOpenAiOAuthModel, OPENAI_CODEX_BASE_URL } from "../utils/openaiCodex.js";
 import { resolveLlmCredentials } from "../utils/llmCredentials.js";
 import { probeLlmConnection } from "../utils/llmTest.js";
@@ -73,6 +74,7 @@ settingsRouter.get("/", async (req, res, next) => {
         llmModel: oauthOpenAi
           ? resolveOpenAiOAuthModel(s.llmModel)
           : normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL),
+        llmContextTokens: normalizeContextTokens(s.llmContextTokens) || 0,
         visionApiKey: savedVisionKey,
         visionApiKeyMasked: mask(savedVisionKey),
         hasVisionApiKey: Boolean(savedVisionKey),
@@ -112,6 +114,11 @@ settingsRouter.put("/", async (req, res, next) => {
     }
     if (typeof body.llmModel === "string") {
       user.settings.llmModel = normalizeLlmModel(body.llmModel.trim(), env.DEFAULT_LLM_MODEL);
+    }
+    if (body.llmContextTokens != null || body.contextTokens != null) {
+      user.settings.llmContextTokens = normalizeContextTokens(
+        body.llmContextTokens ?? body.contextTokens
+      );
     }
     if (typeof body.visionBaseUrl === "string" && body.visionBaseUrl.trim()) {
       user.settings.visionBaseUrl = normalizeLlmBaseUrl(body.visionBaseUrl.trim(), env.DEFAULT_LLM_BASE_URL);

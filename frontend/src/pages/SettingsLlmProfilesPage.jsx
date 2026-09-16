@@ -15,6 +15,7 @@ const EMPTY_FORM = {
   apiKey: "",
   baseUrl: "https://api.minimax.io/v1",
   model: "MiniMax-M2.7",
+  contextTokens: "",
   tier: "standard",
   costPer1kUsd: "",
   hasApiKey: false,
@@ -96,6 +97,7 @@ export function SettingsLlmProfilesPage() {
       apiKey: p.apiKey || "",
       baseUrl: p.baseUrl || "",
       model: p.model || "",
+      contextTokens: p.contextTokens > 0 ? String(p.contextTokens) : "",
       tier: p.tier || "standard",
       costPer1kUsd: p.costPer1kUsd != null && p.costPer1kUsd !== 0 ? String(p.costPer1kUsd) : "",
       hasApiKey: Boolean(p.hasApiKey || p.apiKey),
@@ -118,6 +120,7 @@ export function SettingsLlmProfilesPage() {
         baseUrl: form.baseUrl,
         model: form.model,
         apiKey: form.apiKey,
+        contextTokens: form.contextTokens === "" ? 0 : Number(form.contextTokens) || 0,
         tier: form.tier || "standard",
         costPer1kUsd: form.costPer1kUsd === "" ? 0 : Number(form.costPer1kUsd) || 0,
       };
@@ -141,6 +144,7 @@ export function SettingsLlmProfilesPage() {
         apiKey: saved.apiKey || form.apiKey || "",
         baseUrl: saved.baseUrl || "",
         model: saved.model || "",
+        contextTokens: saved.contextTokens > 0 ? String(saved.contextTokens) : "",
         tier: saved.tier || form.tier || "standard",
         costPer1kUsd:
           saved.costPer1kUsd != null && saved.costPer1kUsd !== 0
@@ -367,6 +371,21 @@ export function SettingsLlmProfilesPage() {
               onChange={(e) => update("model", e.target.value)}
               placeholder="gpt-4o"
             />
+          </label>
+          <label className="flex flex-col gap-1 text-sm">
+            <FieldLabel helpId="settings.llmContextTokens">Context size (tokens)</FieldLabel>
+            <input
+              className="min-h-11 rounded-xl border border-teal-100 px-3"
+              type="number"
+              min="8000"
+              step="1000"
+              value={form.contextTokens}
+              onChange={(e) => update("contextTokens", e.target.value)}
+              placeholder="Leave blank to infer (e.g. 128000)"
+            />
+            <span className="text-xs text-teal-900/60">
+              Used to size chat memory for agents on this profile. Blank = infer from model.
+            </span>
           </label>
           <label className="flex flex-col gap-1 text-sm">
             <span className="font-medium text-teal-950">Cost tier (for Command Center optimizer)</span>
