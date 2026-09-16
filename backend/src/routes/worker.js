@@ -144,7 +144,12 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
  * @returns {object}
  */
 function buildClaimFilter(userId, opts = {}) {
-  const filter = { user: userId, status: "pending" };
+  const filter = {
+    user: userId,
+    status: "pending",
+    // Why: API-only tasks are executed by apiAgentRunner — Chromium workers must not claim them.
+    "agentSnapshot.mode": { $ne: "api" },
+  };
   if (opts.agentId) {
     filter.agent = opts.agentId;
   }

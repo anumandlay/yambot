@@ -43,7 +43,11 @@ function AgentRow({
         <div className="flex flex-wrap gap-2 text-xs uppercase tracking-wide text-teal-800/60">
           {agent.skill ? <span className="normal-case">{agent.skill}</span> : null}
           {agent.skill ? <span>·</span> : null}
-          <span>cloud computer</span>
+          {agent.mode === "api" ? (
+            <span className="text-sky-800">API only</span>
+          ) : (
+            <span>cloud computer</span>
+          )}
           {agent.schedule?.enabled ? (
             <>
               <span>·</span>
@@ -57,9 +61,13 @@ function AgentRow({
             </>
           ) : null}
           <span>·</span>
-          <span className={agent.computer?.online ? "text-emerald-700" : ""}>
-            {agent.computer?.online ? "online" : "offline"}
-          </span>
+          {agent.mode === "api" ? (
+            <span className="text-sky-800">no live box</span>
+          ) : (
+            <span className={agent.computer?.online ? "text-emerald-700" : ""}>
+              {agent.computer?.online ? "online" : "offline"}
+            </span>
+          )}
         </div>
         {agent.createdAt ? (
           <p className="mt-1 text-xs text-teal-800/55">

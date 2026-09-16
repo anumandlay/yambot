@@ -136,10 +136,13 @@ export async function enqueueTask(opts) {
   const source = String(opts.source || "enqueue");
   const triggerLabel =
     opts.meta?.triggerEventType || opts.meta?.triggerName || opts.meta?.triggerId || "";
+  const isApi = (agentDoc.mode || "browser") === "api";
   const queueHint =
     source.startsWith("trigger:") || opts.triggerRef
       ? `Queued from Operations trigger${triggerLabel ? ` (${triggerLabel})` : ""}.`
-      : "Queued for cloud worker.";
+      : isApi
+        ? "Queued for API agent (no live computer)."
+        : "Queued for cloud worker.";
   await Message.create({
     chat: chat._id,
     role: "system",
@@ -150,11 +153,17 @@ export async function enqueueTask(opts) {
       status: task.status,
       source,
       triggerId: opts.triggerRef || opts.meta?.triggerId || null,
+      mode: isApi ? "api" : "browser",
     },
   });
 
   chat.updatedAt = new Date();
   await chat.save();
+
+  if (isApi && task.status === "pending") {
+    const { kickApiAgent } = await import("./apiAgentRunner.js");
+    kickApiAgent(agentId, userId);
+  }
 
   return { task, chat, message };
 }

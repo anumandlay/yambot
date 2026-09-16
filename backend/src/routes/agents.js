@@ -129,12 +129,14 @@ function publicAgent(agent, ctx = {}) {
 }
 
 /**
- * Whether this agent should have a cloud container.
+ * Whether this agent should have a cloud Chromium container.
+ * Why: API-only agents skip the box to save VPS RAM; they still run goals via apiAgentRunner.
  * @param {object} agent
  * @returns {boolean}
  */
 function wantsCloudComputer(agent) {
-  return agent.active !== false;
+  if (agent.active === false) return false;
+  return (agent.mode || "browser") !== "api";
 }
 
 /**
@@ -201,8 +203,10 @@ function pickAgentFields(body, opts = {}) {
   if (body.description != null) set("description", String(body.description || "").trim());
   if (body.profile != null) set("profile", String(body.profile || "").trim());
   if (body.skill != null) set("skill", String(body.skill || "").trim().slice(0, 500));
-  // Why: browser-only product — always cloud browser agent.
-  if (!opts.partial) set("mode", "browser");
+  if (body.mode != null || !opts.partial) {
+    const mode = String(body.mode || "browser").toLowerCase().trim();
+    set("mode", AGENT_MODES.includes(mode) ? mode : "browser");
+  }
   if (body.instructions != null) set("instructions", String(body.instructions || "").trim());
   if (body.facts != null) set("facts", normalizeFacts(body.facts));
   if (body.successCriteria != null) {
@@ -580,7 +584,8 @@ agentsRouter.post("/", async (req, res, next) => {
     delete fields.computerEngine;
     const agent = new Agent({ ...fields, user: req.userId });
     if (computerEngine) agent.computer.engine = computerEngine;
-    ensureWorkerCredentials(agent);
+    // Why: API-only agents never get a Chromium box — skip worker tokens until upgraded to browser.
+    if (wantsCloudComputer(agent)) ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
 
     /** @type {{ transaction?: { _id: unknown } } | null} */
@@ -1044,7 +1049,7 @@ agentsRouter.put("/:id", async (req, res, next) => {
       delete fields.computerEngine;
     }
     Object.assign(agent, fields);
-    ensureWorkerCredentials(agent);
+    if (wantsCloudComputer(agent)) ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
     await agent.save();
     res.json({ ok: true, agent: publicAgent(agent) });
@@ -1556,7 +1561,7 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
 
     const agent = new Agent({ ...fields, user: req.userId });
     agent.computer.engine = "playwright";
-    ensureWorkerCredentials(agent);
+    if (wantsCloudComputer(agent)) ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
 
     /** @type {{ transaction?: { _id: unknown } } | null} */

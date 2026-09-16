@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 14:20] API-only agents (no live computer / save RAM)
+
+- **Prompt Provided:** While creating an agent, choose whether it needs a live computer; if not, no Chromium box but still HTTP/API-style work (browser agents keep API tools too — this option saves RAM).
+- **Architectural Flow:** `Agent.mode` = `browser` | `api`. `wantsCloudComputer` skips containers for `api`. New `apiAgentRunner` claims pending API tasks (kick on enqueue + 15s tick), runs LLM + http/email/entities/tickets tools, completes like the worker. UI: Live computer radio on create/edit; hide LiveScreen for API agents.
+- **Impacted Files:** `backend/src/models/Agent.js`, `backend/src/routes/agents.js`, `backend/src/routes/worker.js`, `backend/src/routes/chats.js`, `backend/src/utils/apiAgentActions.js`, `backend/src/utils/apiAgentRunner.js`, `backend/src/utils/scheduler.js`, `backend/src/utils/enqueueTask.js`, `backend/src/utils/agentReadiness.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/pages/AgentsPage.jsx`, `frontend/src/pages/ChatDetailPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 14:10] Copy agent from edit page + fuller config clone
 
 - **Prompt Provided:** Option to copy an agent; click creates an agent with the same configuration.

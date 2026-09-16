@@ -277,6 +277,13 @@ export function ChatDetailPage() {
       null
     : chat?.agent?._id || chat?.agent || null;
 
+  const liveAgentMode = useMemo(() => {
+    const fromChat = chat?.agent?.mode;
+    if (!isCommon && fromChat) return fromChat === "api" ? "api" : "browser";
+    const row = agents.find((a) => String(a._id) === String(liveAgentId));
+    return row?.mode === "api" ? "api" : "browser";
+  }, [agents, chat?.agent?.mode, isCommon, liveAgentId]);
+
   const watchedRun = useMemo(() => {
     if (!isCommon) return activeRun;
     if (!watchAgentId) return activeRun;
@@ -561,7 +568,12 @@ export function ChatDetailPage() {
         ) : null}
       </div>
       <div className="aspect-[16/10] w-full max-h-[min(40dvh,14rem)] min-h-[10.5rem] overflow-hidden sm:max-h-[min(42dvh,16rem)] lg:max-h-[min(36vh,20rem)] lg:min-h-[12rem]">
-        {liveAgentId ? (
+        {liveAgentId && liveAgentMode === "api" ? (
+          <p className="flex h-full items-center rounded-2xl border border-sky-200 bg-sky-50/60 p-3 text-sm text-sky-950">
+            API-only agent — no live computer (saves VPS RAM). Goals still run via HTTP and
+            integrations.
+          </p>
+        ) : liveAgentId ? (
           <LiveScreen
             agentId={String(liveAgentId)}
             agentName={liveAgentName || ""}

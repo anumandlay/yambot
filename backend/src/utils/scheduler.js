@@ -26,6 +26,7 @@ import { tickCanaryMonitor } from "./workflowCanary.js";
 import { tickModelRouting } from "./modelRouter.js";
 import { tickContinuousOptimize } from "./continuousOptimize.js";
 import { tickWorkflowWaits } from "./apiWorkflowRunner.js";
+import { tickApiAgents } from "./apiAgentRunner.js";
 import { tickEventDelivery } from "./eventDelivery.js";
 import { unblockDependentTasks } from "./enqueueTask.js";
 import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
@@ -125,7 +126,10 @@ export async function runScheduledAgent(agent) {
   await Message.create({
     chat: chat._id,
     role: "system",
-    content: `Scheduled goal queued for “${agent.name}”.`,
+    content:
+      (agent.mode || "browser") === "api"
+        ? `Scheduled goal queued for API agent “${agent.name}” (no live computer).`
+        : `Scheduled goal queued for “${agent.name}”.`,
     meta: { taskId: task._id, status: "pending", scheduled: true },
   });
 
@@ -136,6 +140,11 @@ export async function runScheduledAgent(agent) {
   agent.schedule.nextRunAt = computeNextRunAt(agent.schedule, now);
   agent.schedule.chatId = chat._id;
   await agent.save();
+
+  if ((agent.mode || "browser") === "api") {
+    const { kickApiAgent } = await import("./apiAgentRunner.js");
+    kickApiAgent(agent._id, agent.user);
+  }
 
   return { ok: true, taskId: String(task._id) };
 }
@@ -274,6 +283,7 @@ export function startAgentScheduler(opts = {}) {
       const modelRoute = await tickModelRouting();
       const continuous = await tickContinuousOptimize();
       const waits = await tickWorkflowWaits();
+      const apiAgents = await tickApiAgents();
       const delivery = await tickEventDelivery();
       const emailWatch = await tickEmailInboxWatcher();
       const campaigns = await tickCampaigns();
@@ -301,6 +311,7 @@ export function startAgentScheduler(opts = {}) {
         continuous.promoted ||
         continuous.started ||
         waits.resumed ||
+        apiAgents.ran ||
         delivery.ok ||
         emailWatch.newMessages ||
         campaigns.enqueued ||
@@ -308,7 +319,7 @@ export function startAgentScheduler(opts = {}) {
         reports.sent
       ) {
         console.log(
-          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} pulseAuto=${pulse.autoApplied} ceoExec=${ceo.executed} ceoRec=${ceo.recommended} canaryRb=${canary.rolledBack} modelRoute=${modelRoute.applied} optPromo=${continuous.promoted} wfWaits=${waits.resumed} evtRetry=${delivery.ok} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
+          `[scheduler] schedules=${result.ran}/${result.checked} escalated=${esc.escalated} sla=${sla.breached} triggers=${triggers.fired}+${condTriggers.fired}+${threshTriggers.fired}+${anomalyTriggers.fired} watchers=${watchers.changed} goals=${goals.spawned} managers=${managers.delegated} reviews=${reviews.generated} improvements=${improvements.created} pulseAuto=${pulse.autoApplied} ceoExec=${ceo.executed} ceoRec=${ceo.recommended} canaryRb=${canary.rolledBack} modelRoute=${modelRoute.applied} optPromo=${continuous.promoted} wfWaits=${waits.resumed} apiAgents=${apiAgents.ran}/${apiAgents.checked} evtRetry=${delivery.ok} emailNew=${emailWatch.newMessages} campaigns=${campaigns.enqueued} ticketSla=${ticketSla.breached} reports=${reports.sent}`
         );
       }
     } catch (err) {
@@ -317,7 +328,13 @@ export function startAgentScheduler(opts = {}) {
   };
   void tick();
   setInterval(() => void tick(), intervalMs);
-  console.log(`[scheduler] started (every ${intervalMs}ms)`);
+  // Why: API agents have no worker heartbeat — poll pending API tasks more often than the full scheduler.
+  setInterval(() => {
+    void tickApiAgents().catch((err) =>
+      console.error("[scheduler] apiAgents tick failed", err?.message || err)
+    );
+  }, 15_000);
+  console.log(`[scheduler] started (every ${intervalMs}ms; api agents every 15s)`);
 }
 
 /** Unblocks dependency-ready tasks for all users with blocked queue items. */

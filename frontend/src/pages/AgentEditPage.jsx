@@ -29,6 +29,8 @@ const EMPTY = {
   startUrl: "",
   active: true,
   group: "",
+  /** browser = Chromium box; api = no live computer (saves RAM). */
+  mode: "browser",
   autonomy: {
     allowSubmit: true,
     allowCaptcha: true,
@@ -174,6 +176,7 @@ export function AgentEditPage() {
             allowedDomains: (a.allowedDomains || []).join(", "),
             startUrl: a.startUrl || "",
             active: a.active !== false,
+            mode: a.mode === "api" ? "api" : "browser",
             autonomy: {
               allowSubmit: a.autonomy?.allowSubmit !== false,
               allowCaptcha: a.autonomy?.allowCaptcha !== false,
@@ -698,6 +701,54 @@ export function AgentEditPage() {
             placeholder="When to finish, e.g. summarize top 5 links with URLs"
           />
         </label>
+        <fieldset className="flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50/50 p-3">
+          <SectionTitle helpId="agent.needsComputer" className="text-sm font-semibold text-sky-950">
+            Live computer
+          </SectionTitle>
+          <p className="text-xs text-sky-900/75">
+            Browser agents get a Chromium box (can also call APIs). API-only agents skip the box to
+            save VPS RAM and only run HTTP / email / CRM-style tools.
+          </p>
+          <label className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border border-sky-100 bg-white px-3 py-2 text-sm">
+            <input
+              type="radio"
+              className="mt-1"
+              name="agent-mode"
+              checked={form.mode !== "api"}
+              onChange={() => update("mode", "browser")}
+            />
+            <span>
+              <span className="font-semibold text-teal-950">Needs live computer</span>
+              <span className="mt-0.5 block text-xs text-teal-800/70">
+                Browse websites + APIs (uses ~3 GB RAM for Chromium)
+              </span>
+            </span>
+          </label>
+          <label className="flex min-h-11 cursor-pointer items-start gap-2 rounded-xl border border-sky-100 bg-white px-3 py-2 text-sm">
+            <input
+              type="radio"
+              className="mt-1"
+              name="agent-mode"
+              checked={form.mode === "api"}
+              onChange={() => update("mode", "api")}
+            />
+            <span>
+              <span className="font-semibold text-teal-950">API only — no live computer</span>
+              <span className="mt-0.5 block text-xs text-teal-800/70">
+                GET/POST and integrations only (saves RAM; no Live Screen)
+              </span>
+            </span>
+          </label>
+        </fieldset>
+        {form.mode === "api" ? (
+          <div className="rounded-xl border border-sky-200 bg-sky-50/60 p-3 text-sm text-sky-950">
+            <p className="font-semibold">No live computer for this agent</p>
+            <p className="mt-1 text-xs text-sky-900/75">
+              Goals run on the API server (HTTP, email, entities, tickets, etc.). Switch to “Needs
+              live computer” if you later need browsing.
+            </p>
+          </div>
+        ) : (
         <div className="rounded-xl border-2 border-amber-200 bg-amber-50/70 p-4 text-sm text-teal-900/80">
           <SectionTitle helpId="agent.cloudComputer" className="font-semibold text-teal-900/90">
             Cloud computer
@@ -769,6 +820,7 @@ export function AgentEditPage() {
             </div>
           ) : null}
         </div>
+        )}
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
           <legend className="px-1">
@@ -1134,7 +1186,7 @@ export function AgentEditPage() {
           )}
         </fieldset>
 
-        {!isNew ? (
+        {!isNew && form.mode !== "api" ? (
           <div className="flex flex-col gap-2">
             <SectionTitle helpId="agent.liveScreen">Live cloud screen</SectionTitle>
             <LiveScreen agentId={agentId} compact />
@@ -1164,6 +1216,11 @@ export function AgentEditPage() {
               </div>
             </div>
           </div>
+        ) : null}
+        {!isNew && form.mode === "api" ? (
+          <p className="rounded-xl border border-sky-100 bg-sky-50/50 px-3 py-2 text-xs text-sky-900/80">
+            Live screen hidden — this agent is API-only (no Chromium box).
+          </p>
         ) : null}
 
         <label className="flex flex-col gap-1 text-sm">

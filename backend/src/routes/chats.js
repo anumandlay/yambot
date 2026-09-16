@@ -915,7 +915,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       : "";
     const queueHint = activeRun
       ? `Agent is busy (${activeRun.status}) — this goal is pending and will start when the current run finishes.`
-      : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
+      : snapshot?.mode === "api"
+        ? "Queued for API agent (no live computer — saves VPS RAM)."
+        : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
@@ -928,6 +930,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         intentConfidence: classification.confidence,
         agentId: snapshot?.id || null,
         agentName: snapshot?.name || null,
+        mode: snapshot?.mode || "browser",
         queuedBehindActive: Boolean(activeRun),
         activeTaskId: activeRun?._id || null,
         invokedSkillId: invokedSkillDoc?._id || null,
@@ -945,6 +948,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         runner: "cloud",
       },
     });
+
+    if (snapshot?.mode === "api" && !activeRun) {
+      const { kickApiAgent } = await import("../utils/apiAgentRunner.js");
+      kickApiAgent(agentDoc._id, req.userId);
+    }
 
     res.status(201).json({
       ok: true,
@@ -982,7 +990,15 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
       type: "user_answer",
       payload: { answer },
     });
-    task.status = "running";
+    const isApi = task.agentSnapshot?.mode === "api";
+    if (isApi) {
+      // Why: API runner exited on ask_user — re-queue with the answer so the loop continues.
+      task.goal = `USER ANSWER (continue the previous API run):\n${answer}\n\nORIGINAL GOAL:\n${task.goal}`;
+      task.status = "pending";
+      task.claimedAt = null;
+    } else {
+      task.status = "running";
+    }
     await task.save();
     if (task.agent) {
       await clearAgentNeedsAttention(task.agent);
@@ -993,6 +1009,10 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
       content: answer,
       meta: { taskId: task._id, kind: "answer" },
     });
+    if (isApi && task.agent) {
+      const { kickApiAgent } = await import("../utils/apiAgentRunner.js");
+      kickApiAgent(task.agent, req.userId);
+    }
     res.json({ ok: true, task });
   } catch (err) {
     next(err);

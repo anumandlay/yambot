@@ -76,14 +76,21 @@ export function computeAgentReadiness(agent, ctx = {}) {
     },
     {
       id: "computer",
-      ok: !desiredRunning || online || !active,
-      label: !active
-        ? "Computer N/A (inactive)"
-        : !desiredRunning
-          ? "Computer stopped (emergency or manual)"
-          : online
-            ? "Cloud computer online"
-            : "Cloud computer offline / starting",
+      ok:
+        (agent?.mode || "browser") === "api" ||
+        !desiredRunning ||
+        online ||
+        !active,
+      label:
+        (agent?.mode || "browser") === "api"
+          ? "API agent — no live computer (saves RAM)"
+          : !active
+            ? "Computer N/A (inactive)"
+            : !desiredRunning
+              ? "Computer stopped (emergency or manual)"
+              : online
+                ? "Cloud computer online"
+                : "Cloud computer offline / starting",
     },
     {
       id: "recent_runs",

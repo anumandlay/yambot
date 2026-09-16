@@ -16,7 +16,7 @@ export const AGENT_RUNNERS = ["cloud"];
 /**
  * How the agent executes goals — browser-only (LLM-driven steps on the cloud worker).
  */
-export const AGENT_MODES = ["browser"];
+export const AGENT_MODES = ["browser", "api"];
 
 /** Workforce role — managers can delegate goals to managed agents (Layer 3). */
 export const AGENT_ROLES = ["worker", "manager"];
@@ -130,7 +130,9 @@ const agentSchema = new mongoose.Schema(
       maxlength: 500,
     },
     /**
-     * Execution mode — always browser (legacy `research` values migrated at boot).
+     * Execution mode:
+     * - browser — Chromium cloud computer (can also call APIs)
+     * - api — no computer; in-API tool loop only (saves VPS RAM)
      */
     mode: {
       type: String,
@@ -607,7 +609,7 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
     description: a.description || "",
     profile: a.profile || "",
     skill: a.skill || "",
-    mode: "browser",
+    mode: a.mode === "api" ? "api" : "browser",
     instructions: a.instructions || "",
     facts: Array.isArray(a.facts) ? a.facts : [],
     autonomy: a.autonomy || {},
@@ -650,6 +652,7 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
  */
 export function formatAgentPrompt(snapshot) {
   if (!snapshot) return "";
+  const isApi = snapshot.mode === "api";
   const factLines = (snapshot.facts || [])
     .filter((f) => f?.key)
     .map((f) => `- ${f.key}: ${f.value || ""}`)
@@ -658,6 +661,9 @@ export function formatAgentPrompt(snapshot) {
   const auto = snapshot.autonomy || {};
   return [
     `AGENT NAME: ${snapshot.name}`,
+    isApi
+      ? "MODE: API-only — you have NO browser / live computer. Do not navigate or click. Use http_request, email, entities, tickets, and other integration actions only."
+      : "MODE: Browser + APIs — you control a Chromium computer and may also call HTTP/integrations.",
     snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
     snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
     snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
@@ -666,8 +672,8 @@ export function formatAgentPrompt(snapshot) {
     snapshot.successCriteria
       ? `SUCCESS CRITERIA (call finish when met):\n${snapshot.successCriteria}`
       : "",
-    domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
-    snapshot.startUrl
+    !isApi && domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
+    !isApi && snapshot.startUrl
       ? `DEFAULT START URL (only if the goal does not name a website): ${snapshot.startUrl}`
       : "",
     snapshot.llm?.useCustom && (snapshot.llm?.model || snapshot.llm?.profileId)

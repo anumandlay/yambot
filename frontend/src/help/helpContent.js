@@ -603,10 +603,17 @@ export const HELP = {
       "The LLM sees this when deciding to call finish; task evaluation may score runs against goal success criteria too."
     ),
   },
+  "agent.needsComputer": {
+    title: "Live computer",
+    body: helpBody(
+      "Needs live computer: provisions a Chromium box so the agent can browse websites (it can still call APIs).",
+      "API only: no Chromium — saves VPS RAM. Runs HTTP, email, entities, tickets, and other integrations from the API. No Live Screen."
+    ),
+  },
   "agent.cloudComputer": {
     title: "Cloud computer",
     body: helpBody(
-      "Each agent gets a dedicated Playwright Chromium container on the VPS with a persistent profile (cookies, local storage).",
+      "Each agent gets a dedicated Playwright Chromium container on the VPS with a persistent profile (cookies, local storage). Only when “Needs live computer” is on.",
       "Take control in chat streams your mouse/keyboard to that browser. One agent = one box — tasks for the same agent never run in parallel on different machines."
     ),
   },
