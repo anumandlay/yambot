@@ -1464,6 +1464,7 @@ agentsRouter.post("/:id/email/check", async (req, res, next) => {
 
 /**
  * POST /api/agents/:id/copy — duplicate config with timestamped name.
+ * Why: same setup (instructions, vault, email, site hints) without chats/run history.
  */
 agentsRouter.post("/:id/copy", async (req, res, next) => {
   try {
@@ -1485,6 +1486,8 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       facts: Array.isArray(src.facts) ? src.facts : [],
       autonomy: src.autonomy || {},
       role: src.role || "worker",
+      lifecycleStatus: src.lifecycleStatus || "active",
+      authorityLevel: src.authorityLevel || "external",
       managedAgents: Array.isArray(src.managedAgents) ? src.managedAgents : [],
       policy: src.policy || {},
       successCriteria: src.successCriteria || "",
@@ -1493,10 +1496,24 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       active: src.active !== false,
       group: src.group || null,
       runner: "cloud",
+      // Why: fresh agent — keep config, not prior run diary / episodic notes.
       memory: [],
+      dayLogs: [],
+      credentials: Array.isArray(src.credentials)
+        ? src.credentials.map((c) => ({
+            label: c.label || "",
+            siteHost: c.siteHost || "",
+            username: c.username || "",
+            email: c.email || "",
+            passwordEnc: c.passwordEnc || "",
+            notes: c.notes || "",
+            at: c.at || new Date(),
+          }))
+        : [],
       llm: {
         useCustom: Boolean(src.llm?.profile || src.llm?.useCustom),
         profile: src.llm?.profile || null,
+        visionProfile: src.llm?.visionProfile || null,
         apiKeyEnc: src.llm?.apiKeyEnc || "",
         baseUrl: src.llm?.baseUrl || "",
         model: src.llm?.model || "",
@@ -1561,6 +1578,27 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
         await WalletTransaction.findByIdAndUpdate(debitResult.transaction._id, {
           agent: agent._id,
         });
+      }
+      // Why: site hints are part of working config for the same domains.
+      const siteDocs = await SiteProfile.find({
+        agent: source._id,
+        user: req.userId,
+      }).lean();
+      if (siteDocs.length) {
+        await SiteProfile.insertMany(
+          siteDocs.map((p) => ({
+            user: req.userId,
+            agent: agent._id,
+            domain: p.domain,
+            hints: Array.isArray(p.hints) ? p.hints : [],
+            stats: p.stats || {},
+            lastVisitedAt: p.lastVisitedAt || null,
+            lastSuccessAt: p.lastSuccessAt || null,
+          })),
+          { ordered: false }
+        ).catch((siteErr) =>
+          console.warn("[agents] site profile copy partial:", siteErr?.message || siteErr)
+        );
       }
     } catch (saveErr) {
       if (agentPriceCents > 0) {

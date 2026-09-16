@@ -509,8 +509,8 @@ export const HELP = {
   "agents.copy": {
     title: "Copy agent",
     body: helpBody(
-      "Duplicates this agent's configuration (instructions, facts, email, schedule, policies) into a new agent named “{name} copy YYYY-MM-DD HH:mm”.",
-      "A new cloud computer is provisioned. Edit the name after copying."
+      "Duplicates this agent's configuration into a new agent named “{name} copy YYYY-MM-DD HH:mm”: instructions, facts, policies, schedule, LLM profiles, email, saved logins, and site hints.",
+      "A new cloud computer is provisioned. Chats, run history, and day logs are not copied. Wallet may be charged the agent create price."
     ),
   },
   "agents.groupFilter": {

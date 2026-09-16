@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 14:10] Copy agent from edit page + fuller config clone
+
+- **Prompt Provided:** Option to copy an agent; click creates an agent with the same configuration.
+- **Architectural Flow:** Copy already existed on Agents list (`POST /api/agents/:id/copy`). Added **Copy** on Agent edit. Clone now also copies credentials vault, vision LLM profile, lifecycle/authority, and SiteProfile hints (still skips chats / memory / day logs; new cloud box).
+- **Impacted Files:** `backend/src/routes/agents.js`, `frontend/src/pages/AgentEditPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 14:05] Architect blueprint full-page zoom
 
 - **Prompt Provided:** On /architect, Architecture blueprint section — zoom to full page.

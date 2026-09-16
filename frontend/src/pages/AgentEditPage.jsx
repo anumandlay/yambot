@@ -115,6 +115,7 @@ export function AgentEditPage() {
   ]);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [copyBusy, setCopyBusy] = useState(false);
   const [clearBusy, setClearBusy] = useState(false);
   const [clearNotice, setClearNotice] = useState("");
   /** @type {[null|{cookiesBytes:number,cacheBytes:number,downloadsBytes:number,otherBytes:number,totalBytes:number,measuredAt?:string}, Function]} */
@@ -419,6 +420,32 @@ export function AgentEditPage() {
   }
 
   /**
+   * Duplicates this agent’s saved configuration into a new agent (new cloud box).
+   */
+  async function onCopy() {
+    if (isNew || !agentId) return;
+    if (
+      !window.confirm(
+        "Copy this agent with the same configuration?\n\nCreates a new agent (and cloud computer). Chats and run history are not copied."
+      )
+    ) {
+      return;
+    }
+    setCopyBusy(true);
+    setError(null);
+    try {
+      const data = await api(`/api/agents/${agentId}/copy`, { method: "POST" });
+      if (data.agent?._id) {
+        navigate(`/agents/${data.agent._id}`);
+      }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setCopyBusy(false);
+    }
+  }
+
+  /**
    * Queues a worker command to wipe cookies, HTTP caches, and downloads on this agent's box.
    */
   async function onClearBrowserData() {
@@ -485,6 +512,16 @@ export function AgentEditPage() {
             >
               View memory
             </Link>
+            <ButtonWithHelp helpId="agents.copy">
+              <button
+                type="button"
+                disabled={busy || copyBusy}
+                onClick={() => void onCopy()}
+                className="inline-flex min-h-11 items-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-sm font-semibold text-violet-950 disabled:opacity-50"
+              >
+                {copyBusy ? "Copying…" : "Copy"}
+              </button>
+            </ButtonWithHelp>
           </>
         ) : null}
         <h1 className="text-xl font-bold tracking-tight">
@@ -1472,16 +1509,28 @@ export function AgentEditPage() {
             </button>
           </ButtonWithHelp>
           {!isNew ? (
-            <ButtonWithHelp helpId="agent.delete">
-              <button
-                type="button"
-                disabled={busy}
-                onClick={onDelete}
-                className="min-h-11 rounded-xl border border-red-200 bg-red-50 px-4 font-semibold text-red-700"
-              >
-                Delete
-              </button>
-            </ButtonWithHelp>
+            <>
+              <ButtonWithHelp helpId="agents.copy">
+                <button
+                  type="button"
+                  disabled={busy || copyBusy}
+                  onClick={() => void onCopy()}
+                  className="min-h-11 rounded-xl border border-violet-200 bg-violet-50 px-4 font-semibold text-violet-950 disabled:opacity-50"
+                >
+                  {copyBusy ? "Copying…" : "Copy agent"}
+                </button>
+              </ButtonWithHelp>
+              <ButtonWithHelp helpId="agent.delete">
+                <button
+                  type="button"
+                  disabled={busy || copyBusy}
+                  onClick={onDelete}
+                  className="min-h-11 rounded-xl border border-red-200 bg-red-50 px-4 font-semibold text-red-700 disabled:opacity-50"
+                >
+                  Delete
+                </button>
+              </ButtonWithHelp>
+            </>
           ) : null}
         </div>
       </form>
