@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 11:45] Rename sidebar Workflows → Skills
+
+- **Prompt Provided:** Change the workflows menu name to skills; also explained skill load vs Chromium JSON system prompt in chat.
+- **Architectural Flow:** AppSidebar nav label `/skills` changed from “Workflows” to “Skills”. (Q&A vs browser prompt behavior unchanged — documented in chat reply.)
+- **Impacted Files:** `frontend/src/components/AppSidebar.jsx`, PROMPT_LOG
+
 ## [2026-09-16 10:30] Chat context scales to LLM context window
 
 - **Prompt Provided:** Can we use the LLM context size for chat memory so it is nicer than fixed 16/24/14k.

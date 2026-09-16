@@ -152,7 +152,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
           <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
           <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
           <NavItem to="/decisions" helpId="nav.decisions" letter="Dj" label="Decisions" />
-          <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Workflows" />
+          <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
           <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
           <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
         </>
@@ -176,7 +176,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
               <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
               <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
               <NavItem to="/decisions" helpId="nav.decisions" letter="Dj" label="Decisions" />
-              <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Workflows" />
+              <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
               <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
               <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
             </div>
