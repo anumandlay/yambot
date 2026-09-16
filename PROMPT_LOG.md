@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 11:55] Reserve /ask /run — not skill slugs
+
+- **Prompt Provided:** `/ask …` returned Skill not found (No production skill matches /ask).
+- **Architectural Flow:** `parseSkillSlash` now ignores reserved chat commands `ask`, `run`, `learn`, `help` so intent overrides reach Q&A / computer paths instead of skill lookup.
+- **Impacted Files:** `backend/src/utils/skillSlash.js`, `frontend/src/lib/skillSlash.js`, PROMPT_LOG
+
 ## [2026-09-16 11:50] Skills page: show system-defined skills
 
 - **Prompt Provided:** Also show system defined skills on the same page in a section.

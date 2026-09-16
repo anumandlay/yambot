@@ -1,7 +1,10 @@
 /**
  * @fileoverview Client-side slash-command preview for chat compose.
- * Purpose: Mirror server rules for /learn and /skill-slug in the UI.
+ * Purpose: Mirror server rules for /learn, /ask, /run, and /skill-slug in the UI.
  */
+
+/** Reserved chat commands — never treated as skill slugs (keep in sync with backend). */
+export const RESERVED_CHAT_SLASH = new Set(["ask", "run", "learn", "help"]);
 
 /**
  * @param {string} value
@@ -32,7 +35,7 @@ export function parseSkillSlash(content) {
   const raw = String(content || "").trim();
   const match = raw.match(/^\/([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/i);
   if (!match) return null;
-  if (match[1].toLowerCase() === "learn") return null;
+  if (RESERVED_CHAT_SLASH.has(match[1].toLowerCase())) return null;
   return {
     slug: normalizeSkillSlug(match[1]),
     goal: String(match[2] || "").trim(),

@@ -6,6 +6,9 @@
 
 import { normalizeSkillSlug } from "./skillMd.js";
 
+/** Reserved chat commands — never treated as skill slugs. */
+export const RESERVED_CHAT_SLASH = new Set(["ask", "run", "learn", "help"]);
+
 /**
  * @param {string} content
  * @returns {{ name: string }|null}
@@ -26,7 +29,8 @@ export function parseSkillSlash(content) {
   const match = raw.match(/^\/([a-z0-9][a-z0-9-]*)(?:\s+([\s\S]*))?$/i);
   if (!match) return null;
   const command = match[1].toLowerCase();
-  if (command === "learn") return null;
+  // Why: /ask and /run force Q&A vs computer; /learn drafts a skill — not skill invokes.
+  if (RESERVED_CHAT_SLASH.has(command)) return null;
   return {
     slug: normalizeSkillSlug(command),
     goal: String(match[2] || "").trim(),
