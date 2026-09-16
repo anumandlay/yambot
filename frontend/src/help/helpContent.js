@@ -167,6 +167,13 @@ export const HELP = {
     ),
     learnMore: "howto-chats",
   },
+  "nav.agentThreads": {
+    title: "Agent threads",
+    body: helpBody(
+      "Human view of agent-to-agent conversations (message_agent). Threads are grouped by conversation key.",
+      "Modes: task, question, approval, handoff, event. Max hop depth 2. Managers with managedAgents may only message those workers."
+    ),
+  },
   "nav.workforce": {
     title: "Workforce",
     body: helpBody(
@@ -2138,7 +2145,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "Set agent role Manager, select managedAgents (workers). Create parent goal owned by manager. Workforce page: pick parent, assign worker, add instructions → Delegate creates child goal for worker agent.",
       "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers.",
-      "For mid-run handoffs, use the message_agent action (not this page): A enqueues a child task for B, can wait for B’s result, and chat shows → / ← system lines. Max hop depth 2 (A→B→C). Operations → Agent hops lists recent messages."
+      "For mid-run handoffs, use message_agent (modes: task|question|approval|handoff|event). Max hop depth 2. Open Agent threads or Operations → Agent hops to review. Wait timeout soft-cancels the peer task."
     ),
   },
   {

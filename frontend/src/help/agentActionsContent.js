@@ -502,14 +502,16 @@ export const AGENT_ACTION_SECTIONS = [
       {
         id: "message_agent",
         title: "message_agent",
-        summary: "Ask another of your agents to do work or answer a question (agent-to-agent v1).",
+        summary:
+          "Ask another of your agents to do work, answer, approve, take a handoff, or receive an event (v3).",
         whenToUse:
-          "Delegate a sub-task to a peer (same account). Prefer wait:true when you need their result before continuing. Max hop depth 2 (A→B→C).",
-        savesTo: "Child task on peer agent + system lines in this chat (→ / ←). Audit rows in AgentMessage.",
+          "Delegate (task), ask (question), request approval (approval), transfer ownership (handoff), or FYI (event). Max hop depth 2. Managers with managedAgents only message those peers. Wait timeout soft-cancels the child.",
+        savesTo:
+          "Child task on peer + chat →/← lines + Agent threads + agent.message.* events. resultPayload on AgentMessage.",
         exampleInstruction:
-          "Ask Research Bot whether ABC Travel is in CRM and return id/status; wait for the answer then finish.",
+          "Ask Research Bot (mode approval) whether we should create the CRM lead; wait for approve/reject then continue.",
         exampleJson:
-          '{ "type": "message_agent", "to": "Research Bot", "mode": "task", "content": "Check CRM for ABC Travel; return id and status.", "wait": true }',
+          '{ "type": "message_agent", "to": "Research Bot", "mode": "approval", "content": "Approve creating CRM lead for ABC Travel?", "wait": true }',
       },
       {
         id: "create_calendar_event",

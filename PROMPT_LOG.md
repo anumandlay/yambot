@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 15:35] Agent-to-agent v3 — typed modes, soft-cancel, threads, managedAgents
+
+- **Prompt Provided:** Let’s do v3.
+- **Architectural Flow:** Modes `task|question|approval|handoff|event` with mode-specific child goals; managers with `managedAgents` may only message that list; wait timeout soft-cancels the child task; `GET /api/agent-messages/threads` + **Agent threads** page in sidebar; prompts/help updated.
+- **Impacted Files:** `AgentMessage.js`, `agentMessageBus.js`, `agentMessages.js`, `worker.js`, `apiAgentActions.js`, `apiAgentRunner.js`, `worker/actions.js`, `worker/agent.js`, `AgentThreadsPage.jsx`, `App.jsx`, `AppSidebar.jsx`, help, PROMPT_LOG
+
 ## [2026-09-16 15:30] Agent-to-agent v2 — depth 2, events, Operations hops
 
 - **Prompt Provided:** Start v2; explain what v2 does.

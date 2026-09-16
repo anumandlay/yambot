@@ -974,9 +974,9 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
     ).trim();
     const taskId = String(req.body?.taskId || "").trim();
     const to = String(req.body?.to || "").trim();
+    const mode = String(req.body?.mode || "task").trim().toLowerCase();
     const content = String(req.body?.content || req.body?.message || "").trim();
-    const mode = req.body?.mode === "question" ? "question" : "task";
-    const wait = req.body?.wait !== false;
+    const wait = req.body?.wait;
 
     if (!agentId) {
       res.status(400).json({ ok: false, title: "Bad request", detail: "agentId required" });
@@ -1022,7 +1022,9 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       note: result.note,
       agentMessageId: result.agentMessageId || null,
       childTaskId: result.childTaskId || null,
+      conversationKey: result.conversationKey || null,
       resultSummary: result.resultSummary || "",
+      resultPayload: result.resultPayload || null,
     });
   } catch (err) {
     next(err);

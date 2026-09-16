@@ -49,6 +49,7 @@ import { DecisionsPage } from "./pages/DecisionsPage.jsx";
 import { AgentActionsPage } from "./pages/AgentActionsPage.jsx";
 import { AgentRunsPage } from "./pages/AgentRunsPage.jsx";
 import { AgentMemoryPage } from "./pages/AgentMemoryPage.jsx";
+import { AgentThreadsPage } from "./pages/AgentThreadsPage.jsx";
 import { GrokStyleLayout, GrokStylePage } from "./pages/GrokStylePage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
@@ -238,6 +239,7 @@ export default function App() {
           <Route path="/business" element={<BusinessSetupPage />} />
           <Route path="/architect" element={<BusinessArchitectPage />} />
           <Route path="/" element={<ChatsPage />} />
+          <Route path="/agent-threads" element={<AgentThreadsPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agents/new" element={<AgentEditPage />} />
           <Route path="/agents/:agentId/runs" element={<AgentRunsPage />} />

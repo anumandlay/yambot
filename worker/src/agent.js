@@ -3303,9 +3303,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
             agentId: config.agentId || agentSnapshot?.id,
             taskId,
             to: action.to || action.agent || action.name,
-            mode: action.mode === "question" ? "question" : "task",
+            mode: action.mode || "task",
             content: action.content || action.message || action.question || "",
-            wait: action.wait !== false,
+            wait: action.wait,
           }),
         });
         const note = String(result.note || result.resultSummary || "").slice(0, 6000);

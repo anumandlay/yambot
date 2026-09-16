@@ -402,10 +402,10 @@ async function executeApiAction(action, ctx) {
           userId: ctx.userId,
           fromAgentId: String(ctx.agent._id),
           to: action.to || action.agent || action.name,
-          mode: action.mode === "question" ? "question" : "task",
+          mode: action.mode || "task",
           content: action.content || action.message || action.question || "",
           parentTaskId: ctx.taskId || null,
-          wait: action.wait !== false,
+          wait: action.wait,
         });
         return { ok: result.ok, note: result.note };
       }
