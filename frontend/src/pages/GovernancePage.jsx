@@ -115,14 +115,10 @@ export function GovernancePage() {
       {budget ? (
         <div className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
           <SectionTitle helpId="governance.budget" className="text-teal-900/80">
-            Monthly LLM budget
+            Monthly LLM spend
           </SectionTitle>
           <p className="mt-1 text-sm text-teal-900/70">
-            Spent ${budget.spentUsd?.toFixed(4) ?? "0"}
-            {budget.monthlyUsd > 0 ? ` of $${budget.monthlyUsd} cap` : " (no cap set)"}
-            {budget.exceeded ? (
-              <span className="ml-2 font-semibold text-red-700">— exceeded</span>
-            ) : null}
+            Spent ${budget.spentUsd?.toFixed(4) ?? "0"} this month (unlimited — no spend cap)
           </p>
         </div>
       ) : null}

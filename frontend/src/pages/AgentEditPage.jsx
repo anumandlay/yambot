@@ -1369,38 +1369,6 @@ export function AgentEditPage() {
             </FieldLabel>
           </label>
           <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="agent.policy.monthlyBudget">
-              Agent monthly budget (USD, 0 = use org default)
-            </FieldLabel>
-            <input
-              type="number"
-              min={0}
-              className="min-h-11 rounded-xl border border-teal-100 px-3"
-              value={form.policy.monthlyBudgetUsd}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  policy: { ...prev.policy, monthlyBudgetUsd: e.target.value },
-                }))
-              }
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="agent.policy.dailyBudget">Agent daily budget (USD)</FieldLabel>
-            <input
-              type="number"
-              min={0}
-              className="min-h-11 rounded-xl border border-teal-100 px-3"
-              value={form.policy.dailyBudgetUsd}
-              onChange={(e) =>
-                setForm((prev) => ({
-                  ...prev,
-                  policy: { ...prev.policy, dailyBudgetUsd: e.target.value },
-                }))
-              }
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
             <FieldLabel helpId="agent.policy.maxTaskMinutes">Max task duration (minutes)</FieldLabel>
             <input
               type="number"

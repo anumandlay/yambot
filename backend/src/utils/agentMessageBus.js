@@ -13,8 +13,6 @@ import { enqueueTask } from "./enqueueTask.js";
 
 /** v1: A→B only (child cannot message further). */
 export const MAX_AGENT_MESSAGE_HOP_DEPTH = 1;
-/** Cap outbound hops per parent task. */
-export const MAX_AGENT_MESSAGES_PER_PARENT = 5;
 /** Max wait for B when wait:true (ms). */
 export const AGENT_MESSAGE_WAIT_MS = 8 * 60 * 1000;
 const POLL_MS = 2_000;
@@ -120,20 +118,6 @@ export async function sendAgentMessage(opts) {
       ok: false,
       note: `Agent-message depth limit (${MAX_AGENT_MESSAGE_HOP_DEPTH}): this run was already delegated — finish with your own result instead of messaging another agent.`,
     };
-  }
-
-  if (parentTaskId) {
-    const prior = await AgentMessage.countDocuments({
-      user: userId,
-      parentTask: parentTaskId,
-      type: { $in: ["task", "question"] },
-    });
-    if (prior >= MAX_AGENT_MESSAGES_PER_PARENT) {
-      return {
-        ok: false,
-        note: `message_agent budget exhausted (${MAX_AGENT_MESSAGES_PER_PARENT} per parent task).`,
-      };
-    }
   }
 
   const conversationKey = `am-${crypto.randomBytes(8).toString("hex")}`;

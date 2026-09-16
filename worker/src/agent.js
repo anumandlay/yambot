@@ -1771,17 +1771,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
       await ensureBrowser();
 
       const settings = await getSettings();
-      if (settings.budget?.exceeded) {
-        await complete(taskId, {
-          success: false,
-          summary: "Monthly LLM budget exceeded — raise the cap in Policies or wait until next month.",
-          error: "budget_exceeded",
-          history,
-          siteDomain,
-          llmUsage,
-        });
-        return;
-      }
       if (!settings.llmApiKey) {
         throw Object.assign(new Error("Missing LLM API key"), {
           title: "LLM not configured",

@@ -228,32 +228,6 @@ export async function structuralCompanyAudit(userId) {
     });
   }
 
-  const recentCostTasks = await Task.find({
-    user: userId,
-    createdAt: { $gte: since7d },
-    "llmUsage.estimatedUsd": { $gt: 0 },
-  })
-    .select("llmUsage.estimatedUsd")
-    .limit(200)
-    .lean();
-  const spend = recentCostTasks.reduce((s, t) => s + (Number(t.llmUsage?.estimatedUsd) || 0), 0);
-  const budget = Number(user?.settings?.monthlyBudgetUsd) || 0;
-  if (budget > 0 && spend > budget * 0.35) {
-    findings.push({
-      severity: "high",
-      category: "excessive_cost",
-      title: `LLM spend ~$${spend.toFixed(2)} in 7d vs monthly budget $${budget}`,
-      detail: "Run model cost optimizer or lower max steps / switch profiles.",
-    });
-  } else if (spend > 25) {
-    findings.push({
-      severity: "medium",
-      category: "excessive_cost",
-      title: `LLM spend ~$${spend.toFixed(2)} in last 7 days`,
-      detail: "Consider cheaper profiles for routine workers.",
-    });
-  }
-
   const severityRank = { high: 0, medium: 1, low: 2 };
   findings.sort((a, b) => (severityRank[a.severity] ?? 9) - (severityRank[b.severity] ?? 9));
 

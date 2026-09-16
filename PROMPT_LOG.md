@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 15:25] Remove LLM spend budget caps (unlimited)
+
+- **Prompt Provided:** Remove all functionality related to budgets; unlimited LLM.
+- **Architectural Flow:** Disabled cost ceilings (`checkCostCeiling` always ok), removed enqueue/CEO/optimize spend gates, worker no longer aborts on `budget.exceeded`, economic stop ignores spend vs value. Policies/Agent edit UI no longer expose monthly/daily/company AI caps; save clears legacy caps to 0. Governance shows spend only (no cap).
+- **Impacted Files:** `runawayGuards.js`, `enqueueTask.js`, `ceoAutonomy.js`, `continuousOptimize.js`, `policy.js`, `economicDecision.js` (backend+worker), `worker.js` runtime-config, `worker/agent.js`, `policies.js`, `agents.js`, `governance.js`, `companyAudit.js`, Policies/AgentEdit/Governance pages, help, PROMPT_LOG
+
 ## [2026-09-16 15:15] Agent-to-agent chat v1 (message_agent)
 
 - **Prompt Provided:** Implement agent-to-agent chat v1: Agent A can ask Agent B to do work/answer via YamBot, optionally wait, with logging and loop limits.

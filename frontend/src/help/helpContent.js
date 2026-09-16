@@ -249,7 +249,7 @@ export const HELP = {
   "nav.policies": {
     title: "Policies",
     body: helpBody(
-      "Policies are organization-wide governance defaults (Layer 2): approval before submit/purchase, URL blocks, LLM budgets, HTTP tool allowlists, escalation timers.",
+      "Policies are organization-wide governance defaults (Layer 2): approval before submit/purchase, URL blocks, HTTP tool allowlists, escalation timers.",
       "Per-agent policy overrides on the agent edit page merge with these defaults — the stricter or agent-specific value wins where applicable."
     ),
     learnMore: "howto-policies",
@@ -257,8 +257,8 @@ export const HELP = {
   "nav.governance": {
     title: "Governance",
     body: helpBody(
-      "Governance is Layer 5 oversight: audit log (who did what), pending approvals (submit/purchase gates), LLM spend vs budget, improvement proposals, and performance reviews.",
-      "Use this when you need accountability, cost control, or to approve autonomous suggestions before they take effect."
+      "Governance is Layer 5 oversight: audit log (who did what), pending approvals (submit/purchase gates), estimated LLM spend, improvement proposals, and performance reviews.",
+      "Use this when you need accountability or to approve autonomous suggestions before they take effect."
     ),
     learnMore: "howto-governance",
   },
@@ -826,16 +826,12 @@ export const HELP = {
     ),
   },
   "agent.policy.monthlyBudget": {
-    title: "Agent monthly LLM budget",
-    body: helpBody(
-      "USD cap on estimated LLM spend for this agent per calendar month. 0 = inherit org default / unlimited. Worker stops claiming tasks when exceeded."
-    ),
+    title: "Agent monthly LLM budget (removed)",
+    body: helpBody("LLM spend caps were removed — usage is unlimited for all agents."),
   },
   "agent.policy.dailyBudget": {
-    title: "Agent daily LLM budget",
-    body: helpBody(
-      "USD cap per UTC day for this agent. Prevents runaway costs from a single bad loop. 0 = no daily cap."
-    ),
+    title: "Agent daily LLM budget (removed)",
+    body: helpBody("LLM spend caps were removed — usage is unlimited for all agents."),
   },
   "agent.policy.maxTaskMinutes": {
     title: "Max task duration",
@@ -1499,16 +1495,12 @@ export const HELP = {
     ),
   },
   "policies.monthlyBudget": {
-    title: "Monthly LLM budget",
-    body: helpBody(
-      "Org-wide USD cap per calendar month (sum of task llmUsage.estimatedUsd). 0 = unlimited. Workers see budget.exceeded in runtime-config."
-    ),
+    title: "Monthly LLM budget (removed)",
+    body: helpBody("Org LLM spend caps were removed — usage is unlimited."),
   },
   "policies.dailyBudget": {
-    title: "Daily LLM budget",
-    body: helpBody(
-      "Org-wide USD cap per UTC day. Stops runaway spend from bugs or loops."
-    ),
+    title: "Daily LLM budget (removed)",
+    body: helpBody("Org LLM spend caps were removed — usage is unlimited."),
   },
   "policies.maxTaskMinutes": {
     title: "Max task duration (org)",
@@ -1543,9 +1535,9 @@ export const HELP = {
 
   // ─── Governance ──────────────────────────────────────────────────────
   "governance.budget": {
-    title: "Monthly LLM budget (dashboard)",
+    title: "Monthly LLM spend",
     body: helpBody(
-      "Live spend vs cap from completed tasks this month. exceeded flag when at or over cap."
+      "Estimated LLM spend from completed tasks this month. There is no spend cap — LLM usage is unlimited."
     ),
   },
   "governance.approvals": {
@@ -2041,7 +2033,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "YamBot is a cloud browser agent platform: you define AI employees (Agents), give them goals in natural language, and dedicated Chromium workers on your VPS execute those goals step by step — clicking, typing, reading pages, sending email, and calling HTTP APIs.",
       "Unlike a chatbot that only generates text, YamBot controls a real browser. You watch on Live Wall, answer questions when stuck, or Take control to handle CAPTCHAs and demos.",
-      "The product layers: (1) Employee OS — Goals with KPIs and autonomy; (2) Governance — policies, budgets, approvals; (3) Workforce — manager delegation; (4) Integrations — HTTP, email, events; (5) Audit & spend tracking; plus Operations (event bus), Company (world model), and Skills (learned workflows)."
+      "The product layers: (1) Employee OS — Goals with KPIs and autonomy; (2) Governance — policies, approvals; (3) Workforce — manager delegation; (4) Integrations — HTTP, email, events; (5) Audit & spend tracking; plus Operations (event bus), Company (world model), and Skills (learned workflows)."
     ),
   },
   {
@@ -2053,7 +2045,7 @@ export const HOW_TO_SECTIONS = [
       "3. Optional: Vision LLM for screenshot recovery; DeathByCaptcha for some CAPTCHAs.",
       "4. Agents → New agent → fill Name, Skill, Profile, Standing instructions → Save.",
       "5. Chats → pick agent → New chat → type a goal → watch live screen.",
-      "6. Optional: Policies for budgets and approval gates; Goals for recurring objectives."
+      "6. Optional: Policies for approval gates and URL blocks; Goals for recurring objectives."
     ),
   },
   {
@@ -2119,7 +2111,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "Goal autonomy: scheduler reads active goals with autonomy.enabled, compares KPIs and last check time, may enqueue tasks or emit events.",
       "Manager autonomy: manager agents react to recent company events and may create delegated goals for managed workers (rate-limited by scheduler).",
-      "Both require careful policy budgets to avoid runaway LLM spend."
+      "Both can run long; use maxTaskMinutes if you want a hard wall-clock stop."
     ),
   },
   {
@@ -2139,7 +2131,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "Set agent role Manager, select managedAgents (workers). Create parent goal owned by manager. Workforce page: pick parent, assign worker, add instructions → Delegate creates child goal for worker agent.",
       "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers.",
-      "For mid-run handoffs, use the message_agent action (not this page): A enqueues a child task for B, can wait for B’s result, and chat shows → / ← system lines. Depth is one hop; max 5 calls per parent task."
+      "For mid-run handoffs, use the message_agent action (not this page): A enqueues a child task for B, can wait for B’s result, and chat shows → / ← system lines. Depth is one hop."
     ),
   },
   {
@@ -2166,20 +2158,20 @@ export const HOW_TO_SECTIONS = [
     id: "howto-policies",
     title: "Policies & agent policy overrides",
     body: helpBody(
-      "Org Policies: approvals, budgets, URL blocks, HTTP allowlist, escalation.",
-      "Agent edit policy section overrides monthly/daily budget, max task minutes, require approval.",
+      "Org Policies: approvals, URL blocks, HTTP allowlist, escalation, max task minutes.",
+      "Agent edit policy section overrides max task minutes and require approval.",
       "Effective policy merges both layers in runtime-config for workers.",
-      "Economic stop: worker compares estimated task value vs LLM spend; time budget from maxTaskMinutes."
+      "LLM spend is unlimited — there is no monthly/daily cost cap. Optional time limit via maxTaskMinutes."
     ),
   },
   {
     id: "howto-governance",
     title: "Governance & oversight",
     body: helpBody(
-      "Audit: who changed what. Approvals: human gate on risky clicks. Budget dashboard: monthly spend.",
+      "Audit: who changed what. Approvals: human gate on risky clicks. Spend dashboard: monthly estimated LLM usage (no cap).",
       "Improvement proposals: autonomous suggestions after failures — approve before treating as accepted.",
       "Performance reviews: periodic agent scorecards from task history.",
-      "Use Governance weekly for cost and compliance review."
+      "Use Governance weekly for compliance and operational review."
     ),
   },
   {

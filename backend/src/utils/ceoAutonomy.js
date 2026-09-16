@@ -223,11 +223,7 @@ async function applyStrategy(userId, strategy, opts) {
  * @param {{ forceExecute?: boolean }} [opts]
  */
 export async function runCeoLoop(userId, opts = {}) {
-  const { checkCostCeiling, checkCeoLoopGuard } = await import("./runawayGuards.js");
-  const cost = await checkCostCeiling(userId);
-  if (!cost.ok) {
-    return { ok: false, title: "Budget", detail: cost.detail, mode: null, strategies: [], results: [] };
-  }
+  const { checkCeoLoopGuard } = await import("./runawayGuards.js");
   const loopGuard = await checkCeoLoopGuard(userId);
   if (!loopGuard.ok) {
     return {

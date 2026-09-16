@@ -70,6 +70,7 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
     }
     const policy = getEffectivePolicy(s, agentDoc);
 
+    // Why: LLM spend is unlimited — still report monthly spend for dashboards, never gate runs.
     const monthStart = new Date();
     monthStart.setUTCDate(1);
     monthStart.setUTCHours(0, 0, 0, 0);
@@ -84,24 +85,6 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
       { $group: { _id: null, usd: { $sum: "$llmUsage.estimatedUsd" } } },
     ]);
     const spentUsd = Number(spendRow?.usd) || 0;
-    const budgetUsd = policy.monthlyBudgetUsd || 0;
-    const budgetExceeded = budgetUsd > 0 && spentUsd >= budgetUsd;
-
-    const dayStart = new Date();
-    dayStart.setUTCHours(0, 0, 0, 0);
-    const dailyMatch = {
-      user: req.userId,
-      completedAt: { $gte: dayStart },
-      status: { $in: ["done", "error"] },
-    };
-    if (agentId) dailyMatch.agent = agentId;
-    const [dailyRow] = await Task.aggregate([
-      { $match: dailyMatch },
-      { $group: { _id: null, usd: { $sum: "$llmUsage.estimatedUsd" } } },
-    ]);
-    const dailySpent = Number(dailyRow?.usd) || 0;
-    const dailyBudget = policy.dailyBudgetUsd || 0;
-    const dailyExceeded = dailyBudget > 0 && dailySpent >= dailyBudget;
 
     // Why: per-agent LLM override when agent.llm.useCustom; else Settings (incl. OAuth).
     const mainCreds = await resolveLlmCredentialsForAgent(user, agentDoc);
@@ -126,12 +109,13 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
         policy,
         budget: {
-          monthlyUsd: budgetUsd,
+          monthlyUsd: 0,
           spentUsd: Number(spentUsd.toFixed(4)),
-          exceeded: budgetExceeded || dailyExceeded,
-          dailyUsd: dailyBudget,
-          dailySpentUsd: Number(dailySpent.toFixed(4)),
-          dailyExceeded,
+          exceeded: false,
+          dailyUsd: 0,
+          dailySpentUsd: 0,
+          dailyExceeded: false,
+          unlimited: true,
         },
         maxTaskMinutes: policy.maxTaskMinutes || 0,
       },

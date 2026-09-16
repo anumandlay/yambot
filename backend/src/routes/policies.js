@@ -1,6 +1,6 @@
 /**
  * @fileoverview Policies API — user-level governance defaults (Layer 2).
- * Purpose: Configure approval gates, URL blocks, budgets, and HTTP tool allowlists.
+ * Purpose: Configure approval gates, URL blocks, and HTTP tool allowlists.
  * Downstream: User.settings; merged with per-agent policy in runtime-config.
  */
 
@@ -81,21 +81,11 @@ policiesRouter.put("/", async (req, res, next) => {
         user.settings.operatingMode = mode;
       }
     }
-    if (body.monthlyBudgetUsd != null) {
-      user.settings.monthlyBudgetUsd = Math.max(0, Number(body.monthlyBudgetUsd) || 0);
-    }
-    if (body.dailyBudgetUsd != null) {
-      user.settings.dailyBudgetUsd = Math.max(0, Number(body.dailyBudgetUsd) || 0);
-    }
-    if (body.companyDailyBudgetUsd != null) {
-      user.settings.companyDailyBudgetUsd = Math.max(0, Number(body.companyDailyBudgetUsd) || 0);
-    }
-    if (body.companyMonthlyBudgetUsd != null) {
-      user.settings.companyMonthlyBudgetUsd = Math.max(
-        0,
-        Number(body.companyMonthlyBudgetUsd) || 0
-      );
-    }
+    // Why: LLM budgets removed — clear any legacy caps so old settings cannot re-enable gates.
+    user.settings.monthlyBudgetUsd = 0;
+    user.settings.dailyBudgetUsd = 0;
+    user.settings.companyDailyBudgetUsd = 0;
+    user.settings.companyMonthlyBudgetUsd = 0;
     if (body.maxCeoDecisionsPerHour != null) {
       user.settings.maxCeoDecisionsPerHour = Math.max(
         1,

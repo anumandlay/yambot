@@ -1,6 +1,6 @@
 /**
- * @fileoverview Cost + autonomous-loop runaway protection.
- * Purpose: Hard ceilings so CEO/optimize/heal cannot thrash or burn budget.
+ * @fileoverview Autonomous-loop runaway protection (CEO thrash / experiment caps).
+ * Purpose: Soft guards for decision loops — LLM spend ceilings are disabled (unlimited).
  * Downstream: enqueueTask, ceoAutonomy, continuousOptimize, worker claim.
  */
 
@@ -20,7 +20,7 @@ function oid(userId) {
 }
 
 /**
- * Sum estimated LLM spend for a user since a date.
+ * Sum estimated LLM spend for a user since a date (reporting only).
  * @param {string} userId
  * @param {Date} since
  */
@@ -33,38 +33,18 @@ export async function sumSpendUsd(userId, since) {
 }
 
 /**
- * Check company / daily / monthly spend ceilings.
+ * LLM spend ceilings disabled — always allow work (unlimited LLM).
  * @param {string} userId
  */
 export async function checkCostCeiling(userId) {
-  const user = await User.findById(userId).select("settings").lean();
-  const s = user?.settings || {};
-  const dailyCap = Number(s.companyDailyBudgetUsd || s.dailyBudgetUsd) || 0;
-  const monthlyCap = Number(s.companyMonthlyBudgetUsd || s.monthlyBudgetUsd) || 0;
   const dayStart = new Date();
   dayStart.setHours(0, 0, 0, 0);
   const monthStart = new Date(dayStart.getFullYear(), dayStart.getMonth(), 1);
-
-  const dailySpend = dailyCap > 0 ? await sumSpendUsd(userId, dayStart) : 0;
-  const monthlySpend = monthlyCap > 0 ? await sumSpendUsd(userId, monthStart) : 0;
-
-  if (dailyCap > 0 && dailySpend >= dailyCap) {
-    return {
-      ok: false,
-      detail: `Daily AI budget exhausted ($${dailySpend.toFixed(2)} / $${dailyCap}).`,
-      dailySpend,
-      monthlySpend,
-    };
-  }
-  if (monthlyCap > 0 && monthlySpend >= monthlyCap) {
-    return {
-      ok: false,
-      detail: `Monthly AI budget exhausted ($${monthlySpend.toFixed(2)} / $${monthlyCap}).`,
-      dailySpend,
-      monthlySpend,
-    };
-  }
-  return { ok: true, dailySpend, monthlySpend };
+  const [dailySpend, monthlySpend] = await Promise.all([
+    sumSpendUsd(userId, dayStart),
+    sumSpendUsd(userId, monthStart),
+  ]);
+  return { ok: true, dailySpend, monthlySpend, unlimited: true };
 }
 
 /**

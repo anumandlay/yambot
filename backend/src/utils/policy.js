@@ -1,6 +1,6 @@
 /**
  * @fileoverview Policy helpers — Layer 2 governance rules from user + agent settings.
- * Purpose: Centralize blocked URLs, budgets, and approval requirements for workers and API.
+ * Purpose: Centralize blocked URLs and approval requirements for workers and API.
  * Downstream: runtime-config, worker agent loop, task enqueue guards.
  */
 
@@ -20,10 +20,11 @@ export function getEffectivePolicy(userSettings = {}, agent = null) {
       ...(Array.isArray(s.blockedUrlPatterns) ? s.blockedUrlPatterns : []),
       ...(Array.isArray(agentPolicy.blockedUrlPatterns) ? agentPolicy.blockedUrlPatterns : []),
     ],
-    monthlyBudgetUsd: Number(agentPolicy.monthlyBudgetUsd || s.monthlyBudgetUsd) || 0,
-    dailyBudgetUsd: Number(agentPolicy.dailyBudgetUsd || s.dailyBudgetUsd) || 0,
+    // Why: LLM spend ceilings removed — always unlimited regardless of stored settings.
+    monthlyBudgetUsd: 0,
+    dailyBudgetUsd: 0,
     maxTaskMinutes: Math.max(0, Number(agentPolicy.maxTaskMinutes || s.maxTaskMinutes) || 0),
-    apiBudgetUsd: Number(agentPolicy.apiBudgetUsd || s.apiBudgetUsd) || 0,
+    apiBudgetUsd: 0,
     escalateWaitingMinutes: Math.max(
       5,
       Number(agentPolicy.escalateWaitingMinutes || s.escalateWaitingMinutes) || 30

@@ -135,12 +135,10 @@ governanceRouter.get("/usage", async (req, res, next) => {
 });
 
 /**
- * GET /api/governance/budget — monthly spend vs configured cap.
+ * GET /api/governance/budget — monthly spend (informational; no cap).
  */
 governanceRouter.get("/budget", async (req, res, next) => {
   try {
-    const user = await User.findById(req.userId).select("settings").lean();
-    const budgetUsd = Number(user?.settings?.monthlyBudgetUsd) || 0;
     const monthStart = new Date();
     monthStart.setUTCDate(1);
     monthStart.setUTCHours(0, 0, 0, 0);
@@ -158,9 +156,10 @@ governanceRouter.get("/budget", async (req, res, next) => {
     res.json({
       ok: true,
       budget: {
-        monthlyUsd: budgetUsd,
+        monthlyUsd: 0,
         spentUsd: Number(spentUsd.toFixed(4)),
-        exceeded: budgetUsd > 0 && spentUsd >= budgetUsd,
+        exceeded: false,
+        unlimited: true,
         monthStart,
       },
     });

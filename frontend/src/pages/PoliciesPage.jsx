@@ -1,6 +1,6 @@
 /**
  * @fileoverview Policies page — Layer 2 governance defaults.
- * Purpose: Configure approval gates, URL blocks, budgets, and HTTP tool allowlists.
+ * Purpose: Configure approval gates, URL blocks, and HTTP tool allowlists.
  * Downstream: `/api/policies` GET/PUT; merged into worker runtime-config.
  */
 
@@ -15,10 +15,6 @@ const EMPTY = {
   learningMode: false,
   maxAuthorityLevel: "external",
   operatingMode: "assisted",
-  monthlyBudgetUsd: 0,
-  dailyBudgetUsd: 0,
-  companyDailyBudgetUsd: 0,
-  companyMonthlyBudgetUsd: 0,
   maxCeoDecisionsPerHour: 20,
   maxConcurrentExperiments: 3,
   maxTaskMinutes: 0,
@@ -44,10 +40,6 @@ export function PoliciesPage() {
           learningMode: p.learningMode === true,
           maxAuthorityLevel: p.maxAuthorityLevel || "external",
           operatingMode: p.operatingMode || "assisted",
-          monthlyBudgetUsd: Number(p.monthlyBudgetUsd) || 0,
-          dailyBudgetUsd: Number(p.dailyBudgetUsd) || 0,
-          companyDailyBudgetUsd: Number(p.companyDailyBudgetUsd) || 0,
-          companyMonthlyBudgetUsd: Number(p.companyMonthlyBudgetUsd) || 0,
           maxCeoDecisionsPerHour: Number(p.maxCeoDecisionsPerHour) || 20,
           maxConcurrentExperiments: Number(p.maxConcurrentExperiments) || 3,
           maxTaskMinutes: Number(p.maxTaskMinutes) || 0,
@@ -75,10 +67,6 @@ export function PoliciesPage() {
           learningMode: form.learningMode,
           maxAuthorityLevel: form.maxAuthorityLevel,
           operatingMode: form.operatingMode,
-          monthlyBudgetUsd: Number(form.monthlyBudgetUsd) || 0,
-          dailyBudgetUsd: Number(form.dailyBudgetUsd) || 0,
-          companyDailyBudgetUsd: Number(form.companyDailyBudgetUsd) || 0,
-          companyMonthlyBudgetUsd: Number(form.companyMonthlyBudgetUsd) || 0,
           maxCeoDecisionsPerHour: Number(form.maxCeoDecisionsPerHour) || 20,
           maxConcurrentExperiments: Number(form.maxConcurrentExperiments) || 3,
           maxTaskMinutes: Number(form.maxTaskMinutes) || 0,
@@ -185,56 +173,6 @@ export function PoliciesPage() {
             </select>
           </label>
         </div>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="policies.monthlyBudget">
-            Monthly LLM budget (USD, 0 = unlimited)
-          </FieldLabel>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.monthlyBudgetUsd}
-            onChange={(e) => setForm((f) => ({ ...f, monthlyBudgetUsd: e.target.value }))}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="policies.dailyBudget">Daily LLM budget (USD, 0 = unlimited)</FieldLabel>
-          <input
-            type="number"
-            min={0}
-            step={1}
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.dailyBudgetUsd}
-            onChange={(e) => setForm((f) => ({ ...f, dailyBudgetUsd: e.target.value }))}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Company daily AI ceiling (USD, 0 = use daily budget)</span>
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.companyDailyBudgetUsd}
-            onChange={(e) => setForm((f) => ({ ...f, companyDailyBudgetUsd: e.target.value }))}
-          />
-        </label>
-
-        <label className="flex flex-col gap-1 text-sm">
-          <span className="font-medium">Company monthly AI ceiling (USD, 0 = use monthly budget)</span>
-          <input
-            type="number"
-            min={0}
-            step={0.01}
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            value={form.companyMonthlyBudgetUsd}
-            onChange={(e) => setForm((f) => ({ ...f, companyMonthlyBudgetUsd: e.target.value }))}
-          />
-        </label>
 
         <label className="flex flex-col gap-1 text-sm">
           <span className="font-medium">Max CEO decisions / hour</span>

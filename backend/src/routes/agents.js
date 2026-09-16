@@ -272,10 +272,10 @@ function pickAgentFields(body, opts = {}) {
     const p = body.policy;
     set("policy", {
       requireApprovalForSubmit: p.requireApprovalForSubmit === true,
-      monthlyBudgetUsd: Math.max(0, Number(p.monthlyBudgetUsd) || 0),
-      dailyBudgetUsd: Math.max(0, Number(p.dailyBudgetUsd) || 0),
+      monthlyBudgetUsd: 0,
+      dailyBudgetUsd: 0,
       maxTaskMinutes: Math.max(0, Number(p.maxTaskMinutes) || 0),
-      apiBudgetUsd: Math.max(0, Number(p.apiBudgetUsd) || 0),
+      apiBudgetUsd: 0,
       escalateWaitingMinutes: Math.max(5, Number(p.escalateWaitingMinutes) || 30),
       blockedUrlPatterns: Array.isArray(p.blockedUrlPatterns)
         ? p.blockedUrlPatterns.map((x) => String(x).trim()).filter(Boolean).slice(0, 50)
