@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 11:50] Skills page: show system-defined skills
+
+- **Prompt Provided:** Also show system defined skills on the same page in a section.
+- **Architectural Flow:** Added read-only catalog (`login`, `shopping`, `email`, `research`) matching worker templates. `GET /api/skills` returns `systemSkills`; Skills page shows a **System skills** section (expandable details) above training / your library.
+- **Impacted Files:** `backend/src/utils/systemSkills.js`, `backend/src/routes/skills.js`, `frontend/src/pages/SkillsPage.jsx`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 11:45] Rename sidebar Workflows → Skills
 
 - **Prompt Provided:** Change the workflows menu name to skills; also explained skill load vs Chromium JSON system prompt in chat.

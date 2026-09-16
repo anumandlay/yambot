@@ -1,6 +1,6 @@
 /**
  * @fileoverview Skills dashboard — Teach skill drafts, manual library, training requests.
- * Purpose: Show skills you authored (Teach skill, New skill, Generate with AI, /learn).
+ * Purpose: Show skills you authored plus built-in system skill templates (login, shopping, …).
  * Auto Suggested:* drafts from old task runs are purged on load.
  * Downstream: `/api/skills`, LiveScreen Teach skill, SkillEditPage.
  */
@@ -24,17 +24,20 @@ function formatCreated(value) {
 export function SkillsPage() {
   const navigate = useNavigate();
   const [skills, setSkills] = useState([]);
+  const [systemSkills, setSystemSkills] = useState([]);
   const [training, setTraining] = useState([]);
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [skillName, setSkillName] = useState("");
   const [showAllTraining, setShowAllTraining] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  const [expandedSystemId, setExpandedSystemId] = useState("");
 
   const load = useCallback(async () => {
     const trainingPath = showAllTraining ? "/api/skills/training" : "/api/skills/training?status=pending";
     const [sk, tr] = await Promise.all([api("/api/skills"), api(trainingPath)]);
     setSkills(sk.skills || []);
+    setSystemSkills(sk.systemSkills || []);
     setTraining(tr.requests || []);
   }, [showAllTraining]);
 
@@ -130,6 +133,88 @@ export function SkillsPage() {
         />
       ) : null}
       {okMsg ? <p className="text-sm font-semibold text-teal-800">{okMsg}</p> : null}
+
+      <section className="flex flex-col gap-2">
+        <SectionTitle helpId="skills.system" className="text-teal-900/80">
+          System skills
+        </SectionTitle>
+        <p className="text-xs text-teal-900/50">
+          Built into every cloud worker. They auto-activate when a goal or URL matches — you cannot
+          edit or delete them. Your own skills (below) can take priority via{" "}
+          <span className="font-mono">/slug</span> or triggers.
+        </p>
+        <ul className="flex flex-col gap-2">
+          {systemSkills.map((s) => {
+            const open = expandedSystemId === s.id;
+            return (
+              <li
+                key={s.id}
+                className="rounded-xl border border-violet-100 bg-violet-50/40 p-3 text-sm"
+              >
+                <button
+                  type="button"
+                  className="flex w-full min-h-11 items-start justify-between gap-2 text-left"
+                  onClick={() => setExpandedSystemId(open ? "" : s.id)}
+                  aria-expanded={open}
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold text-teal-950">
+                      {s.label}
+                      <span className="ml-2 rounded-md bg-violet-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-900">
+                        System
+                      </span>
+                      <span className="ml-2 font-mono text-xs font-normal text-violet-800">
+                        {s.id}
+                      </span>
+                    </div>
+                    <p className="mt-0.5 text-xs text-teal-900/70">{s.description}</p>
+                  </div>
+                  <span className="shrink-0 text-xs font-semibold text-violet-800">
+                    {open ? "Hide" : "Details"}
+                  </span>
+                </button>
+                {open ? (
+                  <div className="mt-3 space-y-3 border-t border-violet-100 pt-3 text-xs text-teal-900/80">
+                    {s.triggers?.length ? (
+                      <div>
+                        <p className="font-semibold text-teal-950">Triggers when goal/URL matches</p>
+                        <ul className="mt-1 list-inside list-disc">
+                          {s.triggers.map((t) => (
+                            <li key={t}>{t}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                    {s.steps?.length ? (
+                      <div>
+                        <p className="font-semibold text-teal-950">Suggested flow</p>
+                        <ol className="mt-1 list-inside list-decimal">
+                          {s.steps.map((step) => (
+                            <li key={step}>{step}</li>
+                          ))}
+                        </ol>
+                      </div>
+                    ) : null}
+                    {s.hints?.length ? (
+                      <div>
+                        <p className="font-semibold text-teal-950">Hints</p>
+                        <ul className="mt-1 list-inside list-disc">
+                          {s.hints.map((h) => (
+                            <li key={h}>{h}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ) : null}
+                  </div>
+                ) : null}
+              </li>
+            );
+          })}
+          {!systemSkills.length ? (
+            <p className="text-sm text-teal-900/60">System skill catalog unavailable.</p>
+          ) : null}
+        </ul>
+      </section>
 
       <section className="flex flex-col gap-2">
         <div className="flex flex-wrap items-center justify-between gap-2">

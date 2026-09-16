@@ -1880,6 +1880,13 @@ export const HELP = {
       "Production skills load on trigger match or explicit /slug in chat."
     ),
   },
+  "skills.system": {
+    title: "System skills",
+    body: helpBody(
+      "Built-in worker templates: login, shopping, email, and research. They auto-activate from goal/URL text.",
+      "Read-only — you cannot edit or delete them. Create your own skill (or /slug) when you need a custom playbook."
+    ),
+  },
   "skills.edit": {
     title: "Edit skill",
     body: helpBody(

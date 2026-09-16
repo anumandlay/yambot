@@ -29,6 +29,7 @@ import {
   purgeAutoSuggestedSkills,
 } from "../utils/skillSuggestion.js";
 import { draftSkillFromBrief } from "../utils/skillDraftFromBrief.js";
+import { listSystemSkills } from "../utils/systemSkills.js";
 
 export const skillsRouter = Router();
 
@@ -110,7 +111,11 @@ skillsRouter.get("/", async (req, res, next) => {
     // Why: drop leftover Suggested:* drafts from the old auto-from-task pipeline.
     await purgeAutoSuggestedSkills(req.userId);
     const skills = await Skill.find({ user: req.userId }).sort({ updatedAt: -1 }).lean();
-    res.json({ ok: true, skills: skills.map(normalizeSkillStatus) });
+    res.json({
+      ok: true,
+      skills: skills.map(normalizeSkillStatus),
+      systemSkills: listSystemSkills(),
+    });
   } catch (err) {
     next(err);
   }
