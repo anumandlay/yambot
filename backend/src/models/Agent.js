@@ -692,6 +692,7 @@ export function formatAgentPrompt(snapshot) {
     snapshot.chatContext
       ? String(snapshot.chatContext)
       : "",
+    snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
   ]
     .filter(Boolean)
     .join("\n\n");

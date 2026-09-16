@@ -1431,6 +1431,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         : "",
       memory ? `AGENT MEMORY:\n${memory}` : "",
       snapshot.chatContext ? String(snapshot.chatContext) : "",
+      snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
       "There is no step limit — call finish when the goal or success criteria are met.",
     ]
@@ -3305,6 +3306,26 @@ export function createCloudAgent({ api, config, log = console.log }) {
           `HTTP ${action.method || "GET"} ${action.url} → ${result.status}\n${preview}`
         );
         return { ok: true, http: result };
+      }
+      case "message_agent": {
+        const result = await api("/api/worker/tools/message-agent", {
+          method: "POST",
+          body: JSON.stringify({
+            agentId: config.agentId || agentSnapshot?.id,
+            taskId,
+            to: action.to || action.agent || action.name,
+            mode: action.mode === "question" ? "question" : "task",
+            content: action.content || action.message || action.question || "",
+            wait: action.wait !== false,
+          }),
+        });
+        const note = String(result.note || result.resultSummary || "").slice(0, 6000);
+        notes.push(note || (result.ok ? "Peer message sent." : "Peer message failed."));
+        return {
+          ok: Boolean(result.ok),
+          messageAgent: result,
+          summary: note,
+        };
       }
       case "type": {
         const runType = async () => {

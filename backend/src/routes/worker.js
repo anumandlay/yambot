@@ -28,6 +28,10 @@ import { pickHighestPriorityTask } from "../utils/priorityArbitrator.js";
 import { unblockDependentTasks } from "../utils/enqueueTask.js";
 import { emitEvent } from "../utils/eventBus.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
+import {
+  formatPeerAgentsBlock,
+  sendAgentMessage,
+} from "../utils/agentMessageBus.js";
 import { Skill } from "../models/Skill.js";
 import { processOutcomeRouting } from "../utils/resultRouter.js";
 import { processCompletionActions } from "../utils/completionActionsRunner.js";
@@ -233,11 +237,28 @@ function parseClaimOpts(req) {
  * GET/POST /api/worker/tasks/next
  * Body/query: { agentId? }
  */
+/**
+ * Attach live peer-agent prompt block so message_agent names stay current.
+ * @param {import('mongoose').Document|object|null} task
+ * @param {string} userId
+ * @returns {Promise<object|null>}
+ */
+async function taskJsonWithPeers(task, userId) {
+  if (!task) return null;
+  const obj = typeof task.toObject === "function" ? task.toObject() : { ...task };
+  const agentId = String(obj.agent || obj.agentSnapshot?.id || "");
+  if (agentId) {
+    const peerAgentsBlock = await formatPeerAgentsBlock(userId, agentId);
+    obj.agentSnapshot = { ...(obj.agentSnapshot || {}), peerAgentsBlock };
+  }
+  return obj;
+}
+
 workerRouter.get("/tasks/next", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     const task = await claimNextTask(req.userId, parseClaimOpts(req));
-    res.json({ ok: true, task: task || null });
+    res.json({ ok: true, task: await taskJsonWithPeers(task, req.userId) });
   } catch (err) {
     next(err);
   }
@@ -247,7 +268,7 @@ workerRouter.post("/tasks/next", async (req, res, next) => {
   try {
     res.set("Cache-Control", "no-store");
     const task = await claimNextTask(req.userId, parseClaimOpts(req));
-    res.json({ ok: true, task: task || null });
+    res.json({ ok: true, task: await taskJsonWithPeers(task, req.userId) });
   } catch (err) {
     next(err);
   }
@@ -953,6 +974,73 @@ workerRouter.post("/tools/http", async (req, res, next) => {
       res.status(504).json({ ok: false, title: "Timeout", detail: "HTTP request timed out" });
       return;
     }
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/tools/message-agent — Agent A asks Agent B (same user) to run work.
+ * Body: { agentId, taskId?, to, mode?, content, wait? }
+ * Why: browser workers block here when wait:true; claimedAt is refreshed inside the bus.
+ */
+workerRouter.post("/tools/message-agent", async (req, res, next) => {
+  try {
+    const agentId = String(
+      req.body?.agentId || req.headers["x-yambot-agent-id"] || ""
+    ).trim();
+    const taskId = String(req.body?.taskId || "").trim();
+    const to = String(req.body?.to || "").trim();
+    const content = String(req.body?.content || req.body?.message || "").trim();
+    const mode = req.body?.mode === "question" ? "question" : "task";
+    const wait = req.body?.wait !== false;
+
+    if (!agentId) {
+      res.status(400).json({ ok: false, title: "Bad request", detail: "agentId required" });
+      return;
+    }
+    if (!to || !content) {
+      res.status(400).json({
+        ok: false,
+        title: "Bad request",
+        detail: "to and content required for message_agent",
+      });
+      return;
+    }
+
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId }).select("_id").lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+
+    if (taskId) {
+      const parent = await Task.findOne({ _id: taskId, user: req.userId, agent: agentId })
+        .select("_id")
+        .lean();
+      if (!parent) {
+        res.status(404).json({ ok: false, title: "Not found", detail: "Parent task missing" });
+        return;
+      }
+    }
+
+    const result = await sendAgentMessage({
+      userId: req.userId,
+      fromAgentId: agentId,
+      to,
+      mode,
+      content,
+      parentTaskId: taskId || null,
+      wait,
+    });
+
+    res.json({
+      ok: result.ok,
+      note: result.note,
+      agentMessageId: result.agentMessageId || null,
+      childTaskId: result.childTaskId || null,
+      resultSummary: result.resultSummary || "",
+    });
+  } catch (err) {
     next(err);
   }
 });

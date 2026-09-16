@@ -128,7 +128,11 @@ export async function enqueueTask(opts) {
     events: [
       {
         type: "queued",
-        payload: { source: opts.source || "enqueue", blocked: blockedByDeps > 0 },
+        payload: {
+          source: opts.source || "enqueue",
+          blocked: blockedByDeps > 0,
+          ...(opts.meta && typeof opts.meta === "object" ? opts.meta : {}),
+        },
       },
     ],
   });

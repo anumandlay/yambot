@@ -122,8 +122,8 @@ export const HELP = {
   "nav.agentActions": {
     title: "Agent actions",
     body: helpBody(
-      "Reference catalog of every command agents can run: navigate, create_entity, update_kpi, send_email, and more.",
-      "Copy example instructions into Goals or chats — the LLM picks actions; YamBot saves to chat or database as documented."
+      "Reference catalog of every command agents can run: navigate, create_entity, update_kpi, send_email, message_agent, and more.",
+      "Copy example instructions into Goals or chats — the LLM picks actions; YamBot saves to chat or database as documented. message_agent lets Agent A ask Agent B mid-run (same account, one hop)."
     ),
   },
   "nav.agents": {
@@ -171,7 +171,8 @@ export const HELP = {
     title: "Workforce",
     body: helpBody(
       "Workforce is Layer 3 management: manager agents delegate child goals to worker agents they manage.",
-      "Set an agent's role to Manager on its edit page, pick managed agents, then use this page to delegate instructions under a parent goal."
+      "Set an agent's role to Manager on its edit page, pick managed agents, then use this page to delegate instructions under a parent goal.",
+      "Runtime collaboration is separate: during a run, any agent can use message_agent to ask another of your agents to do work (see Agent actions)."
     ),
     learnMore: "howto-workforce",
   },
@@ -2137,7 +2138,8 @@ export const HOW_TO_SECTIONS = [
     title: "Workforce & delegation",
     body: helpBody(
       "Set agent role Manager, select managedAgents (workers). Create parent goal owned by manager. Workforce page: pick parent, assign worker, add instructions → Delegate creates child goal for worker agent.",
-      "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers."
+      "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers.",
+      "For mid-run handoffs, use the message_agent action (not this page): A enqueues a child task for B, can wait for B’s result, and chat shows → / ← system lines. Depth is one hop; max 5 calls per parent task."
     ),
   },
   {

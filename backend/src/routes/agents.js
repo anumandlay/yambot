@@ -9,6 +9,7 @@ import { Router } from "express";
 import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention, decryptAgentCredentials, encryptCredentialPassword } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
+import { AgentMessage } from "../models/AgentMessage.js";
 import {
   issueWorkerToken,
   containerNameForAgent,
@@ -1669,6 +1670,10 @@ agentsRouter.delete("/:id", async (req, res, next) => {
       Message.deleteMany({ chat: { $in: chatIds } }),
       Task.deleteMany({ user: req.userId, $or: [{ agent: agentId }, { chat: { $in: chatIds } }] }),
       Chat.deleteMany({ _id: { $in: chatIds } }),
+      AgentMessage.deleteMany({
+        user: req.userId,
+        $or: [{ fromAgent: agentId }, { toAgent: agentId }],
+      }),
     ]);
 
     await Agent.deleteOne({ _id: agent._id });

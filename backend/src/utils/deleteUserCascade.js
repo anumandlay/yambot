@@ -38,6 +38,7 @@ import { ProcessDefinition, ProcessInstance } from "../models/Process.js";
 import { AuditEvent } from "../models/AuditEvent.js";
 import { MetricBaseline } from "../models/MetricBaseline.js";
 import { PerformanceReview } from "../models/PerformanceReview.js";
+import { AgentMessage } from "../models/AgentMessage.js";
 
 /**
  * Asks computer-manager to stop one agent box (best-effort).
@@ -176,6 +177,7 @@ export async function deleteUserCascade(userId, opts = {}) {
     track("auditEvents", AuditEvent.deleteMany({ user: id })),
     track("metricBaselines", MetricBaseline.deleteMany({ user: id })),
     track("performanceReviews", PerformanceReview.deleteMany({ user: id })),
+    track("agentMessages", AgentMessage.deleteMany({ user: id })),
   ]);
 
   // Safety: remove any agent-scoped leftovers if user-scoped chat delete missed some.

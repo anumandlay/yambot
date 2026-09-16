@@ -29,6 +29,7 @@ import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
+import { formatPeerAgentsBlock, sendAgentMessage } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
 const STUCK_RUNNING_MS = 20 * 60 * 1000;
@@ -216,8 +217,11 @@ async function executeApiTask(task, agent, userId) {
     ? { ...task.agentSnapshot, mode: "api" }
     : { ...toAgentSnapshot(agent, { goal: task.goal }), mode: "api" };
 
+  const peerBlock = await formatPeerAgentsBlock(userId, String(agent._id));
+
   const system = [
     formatAgentPrompt(snapshot),
+    peerBlock,
     buildApiActionSchemaForPrompt(),
   ]
     .filter(Boolean)
@@ -289,7 +293,7 @@ async function executeApiTask(task, agent, userId) {
       const type = String(action?.type || "");
       if (!API_ACTION_TYPES.includes(type)) {
         notes.push(
-          `Rejected "${type}" — API agents cannot use browser actions. Use http_request or finish.`
+          `Rejected "${type}" — API agents cannot use browser actions. Use http_request, message_agent, or finish.`
         );
         continue;
       }
@@ -346,6 +350,7 @@ async function executeApiTask(task, agent, userId) {
         userId,
         user,
         policy,
+        taskId: String(task._id),
       });
       notes.push(`${type}: ${result.note}`);
       trajectory.push({
@@ -383,7 +388,7 @@ async function executeApiTask(task, agent, userId) {
 
 /**
  * @param {object} action
- * @param {{ agent: import('mongoose').Document, userId: string, user: object, policy: object }} ctx
+ * @param {{ agent: import('mongoose').Document, userId: string, user: object, policy: object, taskId?: string }} ctx
  * @returns {Promise<{ ok: boolean, note: string }>}
  */
 async function executeApiAction(action, ctx) {
@@ -392,6 +397,18 @@ async function executeApiAction(action, ctx) {
     switch (type) {
       case "http_request":
         return await runHttpRequest(action, ctx);
+      case "message_agent": {
+        const result = await sendAgentMessage({
+          userId: ctx.userId,
+          fromAgentId: String(ctx.agent._id),
+          to: action.to || action.agent || action.name,
+          mode: action.mode === "question" ? "question" : "task",
+          content: action.content || action.message || action.question || "",
+          parentTaskId: ctx.taskId || null,
+          wait: action.wait !== false,
+        });
+        return { ok: result.ok, note: result.note };
+      }
       case "send_email": {
         const mail = await sendAgentEmail(ctx.agent, {
           to: action.to,

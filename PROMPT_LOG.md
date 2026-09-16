@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-16 15:15] Agent-to-agent chat v1 (message_agent)
+
+- **Prompt Provided:** Implement agent-to-agent chat v1: Agent A can ask Agent B to do work/answer via YamBot, optionally wait, with logging and loop limits.
+- **Architectural Flow:** `AgentMessage` + `agentMessageBus.sendAgentMessage` enqueues a child task for peer B (same user), enforces hop depth 1 and 5 calls/parent, optional wait up to 8m with parent `claimedAt` refresh. Browser worker + API runner expose `message_agent`; `POST /api/worker/tools/message-agent`. Peer names injected into claim snapshot / API system prompt. Chat system lines `→` / `←` on A’s thread.
+- **Impacted Files:** `backend/src/models/AgentMessage.js`, `backend/src/utils/agentMessageBus.js`, `backend/src/utils/enqueueTask.js`, `backend/src/routes/worker.js`, `backend/src/routes/agents.js`, `backend/src/utils/apiAgentActions.js`, `backend/src/utils/apiAgentRunner.js`, `backend/src/utils/deleteUserCascade.js`, `backend/src/models/Agent.js`, `worker/src/actions.js`, `worker/src/agent.js`, `frontend/src/help/agentActionsContent.js`, `frontend/src/help/helpContent.js`, PROMPT_LOG
+
 ## [2026-09-16 15:10] Chats tree: count in brackets after agent name
 
 - **Prompt Provided:** After agent name show number of chats in a bracket.
