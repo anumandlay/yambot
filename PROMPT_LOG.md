@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:30] Fix message_agent timeout + fetch failed
+
+- **Prompt Provided:** How can we solve Content Inspector timeout soft-cancel and fetch failed?
+- **Architectural Flow:** Worker no longer holds one long HTTP wait (enqueue + short polls with heartbeats). Wait raised to 25m; soft-cancel on timeout removed (peer keeps running; late results sync via poll). Child goals instruct finish — do not message_agent the sender back.
+- **Impacted Files:** `agentMessageBus.js`, `worker.js` routes, `worker/agent.js`, PROMPT_LOG
+
 ## [2026-09-16 15:35] Agent-to-agent v3 — typed modes, soft-cancel, threads, managedAgents
 
 - **Prompt Provided:** Let’s do v3.

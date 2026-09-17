@@ -3297,7 +3297,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, http: result };
       }
       case "message_agent": {
-        const result = await api("/api/worker/tools/message-agent", {
+        const wantWait = action.wait !== false && action.mode !== "event";
+        const start = await api("/api/worker/tools/message-agent", {
           method: "POST",
           body: JSON.stringify({
             agentId: config.agentId || agentSnapshot?.id,
@@ -3305,14 +3306,39 @@ export function createCloudAgent({ api, config, log = console.log }) {
             to: action.to || action.agent || action.name,
             mode: action.mode || "task",
             content: action.content || action.message || action.question || "",
-            wait: action.wait,
+            // Why: never block HTTP for minutes — enqueue then poll (avoids fetch failed).
+            wait: false,
+            clientWait: wantWait,
           }),
         });
-        const note = String(result.note || result.resultSummary || "").slice(0, 6000);
-        notes.push(note || (result.ok ? "Peer message sent." : "Peer message failed."));
+        if (!wantWait || !start.ok || !start.agentMessageId) {
+          const note = String(start.note || start.resultSummary || "").slice(0, 6000);
+          notes.push(note || (start.ok ? "Peer message queued." : "Peer message failed."));
+          return { ok: Boolean(start.ok), messageAgent: start, summary: note };
+        }
+
+        const waitMs = Number(start.waitMs) || 25 * 60 * 1000;
+        const deadline = Date.now() + waitMs;
+        let last = start;
+        while (Date.now() < deadline) {
+          // Why: keep reclaim timer + Live Wall alive while the peer works.
+          await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+          await sleep(3000);
+          last = await api(
+            `/api/worker/tools/message-agent/${start.agentMessageId}?parentTaskId=${encodeURIComponent(taskId || "")}`
+          );
+          if (!last.waiting) break;
+        }
+        if (last.waiting) {
+          const timeoutNote = `Timed out waiting for peer after ${Math.round(waitMs / 60000)}m — peer may still finish (see Agent threads).`;
+          notes.push(timeoutNote);
+          return { ok: false, messageAgent: last, summary: timeoutNote };
+        }
+        const note = String(last.note || last.resultSummary || "").slice(0, 6000);
+        notes.push(note || (last.ok ? "Peer message done." : "Peer message failed."));
         return {
-          ok: Boolean(result.ok),
-          messageAgent: result,
+          ok: Boolean(last.ok),
+          messageAgent: last,
           summary: note,
         };
       }

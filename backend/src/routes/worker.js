@@ -31,6 +31,8 @@ import { TrainingRequest } from "../models/TrainingRequest.js";
 import {
   formatPeerAgentsBlock,
   sendAgentMessage,
+  pollAgentMessageStatus,
+  AGENT_MESSAGE_WAIT_MS,
 } from "../utils/agentMessageBus.js";
 import { Skill } from "../models/Skill.js";
 import { processOutcomeRouting } from "../utils/resultRouter.js";
@@ -963,9 +965,10 @@ workerRouter.post("/tools/http", async (req, res, next) => {
 });
 
 /**
- * POST /api/worker/tools/message-agent — Agent A asks Agent B (same user) to run work.
+ * POST /api/worker/tools/message-agent — enqueue hop (never blocks long on HTTP).
  * Body: { agentId, taskId?, to, mode?, content, wait? }
- * Why: browser workers block here when wait:true; claimedAt is refreshed inside the bus.
+ * Why: wait:true used to hold the connection for minutes → proxy/worker "fetch failed".
+ * Workers enqueue with wait:false then poll GET .../message-agent/:id.
  */
 workerRouter.post("/tools/message-agent", async (req, res, next) => {
   try {
@@ -976,7 +979,11 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
     const to = String(req.body?.to || "").trim();
     const mode = String(req.body?.mode || "task").trim().toLowerCase();
     const content = String(req.body?.content || req.body?.message || "").trim();
-    const wait = req.body?.wait;
+    // Why: always queue immediately over HTTP; clientWait tells the worker to poll.
+    const clientWait =
+      req.body?.clientWait === true ||
+      req.body?.wait === true ||
+      (req.body?.wait === undefined && mode !== "event");
 
     if (!agentId) {
       res.status(400).json({ ok: false, title: "Bad request", detail: "agentId required" });
@@ -1014,18 +1021,36 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       mode,
       content,
       parentTaskId: taskId || null,
-      wait,
+      wait: false,
     });
 
     res.json({
       ok: result.ok,
       note: result.note,
+      waiting: Boolean(clientWait && result.ok),
+      clientWait: Boolean(clientWait),
+      waitMs: AGENT_MESSAGE_WAIT_MS,
       agentMessageId: result.agentMessageId || null,
       childTaskId: result.childTaskId || null,
       conversationKey: result.conversationKey || null,
       resultSummary: result.resultSummary || "",
       resultPayload: result.resultPayload || null,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/worker/tools/message-agent/:id — short poll for peer completion.
+ * Query: parentTaskId? (refreshes claimedAt)
+ */
+workerRouter.get("/tools/message-agent/:id", async (req, res, next) => {
+  try {
+    const status = await pollAgentMessageStatus(req.userId, req.params.id, {
+      parentTaskId: String(req.query?.parentTaskId || "").trim() || null,
+    });
+    res.json(status);
   } catch (err) {
     next(err);
   }

@@ -1,7 +1,6 @@
 /**
- * @fileoverview Agent-to-agent message bus (v3).
- * Purpose: Typed hops (task/question/approval/handoff/event), depth 2, soft-cancel,
- * managedAgents gates for managers, chat + event + thread logging.
+ * @fileoverview Agent-to-agent message bus (v3.1).
+ * Purpose: Typed hops, depth 2, managedAgents gates; wait is polled (no soft-cancel on timeout).
  * Downstream: worker/API message_agent; Operations; Agent Threads page.
  */
 
@@ -15,8 +14,8 @@ import { emitEvent } from "./eventBus.js";
 
 /** A→B→C allowed; further hops rejected. */
 export const MAX_AGENT_MESSAGE_HOP_DEPTH = 2;
-/** Max wait for peer when wait:true (ms). */
-export const AGENT_MESSAGE_WAIT_MS = 8 * 60 * 1000;
+/** Max wait for peer when wait:true (ms) — browser inspections often exceed 8m. */
+export const AGENT_MESSAGE_WAIT_MS = 25 * 60 * 1000;
 const POLL_MS = 2_000;
 
 /** Outbound modes agents may send (result is system-generated). */
@@ -60,8 +59,12 @@ function defaultWaitForMode(mode) {
  * @returns {string}
  */
 function buildChildGoal(mode, fromName, content, hopDepth, canRelayFurther, parentTaskId) {
+  const finishRule = [
+    `CRITICAL: When done, call finish with your full answer in summary.`,
+    `Do NOT message_agent “${fromName}” (the sender) — they already wait on your finish result.`,
+  ].join(" ");
   const depthNote = canRelayFurther
-    ? `You may message_agent one more peer if needed (current hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}).`
+    ? `You may message_agent a *different* peer for help (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}), but prefer finishing yourself.`
     : `Do NOT call message_agent again — depth limit (${MAX_AGENT_MESSAGE_HOP_DEPTH}) reached. Finish with your own result.`;
 
   /** @type {Record<string, string>} */
@@ -79,6 +82,7 @@ function buildChildGoal(mode, fromName, content, hopDepth, canRelayFurther, pare
     `Hop depth: ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}`,
     parentTaskId ? `Parent task: ${parentTaskId}` : "",
     intros[mode] || intros.task,
+    finishRule,
     depthNote,
     "Reply with finish when done.",
     "",
@@ -161,30 +165,216 @@ export async function hopDepthForTask(taskId) {
 }
 
 /**
- * Soft-cancel a child task when the parent timed out waiting.
- * @param {string} childTaskId
- * @param {string|null} parentTaskId
+ * If child task finished, write result rows / chat / events onto the outbound hop.
+ * @param {import('mongoose').Document} outbound
+ * @param {object} child — lean task
+ * @param {{ parentChatId?: string|null, toAgentName?: string, fromAgentId?: string, toAgentId?: string, mode?: string }} ctx
+ * @returns {Promise<object>}
  */
-async function softCancelChildTask(childTaskId, parentTaskId) {
-  await Task.findOneAndUpdate(
-    {
-      _id: childTaskId,
-      status: { $in: ["pending", "running", "waiting_user", "blocked"] },
-    },
-    {
-      $set: { status: "cancelled" },
-      $push: {
-        events: {
-          type: "cancelled",
-          payload: {
-            reason: "agent_message_wait_timeout",
-            parentTaskId: parentTaskId || null,
-          },
-          at: new Date(),
-        },
+async function finalizeOutboundFromChild(outbound, child, ctx) {
+  const success = child.status === "done";
+  const summary = String(
+    success ? child.resultSummary || "Done." : child.lastError || child.resultSummary || "Failed."
+  ).slice(0, 6000);
+  const mode = ctx.mode || outbound.type;
+  const hopDepth = outbound.hopDepth;
+  const conversationKey = outbound.conversationKey;
+  const parentTaskId = outbound.parentTask ? String(outbound.parentTask) : null;
+  const toAgentId = ctx.toAgentId || String(outbound.toAgent);
+  const fromAgentId = ctx.fromAgentId || String(outbound.fromAgent);
+  const toAgentName = ctx.toAgentName || "peer";
+
+  const resultPayload = {
+    success,
+    mode,
+    hopDepth,
+    conversationKey,
+    childTaskId: String(child._id || outbound.childTask),
+    status: child.status,
+    summary,
+    approved: mode === "approval" ? success : undefined,
+    handedOff: mode === "handoff" ? success : undefined,
+    late: outbound.status === "timeout",
+  };
+
+  outbound.status = success ? "done" : "error";
+  outbound.resultSummary = summary;
+  outbound.lastError = success ? "" : summary;
+  outbound.resultPayload = resultPayload;
+  await outbound.save();
+
+  const existingResult = await AgentMessage.findOne({
+    conversationKey,
+    type: "result",
+    childTask: outbound.childTask,
+  })
+    .select("_id")
+    .lean();
+  if (!existingResult) {
+    await AgentMessage.create({
+      user: outbound.user,
+      fromAgent: toAgentId,
+      toAgent: fromAgentId,
+      type: "result",
+      content: summary,
+      status: success ? "done" : "error",
+      parentTask: parentTaskId,
+      childTask: outbound.childTask,
+      conversationKey,
+      hopDepth,
+      resultSummary: summary,
+      resultPayload,
+      lastError: success ? "" : summary,
+      wait: false,
+    }).catch(() => null);
+  }
+
+  if (ctx.parentChatId) {
+    await Message.create({
+      chat: ctx.parentChatId,
+      role: "system",
+      content: `← ${toAgentName} [${mode}]: ${summary.slice(0, 500)}${summary.length > 500 ? "…" : ""}`,
+      meta: {
+        kind: "agent_message_in",
+        agentMessageId: String(outbound._id),
+        fromAgentId: toAgentId,
+        toAgentId: fromAgentId,
+        parentTaskId,
+        childTaskId: String(outbound.childTask),
+        success,
+        hopDepth,
+        mode,
+        conversationKey,
+        late: resultPayload.late,
       },
+    }).catch(() => null);
+  }
+
+  await emitEvent({
+    userId: String(outbound.user),
+    type: success ? "agent.message.result" : "agent.message.failed",
+    source: "system",
+    agentId: toAgentId,
+    taskId: String(outbound.childTask),
+    significance: success ? "medium" : "high",
+    summary: `${toAgentName} → parent [${mode}]: ${summary.slice(0, 240)}`,
+    correlationId: conversationKey,
+    payload: {
+      agentMessageId: String(outbound._id),
+      fromAgentId: toAgentId,
+      toAgentId: fromAgentId,
+      hopDepth,
+      success,
+      mode,
+      childTaskId: String(outbound.childTask),
+      conversationKey,
+      late: resultPayload.late,
+    },
+    dedupeKey: `agent.message.result:${outbound._id}`,
+  }).catch(() => null);
+
+  return {
+    ok: success,
+    waiting: false,
+    status: outbound.status,
+    note: success
+      ? `Result from ${toAgentName} [${mode}]:\n${summary}`
+      : `Peer ${toAgentName} [${mode}] failed:\n${summary}`,
+    agentMessageId: String(outbound._id),
+    childTaskId: String(outbound.childTask),
+    conversationKey,
+    resultSummary: summary,
+    resultPayload,
+  };
+}
+
+/**
+ * Poll status of an outbound agent message (for worker short HTTP polls).
+ * Finalizes when the child task completes — including after a prior wait timeout.
+ * @param {string} userId
+ * @param {string} agentMessageId
+ * @param {{ parentTaskId?: string|null }} [opts]
+ * @returns {Promise<object>}
+ */
+export async function pollAgentMessageStatus(userId, agentMessageId, opts = {}) {
+  const id = String(agentMessageId || "").trim();
+  if (!id) return { ok: false, waiting: false, note: "agentMessageId required" };
+
+  const outbound = await AgentMessage.findOne({ _id: id, user: userId });
+  if (!outbound) return { ok: false, waiting: false, note: "Agent message missing" };
+
+  if (opts.parentTaskId) {
+    await Task.findByIdAndUpdate(opts.parentTaskId, { $set: { claimedAt: new Date() } }).catch(
+      () => null
+    );
+  }
+
+  if (outbound.status === "done" || outbound.status === "error") {
+    return {
+      ok: outbound.status === "done",
+      waiting: false,
+      status: outbound.status,
+      note:
+        outbound.status === "done"
+          ? `Result:\n${outbound.resultSummary || ""}`
+          : `Peer failed:\n${outbound.lastError || outbound.resultSummary || ""}`,
+      agentMessageId: String(outbound._id),
+      childTaskId: outbound.childTask ? String(outbound.childTask) : null,
+      conversationKey: outbound.conversationKey || "",
+      resultSummary: outbound.resultSummary || "",
+      resultPayload: outbound.resultPayload || null,
+    };
+  }
+
+  if (!outbound.childTask) {
+    return {
+      ok: false,
+      waiting: outbound.status === "queued" || outbound.status === "running",
+      status: outbound.status,
+      note: "Child task not linked yet",
+      agentMessageId: String(outbound._id),
+    };
+  }
+
+  const child = await Task.findById(outbound.childTask)
+    .select("status resultSummary lastError")
+    .lean();
+  if (!child) {
+    return {
+      ok: false,
+      waiting: false,
+      status: "error",
+      note: "Child task missing",
+      agentMessageId: String(outbound._id),
+    };
+  }
+
+  if (child.status === "done" || child.status === "error" || child.status === "cancelled") {
+    let parentChatId = null;
+    if (outbound.parentTask) {
+      const pt = await Task.findById(outbound.parentTask).select("chat").lean();
+      parentChatId = pt?.chat ? String(pt.chat) : null;
     }
-  ).catch(() => null);
+    const toAgent = await Agent.findById(outbound.toAgent).select("name").lean();
+    return finalizeOutboundFromChild(outbound, child, {
+      parentChatId,
+      toAgentName: toAgent?.name || "peer",
+      fromAgentId: String(outbound.fromAgent),
+      toAgentId: String(outbound.toAgent),
+      mode: outbound.type,
+    });
+  }
+
+  return {
+    ok: true,
+    waiting: true,
+    status: outbound.status || "running",
+    note: `Still waiting on peer (child ${outbound.childTask} is ${child.status}).`,
+    agentMessageId: String(outbound._id),
+    childTaskId: String(outbound.childTask),
+    conversationKey: outbound.conversationKey || "",
+    waitMs: AGENT_MESSAGE_WAIT_MS,
+  };
 }
 
 /**
@@ -395,112 +585,24 @@ export async function sendAgentMessage(opts) {
       .lean();
     if (!child) break;
     if (child.status === "done" || child.status === "error" || child.status === "cancelled") {
-      const success = child.status === "done";
-      const summary = String(
-        success ? child.resultSummary || "Done." : child.lastError || child.resultSummary || "Failed."
-      ).slice(0, 6000);
-
-      const resultPayload = {
-        success,
+      return finalizeOutboundFromChild(outbound, child, {
+        parentChatId,
+        toAgentName: toAgent.name,
+        fromAgentId: String(fromAgent._id),
+        toAgentId: String(toAgent._id),
         mode,
-        hopDepth,
-        conversationKey,
-        childTaskId: String(enq.task._id),
-        status: child.status,
-        summary,
-        approved: mode === "approval" ? success : undefined,
-        handedOff: mode === "handoff" ? success : undefined,
-      };
-
-      outbound.status = success ? "done" : "error";
-      outbound.resultSummary = summary;
-      outbound.lastError = success ? "" : summary;
-      outbound.resultPayload = resultPayload;
-      await outbound.save();
-
-      await AgentMessage.create({
-        user: userId,
-        fromAgent: toAgent._id,
-        toAgent: fromAgent._id,
-        type: "result",
-        content: summary,
-        status: success ? "done" : "error",
-        parentTask: parentTaskId,
-        childTask: enq.task._id,
-        conversationKey,
-        hopDepth,
-        resultSummary: summary,
-        resultPayload,
-        lastError: success ? "" : summary,
-        wait: false,
-      }).catch(() => null);
-
-      if (parentChatId) {
-        await Message.create({
-          chat: parentChatId,
-          role: "system",
-          content: `← ${toAgent.name} [${mode}]: ${summary.slice(0, 500)}${summary.length > 500 ? "…" : ""}`,
-          meta: {
-            kind: "agent_message_in",
-            agentMessageId: String(outbound._id),
-            fromAgentId: String(toAgent._id),
-            toAgentId: String(fromAgent._id),
-            parentTaskId,
-            childTaskId: String(enq.task._id),
-            success,
-            hopDepth,
-            mode,
-            conversationKey,
-          },
-        }).catch(() => null);
-      }
-
-      await emitEvent({
-        userId,
-        type: success ? "agent.message.result" : "agent.message.failed",
-        source: "system",
-        agentId: String(toAgent._id),
-        taskId: String(enq.task._id),
-        significance: success ? "medium" : "high",
-        summary: `${toAgent.name} → ${fromAgent.name} [${mode}]: ${summary.slice(0, 240)}`,
-        correlationId: conversationKey,
-        payload: {
-          agentMessageId: String(outbound._id),
-          fromAgentId: String(toAgent._id),
-          toAgentId: String(fromAgent._id),
-          hopDepth,
-          success,
-          mode,
-          childTaskId: String(enq.task._id),
-          conversationKey,
-        },
-        dedupeKey: `agent.message.result:${outbound._id}`,
-      }).catch(() => null);
-
-      return {
-        ok: success,
-        note: success
-          ? `Result from ${toAgent.name} [${mode}]:\n${summary}`
-          : `Peer ${toAgent.name} [${mode}] failed:\n${summary}`,
-        agentMessageId: String(outbound._id),
-        childTaskId: String(enq.task._id),
-        conversationKey,
-        resultSummary: summary,
-        resultPayload,
-      };
+      });
     }
     await new Promise((r) => setTimeout(r, POLL_MS));
   }
 
-  // Why: v3 soft-cancel — stop burning peer LLM after the parent gave up waiting.
-  await softCancelChildTask(String(enq.task._id), parentTaskId);
-
+  // Why: do not soft-cancel — peer may still finish; pollAgentMessageStatus can sync late results.
   outbound.status = "timeout";
-  outbound.lastError = `Timed out waiting for ${toAgent.name} after ${Math.round(AGENT_MESSAGE_WAIT_MS / 60000)}m (child soft-cancelled)`;
+  outbound.lastError = `Timed out waiting for ${toAgent.name} after ${Math.round(AGENT_MESSAGE_WAIT_MS / 60000)}m (peer still running in background)`;
   outbound.resultPayload = {
     success: false,
     timedOut: true,
-    softCancelled: true,
+    softCancelled: false,
     mode,
     hopDepth,
     conversationKey,
@@ -512,7 +614,7 @@ export async function sendAgentMessage(opts) {
     await Message.create({
       chat: parentChatId,
       role: "system",
-      content: `← ${toAgent.name} [${mode}]: (timeout — peer task soft-cancelled)`,
+      content: `← ${toAgent.name} [${mode}]: (wait timeout — peer still running; check Agent threads later)`,
       meta: {
         kind: "agent_message_timeout",
         agentMessageId: String(outbound._id),
@@ -522,7 +624,7 @@ export async function sendAgentMessage(opts) {
         hopDepth,
         mode,
         conversationKey,
-        softCancelled: true,
+        softCancelled: false,
       },
     }).catch(() => null);
   }
@@ -534,7 +636,7 @@ export async function sendAgentMessage(opts) {
     agentId: String(fromAgent._id),
     taskId: parentTaskId,
     significance: "high",
-    summary: `${fromAgent.name} timed out waiting for ${toAgent.name} [${mode}] — child soft-cancelled`,
+    summary: `${fromAgent.name} timed out waiting for ${toAgent.name} [${mode}] — peer left running`,
     correlationId: conversationKey,
     payload: {
       agentMessageId: String(outbound._id),
@@ -543,14 +645,14 @@ export async function sendAgentMessage(opts) {
       mode,
       childTaskId: String(enq.task._id),
       conversationKey,
-      softCancelled: true,
+      softCancelled: false,
     },
     dedupeKey: `agent.message.timeout:${outbound._id}`,
   }).catch(() => null);
 
   return {
     ok: false,
-    note: `Timed out waiting for ${toAgent.name}. Child task ${enq.task._id} was soft-cancelled.`,
+    note: `Timed out waiting for ${toAgent.name}. Child task ${enq.task._id} is still running — open Agent threads or keep polling for a late result.`,
     agentMessageId: String(outbound._id),
     childTaskId: String(enq.task._id),
     conversationKey,
@@ -599,6 +701,7 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
     "PEER AGENTS (collaborate via message_agent; use exact names):",
     'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true }',
     "Modes: task=do work; question=answer; approval=approve/reject via finish; handoff=peer owns work; event=FYI (default wait:false).",
+    "Peers must finish with the answer — they must not message_agent you back.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
       (allowIds ? " You are a manager — only message managedAgents listed below." : ""),
     ...lines,
