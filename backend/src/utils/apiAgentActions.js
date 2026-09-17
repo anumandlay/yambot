@@ -24,6 +24,7 @@ export const API_ACTION_TYPES = [
   "send_sms",
   "http_request",
   "message_agent",
+  "memory",
   "investigate",
   "finish",
 ];
@@ -44,6 +45,7 @@ export function buildApiActionSchemaForPrompt() {
     "Action fields:",
     '- http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://...", "headers":{}, "body":"..." }',
     '- message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true }',
+    '- memory: { "type":"memory", "action":"add|replace|remove", "target":"user|memory", "content":"...", "old_text":"..." }',
     '- send_email: { "type":"send_email", "to":"...", "subject":"...", "text":"..." }',
     '- check_email: { "type":"check_email", "limit": 5, "unseen": true }',
     '- search_entities: { "type":"search_entities", "q":"...", "type":"lead|customer|...", "limit": 10 }',
@@ -57,6 +59,7 @@ export function buildApiActionSchemaForPrompt() {
     "",
     "Rules: Prefer http_request for external APIs. Never invent browser actions (navigate/click/type).",
     "Use message_agent to collaborate with peers (modes: task|question|approval|handoff|event; max hop depth 2).",
+    "Use memory to save durable user prefs (target user) or agent notes (target memory); hard char caps — replace/remove when full.",
     "Call finish when the goal is done or clearly impossible.",
   ].join("\n");
 }

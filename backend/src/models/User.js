@@ -122,6 +122,15 @@ const settingsSchema = new mongoose.Schema(
 const userSchema = new mongoose.Schema(
   {
     name: { type: String, required: true, trim: true },
+    /**
+     * Hermes-style USER.md — account-level curated facts (prefs, identity).
+     * Why: shared across all agents; frozen into each task snapshot at enqueue.
+     * Entries joined by `\n§\n`; hard cap 1,375 chars (see curatedMemory.js).
+     */
+    curatedMemory: {
+      entries: { type: [String], default: [] },
+      updatedAt: { type: Date, default: null },
+    },
     email: {
       type: String,
       required: true,

@@ -914,8 +914,8 @@ export const HELP = {
   "agent.memory": {
     title: "Agent memory notes",
     body: helpBody(
-      "Long-term notes the agent (or you) append across runs — surfaced in future prompts. Use for lessons learned, site quirks, customer context.",
-      "Open View memory for day-by-day history and the login vault."
+      "Curated MEMORY (Hermes-style) holds durable agent notes with a 2,200 character cap — frozen into each run. Account USER prefs live under Settings → Memory.",
+      "Open View memory for curated entries, day-by-day history, and the login vault."
     ),
   },
   "agent.memory.credentials": {

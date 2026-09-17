@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 13:40] Hermes-style curated USER + MEMORY
+
+- **Prompt Provided:** Yes lets go (implement Hermes MemoryStore on Mongo).
+- **Architectural Flow:** Account `User.curatedMemory` (USER.md, 1,375 chars) + per-agent `Agent.curatedMemory` (MEMORY.md, 2,200 chars). Entries §-delimited; threat scan; hard reject when full. Frozen blocks captured in `toAgentSnapshot` at enqueue. Mid-run `memory` tool (add/replace/remove, target user|memory) persists immediately but does not mutate the task prompt. Settings → Memory UI + Agent Memory curated section; dayLogs/episodic notes/vault unchanged.
+- **Impacted Files:** `curatedMemory.js`, `curatedMemoryOps.js`, User/Agent models, enqueueTask, formatAgentPrompt, agents/settings/worker routes, apiAgentActions/Runner, worker actions/agent, SettingsMemoryPage, AgentMemoryPage, App/SettingsLayout, help, PROMPT_LOG
+
 ## [2026-09-17 12:28] Agent group tree views
 
 - **Prompt Provided:** Wherever agents are showing, show a tree-like view by group.

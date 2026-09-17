@@ -28,6 +28,7 @@ import { unblockDependentTasks } from "./enqueueTask.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js";
+import { normalizeEntries } from "./curatedMemory.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
 import { formatPeerAgentsBlock, sendAgentMessage } from "./agentMessageBus.js";
 
@@ -215,7 +216,14 @@ async function executeApiTask(task, agent, userId) {
 
   const snapshot = task.agentSnapshot?.id
     ? { ...task.agentSnapshot, mode: "api" }
-    : { ...toAgentSnapshot(agent, { goal: task.goal }), mode: "api" };
+    : {
+        ...toAgentSnapshot(agent, {
+          goal: task.goal,
+          userCuratedEntries: normalizeEntries(user?.curatedMemory?.entries),
+          agentCuratedEntries: normalizeEntries(agent.curatedMemory?.entries),
+        }),
+        mode: "api",
+      };
 
   const peerBlock = await formatPeerAgentsBlock(userId, String(agent._id));
 
@@ -408,6 +416,24 @@ async function executeApiAction(action, ctx) {
           wait: action.wait,
         });
         return { ok: result.ok, note: result.note };
+      }
+      case "memory": {
+        const { mutateCuratedMemory } = await import("./curatedMemoryOps.js");
+        const result = await mutateCuratedMemory({
+          userId: ctx.userId,
+          agentId: String(ctx.agent._id),
+          action: action.action || "add",
+          target: action.target || "memory",
+          content: action.content || action.text || "",
+          oldText: action.old_text || action.oldText || "",
+        });
+        if (!result.success) {
+          return { ok: false, note: result.error || "Memory update failed" };
+        }
+        return {
+          ok: true,
+          note: `${result.message || "Memory updated."} (${result.usage || ""}; ${result.entryCount ?? "?"} entries)`,
+        };
       }
       case "send_email": {
         const mail = await sendAgentEmail(ctx.agent, {

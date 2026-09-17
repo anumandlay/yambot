@@ -7,7 +7,9 @@
 import { Agent, toAgentSnapshot } from "../models/Agent.js";
 import { Chat, Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
+import { User } from "../models/User.js";
 import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.js";
+import { normalizeEntries } from "./curatedMemory.js";
 
 /**
  * One human chat per agent — find the newest agent chat or create it.
@@ -140,6 +142,11 @@ export async function enqueueTask(opts) {
   const workflowRunId = opts.workflowRunId || opts.meta?.workflowRunId || null;
   const correlationId = String(opts.correlationId || opts.meta?.correlationId || "").trim();
 
+  // Why: freeze account USER.md + agent MEMORY.md at enqueue (Hermes session snapshot).
+  const owner = await User.findById(userId).select("curatedMemory").lean();
+  const userCuratedEntries = normalizeEntries(owner?.curatedMemory?.entries);
+  const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+
   const task = await Task.create({
     user: userId,
     chat: chat._id,
@@ -156,7 +163,11 @@ export async function enqueueTask(opts) {
     priority,
     priorityRank: priorityRank(priority),
     agent: agentId,
-    agentSnapshot: toAgentSnapshot(agentDoc, { goal: goalText }),
+    agentSnapshot: toAgentSnapshot(agentDoc, {
+      goal: goalText,
+      userCuratedEntries,
+      agentCuratedEntries,
+    }),
     runner: "cloud",
     status: blockedByDeps > 0 ? "blocked" : "pending",
     dependsOn,

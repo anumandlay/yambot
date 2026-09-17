@@ -468,3 +468,81 @@ settingsRouter.post("/test-dbc", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * GET /api/settings/curated-memory — account USER.md curated facts.
+ * Why: Hermes-style user profile shared by all agents; operator can edit/clear.
+ */
+settingsRouter.get("/curated-memory", async (req, res, next) => {
+  try {
+    const { getUserCuratedMemory } = await import("../utils/curatedMemoryOps.js");
+    const store = await getUserCuratedMemory(req.userId);
+    res.json({ ok: true, target: "user", ...store });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/settings/curated-memory — add|replace|remove on USER store.
+ * Body: { action, content?, oldText? }
+ */
+settingsRouter.post("/curated-memory", async (req, res, next) => {
+  try {
+    const { mutateCuratedMemory } = await import("../utils/curatedMemoryOps.js");
+    const result = await mutateCuratedMemory({
+      userId: req.userId,
+      action: req.body?.action,
+      target: "user",
+      content: req.body?.content,
+      oldText: req.body?.oldText || req.body?.old_text,
+    });
+    if (!result.success) {
+      res.status(400).json({ ok: false, title: "Memory update failed", detail: result.error, ...result });
+      return;
+    }
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/settings/curated-memory — replace entire USER store (or clear with []).
+ * Body: { entries: string[] }
+ */
+settingsRouter.put("/curated-memory", async (req, res, next) => {
+  try {
+    const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const result = await setCuratedMemoryEntries({
+      userId: req.userId,
+      target: "user",
+      entries,
+    });
+    if (!result.success) {
+      res.status(400).json({ ok: false, title: "Memory update failed", detail: result.error });
+      return;
+    }
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/settings/curated-memory — clear USER store.
+ */
+settingsRouter.delete("/curated-memory", async (req, res, next) => {
+  try {
+    const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
+    const result = await setCuratedMemoryEntries({
+      userId: req.userId,
+      target: "user",
+      entries: [],
+    });
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});

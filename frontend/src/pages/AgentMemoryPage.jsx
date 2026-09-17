@@ -1,7 +1,7 @@
 /**
- * @fileoverview Agent memory viewer — day history, notes, and credential vault.
- * Purpose: Inspect what the agent did (by day) and manage site logins it may reuse.
- * Downstream: GET/POST/PATCH/DELETE `/api/agents/:id/memory` and `/credentials`.
+ * @fileoverview Agent memory viewer — curated MEMORY, day history, notes, credentials.
+ * Purpose: Inspect Hermes-style curated notes plus day logs and site logins.
+ * Downstream: GET/POST `/api/agents/:id/memory`, curated-memory, credentials.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -70,6 +70,9 @@ export function AgentMemoryPage() {
   const [memory, setMemory] = useState([]);
   const [dayLogs, setDayLogs] = useState([]);
   const [credentials, setCredentials] = useState([]);
+  const [curatedEntries, setCuratedEntries] = useState([]);
+  const [curatedUsage, setCuratedUsage] = useState("");
+  const [curatedDraft, setCuratedDraft] = useState("");
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState({});
   const [credForm, setCredForm] = useState(EMPTY_CRED);
@@ -78,6 +81,7 @@ export function AgentMemoryPage() {
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(true);
   const [credBusy, setCredBusy] = useState(false);
+  const [curatedBusy, setCuratedBusy] = useState(false);
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -88,6 +92,8 @@ export function AgentMemoryPage() {
       setMemory(data.memory || []);
       setDayLogs(data.dayLogs || []);
       setCredentials(data.credentials || []);
+      setCuratedEntries(data.curatedMemory?.entries || []);
+      setCuratedUsage(data.curatedMemory?.usage || "");
       setError(null);
     } catch (err) {
       setError(err);
@@ -188,7 +194,7 @@ export function AgentMemoryPage() {
     if (
       !agentId ||
       !window.confirm(
-        "Clear day history and memory notes? Saved logins will be kept."
+        "Clear day history and episodic notes? Curated MEMORY and saved logins will be kept."
       )
     ) {
       return;
@@ -197,9 +203,70 @@ export function AgentMemoryPage() {
       await api(`/api/agents/${agentId}/memory`, { method: "DELETE" });
       setMemory([]);
       setDayLogs([]);
-      setOkMsg("History cleared. Credentials kept.");
+      setOkMsg("History cleared. Curated MEMORY and credentials kept.");
     } catch (err) {
       setError(err);
+    }
+  }
+
+  /**
+   * @param {import("react").FormEvent} e
+   */
+  async function onAddCurated(e) {
+    e.preventDefault();
+    if (!agentId || !curatedDraft.trim()) return;
+    setCuratedBusy(true);
+    setOkMsg("");
+    try {
+      const data = await api(`/api/agents/${agentId}/curated-memory`, {
+        method: "POST",
+        body: JSON.stringify({ action: "add", content: curatedDraft.trim() }),
+      });
+      setCuratedEntries(data.entries || []);
+      setCuratedUsage(data.usage || "");
+      setCuratedDraft("");
+      setOkMsg(data.message || "Curated memory entry added.");
+      setError(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setCuratedBusy(false);
+    }
+  }
+
+  /**
+   * @param {string} entry
+   */
+  async function onRemoveCurated(entry) {
+    if (!agentId || !window.confirm("Remove this curated MEMORY entry?")) return;
+    setCuratedBusy(true);
+    try {
+      const data = await api(`/api/agents/${agentId}/curated-memory`, {
+        method: "POST",
+        body: JSON.stringify({ action: "remove", oldText: entry.slice(0, 80) }),
+      });
+      setCuratedEntries(data.entries || []);
+      setCuratedUsage(data.usage || "");
+      setOkMsg(data.message || "Entry removed.");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setCuratedBusy(false);
+    }
+  }
+
+  async function clearCurated() {
+    if (!agentId || !window.confirm("Clear this agent's curated MEMORY store?")) return;
+    setCuratedBusy(true);
+    try {
+      await api(`/api/agents/${agentId}/curated-memory`, { method: "DELETE" });
+      setCuratedEntries([]);
+      setCuratedUsage("0% — 0/2,200 chars");
+      setOkMsg("Curated MEMORY cleared.");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setCuratedBusy(false);
     }
   }
 
@@ -220,14 +287,20 @@ export function AgentMemoryPage() {
             Edit agent
           </Link>
         ) : null}
+        <Link
+          to="/settings/memory"
+          className="inline-flex min-h-11 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
+        >
+          Account USER memory
+        </Link>
         <h1 className="text-xl font-bold tracking-tight sm:text-2xl">
           Memory{agentName ? ` — ${agentName}` : ""}
         </h1>
       </div>
 
       <p className="text-sm text-teal-900/70">
-        Day-by-day history of what this agent did, plus logins you save for it to reuse. Their ongoing
-        chat always gets recent day summaries; matching keywords pull fuller detail into the run.
+        Curated MEMORY (durable facts, 2,200 char cap) is frozen into each run. Day history and
+        episodic notes stay separate. Account USER prefs live under Settings → Memory.
       </p>
 
       {error ? (
@@ -248,6 +321,64 @@ export function AgentMemoryPage() {
         <p className="text-sm text-teal-900/70">Loading memory…</p>
       ) : (
         <>
+          <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+            <SectionTitle className="mb-2">Curated MEMORY</SectionTitle>
+            <p className="mb-2 text-xs text-teal-900/65">
+              Agent notes / env lessons. Agents can also write via the memory tool. Usage:{" "}
+              {curatedUsage || "—"}
+            </p>
+            <ul className="mb-3 space-y-2">
+              {curatedEntries.length === 0 ? (
+                <li className="text-sm text-teal-900/60">No curated entries yet.</li>
+              ) : (
+                curatedEntries.map((entry) => (
+                  <li
+                    key={entry}
+                    className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2 text-sm"
+                  >
+                    <span className="whitespace-pre-wrap text-teal-950">{entry}</span>
+                    <button
+                      type="button"
+                      disabled={curatedBusy}
+                      onClick={() => onRemoveCurated(entry)}
+                      className="min-h-9 shrink-0 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-800"
+                    >
+                      Remove
+                    </button>
+                  </li>
+                ))
+              )}
+            </ul>
+            <form onSubmit={onAddCurated} className="flex flex-col gap-2">
+              <FieldLabel htmlFor="curated-draft">Add curated entry</FieldLabel>
+              <textarea
+                id="curated-draft"
+                value={curatedDraft}
+                onChange={(e) => setCuratedDraft(e.target.value)}
+                rows={2}
+                className="w-full rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm"
+                placeholder="e.g. Prefer Playwright over Selenium for this site"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="submit"
+                  disabled={curatedBusy || !curatedDraft.trim()}
+                  className="min-h-10 rounded-xl bg-teal-700 px-3 text-sm font-semibold text-white disabled:opacity-50"
+                >
+                  Add
+                </button>
+                <button
+                  type="button"
+                  disabled={curatedBusy || curatedEntries.length === 0}
+                  onClick={clearCurated}
+                  className="min-h-10 rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-800 disabled:opacity-50"
+                >
+                  Clear curated
+                </button>
+              </div>
+            </form>
+          </section>
+
           <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
             <SectionTitle helpId="agent.memory.credentials" className="mb-2">
               Saved logins

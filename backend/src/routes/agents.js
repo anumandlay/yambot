@@ -1101,7 +1101,7 @@ agentsRouter.put("/:id", async (req, res, next) => {
 agentsRouter.get("/:id/memory", async (req, res, next) => {
   try {
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
-      .select("name memory dayLogs credentials")
+      .select("name memory dayLogs credentials curatedMemory")
       .lean();
     if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
@@ -1124,6 +1124,11 @@ agentsRouter.get("/:id/memory", async (req, res, next) => {
       at: d.at || null,
     }));
     const credentials = decryptAgentCredentials(agent.credentials);
+    const { getAgentCuratedMemoryPublic, getUserCuratedMemory } = await import(
+      "../utils/curatedMemoryOps.js"
+    );
+    const curatedMemory = getAgentCuratedMemoryPublic(agent);
+    const curatedUser = await getUserCuratedMemory(req.userId);
     res.json({
       ok: true,
       agent: { id: String(agent._id), name: agent.name || "Agent" },
@@ -1131,7 +1136,76 @@ agentsRouter.get("/:id/memory", async (req, res, next) => {
       memory,
       dayLogs,
       credentials,
+      curatedMemory,
+      curatedUser,
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/curated-memory — Hermes MEMORY.md add|replace|remove.
+ * Body: { action, content?, oldText? }
+ */
+agentsRouter.post("/:id/curated-memory", async (req, res, next) => {
+  try {
+    const { mutateCuratedMemory } = await import("../utils/curatedMemoryOps.js");
+    const result = await mutateCuratedMemory({
+      userId: req.userId,
+      agentId: req.params.id,
+      action: req.body?.action,
+      target: "memory",
+      content: req.body?.content,
+      oldText: req.body?.oldText || req.body?.old_text,
+    });
+    if (!result.success) {
+      res.status(400).json({ ok: false, title: "Memory update failed", detail: result.error, ...result });
+      return;
+    }
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/agents/:id/curated-memory — replace entire agent MEMORY store.
+ * Body: { entries: string[] }
+ */
+agentsRouter.put("/:id/curated-memory", async (req, res, next) => {
+  try {
+    const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
+    const entries = Array.isArray(req.body?.entries) ? req.body.entries : [];
+    const result = await setCuratedMemoryEntries({
+      userId: req.userId,
+      agentId: req.params.id,
+      target: "memory",
+      entries,
+    });
+    if (!result.success) {
+      res.status(400).json({ ok: false, title: "Memory update failed", detail: result.error });
+      return;
+    }
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/curated-memory — clear agent MEMORY store (not day logs).
+ */
+agentsRouter.delete("/:id/curated-memory", async (req, res, next) => {
+  try {
+    const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
+    const result = await setCuratedMemoryEntries({
+      userId: req.userId,
+      agentId: req.params.id,
+      target: "memory",
+      entries: [],
+    });
+    res.json({ ok: true, ...result });
   } catch (err) {
     next(err);
   }

@@ -7,6 +7,7 @@
 
 import mongoose from "mongoose";
 import { decryptSecret, encryptSecret } from "../utils/crypto.js";
+import { renderCuratedBlock } from "../utils/curatedMemory.js";
 
 /**
  * Where queued goals run — cloud-only product (legacy values may exist in Mongo).
@@ -366,6 +367,16 @@ const agentSchema = new mongoose.Schema(
     },
     active: { type: Boolean, default: true },
     /**
+     * Hermes-style MEMORY.md — curated agent notes (env facts, lessons).
+     * Why: small durable facts in the prompt; separate from noisy episodic `memory`.
+     * Entries joined by `\n§\n`; hard cap 2,200 chars (see curatedMemory.js).
+     * Frozen into task snapshot at enqueue; mid-run writes update Mongo only.
+     */
+    curatedMemory: {
+      entries: { type: [String], default: [] },
+      updatedAt: { type: Date, default: null },
+    },
+    /**
      * Long-term memory for this agent (episodic notes from past runs).
      * Newest entries are first; capped when appending.
      */
@@ -596,7 +607,9 @@ export function decryptAgentCredentials(credentials) {
 /**
  * Builds a plain snapshot embedded on Task so runs stay stable if the agent is edited later.
  * @param {import('mongoose').Document|object} agentDoc
- * @param {{ goal?: string }} [opts] — goal text drives keyword retrieval of day history
+ * @param {{ goal?: string, userCuratedEntries?: string[], agentCuratedEntries?: string[] }} [opts]
+ * Why: curated USER + MEMORY blocks freeze at enqueue so mid-run memory tool writes
+ * update Mongo only (Hermes prefix-cache / frozen snapshot pattern).
  * @returns {object}
  */
 export function toAgentSnapshot(agentDoc, opts = {}) {
@@ -609,6 +622,10 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
     Boolean(email.smtpPasswordEnc);
   const goalText = String(opts.goal || "").trim();
   const { recent, relevant } = selectDayLogsForGoal(a.dayLogs, goalText);
+  const agentCurated = Array.isArray(opts.agentCuratedEntries)
+    ? opts.agentCuratedEntries
+    : a.curatedMemory?.entries;
+  const userCurated = Array.isArray(opts.userCuratedEntries) ? opts.userCuratedEntries : [];
   return {
     id: String(a._id),
     name: a.name,
@@ -648,6 +665,8 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
     dayHistoryRecent: recent,
     dayHistoryRelevant: relevant,
     credentials: decryptAgentCredentials(a.credentials),
+    curatedUserBlock: renderCuratedBlock("user", userCurated),
+    curatedMemoryBlock: renderCuratedBlock("memory", agentCurated),
   };
 }
 
@@ -692,6 +711,8 @@ export function formatAgentPrompt(snapshot) {
       : "",
     `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}; visionEnabled=${auto.visionEnabled === true}`,
     "STEP BUDGET: unlimited — call finish when done",
+    snapshot.curatedUserBlock ? String(snapshot.curatedUserBlock) : "",
+    snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
     formatCredentialsBlock(snapshot.credentials),
     formatDayHistoryBlock(snapshot.dayHistoryRecent, snapshot.dayHistoryRelevant),
     formatMemoryBlock(snapshot.memory),
@@ -699,6 +720,7 @@ export function formatAgentPrompt(snapshot) {
       ? String(snapshot.chatContext)
       : "",
     snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
+    "CURATED MEMORY TOOL: Use action type memory with action add|replace|remove, target user|memory, content, and old_text (for replace/remove). Writes persist for the next run; this prompt's USER/MEMORY blocks stay frozen until then.",
   ]
     .filter(Boolean)
     .join("\n\n");

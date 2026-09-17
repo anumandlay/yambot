@@ -51,6 +51,7 @@ export const ACTION_TYPES = [
   "send_sms",
   "http_request",
   "message_agent",
+  "memory",
   "investigate",
   "request_training",
   "finish",
@@ -59,7 +60,7 @@ export const ACTION_TYPES = [
 /** Field docs + locator/business rules appended after the batch header. */
 const ACTION_FIELDS_AND_RULES = `
 "type" for action.type:
-"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|message_agent|investigate|request_training|finish>"
+"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|message_agent|memory|investigate|request_training|finish>"
 
 Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
@@ -108,6 +109,7 @@ Action fields:
 - send_sms: { "type":"send_sms", "to":"+1...", "body":"..." }
 - http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://api.example.com/...", "headers":{ "Authorization":"Bearer ..." }, "body":"..." } — server-side HTTP (host must be in Policies httpAllowHosts when configured)
 - message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true } — ask another agent. Modes: task/question/approval/handoff/event. wait defaults true except event. Max hop depth 2 (A→B→C). Managers may only message managedAgents when that list is set.
+- memory: { "type":"memory", "action":"add|replace|remove", "target":"user|memory", "content":"...", "old_text":"..." } — durable curated facts. target user = account prefs/identity (USER.md); target memory = this agent's notes (MEMORY.md). Hard char caps — replace/remove when full. Writes apply next run; frozen prompt blocks do not change mid-run.
 - investigate: { "type":"investigate", "question":"...", "sources":["https://..."], "evidence":[{ "source":"site A", "claim":"...", "confidence":0.8 }] } — multi-source research; pass evidence when synthesizing before finish
 - request_training: { "type":"request_training", "workflow":"...", "observation":"what failed", "recommendation":"..." } — file a human training request when stuck on a workflow
 - finish: { "type":"finish", "summary":"final answer / result for the user", "success": true }

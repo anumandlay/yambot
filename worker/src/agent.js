@@ -1429,9 +1429,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
       relevantDays
         ? `RELEVANT PAST WORK (matched keywords from this goal):\n${relevantDays}`
         : "",
-      memory ? `AGENT MEMORY:\n${memory}` : "",
+      memory ? `AGENT MEMORY (episodic notes):\n${memory}` : "",
+      snapshot.curatedUserBlock ? String(snapshot.curatedUserBlock) : "",
+      snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
       snapshot.chatContext ? String(snapshot.chatContext) : "",
       snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
+      "CURATED MEMORY: Use action type memory { action: add|replace|remove, target: user|memory, content, old_text }. Persist durable facts for the next run; USER/MEMORY blocks above stay frozen until then.",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
       "There is no step limit — call finish when the goal or success criteria are met.",
     ]
@@ -3341,6 +3344,27 @@ export function createCloudAgent({ api, config, log = console.log }) {
           messageAgent: last,
           summary: note,
         };
+      }
+      case "memory": {
+        try {
+          const result = await api("/api/worker/tools/memory", {
+            method: "POST",
+            body: JSON.stringify({
+              agentId: config.agentId || agentSnapshot?.id,
+              action: action.action || "add",
+              target: action.target || "memory",
+              content: action.content || action.text || "",
+              oldText: action.old_text || action.oldText || "",
+            }),
+          });
+          const note = `${result.message || "Memory updated."} (${result.usage || ""}; ${result.entryCount ?? "?"} entries)`;
+          notes.push(note);
+          return { ok: true, memory: result, summary: note };
+        } catch (err) {
+          const note = String(err?.detail || err?.message || "Memory update failed");
+          notes.push(note);
+          return { ok: false, summary: note };
+        }
       }
       case "type": {
         const runType = async () => {

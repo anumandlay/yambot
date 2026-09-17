@@ -35,6 +35,9 @@ export function SettingsLayout() {
         <NavLink to="/settings/openai" className={tabClass}>
           OpenAI OAuth
         </NavLink>
+        <NavLink to="/settings/memory" className={tabClass}>
+          Memory
+        </NavLink>
       </nav>
 
       <Outlet />

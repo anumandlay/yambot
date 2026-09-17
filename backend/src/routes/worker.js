@@ -965,6 +965,35 @@ workerRouter.post("/tools/http", async (req, res, next) => {
 });
 
 /**
+ * POST /api/worker/tools/memory — Hermes curated memory add|replace|remove.
+ * Body: { agentId, action, target: "user"|"memory", content?, oldText? }
+ * Why: mid-run writes update Mongo immediately; frozen prompt blocks stay until next task.
+ */
+workerRouter.post("/tools/memory", async (req, res, next) => {
+  try {
+    const agentId = String(
+      req.body?.agentId || req.headers["x-yambot-agent-id"] || ""
+    ).trim();
+    const { mutateCuratedMemory } = await import("../utils/curatedMemoryOps.js");
+    const result = await mutateCuratedMemory({
+      userId: req.userId,
+      agentId,
+      action: req.body?.action,
+      target: req.body?.target || "memory",
+      content: req.body?.content,
+      oldText: req.body?.oldText || req.body?.old_text,
+    });
+    if (!result.success) {
+      res.status(400).json({ ok: false, title: "Memory update failed", detail: result.error, ...result });
+      return;
+    }
+    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/worker/tools/message-agent — enqueue hop (never blocks long on HTTP).
  * Body: { agentId, taskId?, to, mode?, content, wait? }
  * Why: wait:true used to hold the connection for minutes → proxy/worker "fetch failed".
