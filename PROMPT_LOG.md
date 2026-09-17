@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:05] Fix: parent agent must not open URL meant for peer
+
+- **Prompt Provided:** Agent A tasked Agent B to open a website and report back — why is A opening the same site?
+- **Architectural Flow:** Parent worker bootstrap navigated any URL found in the goal before the LLM could `message_agent`. Skip bootstrap when the goal looks like peer delegation; harden peer/prompt rules so A only messages B and waits.
+- **Impacted Files:** `worker/src/agent.js`, `worker/src/actions.js`, `agentMessageBus.js`, `PROMPT_LOG.md`
+
 ## [2026-09-17 14:35] Snapshot + trajectory as icons under agent screen
 
 - **Prompt Provided:** Make page snapshot and trajectory small icons below the agent screen.

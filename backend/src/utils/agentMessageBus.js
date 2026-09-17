@@ -702,6 +702,7 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
     'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true }',
     "Modes: task=do work; question=answer; approval=approve/reject via finish; handoff=peer owns work; event=FYI (default wait:false).",
     "Peers must finish with the answer — they must not message_agent you back.",
+    "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
       (allowIds ? " You are a manager — only message managedAgents listed below." : ""),
     ...lines,

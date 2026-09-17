@@ -233,6 +233,58 @@ function inferStartUrlFromGoal(goal, preferredStart = "") {
 }
 
 /**
+ * Peer display names from formatPeerAgentsBlock lines ("- Name (browser) — …").
+ * @param {string} peerAgentsBlock
+ * @returns {string[]}
+ */
+function extractPeerNamesFromBlock(peerAgentsBlock) {
+  /** @type {string[]} */
+  const names = [];
+  for (const line of String(peerAgentsBlock || "").split("\n")) {
+    const m = line.match(/^- (.+?) \((?:browser|api)\)/);
+    if (m?.[1]) names.push(m[1].trim());
+  }
+  return names;
+}
+
+/**
+ * True when the goal is clearly “have another agent open/visit X” — parent must not bootstrap-navigate.
+ * Why: otherwise Agent A opens the same URL that Agent B was asked to open and report back.
+ * @param {string} goal
+ * @param {string} [peerAgentsBlock]
+ * @returns {boolean}
+ */
+function goalLooksLikePeerDelegation(goal, peerAgentsBlock = "") {
+  const text = String(goal || "");
+  const g = text.toLowerCase();
+  if (!text.trim()) return false;
+  if (/\bmessage_agent\b/i.test(text)) return true;
+
+  const peers = extractPeerNamesFromBlock(peerAgentsBlock);
+  const mentionsPeer = peers.some((name) => {
+    const n = String(name || "").trim().toLowerCase();
+    if (!n) return false;
+    return g.includes(n);
+  });
+
+  const delegateVerb =
+    /\b(ask|tell|have|get|send|assign|delegate|forward)\b[\s\S]{0,80}\bto\b/i.test(text) ||
+    /\b(ask|tell|have)\s+[\w][\w\s.-]{0,40}\s+to\b/i.test(text) ||
+    /\bhave\s+[\w][\w\s.-]{0,40}\s+(open|visit|go|check|browse|do|run)\b/i.test(text) ||
+    /\b(open|visit|check|browse|look\s+up)[\s\S]{0,80}\breport\s+back\b/i.test(text) ||
+    /\breport\s+back\b/i.test(g);
+
+  if (delegateVerb && (mentionsPeer || /\banother\s+agent\b|\bpeer\b|\bagent\s+[a-z0-9_-]+\b/i.test(g))) {
+    return true;
+  }
+
+  // Goal names a known peer and includes a URL → usually “B should open this”, not A.
+  if (mentionsPeer && extractUrlFromGoalText(goal)) return true;
+
+  return false;
+}
+
+/**
  * @param {string} url
  * @returns {string}
  */
@@ -1772,9 +1824,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
       // Why: open start URL before the first LLM turn — avoids ~15–30s "Looking at about:blank".
       // Goal site beats agent Start URL; also leave a leftover tab (e.g. Google) for a new goal site.
+      // Skip bootstrap when the goal is clearly “have peer open this site” — parent must not browse it.
       const preferredStart =
         agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
-      const startUrl = inferStartUrlFromGoal(goal, preferredStart);
+      const peerBlock = agentSnapshot?.peerAgentsBlock
+        ? String(agentSnapshot.peerAgentsBlock)
+        : "";
+      const skipBootstrapForDelegate = goalLooksLikePeerDelegation(goal, peerBlock);
+      const startUrl = skipBootstrapForDelegate
+        ? ""
+        : inferStartUrlFromGoal(goal, preferredStart);
       const curUrl = safePageUrl(page);
       const needBootstrap =
         Boolean(startUrl) &&
@@ -1782,7 +1841,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
           curUrl === "about:blank" ||
           curUrl.startsWith("chrome://") ||
           !urlsRoughlySame(curUrl, startUrl));
-      if (needBootstrap) {
+      if (skipBootstrapForDelegate) {
+        notes.push(
+          "BOOTSTRAP SKIPPED: Goal looks like peer delegation (message_agent). Stay on about:blank — do not navigate yourself; message the peer and wait for their finish result."
+        );
+      } else if (needBootstrap) {
         await safeGoto(startUrl);
         await mirror(taskId, "step", {
           payload: {
@@ -2195,6 +2258,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
+              "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Wait for the peer finish result, then finish with their answer.",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
