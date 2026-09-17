@@ -1,16 +1,21 @@
 /**
- * @fileoverview Agent-to-agent message bus (v3.2).
- * Purpose: Typed hops, depth 2, managedAgents gates; wait:true polls; wait:false keeps parent working and injects peer results later.
+ * @fileoverview Agent-to-agent message bus (v3.3).
+ * Purpose: Typed hops, depth 2, managedAgents gates; async/soft wait; late peer resume (v6) when parent already finished.
  * Downstream: worker/API message_agent; Operations; Agent Threads page.
  */
 
 import crypto from "node:crypto";
-import { Agent } from "../models/Agent.js";
+import { Agent, toAgentSnapshot } from "../models/Agent.js";
 import { AgentMessage } from "../models/AgentMessage.js";
 import { Message } from "../models/Chat.js";
-import { Task } from "../models/Task.js";
+import { Task, priorityRank } from "../models/Task.js";
+import { User } from "../models/User.js";
 import { enqueueTask } from "./enqueueTask.js";
 import { emitEvent } from "./eventBus.js";
+import { normalizeEntries } from "./curatedMemory.js";
+
+/** Max late-peer resume follow-ups spawned from one finished parent. */
+const MAX_LATE_PEER_RESUMES_PER_PARENT = 3;
 
 /** A→B→C allowed; further hops rejected. */
 export const MAX_AGENT_MESSAGE_HOP_DEPTH = 2;
@@ -362,6 +367,21 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
     dedupeKey: `agent.message.result:${outbound._id}`,
   }).catch(() => null);
 
+  // Why: v6 — if A already finished before B’s answer arrived, spawn a short resume run on A.
+  let lateResume = null;
+  if (parentTaskId) {
+    lateResume = await resumeParentForLatePeer({
+      parentTaskId,
+      userId: String(outbound.user),
+      toAgentName,
+      summary,
+      success,
+      agentMessageId: String(outbound._id),
+      mode,
+      fromAgentId,
+    }).catch((err) => ({ ok: false, reason: err?.message || String(err) }));
+  }
+
   return {
     ok: success,
     waiting: false,
@@ -373,8 +393,179 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
     childTaskId: String(outbound.childTask),
     conversationKey,
     resultSummary: summary,
-    resultPayload,
+    resultPayload: {
+      ...resultPayload,
+      lateParentResume: Boolean(lateResume?.ok),
+      lateResumeTaskId: lateResume?.taskId || null,
+      lateResumeReason: lateResume?.reason || null,
+    },
   };
+}
+
+/**
+ * v6: Parent finished before peer — queue a follow-up goal so A incorporates the late result.
+ * @param {{
+ *   parentTaskId: string,
+ *   userId: string,
+ *   toAgentName: string,
+ *   summary: string,
+ *   success: boolean,
+ *   agentMessageId: string,
+ *   mode: string,
+ *   fromAgentId?: string,
+ * }} opts
+ * @returns {Promise<{ ok: boolean, reason?: string, taskId?: string }>}
+ */
+export async function resumeParentForLatePeer(opts) {
+  const parentTaskId = String(opts.parentTaskId || "").trim();
+  const userId = String(opts.userId || "").trim();
+  const agentMessageId = String(opts.agentMessageId || "").trim();
+  if (!parentTaskId || !userId || !agentMessageId) {
+    return { ok: false, reason: "missing_ids" };
+  }
+
+  const parent = await Task.findOne({ _id: parentTaskId, user: userId });
+  if (!parent?.agent) return { ok: false, reason: "no_parent" };
+  if (!["done", "error"].includes(String(parent.status))) {
+    return { ok: false, reason: "parent_still_active" };
+  }
+
+  const already = (parent.events || []).some(
+    (e) =>
+      e.type === "late_peer_resume" &&
+      String(e.payload?.agentMessageId || "") === agentMessageId
+  );
+  if (already) return { ok: false, reason: "already_resumed" };
+
+  const resumeCount = (parent.events || []).filter((e) => e.type === "late_peer_resume").length;
+  if (resumeCount >= MAX_LATE_PEER_RESUMES_PER_PARENT) {
+    return { ok: false, reason: "resume_cap" };
+  }
+
+  const agentDoc = await Agent.findOne({ _id: parent.agent, user: userId });
+  if (!agentDoc) return { ok: false, reason: "agent_missing" };
+
+  const toAgentName = String(opts.toAgentName || "peer");
+  const mode = String(opts.mode || "task");
+  const summary = String(opts.summary || "").slice(0, 6000);
+  const peerOk = opts.success !== false;
+
+  const goalText = [
+    "[LATE PEER RESULT — you finished before this arrived]",
+    `Peer “${toAgentName}” [${mode}] ${peerOk ? "succeeded" : "failed"}:`,
+    summary || "(empty)",
+    "",
+    "ORIGINAL GOAL:",
+    String(parent.goal || "").slice(0, 4000),
+    "",
+    "Your earlier finish summary was:",
+    String(parent.resultSummary || parent.lastError || "(none)").slice(0, 2000),
+    "",
+    "CRITICAL: Incorporate this late peer result. Call finish with an updated summary for the user.",
+    "Do not re-do work the peer already completed. Do not navigate to the peer’s URL unless needed to verify.",
+  ].join("\n");
+
+  const owner = await User.findById(userId).select("curatedMemory").lean();
+  const userCuratedEntries = normalizeEntries(owner?.curatedMemory?.entries);
+  const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+  const snapshot = toAgentSnapshot(agentDoc, {
+    goal: goalText,
+    userCuratedEntries,
+    agentCuratedEntries,
+  });
+
+  // Why: keep the resume on the same chat thread the parent used (incl. common chat).
+  const userMessage = await Message.create({
+    chat: parent.chat,
+    role: "user",
+    content: goalText,
+    meta: {
+      kind: "late_peer_resume",
+      source: "late_peer_resume",
+      parentTaskId,
+      agentMessageId,
+      ui: "icon",
+    },
+  });
+
+  const resumeTask = await Task.create({
+    user: userId,
+    chat: parent.chat,
+    message: userMessage._id,
+    goal: goalText,
+    agent: parent.agent,
+    agentSnapshot: snapshot,
+    runner: "cloud",
+    status: "pending",
+    priority: "high",
+    priorityRank: priorityRank("high"),
+    correlationId: String(parent.correlationId || ""),
+    events: [
+      {
+        type: "queued",
+        payload: {
+          source: "late_peer_resume",
+          parentTaskId,
+          agentMessageId,
+          toAgentName,
+          mode,
+        },
+        at: new Date(),
+      },
+    ],
+  });
+
+  parent.events.push({
+    type: "late_peer_resume",
+    payload: {
+      agentMessageId,
+      resumeTaskId: String(resumeTask._id),
+      toAgentName,
+      mode,
+      success: peerOk,
+    },
+    at: new Date(),
+  });
+  await parent.save();
+
+  await Message.create({
+    chat: parent.chat,
+    role: "system",
+    content: `Late result from “${toAgentName}” — re-queued ${agentDoc.name} to incorporate it.`,
+    meta: {
+      kind: "late_peer_resume",
+      ui: "icon",
+      taskId: resumeTask._id,
+      parentTaskId,
+      agentMessageId,
+      agentName: agentDoc.name,
+    },
+  }).catch(() => null);
+
+  await emitEvent({
+    userId,
+    type: "agent.message.late_resume",
+    source: "system",
+    agentId: String(parent.agent),
+    taskId: String(resumeTask._id),
+    significance: "high",
+    summary: `Late peer “${toAgentName}” → resume ${agentDoc.name}`,
+    payload: {
+      parentTaskId,
+      resumeTaskId: String(resumeTask._id),
+      agentMessageId,
+      toAgentName,
+      mode,
+    },
+    dedupeKey: `agent.message.late_resume:${agentMessageId}`,
+  }).catch(() => null);
+
+  if ((agentDoc.mode || "browser") === "api") {
+    const { kickApiAgent } = await import("./apiAgentRunner.js");
+    kickApiAgent(parent.agent, userId);
+  }
+
+  return { ok: true, taskId: String(resumeTask._id) };
 }
 
 /**

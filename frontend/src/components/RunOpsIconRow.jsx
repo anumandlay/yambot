@@ -25,6 +25,10 @@ export const OPS_ICON_KINDS = new Set([
   "captcha",
   "human_handoff",
   "human_handoff_done",
+  "late_peer_resume",
+  "operator_inject_ack",
+  "agent_message_in",
+  "agent_message_out",
 ]);
 
 /**
@@ -79,6 +83,12 @@ export function opsIconMeta(message) {
   }
   if (kind === "intent_question") {
     return { icon: "A", label: "Answer mode" };
+  }
+  if (kind === "late_peer_resume" || /^Late result from/i.test(content)) {
+    return { icon: "↻", label: "Late peer" };
+  }
+  if (kind === "operator_inject_ack") {
+    return { icon: "→", label: "Injected" };
   }
   if (/^Thinking/i.test(content)) return { icon: "…", label: "Thinking" };
   if (/^Opening /i.test(content)) return { icon: "↗", label: "Navigate" };

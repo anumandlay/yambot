@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:50] A2A v6: late peer resume when parent already finished
+
+- **Prompt Provided:** lets go with v6.
+- **Architectural Flow:** When B finishes after A’s task is already done/error, `resumeParentForLatePeer` queues a high-priority follow-up on the same chat with the late PEER RESULT + original goal + A’s prior summary. Cap 3 resumes per parent; dedupe per agentMessageId. Chat shows an icon ack; API agents get kickApiAgent.
+- **Impacted Files:** `agentMessageBus.js` (finalize + resumeParentForLatePeer), worker prompt, PROMPT_LOG
+
 ## [2026-09-17 15:40] A2A v5: multi-peer fan-out (B+C in parallel)
 
 - **Prompt Provided:** v3, v4, v5 one by one (this entry = v5).
