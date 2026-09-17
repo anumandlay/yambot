@@ -175,7 +175,7 @@ async function runOneApiAgentTask(agentId, userId) {
       chat: task.chat,
       role: "system",
       content: `API agent “${agent.name}” started (no live computer).`,
-      meta: { taskId: task._id, kind: "api_start" },
+      meta: { taskId: task._id, kind: "api_start", ui: "icon" },
     }).catch(() => null);
 
     await executeApiTask(task, agent, userId);

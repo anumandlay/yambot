@@ -204,6 +204,7 @@ export async function enqueueTask(opts) {
     meta: {
       taskId: task._id,
       kind: "queued",
+      ui: "icon",
       status: task.status,
       source,
       triggerId: opts.triggerRef || opts.meta?.triggerId || null,

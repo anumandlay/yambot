@@ -9,8 +9,8 @@ import { api, isTimeoutError } from "../lib/api.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { skillPickFromMessage } from "../lib/skillPick.js";
 import { SkillPickNotice } from "./SkillPickNotice.jsx";
-import { LlmTraceMessage } from "./LlmTraceMessage.jsx";
 import { HelpTooltip } from "./HelpTooltip.jsx";
+import { isOpsIconMessage, RunOpsIconRow } from "./RunOpsIconRow.jsx";
 
 /**
  * @param {{
@@ -102,15 +102,13 @@ export function FloatingChatWidget({ chatId, className = "" }) {
             <p className="text-xs text-white/50">No messages yet.</p>
           ) : null}
           {recent.map((m) => {
+            if (isOpsIconMessage(m)) {
+              return <RunOpsIconRow key={m._id} messages={[m]} />;
+            }
             const skillPick =
               m.meta?.kind === "skill_selected" && m.meta?.skillPick
                 ? m.meta.skillPick
                 : skillPickFromMessage(m);
-            const isSkill = m.meta?.kind === "skill_selected";
-            const llmTraceType =
-              m.meta?.type === "llm_request" || m.meta?.type === "llm_response"
-                ? m.meta.type
-                : null;
             return (
               <article
                 key={m._id}
@@ -119,45 +117,25 @@ export function FloatingChatWidget({ chatId, className = "" }) {
                     ? "bg-teal-800/80 text-teal-50"
                     : m.role === "assistant"
                       ? "bg-teal-900/50 text-teal-50"
-                      : isSkill
-                        ? "border border-violet-400/30 bg-violet-950/60 text-violet-50"
-                        : llmTraceType
-                          ? "bg-transparent p-0"
-                          : "bg-white/5 text-white/80"
+                      : "bg-white/5 text-white/80"
                 }`}
               >
-                {!llmTraceType ? (
-                  <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] uppercase opacity-60">
-                    <span>{isSkill ? "skill" : m.role}</span>
-                    {m.createdAt ? (
-                      <time dateTime={new Date(m.createdAt).toISOString()}>
-                        {formatChatMessageTime(m.createdAt)}
-                      </time>
-                    ) : null}
-                  </div>
-                ) : null}
-                {llmTraceType ? (
-                  <div className="[&_details]:border-white/20 [&_details]:bg-white/10 [&_details]:text-white/90 [&_pre]:bg-black/30">
-                    <LlmTraceMessage
-                      type={llmTraceType}
-                      content={m.content}
-                      meta={m.meta}
-                      createdAt={m.createdAt}
-                      compact
-                    />
-                  </div>
-                ) : isSkill && skillPick ? (
-                  <SkillPickNotice pick={skillPick} className="!border-0 !bg-transparent !p-0 !text-[0.7rem]" />
-                ) : (
-                  <>
-                    {m.role === "user" && skillPick ? (
-                      <div className="mb-1.5 [&_.rounded-xl]:border-white/20 [&_.rounded-xl]:bg-black/20 [&_.rounded-xl]:text-white">
-                        <SkillPickNotice pick={skillPick} />
-                      </div>
-                    ) : null}
-                    <p className="whitespace-pre-wrap break-words">{m.content}</p>
-                  </>
-                )}
+                <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] uppercase opacity-60">
+                  <span>{m.role}</span>
+                  {m.createdAt ? (
+                    <time dateTime={new Date(m.createdAt).toISOString()}>
+                      {formatChatMessageTime(m.createdAt)}
+                    </time>
+                  ) : null}
+                </div>
+                <>
+                  {m.role === "user" && skillPick ? (
+                    <div className="mb-1.5 [&_.rounded-xl]:border-white/20 [&_.rounded-xl]:bg-black/20 [&_.rounded-xl]:text-white">
+                      <SkillPickNotice pick={skillPick} />
+                    </div>
+                  ) : null}
+                  <p className="whitespace-pre-wrap break-words">{m.content}</p>
+                </>
               </article>
             );
           })}

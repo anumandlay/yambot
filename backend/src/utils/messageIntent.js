@@ -87,11 +87,22 @@ export function classifyMessageIntent(text, opts = {}) {
 
   // Greetings / chit-chat — never boot the computer.
   if (
-    /^(hi|hello|hey|yo|sup|good (morning|afternoon|evening)|howdy|thanks|thank you|thx|ok|okay|k|cool|nice|lol|haha)\b[!?.]*$/i.test(
+    /^(hi|hello|hey|yo|sup|good (morning|afternoon|evening)|howdy|thanks|thank you|thx|ok|okay|k|cool|nice|lol|haha|yes|no|yep|nope|sure|now|later|wait|hmm+|huh|what|welcom)\b[!?.]*$/i.test(
       cleaned
     )
   ) {
     return { intent: "question", confidence: 0.95, reason: "greeting_or_chitchat", text: cleaned };
+  }
+
+  // Ultra-short single-token pings — chat, don't spin Chromium.
+  // Why: "now" was enqueueing a full cloud run with no actionable goal.
+  const wordCount = cleaned.split(/\s+/).filter(Boolean).length;
+  if (
+    wordCount === 1 &&
+    cleaned.length <= 24 &&
+    !/\b(http|www\.|\.\w{2,})\b/i.test(lower)
+  ) {
+    return { intent: "question", confidence: 0.9, reason: "short_vague", text: cleaned };
   }
 
   // Strong goal signals — always use the computer.
@@ -202,12 +213,12 @@ export async function refineMessageIntentWithLlm(text, creds, ctx = {}) {
           'Reply with ONLY JSON: {"intent":"goal"|"question","confidence":0-1}',
           "",
           "intent=question — answer in chat from memory/profile/day history. NO browser.",
-          "Examples: hi/hello, thanks, what do you know about me, what happened last run, what password is saved, explain X, status check, chit-chat.",
+          "Examples: hi/hello, thanks, now, ok, yes, what do you know about me, what happened last run, explain X, status check, chit-chat, any vague 1–3 word message without a website.",
           "",
-          "intent=goal — needs the live computer/browser (open sites, click, fill, buy, research on the web, email outreach via tools that need a run).",
-          "Examples: open gmail, go to amazon and buy…, log into CRM, scrape this page, check my inbox on the site.",
+          "intent=goal — needs the live computer/browser (open sites, click, fill, buy, research on the web).",
+          "Examples: open gmail, go to amazon and buy…, log into CRM, scrape this page.",
           "",
-          "If both apply, prefer goal. Greetings and memory questions are always question.",
+          "If both apply, prefer goal. Greetings, one-word pings (now/ok), and memory questions are always question.",
         ].join("\n"),
       },
       {

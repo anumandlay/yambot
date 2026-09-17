@@ -21,8 +21,8 @@ import { LiveScreen } from "../components/LiveScreen.jsx";
 import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
 import { TrajectoryPanel } from "../components/TrajectoryPanel.jsx";
 import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
-import { LlmTraceMessage } from "../components/LlmTraceMessage.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
+import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -1077,72 +1077,68 @@ export function ChatDetailPage() {
               No messages yet. Ask a question or send a goal on the right.
             </p>
           ) : null}
-          {messages.map((m) => {
-            const agentLabel = messageAgentLabel(m);
-            const skillPick =
-              m.meta?.kind === "skill_selected" && m.meta?.skillPick
-                ? m.meta.skillPick
-                : skillPickFromMessage(m);
-            const isSkillPickNotice = m.meta?.kind === "skill_selected" && skillPick;
-            const llmTraceType =
-              m.meta?.type === "llm_request" || m.meta?.type === "llm_response"
-                ? m.meta.type
-                : null;
-            return (
-            <article
-              key={m._id}
-              className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
-                m.role === "user"
-                  ? "self-end bg-teal-700 text-white"
-                  : m.role === "assistant"
-                    ? "self-start bg-teal-50 text-teal-950"
-                    : isSkillPickNotice
-                      ? "self-start border border-violet-100 bg-violet-50/50 text-violet-950"
-                      : llmTraceType
-                        ? "self-start max-w-[98%] bg-transparent p-0 shadow-none sm:max-w-[92%]"
+          {(() => {
+            /** @type {{ kind: "ops", items: object[] } | { kind: "msg", item: object }}[] */
+            const rows = [];
+            for (const m of messages) {
+              if (isOpsIconMessage(m)) {
+                const last = rows[rows.length - 1];
+                if (last?.kind === "ops") last.items.push(m);
+                else rows.push({ kind: "ops", items: [m] });
+              } else {
+                rows.push({ kind: "msg", item: m });
+              }
+            }
+            return rows.map((row) => {
+              if (row.kind === "ops") {
+                const key = row.items.map((m) => m._id).join("-");
+                return <RunOpsIconRow key={key || "ops"} messages={row.items} />;
+              }
+              const m = row.item;
+              const agentLabel = messageAgentLabel(m);
+              const skillPick =
+                m.meta?.kind === "skill_selected" && m.meta?.skillPick
+                  ? m.meta.skillPick
+                  : skillPickFromMessage(m);
+              return (
+                <article
+                  key={m._id}
+                  className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
+                    m.role === "user"
+                      ? "self-end bg-teal-700 text-white"
+                      : m.role === "assistant"
+                        ? "self-start bg-teal-50 text-teal-950"
                         : "self-start bg-slate-50 text-slate-700"
-              }`}
-            >
-              {!llmTraceType ? (
-                <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
-                  <span className="uppercase">
-                    {isSkillPickNotice ? "skill" : m.role}
-                    {agentLabel ? (
-                      <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
+                  }`}
+                >
+                  <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
+                    <span className="uppercase">
+                      {m.role}
+                      {agentLabel ? (
+                        <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
+                      ) : null}
+                    </span>
+                    {m.createdAt ? (
+                      <time
+                        dateTime={new Date(m.createdAt).toISOString()}
+                        className="shrink-0 normal-case tabular-nums"
+                      >
+                        {formatChatMessageTime(m.createdAt)}
+                      </time>
                     ) : null}
-                  </span>
-                  {m.createdAt ? (
-                    <time
-                      dateTime={new Date(m.createdAt).toISOString()}
-                      className="shrink-0 normal-case tabular-nums"
-                    >
-                      {formatChatMessageTime(m.createdAt)}
-                    </time>
-                  ) : null}
-                </div>
-              ) : null}
-              {llmTraceType ? (
-                <LlmTraceMessage
-                  type={llmTraceType}
-                  content={m.content}
-                  meta={m.meta}
-                  createdAt={m.createdAt}
-                />
-              ) : isSkillPickNotice ? (
-                <SkillPickNotice pick={skillPick} />
-              ) : (
-                <>
-                  {m.role === "user" && skillPick ? (
-                    <div className="mb-2 [&_.rounded-xl]:border-teal-500/30 [&_.rounded-xl]:bg-teal-600/40 [&_.rounded-xl]:text-white">
-                      <SkillPickNotice pick={skillPick} />
-                    </div>
-                  ) : null}
-                  <div className="whitespace-pre-wrap break-words">{m.content}</div>
-                </>
-              )}
-            </article>
-            );
-          })}
+                  </div>
+                  <>
+                    {m.role === "user" && skillPick ? (
+                      <div className="mb-2 [&_.rounded-xl]:border-teal-500/30 [&_.rounded-xl]:bg-teal-600/40 [&_.rounded-xl]:text-white">
+                        <SkillPickNotice pick={skillPick} />
+                      </div>
+                    ) : null}
+                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                  </>
+                </article>
+              );
+            });
+          })()}
           <div ref={bottomRef} className="h-px w-full shrink-0" />
         </div>
 

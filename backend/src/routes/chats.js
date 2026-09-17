@@ -801,10 +801,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         chat: chat._id,
         role: "system",
         content: busyRun
-          ? `Answered as a question from memory (no computer). The current browser run continues — this did not stop or pause it. Prefix with /run to queue a browser goal.`
-          : `Answered as a question (no computer). Prefix with /run to force a browser goal, or /ask to force Q&A.`,
+          ? `Answered as a question from memory (no computer). The current browser run continues.`
+          : `Answered as a question (no computer).`,
         meta: {
           kind: "intent_question",
+          ui: "icon",
           intentReason: classification.reason,
           intentConfidence: classification.confidence,
           agentId: String(agentDoc._id),
@@ -945,6 +946,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       content: `Goal queued${agentLabel}${skillLabel}${routeLabel}.${slashPickHint} ${queueHint}`,
       meta: {
         taskId: task._id,
+        kind: "queued",
+        ui: "icon",
         status: "pending",
         intent: "goal",
         intentReason: classification.reason,

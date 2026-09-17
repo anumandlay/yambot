@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 14:20] Quiet chat: icons for run ops + vague one-word → Answer
+
+- **Prompt Provided:** Don’t show queued/started/plan/LLM/step/ask-agent lines as bubbles; use icons. “now” should not start computer.
+- **Architectural Flow:** Single-word/vague pings classify as question. Worker skips chat dumps for LLM I/O and duplicate ask_user agent lines; ops messages get `meta.ui=icon`. Chat UI collapses them into `RunOpsIconRow` (tooltip = full text). Real assistant asks remain as bubbles.
+- **Impacted Files:** messageIntent, worker routes/agent, enqueueTask, chats, apiAgentRunner, RunOpsIconRow, ChatDetailPage, FloatingChatWidget, PROMPT_LOG
+
 ## [2026-09-17 14:00] Intent routing: Auto / Answer / Computer
 
 - **Prompt Provided:** How to know question vs browser task without /ask and /run.

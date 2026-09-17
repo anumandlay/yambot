@@ -375,7 +375,7 @@ workerRouter.get("/tasks/:id", async (req, res, next) => {
 
 /**
  * POST /api/worker/tasks/:id/events
- * Body: { type, payload?, status?, appendMessage? }
+ * Body: { type, payload?, status?, appendMessage?, messageUi? }
  */
 workerRouter.post("/tasks/:id/events", async (req, res, next) => {
   try {
@@ -390,6 +390,12 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
     if (req.body?.status) task.status = req.body.status;
     // Why: heartbeat so long LLM/browser steps do not look "stuck" to the reclaim timer.
     task.claimedAt = new Date();
+
+    /** Event types that must not dump full text into the chat thread. */
+    const skipChatMessage =
+      type === "llm_request" ||
+      type === "llm_response" ||
+      type === "ask_user"; // assistant bubble is enough; no duplicate "Cloud agent asks"
 
     if (type === "skill_selected") {
       const pick = payload && typeof payload === "object" ? payload : {};
@@ -407,15 +413,31 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
         meta: {
           taskId: task._id,
           kind: "skill_selected",
+          ui: "icon",
           skillPick: pick,
         },
       });
-    } else if (req.body?.appendMessage) {
+    } else if (req.body?.appendMessage && !skipChatMessage) {
+      const content = stripModelThinking(String(req.body.appendMessage));
+      const kind =
+        type === "started" || /^Cloud computer/i.test(content)
+          ? "computer_started"
+          : /^Plan:/i.test(content)
+            ? "plan"
+            : /^Looking at:|^Thinking/i.test(content)
+              ? "observe"
+              : type || "event";
       await Message.create({
         chat: task.chat,
         role: "agent",
-        content: stripModelThinking(String(req.body.appendMessage)),
-        meta: { taskId: task._id, type, payload },
+        content,
+        meta: {
+          taskId: task._id,
+          type,
+          kind,
+          ui: "icon",
+          payload,
+        },
       });
     }
 

@@ -1478,7 +1478,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       await mirror(taskId, "ask_user", {
         status: "waiting_user",
         payload: { question },
-        appendMessage: `Cloud agent asks: ${question}`,
+        // Why: API creates the assistant ask bubble; skip duplicate "Cloud agent asks" agent line.
       });
     }
     const started = Date.now();
@@ -1712,13 +1712,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const { traceLabel, traceStep, ...llmOpts } = opts || {};
       const model = String(llmOpts.model || "llm");
       const formatted = formatLlmMessagesForChat(llmOpts.messages || []);
-      const labelBits = [
-        traceLabel || "call",
-        traceStep != null ? `step ${traceStep}` : "",
-        model,
-      ]
-        .filter(Boolean)
-        .join(" · ");
       await mirror(taskId, "llm_request", {
         payload: {
           label: traceLabel || "call",
@@ -1728,7 +1721,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           truncated: formatted.truncated,
           chars: formatted.text.length,
         },
-        appendMessage: `→ Sent to LLM (${labelBits})\n\n${formatted.text}`,
+        // Why: keep LLM I/O on task.events only — chat shows a tiny icon via other status msgs, not the full dump.
       }).catch((err) => log(`[${config.workerName}] llm_request mirror failed:`, err?.message || err));
 
       try {
@@ -1750,9 +1743,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
             truncated: replyTruncated,
             chars: reply.length,
           },
-          appendMessage: `← Received from LLM (${labelBits})\n\n${reply}${
-            replyTruncated ? "\n\n…(truncated)" : ""
-          }`,
         }).catch((err) => log(`[${config.workerName}] llm_response mirror failed:`, err?.message || err));
         return result;
       } catch (err) {
@@ -1764,7 +1754,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
             model,
             error: detail.slice(0, 500),
           },
-          appendMessage: `← LLM error (${labelBits})\n\n${detail.slice(0, 2000)}`,
         }).catch(() => {});
         throw err;
       }
