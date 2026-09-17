@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 14:00] Intent routing: Auto / Answer / Computer
+
+- **Prompt Provided:** How to know question vs browser task without /ask and /run.
+- **Architectural Flow:** Stronger heuristics (greetings, memory introspect); LLM refine when confidence &lt; 0.9 with recent chat context; composer Auto|Answer|Computer toggle maps to forceAsk/forceGoal (slash optional).
+- **Impacted Files:** `messageIntent.js`, `chats.js`, `ChatDetailPage.jsx`, help, PROMPT_LOG
+
 ## [2026-09-17 13:56] Strip &lt;think&gt; tags from chat replies
 
 - **Prompt Provided:** why &lt;think&gt; is showing in reply

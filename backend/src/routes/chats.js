@@ -19,6 +19,7 @@ import {
   classifyMessageIntent,
   refineMessageIntentWithLlm,
   answerChatQuestion,
+  shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
@@ -658,16 +659,27 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       hasSkillSlash: Boolean(invokedSkillDoc),
     });
 
-    if (classification.intent === "ambiguous") {
+    // Why: Auto mode — LLM refine whenever heuristics are soft (not only "ambiguous").
+    if (shouldRefineIntentWithLlm(classification)) {
       try {
         const userForLlm = await User.findById(req.userId);
         const classifyCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
         if (classifyCreds.apiKey) {
+          const recentMsgs = await Message.find({ chat: chat._id })
+            .sort({ _id: -1 })
+            .limit(6)
+            .select("role content")
+            .lean();
+          const recentTurns = [...recentMsgs]
+            .reverse()
+            .map((m) => `${m.role}: ${String(m.content || "").slice(0, 200)}`)
+            .join("\n");
           classification = await refineMessageIntentWithLlm(
             classification.text || goalText,
-            classifyCreds
+            classifyCreds,
+            { agentName: agentDoc.name, recentTurns }
           );
-        } else {
+        } else if (classification.intent === "ambiguous") {
           classification = {
             intent: "goal",
             confidence: 0.5,
@@ -676,12 +688,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           };
         }
       } catch {
-        classification = {
-          intent: "goal",
-          confidence: 0.5,
-          reason: "classify_failed_default_goal",
-          text: classification.text,
-        };
+        if (classification.intent === "ambiguous") {
+          classification = {
+            intent: "goal",
+            confidence: 0.5,
+            reason: "classify_failed_default_goal",
+            text: classification.text,
+          };
+        }
       }
     }
 

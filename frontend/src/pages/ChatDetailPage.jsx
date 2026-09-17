@@ -47,6 +47,12 @@ export function ChatDetailPage() {
   const [tasks, setTasks] = useState([]);
   const [agentQueue, setAgentQueue] = useState({ pending: [], active: null });
   const [input, setInput] = useState("");
+  /**
+   * How to route the next message without slash commands.
+   * auto = server classifier; ask = force Q&A; run = force browser goal.
+   * @type {["auto"|"ask"|"run", Function]}
+   */
+  const [intentMode, setIntentMode] = useState("auto");
   /** Highlight index in the @mention agent dropdown (−1 = none). */
   const [mentionHighlight, setMentionHighlight] = useState(0);
   const composeRef = useRef(null);
@@ -507,11 +513,13 @@ export function ChatDetailPage() {
 
   /**
    * @param {string} content
-   * @param {{ confirmRoute?: boolean, agentId?: string }} [opts]
+   * @param {{ confirmRoute?: boolean, agentId?: string, forceAsk?: boolean, forceGoal?: boolean }} [opts]
    */
   async function postGoalMessage(content, opts = {}) {
     const mention = isCommon ? resolveAgentMention(content, agents) : null;
     const body = { content };
+    if (opts.forceAsk || intentMode === "ask") body.forceAsk = true;
+    if (opts.forceGoal || intentMode === "run") body.forceGoal = true;
     if (opts.confirmRoute) {
       body.confirmRoute = true;
       body.agentId = opts.agentId;
@@ -807,6 +815,34 @@ export function ChatDetailPage() {
         <FieldLabel helpId="chat.goalInput" className="text-sm">
           Message (question or goal)
         </FieldLabel>
+        <div
+          className="mb-2 flex flex-wrap gap-1 rounded-xl border border-teal-100 bg-teal-50/40 p-1"
+          role="group"
+          aria-label="How to handle this message"
+        >
+          {[
+            { id: "auto", label: "Auto", title: "Decide: answer in chat vs use the computer" },
+            { id: "ask", label: "Answer", title: "Answer from memory only (no computer)" },
+            { id: "run", label: "Computer", title: "Queue a browser/API task" },
+          ].map((opt) => {
+            const active = intentMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                title={opt.title}
+                onClick={() => setIntentMode(opt.id)}
+                className={`min-h-9 flex-1 rounded-lg px-2 text-xs font-semibold sm:text-sm ${
+                  active
+                    ? "bg-teal-700 text-white shadow-sm"
+                    : "bg-white text-teal-900 hover:bg-teal-50"
+                }`}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
         <div className="relative">
           {isCommon && mentionSuggestions.length ? (
             <ul
@@ -851,9 +887,13 @@ export function ChatDetailPage() {
             placeholder={
               isCommon
                 ? autoRoute
-                  ? "Type @ to pick an agent, or send a goal — /ask · /run · auto-routes"
-                  : "Type @ to pick an agent… · /ask · /run · /learn"
-                : "Ask a question or send a goal… · /ask · /run · /learn"
+                  ? "Type @ to pick an agent, or send a message…"
+                  : "Type @ to pick an agent…"
+                : intentMode === "ask"
+                  ? "Ask a question (memory only)…"
+                  : intentMode === "run"
+                    ? "Describe what to do on the computer…"
+                    : "Ask a question or send a goal…"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -867,13 +907,18 @@ export function ChatDetailPage() {
             disabled={busy}
             className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50"
           >
-            {busy ? "Sending…" : activeRun ? "Send" : "Send"}
+            {busy
+              ? "Sending…"
+              : intentMode === "ask"
+                ? "Ask"
+                : intentMode === "run"
+                  ? "Run on computer"
+                  : "Send"}
           </button>
         </ButtonWithHelp>
         <p className="text-[0.7rem] leading-snug text-teal-900/55">
-          Questions answer in chat (no computer). Goals use the live browser. Force with{" "}
-          <code className="rounded bg-teal-50 px-1">/ask</code> or{" "}
-          <code className="rounded bg-teal-50 px-1">/run</code>.
+          <strong>Auto</strong> decides: chat answer vs browser task. Use{" "}
+          <strong>Answer</strong> or <strong>Computer</strong> when you want to force it.
         </p>
       </form>
     </section>

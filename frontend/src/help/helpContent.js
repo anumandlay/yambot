@@ -1315,7 +1315,7 @@ export const HELP = {
       "YamBot classifies each message: questions answer in chat from agent memory (no computer); goals enqueue a browser Task.",
       "You can ask questions while a run is in progress — the answer comes from memory and the browser keeps working.",
       "If you send a new goal while the agent is busy, it stays pending until the current run finishes (it does not cancel the active task).",
-      "Force with /ask … (Q&A, no computer) or /run … (browser goal) if the classifier gets it wrong. /ask and /run are reserved — they are not skill names."
+      "Composer toggle: Auto (classifier), Answer (memory only), Computer (browser task). /ask and /run remain optional aliases."
     ),
   },
   "chat.send": {
