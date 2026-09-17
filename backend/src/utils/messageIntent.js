@@ -5,6 +5,7 @@
  */
 
 import { llmChatCompletion } from "./llmChat.js";
+import { stripModelThinking } from "./llmSanitize.js";
 import { formatAgentPrompt } from "../models/Agent.js";
 
 /**
@@ -211,7 +212,7 @@ export async function answerChatQuestion(opts) {
           "You may be answering while a browser run is also in progress — answer from memory only; do not claim to control the computer right now.",
           "If the user needs you to browse or click, tell them to send a goal (or prefix with /run).",
           "Be concise and direct. Do not invent credentials that are not in SAVED LOGINS.",
-          "Reply in plain prose only — no tool JSON, no “finish”, no chain-of-thought tags.",
+          "Reply in plain prose only — no tool JSON, no “finish”, no <think> tags, no chain-of-thought.",
           "",
           context || "(no extra agent context)",
           thread ? `\n\n${thread}` : "",
@@ -222,5 +223,6 @@ export async function answerChatQuestion(opts) {
       { role: "user", content: String(question || "").slice(0, 4000) },
     ],
   });
-  return String(reply || "").trim() || "I could not draft an answer. Try rephrasing, or send /run … to use the computer.";
+  const cleaned = stripModelThinking(reply);
+  return cleaned || "I could not draft an answer. Try rephrasing, or send /run … to use the computer.";
 }

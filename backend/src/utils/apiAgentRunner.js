@@ -29,6 +29,7 @@ import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js";
 import { normalizeEntries } from "./curatedMemory.js";
+import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
 import { formatPeerAgentsBlock, sendAgentMessage } from "./agentMessageBus.js";
 
@@ -337,7 +338,7 @@ async function executeApiTask(task, agent, userId) {
         await Message.create({
           chat: task.chat,
           role: "assistant",
-          content: question,
+          content: stripModelThinking(question),
           meta: { taskId: task._id, kind: "ask_user" },
         });
         await setAgentNeedsAttention(agent._id, question.slice(0, 400));
@@ -708,7 +709,7 @@ async function finalizeApiTask(task, userId, result) {
   await Message.create({
     chat: task.chat,
     role: "assistant",
-    content: summary || (success ? "Done." : error || "Failed."),
+    content: stripModelThinking(summary || (success ? "Done." : error || "Failed.")),
     meta: { taskId: task._id, kind: "result", success, via: "api" },
   }).catch(() => null);
 

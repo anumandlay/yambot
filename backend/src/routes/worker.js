@@ -16,6 +16,7 @@ import { finalizeCampaignSendOnTaskComplete } from "../utils/stateHelpers.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
 import { decryptSecret } from "../utils/crypto.js";
+import { stripModelThinking } from "../utils/llmSanitize.js";
 import {
   resolveLlmCredentialsForAgent,
   resolveVisionLlmCredentials,
@@ -413,7 +414,7 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
       await Message.create({
         chat: task.chat,
         role: "agent",
-        content: String(req.body.appendMessage),
+        content: stripModelThinking(String(req.body.appendMessage)),
         meta: { taskId: task._id, type, payload },
       });
     }
@@ -423,7 +424,7 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
       await Message.create({
         chat: task.chat,
         role: "assistant",
-        content: String(payload.question),
+        content: stripModelThinking(String(payload.question)),
         meta: { taskId: task._id, kind: "ask_user" },
       });
       if (task.agent) {
@@ -546,7 +547,7 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     await Message.create({
       chat: task.chat,
       role: "assistant",
-      content: summary || (success ? "Done." : error || "Failed."),
+      content: stripModelThinking(summary || (success ? "Done." : error || "Failed.")),
       meta: { taskId: task._id, kind: "result", success },
     });
 

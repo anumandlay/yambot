@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 13:56] Strip &lt;think&gt; tags from chat replies
+
+- **Prompt Provided:** why &lt;think&gt; is showing in reply
+- **Architectural Flow:** Shared `stripModelThinking` strips think/thinking blocks before assistant messages are saved (Q&A, worker complete, ask_user, API runner).
+- **Impacted Files:** `llmSanitize.js`, `messageIntent.js`, `worker.js`, `apiAgentRunner.js`, PROMPT_LOG
+
 ## [2026-09-17 13:52] Chat Q&A: agent name + curated USER memory
 
 - **Prompt Provided:** Hi greeted as YamBot; USER memory question saw nothing.
