@@ -432,7 +432,15 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
             ? "plan"
             : /^Looking at:|^Thinking/i.test(content)
               ? "observe"
-              : type || "event";
+              : /^(PEER RESULT|PEER FAILED)\b/i.test(content)
+                ? "peer_result"
+                : /^SOFT WAIT\b/i.test(content)
+                  ? "soft_wait"
+                  : /^(→|←)\s/.test(content)
+                    ? /^→\s/.test(content)
+                      ? "agent_message_out"
+                      : "agent_message_in"
+                    : type || "event";
       await Message.create({
         chat: task.chat,
         role: "agent",

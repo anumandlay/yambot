@@ -330,6 +330,7 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
       content: `← ${toAgentName} [${mode}]: ${summary.slice(0, 500)}${summary.length > 500 ? "…" : ""}`,
       meta: {
         kind: "agent_message_in",
+        ui: "icon",
         agentMessageId: String(outbound._id),
         fromAgentId: toAgentId,
         toAgentId: fromAgentId,
@@ -484,7 +485,6 @@ export async function resumeParentForLatePeer(opts) {
       source: "late_peer_resume",
       parentTaskId,
       agentMessageId,
-      ui: "icon",
     },
   });
 
@@ -748,6 +748,7 @@ export async function sendAgentMessage(opts) {
       content: `→ ${toAgent.name} [${mode}] (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}): ${content.slice(0, 500)}${content.length > 500 ? "…" : ""}`,
       meta: {
         kind: "agent_message_out",
+        ui: "icon",
         agentMessageId: String(outbound._id),
         fromAgentId: String(fromAgent._id),
         toAgentId: String(toAgent._id),
@@ -949,6 +950,7 @@ export async function sendAgentMessage(opts) {
       content: `← ${toAgent.name} [${mode}]: (wait timeout — peer still running; check Agent threads later)`,
       meta: {
         kind: "agent_message_timeout",
+        ui: "icon",
         agentMessageId: String(outbound._id),
         toAgentId: String(toAgent._id),
         parentTaskId,

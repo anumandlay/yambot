@@ -29,6 +29,12 @@ export const OPS_ICON_KINDS = new Set([
   "operator_inject_ack",
   "agent_message_in",
   "agent_message_out",
+  "agent_message_timeout",
+  "peer_result",
+  "peer_delegated",
+  "soft_wait",
+  "info",
+  "event",
 ]);
 
 /**
@@ -41,9 +47,21 @@ export function isOpsIconMessage(message) {
   const kind = String(message.meta?.kind || message.meta?.type || "").trim();
   if (kind && OPS_ICON_KINDS.has(kind)) return true;
   const content = String(message.content || "");
-  return /^(Goal queued|Queued for|Cloud computer|Plan:|Looking at:|Thinking…|Opening |Step \d|No skill matched|Skill:|→ Sent to LLM|← Received from LLM|← LLM error|Cloud agent asks:|Cloud agent:|API agent )/i.test(
+  // Why: A2A / peer / system status lines should stay as chips even when meta.kind is missing.
+  if (message.role === "system") {
+    if (
+      /^(→|←)\s/.test(content) ||
+      /^(PEER RESULT|PEER FAILED|SOFT WAIT|Late result from|Sent to the running agent)/i.test(
+        content
+      ) ||
+      /^Goal queued|^Queued for/i.test(content)
+    ) {
+      return true;
+    }
+  }
+  return /^(Goal queued|Queued for|Cloud computer|Plan:|Looking at:|Thinking…|Opening |Step \d|No skill matched|Skill:|→ Sent to LLM|← Received from LLM|← LLM error|Cloud agent asks:|Cloud agent:|API agent |PEER RESULT|PEER FAILED|SOFT WAIT)/i.test(
     content
-  );
+  ) || /^(→|←)\s/.test(content);
 }
 
 /**
@@ -87,8 +105,26 @@ export function opsIconMeta(message) {
   if (kind === "late_peer_resume" || /^Late result from/i.test(content)) {
     return { icon: "↻", label: "Late peer" };
   }
-  if (kind === "operator_inject_ack") {
+  if (kind === "operator_inject_ack" || /^Sent to the running agent/i.test(content)) {
     return { icon: "→", label: "Injected" };
+  }
+  if (
+    kind === "agent_message_out" ||
+    (/^→\s/.test(content) && !/^→ Sent to LLM/i.test(content))
+  ) {
+    return { icon: "↦", label: "To peer" };
+  }
+  if (kind === "agent_message_in" || /^←\s/.test(content)) {
+    return { icon: "↤", label: "From peer" };
+  }
+  if (
+    kind === "peer_result" ||
+    /^(PEER RESULT|PEER FAILED)\b/i.test(content)
+  ) {
+    return { icon: "⇄", label: "Peer result" };
+  }
+  if (kind === "soft_wait" || /^SOFT WAIT\b/i.test(content)) {
+    return { icon: "⏳", label: "Soft wait" };
   }
   if (/^Thinking/i.test(content)) return { icon: "…", label: "Thinking" };
   if (/^Opening /i.test(content)) return { icon: "↗", label: "Navigate" };

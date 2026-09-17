@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:55] Collapse A2A system/peer lines into status icons
+
+- **Prompt Provided:** Chat titled “test” while goal was delegation; make icons for system messages (→/← peer, PEER RESULT).
+- **Architectural Flow:** Title stayed “test” because auto-rename only replaces New chat / Common chat defaults. Expanded `isOpsIconMessage` + kinds for A2A in/out, PEER RESULT, soft wait; stamp `ui:icon` on new A2A system messages; worker event mapping for peer_result.
+- **Impacted Files:** RunOpsIconRow, agentMessageBus, worker routes, PROMPT_LOG
+
 ## [2026-09-17 15:50] A2A v6: late peer resume when parent already finished
 
 - **Prompt Provided:** lets go with v6.
