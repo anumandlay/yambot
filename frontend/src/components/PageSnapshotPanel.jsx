@@ -1,7 +1,7 @@
 /**
  * @fileoverview Page snapshot debug panel — shows what the agent sees each step.
  * Purpose: Live view of DOM observation (interactives, menus, captcha) from task events.
- * Downstream: ChatDetailPage right rail; reads `thinking` events with `pageObservation`.
+ * Downstream: ChatDetailPage under agent screen (icon variant) or expandable panel.
  */
 
 import { useMemo, useState } from "react";
@@ -122,13 +122,55 @@ export function snapshotsFromTaskEvents(events) {
 }
 
 /**
- * @param {{ events?: object[], className?: string, compact?: boolean }} props
+ * Snapshot / layers glyph for the compact icon control.
+ * @returns {JSX.Element}
  */
-export function PageSnapshotPanel({ events, className = "", compact = false }) {
+function SnapshotIcon() {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 20 20"
+      fill="currentColor"
+      className="h-4 w-4"
+      aria-hidden="true"
+    >
+      <path d="M3.5 4.75A1.75 1.75 0 0 1 5.25 3h9.5c.966 0 1.75.784 1.75 1.75v.5a.75.75 0 0 1-1.5 0v-.5a.25.25 0 0 0-.25-.25h-9.5a.25.25 0 0 0-.25.25v10.5c0 .138.112.25.25.25h.5a.75.75 0 0 1 0 1.5h-.5A1.75 1.75 0 0 1 3.5 15.25V4.75Z" />
+      <path d="M7.25 6A1.75 1.75 0 0 0 5.5 7.75v7.5c0 .966.784 1.75 1.75 1.75h7.5A1.75 1.75 0 0 0 16.5 15.25v-7.5A1.75 1.75 0 0 0 14.75 6h-7.5Zm-.25 1.75a.25.25 0 0 1 .25-.25h7.5a.25.25 0 0 1 .25.25v7.5a.25.25 0 0 1-.25.25h-7.5a.25.25 0 0 1-.25-.25v-7.5Z" />
+    </svg>
+  );
+}
+
+/**
+ * @param {{
+ *   events?: object[],
+ *   className?: string,
+ *   compact?: boolean,
+ *   variant?: "panel"|"icon"|"drawer",
+ *   open?: boolean,
+ *   onOpenChange?: (open: boolean) => void,
+ * }} props
+ */
+export function PageSnapshotPanel({
+  events,
+  className = "",
+  compact = false,
+  variant = "panel",
+  open: openProp,
+  onOpenChange,
+}) {
   const snapshots = useMemo(() => snapshotsFromTaskEvents(events), [events]);
-  const [open, setOpen] = useState(true);
+  const [openLocal, setOpenLocal] = useState(variant !== "icon");
   const [view, setView] = useState("summary");
   const [selected, setSelected] = useState(-1);
+  const open = openProp !== undefined ? Boolean(openProp) : openLocal;
+
+  /**
+   * @param {boolean} next
+   */
+  function setOpen(next) {
+    if (onOpenChange) onOpenChange(next);
+    else setOpenLocal(next);
+  }
 
   const activeIndex = selected >= 0 && selected < snapshots.length ? selected : snapshots.length - 1;
   const current = snapshots[activeIndex]?.pageObservation || null;
@@ -162,59 +204,20 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
     }
   }
 
-  const shellClass = `flex shrink-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`;
-
-  if (!snapshots.length) {
+  /**
+   * Shared body for panel and icon-popover expand.
+   * @returns {JSX.Element}
+   */
+  function renderBody() {
+    if (!snapshots.length) {
+      return (
+        <p className="px-3 py-2 text-xs text-teal-900/60">
+          Waiting for an agent step… then you’ll see refs, roles, and labels the LLM used.
+        </p>
+      );
+    }
     return (
-      <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-        <summary className="shrink-0 cursor-pointer list-none px-3 py-2 [&::-webkit-details-marker]:hidden">
-          <SectionTitle as="span" helpId="chat.snapshot" className="inline-flex">
-            Page snapshot
-          </SectionTitle>
-          <span className="ml-2 text-xs font-normal text-teal-800/50">waiting for agent step…</span>
-        </summary>
-        {!compact ? (
-          <p className="border-t border-teal-50 px-3 py-2 text-xs text-teal-900/60">
-            When the agent runs, each step stores what it sees on the page (refs, roles, labels, xpath).
-          </p>
-        ) : null}
-      </details>
-    );
-  }
-
-  return (
-    <details className={shellClass} open={open} onToggle={(e) => setOpen(e.currentTarget.open)}>
-      <summary className="flex shrink-0 cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
-        <span className="inline-flex flex-wrap items-center gap-2">
-          <SectionTitle as="span" helpId="chat.snapshot" className="inline-flex">
-            Page snapshot
-          </SectionTitle>
-          <span className="rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
-            {count} elements
-          </span>
-        </span>
-        {snapshots.length > 1 ? (
-          <select
-            className="max-w-[12rem] rounded-lg border border-teal-100 bg-white px-2 py-1 text-xs font-normal"
-            value={String(activeIndex)}
-            onClick={(e) => e.stopPropagation()}
-            onChange={(e) => setSelected(Number(e.target.value))}
-          >
-            {snapshots.map((s, i) => (
-              <option key={s.eventIndex} value={String(i)}>
-                Step {s.step ?? i + 1}
-                {s.title ? ` — ${s.title.slice(0, 28)}` : ""}
-              </option>
-            ))}
-          </select>
-        ) : (
-          <span className="text-xs font-normal text-teal-800/50">
-            step {snapshots[0]?.step ?? 1}
-          </span>
-        )}
-      </summary>
-
-      <div className="flex min-h-0 flex-col border-t border-teal-50">
+      <div className="flex min-h-0 flex-col">
         <div className="flex shrink-0 flex-wrap items-center gap-1 border-b border-teal-50 px-2 py-2">
           {[
             ["summary", "Summary"],
@@ -232,20 +235,32 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
               {label}
             </button>
           ))}
+          {snapshots.length > 1 ? (
+            <select
+              className="ml-auto max-w-[10rem] rounded-lg border border-teal-100 bg-white px-2 py-1 text-xs"
+              value={String(activeIndex)}
+              onChange={(e) => setSelected(Number(e.target.value))}
+            >
+              {snapshots.map((s, i) => (
+                <option key={s.eventIndex} value={String(i)}>
+                  Step {s.step ?? i + 1}
+                </option>
+              ))}
+            </select>
+          ) : null}
           {view === "json" ? (
             <button
               type="button"
               onClick={copyJson}
-              className="ml-auto rounded-lg border border-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800"
+              className="rounded-lg border border-teal-100 px-2.5 py-1 text-xs font-semibold text-teal-800"
             >
               Copy
             </button>
           ) : null}
         </div>
-
         <div
           className={`yb-scroll-x overflow-auto p-2 text-xs ${
-            compact ? "max-h-40 sm:max-h-48 lg:max-h-52" : "max-h-64 sm:max-h-72"
+            compact || variant === "icon" ? "max-h-40 sm:max-h-48" : "max-h-64 sm:max-h-72"
           }`}
         >
           {view === "json" ? (
@@ -253,13 +268,11 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
               {JSON.stringify(displayObs, null, 2)}
             </pre>
           ) : null}
-
           {view === "summary" ? (
             <pre className="whitespace-pre-wrap break-words font-mono text-[0.68rem] leading-relaxed text-teal-950">
               {formatPageObservationText(displayObs)}
             </pre>
           ) : null}
-
           {view === "table" && displayObs ? (
             <table className="min-w-full text-left font-mono text-[0.68rem]">
               <thead className="sticky top-0 bg-white text-teal-900/60">
@@ -297,7 +310,77 @@ export function PageSnapshotPanel({ events, className = "", compact = false }) {
             </table>
           ) : null}
         </div>
+        {count ? (
+          <p className="border-t border-teal-50 px-2 py-1 text-[0.65rem] text-teal-800/60">
+            {count} elements · step {snapshots[activeIndex]?.step ?? activeIndex + 1}
+          </p>
+        ) : null}
       </div>
+    );
+  }
+
+  if (variant === "icon") {
+    return (
+      <button
+        type="button"
+        onClick={() => setOpen(!open)}
+        className={`relative inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl border text-teal-900 ${
+          open
+            ? "border-teal-500 bg-teal-100"
+            : "border-teal-200 bg-white hover:bg-teal-50"
+        } ${className}`}
+        title="Page snapshot"
+        aria-label="Page snapshot"
+        aria-pressed={open}
+      >
+        <SnapshotIcon />
+        {snapshots.length ? (
+          <span className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full bg-teal-700 px-0.5 text-[0.55rem] font-bold text-white">
+            {snapshots.length > 9 ? "9+" : snapshots.length}
+          </span>
+        ) : null}
+      </button>
+    );
+  }
+
+  if (variant === "drawer") {
+    return (
+      <div
+        className={`overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`}
+      >
+        <div className="flex items-center justify-between gap-2 border-b border-teal-50 px-3 py-2">
+          <SectionTitle as="span" helpId="chat.snapshot" className="inline-flex text-xs">
+            Page snapshot
+          </SectionTitle>
+        </div>
+        {renderBody()}
+      </div>
+    );
+  }
+
+  const shellClass = `flex shrink-0 flex-col overflow-hidden rounded-2xl border border-teal-100 bg-white shadow-sm ${className}`;
+
+  return (
+    <details
+      className={shellClass}
+      open={open}
+      onToggle={(e) => setOpen(e.currentTarget.open)}
+    >
+      <summary className="flex shrink-0 cursor-pointer list-none flex-wrap items-center justify-between gap-2 px-3 py-2 [&::-webkit-details-marker]:hidden">
+        <span className="inline-flex flex-wrap items-center gap-2">
+          <SectionTitle as="span" helpId="chat.snapshot" className="inline-flex">
+            Page snapshot
+          </SectionTitle>
+          {snapshots.length ? (
+            <span className="rounded-lg bg-teal-50 px-2 py-0.5 font-mono text-xs text-teal-800">
+              {count} elements
+            </span>
+          ) : (
+            <span className="text-xs font-normal text-teal-800/50">waiting for agent step…</span>
+          )}
+        </span>
+      </summary>
+      <div className="border-t border-teal-50">{renderBody()}</div>
     </details>
   );
 }

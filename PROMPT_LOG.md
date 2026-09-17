@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 14:35] Snapshot + trajectory as icons under agent screen
+
+- **Prompt Provided:** Make page snapshot and trajectory small icons below the agent screen.
+- **Architectural Flow:** Both panels gain `variant="icon"` (badge + popover). ChatDetail places them under LiveScreen and removes the page-bottom panels.
+- **Impacted Files:** `PageSnapshotPanel.jsx`, `TrajectoryPanel.jsx`, `ChatDetailPage.jsx`, `PROMPT_LOG.md`
+
 ## [2026-09-17 14:30] Zoom pop-out: open live view in a new tab
 
 - **Prompt Provided:** After Zoom button, small icon that opens zoom in a new tab.

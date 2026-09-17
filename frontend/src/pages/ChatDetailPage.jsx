@@ -1,6 +1,6 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
- * Purpose: Thread + composer on the left; live screen on the right; snapshot/trajectory at page bottom.
+ * Purpose: Thread + composer on the left; live screen on the right with snapshot/trajectory icon popovers below it.
  * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
  */
 
@@ -62,6 +62,8 @@ export function ChatDetailPage() {
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
   const [opsTriggerChats, setOpsTriggerChats] = useState([]);
+  /** Why: snapshot/trajectory stay as icons under the screen until tapped. */
+  const [debugOpen, setDebugOpen] = useState(/** @type {null | "snapshot" | "trajectory"} */ (null));
   const threadRef = useRef(null);
   const bottomRef = useRef(null);
   /** Why: follow live agent text unless the user scrolls the thread up to read history. */
@@ -628,7 +630,7 @@ export function ChatDetailPage() {
     }
   }
 
-  /** Fixed-aspect live screen box — screenshot scales inside, no inner scrollbar. */
+  /** Fixed-aspect live screen box — screenshot scales inside; debug icons sit under it. */
   const agentScreenBlock = (
     <div className="flex shrink-0 flex-col overflow-hidden">
       <div className="mb-1 flex shrink-0 items-center justify-between gap-2">
@@ -670,6 +672,29 @@ export function ChatDetailPage() {
               : "No agent bound — no cloud screen."}
           </p>
         )}
+      </div>
+      {/* Why: keep debug surfaces as tiny icons under the screen so the rail stays short. */}
+      <div className="mt-1.5 flex flex-col gap-1.5">
+        <div className="flex items-center gap-1.5">
+          <PageSnapshotPanel
+            events={snapshotEvents}
+            variant="icon"
+            open={debugOpen === "snapshot"}
+            onOpenChange={(next) => setDebugOpen(next ? "snapshot" : null)}
+          />
+          <TrajectoryPanel
+            task={snapshotTask}
+            variant="icon"
+            open={debugOpen === "trajectory"}
+            onOpenChange={(next) => setDebugOpen(next ? "trajectory" : null)}
+          />
+        </div>
+        {debugOpen === "snapshot" ? (
+          <PageSnapshotPanel events={snapshotEvents} variant="drawer" compact />
+        ) : null}
+        {debugOpen === "trajectory" ? (
+          <TrajectoryPanel task={snapshotTask} variant="drawer" />
+        ) : null}
       </div>
     </div>
   );
@@ -1147,11 +1172,6 @@ export function ChatDetailPage() {
         <aside className="flex min-h-0 w-full min-w-0 flex-col gap-2 sm:gap-3 lg:max-h-full lg:overflow-y-auto lg:overscroll-contain">
           {agentRail}
         </aside>
-      </div>
-
-      <div className="flex shrink-0 flex-col gap-2 border-t border-teal-100 pt-2 sm:gap-3">
-        <PageSnapshotPanel events={snapshotEvents} compact />
-        <TrajectoryPanel task={snapshotTask} />
       </div>
     </div>
   );
