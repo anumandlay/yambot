@@ -7,7 +7,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
-import { buildGroupedSections, filterByGroup } from "../lib/groupedList.js";
+import { buildGroupedSections, entityGroupId, filterByGroup } from "../lib/groupedList.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { GroupAssignSelect, GroupFilterBar } from "../components/GroupFilterBar.jsx";
@@ -220,12 +220,12 @@ export function GoalsPage() {
   }, [agents]);
 
   const visibleGoals = useMemo(
-    () => filterByGroup(goals, filterGroupId, (g) => (g.group ? String(g.group) : "")),
+    () => filterByGroup(goals, filterGroupId, (g) => entityGroupId(g) || null),
     [goals, filterGroupId]
   );
 
   const grouped = useMemo(
-    () => buildGroupedSections(visibleGoals, groups, (g) => (g.group ? String(g.group) : "")),
+    () => buildGroupedSections(visibleGoals, groups, (g) => entityGroupId(g) || null),
     [visibleGoals, groups]
   );
 

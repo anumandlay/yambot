@@ -2,7 +2,7 @@
  * @fileoverview Grok-style full-bleed workspace — agents | chat | live rail.
  * Purpose: Open in a new tab from the main nav; pick an agent on the left (one chat each),
  * chat in the middle, and reuse ChatDetailPage’s right rail on the right.
- * Downstream: GET /api/agents, GET/POST/DELETE /api/chats; nested ChatDetailPage at /grok/:chatId.
+ * Downstream: GET /api/agents, GET /api/groups, GET/POST/DELETE /api/chats; ChatDetailPage at /grok/:chatId.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -10,12 +10,14 @@ import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
+import { AgentGroupFolder } from "../components/AgentGroupFolder.jsx";
+import { buildGroupedSections, entityGroupId } from "../lib/groupedList.js";
 
 /**
  * Activity flags for the left-rail dots.
  * @param {object[]} chats
  * @param {string} agentId
- * @param {object} [agent] — optional agent doc (computer.needsAttention)
+ * @param {object} [agent]
  * @returns {{ working: boolean, needsYou: boolean }}
  */
 function agentActivity(chats, agentId, agent) {
@@ -61,26 +63,30 @@ export function GrokStyleLayout() {
 }
 
 /**
- * Three-pane workspace: agent list (left) + chat outlet (middle+right via ChatDetailPage).
- * Why: one chat per agent — no “+ new chat” sprawl.
+ * Three-pane workspace: grouped agent tree (left) + chat outlet.
  */
 export function GrokStylePage() {
   const { chatId } = useParams();
   const navigate = useNavigate();
   const [agents, setAgents] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [chats, setChats] = useState([]);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
   const [agentQuery, setAgentQuery] = useState("");
+  /** Collapsed group folder keys (missing = expanded). */
+  const [collapsed, setCollapsed] = useState(() => new Set());
 
   const reload = useCallback(async () => {
-    const [agentData, chatData] = await Promise.all([
+    const [agentData, chatData, groupData] = await Promise.all([
       api("/api/agents"),
       api("/api/chats?limit=100"),
+      api("/api/groups?type=agent").catch(() => ({ groups: [] })),
     ]);
     setAgents(agentData.agents || []);
     setChats(chatData.chats || []);
+    setGroups(groupData.groups || []);
   }, []);
 
   useEffect(() => {
@@ -93,7 +99,6 @@ export function GrokStylePage() {
     })();
   }, [reload]);
 
-  // Why: keep activity dots fresh; list order is fixed client-side by name (not API updatedAt).
   useEffect(() => {
     const t = window.setInterval(() => {
       void reload().catch(() => {});
@@ -108,20 +113,73 @@ export function GrokStylePage() {
     return aid ? String(aid) : "";
   }, [chatId, chats]);
 
-  /** Permanent A–Z order, then filter by search (name / skill). */
+  // Why: keep the selected agent’s group folder open so the tree stays oriented.
+  useEffect(() => {
+    if (!selectedAgentId) return;
+    const agent = agents.find((a) => String(a._id) === selectedAgentId);
+    const gid = entityGroupId(agent) || "ungrouped";
+    setCollapsed((prev) => {
+      if (!prev.has(gid)) return prev;
+      const next = new Set(prev);
+      next.delete(gid);
+      return next;
+    });
+  }, [selectedAgentId, agents]);
+
+  /** Permanent A–Z order, then filter by search (name / skill / group name). */
   const visibleAgents = useMemo(() => {
     const q = agentQuery.trim().toLowerCase();
+    const groupNameById = new Map(
+      (groups || []).map((g) => [String(g._id), String(g.name || "").toLowerCase()])
+    );
     const sorted = [...(agents || [])].sort(compareAgentsByName);
     if (!q) return sorted;
     return sorted.filter((a) => {
       const name = String(a?.name || "").toLowerCase();
       const skill = String(a?.skill || "").toLowerCase();
-      return name.includes(q) || skill.includes(q);
+      const gname = groupNameById.get(entityGroupId(a)) || "";
+      return name.includes(q) || skill.includes(q) || gname.includes(q);
     });
-  }, [agents, agentQuery]);
+  }, [agents, agentQuery, groups]);
+
+  const tree = useMemo(() => {
+    const { sections, ungrouped } = buildGroupedSections(
+      visibleAgents,
+      groups,
+      (a) => entityGroupId(a) || null
+    );
+    return {
+      sections: sections
+        .filter((s) => s.items.length > 0)
+        .map((s) => ({ ...s, items: [...s.items].sort(compareAgentsByName) })),
+      ungrouped: [...ungrouped].sort(compareAgentsByName),
+    };
+  }, [visibleAgents, groups]);
+
+  const searching = Boolean(agentQuery.trim());
 
   /**
-   * Opens the agent's sole chat (POST reuses via ensureAgentChat).
+   * @param {string} key
+   */
+  function toggleFolder(key) {
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  }
+
+  /**
+   * @param {string} key
+   * @returns {boolean}
+   */
+  function folderOpen(key) {
+    if (searching) return true;
+    return !collapsed.has(key);
+  }
+
+  /**
    * @param {string} agentId
    */
   async function openAgent(agentId) {
@@ -130,7 +188,6 @@ export function GrokStylePage() {
     setError(null);
     setAgentsOpen(false);
     try {
-      // Why: always POST so backend can retitle/migrate to the canonical sole chat.
       const data = await api("/api/chats", {
         method: "POST",
         body: JSON.stringify({ agentId: id, kind: "agent" }),
@@ -144,6 +201,57 @@ export function GrokStylePage() {
       setBusyId("");
     }
   }
+
+  /**
+   * @param {object} a
+   * @returns {JSX.Element}
+   */
+  function renderAgentRow(a) {
+    const id = String(a._id);
+    const agentActive = selectedAgentId === id;
+    const { working, needsYou } = agentActivity(chats, id, a);
+    const title = needsYou
+      ? working
+        ? "Needs you (also working) — open chat"
+        : "Needs your attention — open chat"
+      : working
+        ? "Agent is working — open chat"
+        : "Open chat";
+    return (
+      <li key={id}>
+        <button
+          type="button"
+          disabled={busyId === id}
+          onClick={() => void openAgent(id)}
+          className={`flex min-h-11 w-full min-w-0 items-center gap-2 rounded-xl px-2.5 py-2 text-left text-sm font-semibold disabled:opacity-50 ${
+            agentActive ? "bg-teal-600 text-white" : "text-teal-950 hover:bg-teal-50"
+          }`}
+          title={title}
+        >
+          <AgentAvatar agent={a} size="sm" selected={agentActive} />
+          <span className="flex shrink-0 items-center gap-1" aria-hidden>
+            {needsYou ? (
+              <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 ring-2 ring-red-500/30" />
+            ) : null}
+            {working ? (
+              <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 ring-2 ring-emerald-500/30" />
+            ) : null}
+            {!needsYou && !working ? (
+              <span
+                className={`h-2 w-2 rounded-full ${agentActive ? "bg-white/35" : "bg-teal-200"}`}
+              />
+            ) : null}
+          </span>
+          <span className="min-w-0 flex-1 truncate">{a.name || "Agent"}</span>
+          {needsYou ? <span className="sr-only">Needs attention</span> : null}
+          {working ? <span className="sr-only">Working</span> : null}
+        </button>
+      </li>
+    );
+  }
+
+  const hasTreeFolders = tree.sections.length > 0 || tree.ungrouped.length > 0;
+  const showAsTree = groups.length > 0;
 
   const agentRail = (
     <aside
@@ -177,7 +285,7 @@ export function GrokStylePage() {
           type="search"
           value={agentQuery}
           onChange={(e) => setAgentQuery(e.target.value)}
-          placeholder="Search agents…"
+          placeholder="Search agents or groups…"
           autoComplete="off"
           className="min-h-11 w-full rounded-xl border border-teal-100 bg-white px-3 text-sm text-teal-950 outline-none placeholder:text-teal-900/40 focus:border-teal-300 focus:ring-2 focus:ring-teal-100"
         />
@@ -196,58 +304,38 @@ export function GrokStylePage() {
               Create one
             </Link>
           </p>
-        ) : visibleAgents.length === 0 ? (
+        ) : !hasTreeFolders ? (
           <p className="px-2 py-3 text-sm text-teal-900/70">No agents match “{agentQuery.trim()}”.</p>
-        ) : (
-          <ul className="flex flex-col gap-1">
-            {visibleAgents.map((a) => {
-              const id = String(a._id);
-              const agentActive = selectedAgentId === id;
-              const { working, needsYou } = agentActivity(chats, id, a);
-              const title = needsYou
-                ? working
-                  ? "Needs you (also working) — open chat"
-                  : "Needs your attention — open chat"
-                : working
-                  ? "Agent is working — open chat"
-                  : "Open chat";
+        ) : showAsTree ? (
+          <ul className="flex flex-col gap-2">
+            {tree.sections.map((section) => {
+              const key = String(section.group._id);
               return (
-                <li key={id}>
-                  <button
-                    type="button"
-                    disabled={busyId === id}
-                    onClick={() => void openAgent(id)}
-                    className={`flex min-h-11 w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold disabled:opacity-50 ${
-                      agentActive
-                        ? "bg-teal-600 text-white"
-                        : "text-teal-950 hover:bg-teal-50"
-                    }`}
-                    title={title}
-                  >
-                    <AgentAvatar agent={a} size="sm" selected={agentActive} />
-                    <span className="flex shrink-0 items-center gap-1" aria-hidden>
-                      {needsYou ? (
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 ring-2 ring-red-500/30" />
-                      ) : null}
-                      {working ? (
-                        <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 ring-2 ring-emerald-500/30" />
-                      ) : null}
-                      {!needsYou && !working ? (
-                        <span
-                          className={`h-2 w-2 rounded-full ${
-                            agentActive ? "bg-white/35" : "bg-teal-200"
-                          }`}
-                        />
-                      ) : null}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate">{a.name || "Agent"}</span>
-                    {needsYou ? <span className="sr-only">Needs attention</span> : null}
-                    {working ? <span className="sr-only">Working</span> : null}
-                  </button>
-                </li>
+                <AgentGroupFolder
+                  key={key}
+                  label={section.group.name || "Group"}
+                  count={section.items.length}
+                  open={folderOpen(key)}
+                  onToggle={() => toggleFolder(key)}
+                >
+                  {section.items.map((a) => renderAgentRow(a))}
+                </AgentGroupFolder>
               );
             })}
+            {tree.ungrouped.length ? (
+              <AgentGroupFolder
+                key="ungrouped"
+                label="Ungrouped"
+                count={tree.ungrouped.length}
+                open={folderOpen("ungrouped")}
+                onToggle={() => toggleFolder("ungrouped")}
+              >
+                {tree.ungrouped.map((a) => renderAgentRow(a))}
+              </AgentGroupFolder>
+            ) : null}
           </ul>
+        ) : (
+          <ul className="flex flex-col gap-1">{visibleAgents.map((a) => renderAgentRow(a))}</ul>
         )}
       </div>
 
@@ -306,8 +394,7 @@ export function GrokStylePage() {
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <p className="text-lg font-bold tracking-tight text-teal-950">Pick an agent</p>
             <p className="max-w-md text-sm text-teal-900/70">
-              Each agent has one ongoing chat. Goals, schedules, and agent-to-agent work all land
-              there.
+              Agents are grouped in folders on the left. Each agent has one ongoing chat.
             </p>
             <button
               type="button"

@@ -15,6 +15,8 @@ import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/Field
 import { GettingStartedCard } from "../components/GettingStartedCard.jsx";
 import { useSetupStatus } from "../hooks/useSetupStatus.js";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
+import { AgentGroupFolder } from "../components/AgentGroupFolder.jsx";
+import { buildGroupedSections, entityGroupId } from "../lib/groupedList.js";
 
 /**
  * @param {object} chat
@@ -61,11 +63,14 @@ export function ChatsPage() {
   const [hasMoreChats, setHasMoreChats] = useState(false);
   const [loadingMore, setLoadingMore] = useState(false);
   const [agents, setAgents] = useState([]);
+  const [groups, setGroups] = useState([]);
   const [agentId, setAgentId] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [busyCommon, setBusyCommon] = useState(false);
   const [deletingId, setDeletingId] = useState("");
+  /** Collapsed group folder keys (missing = expanded). */
+  const [collapsed, setCollapsed] = useState(() => new Set());
   const loadingMoreRef = useRef(false);
   const hasMoreRef = useRef(false);
   const chatsRef = useRef([]);
@@ -86,7 +91,7 @@ export function ChatsPage() {
 
   /**
    * One row per agent — newest chat only (extra legacy threads stay hidden).
-   * @type {{ agentId: string, name: string, skill: string, avatarMime: string, avatarBase64: string, chat: object|null }[]}
+   * @type {{ agentId: string, name: string, skill: string, groupId: string, avatarMime: string, avatarBase64: string, chat: object|null }[]}
    */
   const agentRows = useMemo(() => {
     /** @type {Map<string, object>} */
@@ -110,6 +115,7 @@ export function ChatsPage() {
         agentId: id,
         name: String(a.name || "Agent").trim() || "Agent",
         skill: String(a.skill || "").trim(),
+        groupId: entityGroupId(a),
         avatarMime: a.avatarMime || "",
         avatarBase64: a.avatarBase64 || "",
         chat: newestByAgent.get(id) || null,
@@ -123,6 +129,18 @@ export function ChatsPage() {
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
   }, [agents, agentChats]);
+
+  const agentTree = useMemo(() => {
+    const { sections, ungrouped } = buildGroupedSections(
+      agentRows,
+      groups,
+      (r) => r.groupId || null
+    );
+    return {
+      sections: sections.filter((s) => s.items.length > 0),
+      ungrouped,
+    };
+  }, [agentRows, groups]);
 
   const workingCount = useMemo(
     () =>
@@ -154,9 +172,10 @@ export function ChatsPage() {
 
   async function load() {
     try {
-      const [chatData, agentData] = await Promise.all([
+      const [chatData, agentData, groupData] = await Promise.all([
         api(`/api/chats?limit=${CHAT_PAGE}`),
         api("/api/agents"),
+        api("/api/groups?type=agent").catch(() => ({ groups: [] })),
       ]);
       const page = chatData.chats || [];
       for (const id of [...deletedIdsRef.current]) {
@@ -174,6 +193,7 @@ export function ChatsPage() {
       );
       const list = agentData.agents || [];
       setAgents(list);
+      setGroups(groupData.groups || []);
       if (!agentId && list[0]?._id) setAgentId(list[0]._id);
     } catch (err) {
       setError(err);
@@ -464,12 +484,39 @@ export function ChatsPage() {
                 >
                   {agents.length === 0 ? (
                     <option value="">No agents yet</option>
-                  ) : (
+                  ) : groups.length === 0 ? (
                     agents.map((a) => (
                       <option key={a._id} value={a._id}>
                         {a.name} ({a.skill})
                       </option>
                     ))
+                  ) : (
+                    <>
+                      {groups.map((g) => {
+                        const opts = agents.filter((a) => entityGroupId(a) === String(g._id));
+                        if (!opts.length) return null;
+                        return (
+                          <optgroup key={g._id} label={g.name || "Group"}>
+                            {opts.map((a) => (
+                              <option key={a._id} value={a._id}>
+                                {a.name} ({a.skill})
+                              </option>
+                            ))}
+                          </optgroup>
+                        );
+                      })}
+                      {agents.some((a) => !entityGroupId(a)) ? (
+                        <optgroup label="Ungrouped">
+                          {agents
+                            .filter((a) => !entityGroupId(a))
+                            .map((a) => (
+                              <option key={a._id} value={a._id}>
+                                {a.name} ({a.skill})
+                              </option>
+                            ))}
+                        </optgroup>
+                      ) : null}
+                    </>
                   )}
                 </select>
               </label>
@@ -530,64 +577,115 @@ export function ChatsPage() {
               </ul>
             ) : (
               <ul className="flex flex-col gap-2">
-                {agentRows.map((row) => {
-                  const c = row.chat;
-                  const badge = liveBadge(c?.live);
-                  const isWorking =
-                    c?.live?.status === "running" || c?.live?.status === "waiting_user";
-                  return (
-                    <li
-                      key={row.agentId}
-                      className={`flex min-w-0 flex-col gap-2 rounded-2xl border bg-white p-2 shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3 ${
-                        isWorking ? "border-emerald-300 ring-1 ring-emerald-100" : "border-teal-100"
-                      }`}
-                    >
-                      <button
-                        type="button"
-                        disabled={busy}
-                        onClick={() => {
-                          if (c?._id) navigate(`/chats/${c._id}`);
-                          else void openAgentChat(row.agentId);
-                        }}
-                        className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 text-left sm:flex-row sm:items-center sm:justify-between sm:px-2"
-                      >
-                        <span className="flex min-w-0 items-center gap-2 truncate font-semibold">
-                          <AgentAvatar
-                            agent={{
-                              name: row.name,
-                              avatarMime: row.avatarMime,
-                              avatarBase64: row.avatarBase64,
+                {(groups.length
+                  ? [
+                      ...agentTree.sections.map((section) => ({
+                        key: String(section.group._id),
+                        label: section.group.name || "Group",
+                        rows: section.items,
+                      })),
+                      ...(agentTree.ungrouped.length
+                        ? [
+                            {
+                              key: "ungrouped",
+                              label: "Ungrouped",
+                              rows: agentTree.ungrouped,
+                            },
+                          ]
+                        : []),
+                    ]
+                  : [{ key: "all", label: "", rows: agentRows }]
+                ).map((folder) => {
+                  const renderRows = (rows) =>
+                    rows.map((row) => {
+                      const c = row.chat;
+                      const badge = liveBadge(c?.live);
+                      const isWorking =
+                        c?.live?.status === "running" || c?.live?.status === "waiting_user";
+                      return (
+                        <li
+                          key={row.agentId}
+                          className={`flex min-w-0 flex-col gap-2 rounded-2xl border bg-white p-2 shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3 ${
+                            isWorking
+                              ? "border-emerald-300 ring-1 ring-emerald-100"
+                              : "border-teal-100"
+                          }`}
+                        >
+                          <button
+                            type="button"
+                            disabled={busy}
+                            onClick={() => {
+                              if (c?._id) navigate(`/chats/${c._id}`);
+                              else void openAgentChat(row.agentId);
                             }}
-                            size="sm"
-                          />
-                          {badge ? (
-                            <span
-                              className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${badge.className}`}
-                              title={badge.title}
-                            >
-                              {c?.live?.status === "running" ? (
+                            className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 text-left sm:flex-row sm:items-center sm:justify-between sm:px-2"
+                          >
+                            <span className="flex min-w-0 items-center gap-2 truncate font-semibold">
+                              <AgentAvatar
+                                agent={{
+                                  name: row.name,
+                                  avatarMime: row.avatarMime,
+                                  avatarBase64: row.avatarBase64,
+                                }}
+                                size="sm"
+                              />
+                              {badge ? (
                                 <span
-                                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"
-                                  aria-hidden
-                                />
+                                  className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${badge.className}`}
+                                  title={badge.title}
+                                >
+                                  {c?.live?.status === "running" ? (
+                                    <span
+                                      className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+                                      aria-hidden
+                                    />
+                                  ) : null}
+                                  {badge.label}
+                                </span>
                               ) : null}
-                              {badge.label}
+                              <span className="truncate">{row.name}</span>
+                              {row.skill ? (
+                                <span className="hidden truncate text-xs font-normal text-teal-900/55 sm:inline">
+                                  · {row.skill}
+                                </span>
+                              ) : null}
                             </span>
-                          ) : null}
-                          <span className="truncate">{row.name}</span>
-                          {row.skill ? (
-                            <span className="hidden truncate text-xs font-normal text-teal-900/55 sm:inline">
-                              · {row.skill}
+                            <span className="shrink-0 text-xs text-teal-900/60">
+                              {c?.updatedAt
+                                ? new Date(c.updatedAt).toLocaleString()
+                                : "No messages yet — tap to open"}
                             </span>
-                          ) : null}
-                        </span>
-                        <span className="shrink-0 text-xs text-teal-900/60">
-                          {c?.updatedAt
-                            ? new Date(c.updatedAt).toLocaleString()
-                            : "No messages yet — tap to open"}
-                        </span>
-                      </button>
-                    </li>
+                          </button>
+                        </li>
+                      );
+                    });
+
+                  if (!folder.label) {
+                    return (
+                      <li key={folder.key} className="list-none">
+                        <ul className="flex flex-col gap-2">{renderRows(folder.rows)}</ul>
+                      </li>
+                    );
+                  }
+
+                  const open = !collapsed.has(folder.key);
+                  return (
+                    <AgentGroupFolder
+                      key={folder.key}
+                      label={folder.label}
+                      count={folder.rows.length}
+                      open={open}
+                      onToggle={() => {
+                        setCollapsed((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(folder.key)) next.delete(folder.key);
+                          else next.add(folder.key);
+                          return next;
+                        });
+                      }}
+                    >
+                      {renderRows(folder.rows)}
+                    </AgentGroupFolder>
                   );
                 })}
               </ul>

@@ -6,7 +6,8 @@
 import { useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
-import { buildGroupedSections, filterByGroup } from "../lib/groupedList.js";
+import { buildGroupedSections, entityGroupId, filterByGroup } from "../lib/groupedList.js";
+import { AgentGroupFolder } from "../components/AgentGroupFolder.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { GroupAssignSelect, GroupFilterBar } from "../components/GroupFilterBar.jsx";
@@ -183,6 +184,7 @@ export function AgentsPage() {
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [copyingId, setCopyingId] = useState("");
+  const [collapsed, setCollapsed] = useState(() => new Set());
   const navigate = useNavigate();
 
   async function loadGroups() {
@@ -204,12 +206,12 @@ export function AgentsPage() {
   }, []);
 
   const visibleAgents = useMemo(
-    () => filterByGroup(agents, filterGroupId, (a) => (a.group ? String(a.group) : "")),
+    () => filterByGroup(agents, filterGroupId, (a) => entityGroupId(a) || null),
     [agents, filterGroupId]
   );
 
   const grouped = useMemo(
-    () => buildGroupedSections(visibleAgents, groups, (a) => (a.group ? String(a.group) : "")),
+    () => buildGroupedSections(visibleAgents, groups, (a) => entityGroupId(a) || null),
     [visibleAgents, groups]
   );
 
@@ -358,40 +360,54 @@ export function AgentsPage() {
           No agents in this group.
         </div>
       ) : showGrouped ? (
-        <div className="flex flex-col gap-4">
+        <ul className="flex flex-col gap-3">
           {grouped.sections
             .filter((s) => s.items.length > 0)
-            .map((section) => (
-              <section key={section.group._id} className="flex flex-col gap-2">
-                <h2 className="text-sm font-bold uppercase tracking-wide text-teal-800/70">
-                  {section.group.name}
-                  <span className="ml-2 font-normal normal-case text-teal-900/50">
-                    ({section.items.length})
-                  </span>
-                </h2>
-                <ul className="flex flex-col gap-2">
+            .map((section) => {
+              const key = String(section.group._id);
+              const open = !collapsed.has(key);
+              return (
+                <AgentGroupFolder
+                  key={key}
+                  label={section.group.name || "Group"}
+                  count={section.items.length}
+                  open={open}
+                  onToggle={() => {
+                    setCollapsed((prev) => {
+                      const next = new Set(prev);
+                      if (next.has(key)) next.delete(key);
+                      else next.add(key);
+                      return next;
+                    });
+                  }}
+                >
                   {section.items.map((a) => (
                     <AgentRow key={a._id} agent={a} {...rowProps} />
                   ))}
-                </ul>
-              </section>
-            ))}
+                </AgentGroupFolder>
+              );
+            })}
           {grouped.ungrouped.length ? (
-            <section className="flex flex-col gap-2">
-              <h2 className="text-sm font-bold uppercase tracking-wide text-teal-800/70">
-                Ungrouped
-                <span className="ml-2 font-normal normal-case text-teal-900/50">
-                  ({grouped.ungrouped.length})
-                </span>
-              </h2>
-              <ul className="flex flex-col gap-2">
-                {grouped.ungrouped.map((a) => (
-                  <AgentRow key={a._id} agent={a} {...rowProps} />
-                ))}
-              </ul>
-            </section>
+            <AgentGroupFolder
+              key="ungrouped"
+              label="Ungrouped"
+              count={grouped.ungrouped.length}
+              open={!collapsed.has("ungrouped")}
+              onToggle={() => {
+                setCollapsed((prev) => {
+                  const next = new Set(prev);
+                  if (next.has("ungrouped")) next.delete("ungrouped");
+                  else next.add("ungrouped");
+                  return next;
+                });
+              }}
+            >
+              {grouped.ungrouped.map((a) => (
+                <AgentRow key={a._id} agent={a} {...rowProps} />
+              ))}
+            </AgentGroupFolder>
           ) : null}
-        </div>
+        </ul>
       ) : (
         <ul className="flex flex-col gap-2">
           {visibleAgents.map((a) => (

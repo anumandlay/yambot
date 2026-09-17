@@ -534,6 +534,7 @@ agentsRouter.get("/live-wall", async (req, res, next) => {
       return {
         id: String(a._id),
         name: a.name,
+        groupId: a.group ? String(a.group) : "",
         avatarMime: a.avatarMime || "",
         avatarBase64: a.avatarBase64 || "",
         runner: a.runner || "cloud",

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 12:28] Agent group tree views
+
+- **Prompt Provided:** Wherever agents are showing, show a tree-like view by group.
+- **Architectural Flow:** Collapsible group → agent folders on Grok rail, Chats agent list, Agents page, and Live Wall. Shared `AgentGroupFolder` + `entityGroupId` helper. Search on Grok also matches group names. Live-wall API includes `groupId`.
+- **Impacted Files:** `groupedList.js`, `AgentGroupFolder.jsx`, GrokStyle/Chats/Agents/LiveWall pages, `agents.js` live-wall, PROMPT_LOG
+
 ## [2026-09-17 12:03] Fix API 502 — agents.js syntax
 
 - **Prompt Provided:** Request failed HTTP 502
