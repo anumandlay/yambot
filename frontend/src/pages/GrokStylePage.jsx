@@ -33,6 +33,20 @@ function agentActivity(chats, agentId, agent) {
 }
 
 /**
+ * Stable A–Z order so poll refreshes never reshuffle the rail.
+ * @param {object} a
+ * @param {object} b
+ * @returns {number}
+ */
+function compareAgentsByName(a, b) {
+  const na = String(a?.name || "").trim() || "Agent";
+  const nb = String(b?.name || "").trim() || "Agent";
+  const byName = na.localeCompare(nb, undefined, { sensitivity: "base" });
+  if (byName !== 0) return byName;
+  return String(a?._id || "").localeCompare(String(b?._id || ""));
+}
+
+/**
  * Auth-gated chrome-free shell for /grok (no AppSidebar).
  */
 export function GrokStyleLayout() {
@@ -57,6 +71,7 @@ export function GrokStylePage() {
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
+  const [agentQuery, setAgentQuery] = useState("");
 
   const reload = useCallback(async () => {
     const [agentData, chatData] = await Promise.all([
@@ -77,7 +92,7 @@ export function GrokStylePage() {
     })();
   }, [reload]);
 
-  // Why: keep green activity dots fresh even on the empty “pick an agent” screen.
+  // Why: keep activity dots fresh; list order is fixed client-side by name (not API updatedAt).
   useEffect(() => {
     const t = window.setInterval(() => {
       void reload().catch(() => {});
@@ -91,6 +106,18 @@ export function GrokStylePage() {
     const aid = chat?.agent?._id || chat?.agent;
     return aid ? String(aid) : "";
   }, [chatId, chats]);
+
+  /** Permanent A–Z order, then filter by search (name / skill). */
+  const visibleAgents = useMemo(() => {
+    const q = agentQuery.trim().toLowerCase();
+    const sorted = [...(agents || [])].sort(compareAgentsByName);
+    if (!q) return sorted;
+    return sorted.filter((a) => {
+      const name = String(a?.name || "").toLowerCase();
+      const skill = String(a?.skill || "").toLowerCase();
+      return name.includes(q) || skill.includes(q);
+    });
+  }, [agents, agentQuery]);
 
   /**
    * Opens the agent's sole chat (POST reuses via ensureAgentChat).
@@ -140,6 +167,21 @@ export function GrokStylePage() {
         </button>
       </div>
 
+      <div className="shrink-0 border-b border-teal-100 p-2">
+        <label className="sr-only" htmlFor="grok-agent-search">
+          Search agents
+        </label>
+        <input
+          id="grok-agent-search"
+          type="search"
+          value={agentQuery}
+          onChange={(e) => setAgentQuery(e.target.value)}
+          placeholder="Search agents…"
+          autoComplete="off"
+          className="min-h-11 w-full rounded-xl border border-teal-100 bg-white px-3 text-sm text-teal-950 outline-none placeholder:text-teal-900/40 focus:border-teal-300 focus:ring-2 focus:ring-teal-100"
+        />
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
         {agents.length === 0 ? (
           <p className="px-2 py-3 text-sm text-teal-900/70">
@@ -153,9 +195,11 @@ export function GrokStylePage() {
               Create one
             </Link>
           </p>
+        ) : visibleAgents.length === 0 ? (
+          <p className="px-2 py-3 text-sm text-teal-900/70">No agents match “{agentQuery.trim()}”.</p>
         ) : (
           <ul className="flex flex-col gap-1">
-            {agents.map((a) => {
+            {visibleAgents.map((a) => {
               const id = String(a._id);
               const agentActive = selectedAgentId === id;
               const { working, needsYou } = agentActivity(chats, id, a);
