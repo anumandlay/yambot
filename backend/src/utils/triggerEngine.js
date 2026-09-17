@@ -6,7 +6,6 @@
 
 import { Trigger } from "../models/Trigger.js";
 import { Goal } from "../models/Goal.js";
-import { Chat } from "../models/Chat.js";
 import { enqueueTask } from "./enqueueTask.js";
 import { emitEvent } from "./eventBus.js";
 import { buildInvestigationGoal } from "./investigation.js";
@@ -122,19 +121,8 @@ export async function fireTrigger(trigger, ctx = {}) {
       }
     }
 
-    const chatTitle = `Trigger · ${trigger.name}`.slice(0, 80);
-    let chatId = eventPayload.chatId || cfg.chatId || undefined;
-    if (!chatId) {
-      const existing = await Chat.findOne({
-        user: userId,
-        agent: trigger.agent,
-        title: chatTitle,
-      })
-        .sort({ updatedAt: -1 })
-        .select("_id")
-        .lean();
-      if (existing?._id) chatId = String(existing._id);
-    }
+    // Why: one chat per agent — do not open Trigger · threads; enqueueTask ensures the sole chat.
+    const chatId = eventPayload.chatId || undefined;
     const enqueued = await enqueueTask({
       userId,
       agentId: String(trigger.agent),
@@ -144,7 +132,7 @@ export async function fireTrigger(trigger, ctx = {}) {
       chatId,
       priority: cfg.priority || "normal",
       source: `trigger:${trigger._id}`,
-      chatTitle,
+      chatTitle: `Trigger · ${trigger.name}`.slice(0, 80),
       entityRef: entityId || undefined,
       ticketRef: ticketId || undefined,
       meta: {

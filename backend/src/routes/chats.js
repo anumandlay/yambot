@@ -26,6 +26,7 @@ import {
   refreshChatContextIfNeeded,
   withChatContext,
 } from "../utils/chatContext.js";
+import { ensureAgentChat } from "../utils/enqueueTask.js";
 
 export const chatsRouter = Router();
 
@@ -250,8 +251,9 @@ chatsRouter.get("/", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats — create agent-bound or common chat.
+ * POST /api/chats — open/create agent-bound chat (one per agent) or common chat.
  * Body: { title?, agentId?, kind?: "agent"|"common" }
+ * Why: agent chats reuse the sole thread via ensureAgentChat — never spawn a second human inbox.
  */
 chatsRouter.post("/", async (req, res, next) => {
   try {
@@ -287,13 +289,10 @@ chatsRouter.post("/", async (req, res, next) => {
       });
       return;
     }
-    const title =
-      String(req.body?.title || "").trim() || `Chat · ${agent.name}`;
-    const chat = await Chat.create({
-      user: req.userId,
-      title,
-      kind: "agent",
-      agent: agent._id,
+    const preferredTitle = String(req.body?.title || "").trim() || agent.name;
+    const chat = await ensureAgentChat(req.userId, agent._id, {
+      agentName: agent.name,
+      title: preferredTitle,
     });
     res.status(201).json({ ok: true, chat });
   } catch (err) {

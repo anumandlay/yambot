@@ -226,8 +226,8 @@ export function AgentMemoryPage() {
       </div>
 
       <p className="text-sm text-teal-900/70">
-        Day-by-day history of what this agent did, plus logins you save for it to reuse. New chats
-        always get recent day summaries; matching keywords pull fuller detail into the run.
+        Day-by-day history of what this agent did, plus logins you save for it to reuse. Their ongoing
+        chat always gets recent day summaries; matching keywords pull fuller detail into the run.
       </p>
 
       {error ? (

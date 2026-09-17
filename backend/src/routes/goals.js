@@ -15,7 +15,7 @@ import {
   toGoalPublic,
 } from "../models/Goal.js";
 import { Agent, toAgentSnapshot } from "../models/Agent.js";
-import { Chat, Message } from "../models/Chat.js";
+import { Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
 import { writeAudit } from "../utils/audit.js";
 import { copyNameWithTimestamp } from "../utils/copyName.js";
@@ -26,6 +26,7 @@ import {
   normalizeCompletionActionsPickMode,
 } from "../utils/completionActions.js";
 import { draftGoalFromBrief } from "../utils/goalDraftFromBrief.js";
+import { ensureAgentChat } from "../utils/enqueueTask.js";
 
 export const goalsRouter = Router();
 
@@ -305,16 +306,12 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
       return;
     }
 
-    let chat;
-    if (goal.chatId) {
-      chat = await Chat.findOne({ _id: goal.chatId, user: req.userId });
-    }
-    if (!chat) {
-      chat = await Chat.create({
-        user: req.userId,
-        agent: agentDoc._id,
-        title: `Goal · ${goal.title}`.slice(0, 80),
-      });
+    // Why: one chat per agent — goals fold into the agent's sole thread.
+    const chat = await ensureAgentChat(req.userId, agentDoc._id, {
+      agentName: agentDoc.name,
+      title: agentDoc.name,
+    });
+    if (!goal.chatId || String(goal.chatId) !== String(chat._id)) {
       goal.chatId = chat._id;
       await goal.save();
     }

@@ -8,8 +8,9 @@ import { Router } from "express";
 import { Agent, toAgentSnapshot } from "../models/Agent.js";
 import { Task, priorityRank } from "../models/Task.js";
 import { Goal, buildGoalRunText, toGoalPublic } from "../models/Goal.js";
-import { Chat, Message } from "../models/Chat.js";
+import { Message } from "../models/Chat.js";
 import { writeAudit } from "../utils/audit.js";
+import { ensureAgentChat } from "../utils/enqueueTask.js";
 
 export const workforceRouter = Router();
 
@@ -157,16 +158,12 @@ workforceRouter.post("/run-goal/:goalId", async (req, res, next) => {
       return;
     }
 
-    let chat;
-    if (goal.chatId) {
-      chat = await Chat.findOne({ _id: goal.chatId, user: req.userId });
-    }
-    if (!chat) {
-      chat = await Chat.create({
-        user: req.userId,
-        agent: agentDoc._id,
-        title: `Goal · ${goal.title}`.slice(0, 80),
-      });
+    // Why: one chat per agent — workforce runs land in the sole thread.
+    const chat = await ensureAgentChat(req.userId, agentDoc._id, {
+      agentName: agentDoc.name,
+      title: agentDoc.name,
+    });
+    if (!goal.chatId || String(goal.chatId) !== String(chat._id)) {
       goal.chatId = chat._id;
       await goal.save();
     }

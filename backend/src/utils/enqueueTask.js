@@ -10,6 +10,57 @@ import { Task, priorityRank } from "../models/Task.js";
 import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.js";
 
 /**
+ * One human chat per agent — find the newest agent chat or create it.
+ * Why: multiple threads per agent made agent-to-agent + schedules messy.
+ * @param {string} userId
+ * @param {string|import('mongoose').Types.ObjectId} agentId
+ * @param {{ title?: string, agentName?: string }} [opts]
+ * @returns {Promise<import('mongoose').Document>}
+ */
+export async function ensureAgentChat(userId, agentId, opts = {}) {
+  const aid = String(agentId || "").trim();
+  if (!userId || !aid) {
+    throw Object.assign(new Error("userId and agentId required for ensureAgentChat"), { status: 400 });
+  }
+
+  let chat = await Chat.findOne({
+    user: userId,
+    agent: aid,
+    $or: [{ kind: "agent" }, { kind: { $exists: false } }, { kind: null }],
+  }).sort({ updatedAt: -1 });
+
+  if (chat) {
+    // Why: keep the canonical thread titled as the agent for a clean sidebar.
+    const preferred = String(opts.title || opts.agentName || "").trim();
+    if (preferred && chat.title !== preferred) {
+      const noisy =
+        /^(task|question|approval|handoff|event):\s*from\s+/i.test(chat.title || "") ||
+        /^Trigger\s*·/i.test(chat.title || "") ||
+        /^Schedule\s*·/i.test(chat.title || "") ||
+        /^Goal\s*·/i.test(chat.title || "") ||
+        /^Chat\s*·/i.test(chat.title || "") ||
+        /^From\s+/i.test(chat.title || "") ||
+        /^Autonomous work$/i.test(chat.title || "") ||
+        /^New chat$/i.test(chat.title || "");
+      if (noisy || !chat.title) {
+        chat.title = preferred.slice(0, 80);
+        chat.kind = "agent";
+        await chat.save();
+      }
+    }
+    return chat;
+  }
+
+  const title = String(opts.title || opts.agentName || "Agent chat").trim().slice(0, 80);
+  return Chat.create({
+    user: userId,
+    agent: aid,
+    kind: "agent",
+    title: title || "Agent chat",
+  });
+}
+
+/**
  * @param {object} opts
  * @param {string} opts.userId
  * @param {string} opts.agentId
@@ -60,11 +111,11 @@ export async function enqueueTask(opts) {
   if (opts.chatId) {
     chat = await Chat.findOne({ _id: opts.chatId, user: userId, agent: agentId });
   }
+  // Why: one chat per agent — ignore chatTitle-driven Chat.create sprawl.
   if (!chat) {
-    chat = await Chat.create({
-      user: userId,
-      agent: agentId,
-      title: String(opts.chatTitle || "Autonomous work").slice(0, 80),
+    chat = await ensureAgentChat(userId, agentId, {
+      agentName: agentDoc.name,
+      title: agentDoc.name,
     });
   }
 

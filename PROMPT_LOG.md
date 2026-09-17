@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:45] One chat per agent
+
+- **Prompt Provided:** Yes, let’s go (one chat per agent; simplify Chats UI).
+- **Architectural Flow:** `ensureAgentChat` is the sole path for agent-bound threads. `enqueueTask`, chats POST, goals/workforce runs, schedules, and triggers reuse that chat (no Trigger· / Goal· / message_agent spawn threads). Chats + grok-style UIs list one row per agent; “Open chat” replaces “New chat”. A2A child goals already land via `enqueueTask` on the peer’s sole chat.
+- **Impacted Files:** `enqueueTask.js`, `chats.js`, `goals.js`, `workforce.js`, `scheduler.js`, `triggerEngine.js`, `ChatsPage.jsx`, `GrokStylePage.jsx`, help, `AgentMemoryPage.jsx`, PROMPT_LOG
+
 ## [2026-09-17 11:30] Fix message_agent timeout + fetch failed
 
 - **Prompt Provided:** How can we solve Content Inspector timeout soft-cancel and fetch failed?

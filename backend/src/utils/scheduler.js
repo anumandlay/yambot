@@ -5,8 +5,9 @@
  */
 
 import { Agent, computeNextRunAt, toAgentSnapshot } from "../models/Agent.js";
-import { Chat, Message } from "../models/Chat.js";
+import { Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
+import { ensureAgentChat, unblockDependentTasks } from "./enqueueTask.js";
 import { User } from "../models/User.js";
 import { emitEvent } from "./eventBus.js";
 import { tickTriggers } from "./triggerEngine.js";
@@ -28,39 +29,21 @@ import { tickContinuousOptimize } from "./continuousOptimize.js";
 import { tickWorkflowWaits } from "./apiWorkflowRunner.js";
 import { tickApiAgents } from "./apiAgentRunner.js";
 import { tickEventDelivery } from "./eventDelivery.js";
-import { unblockDependentTasks } from "./enqueueTask.js";
 import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
 import { tickCampaigns } from "./campaignEngine.js";
 import { tickTicketSla } from "./ticketSla.js";
 import { tickScheduledReports } from "./scheduledReports.js";
 
 /**
- * Finds or creates the dedicated schedule chat for an agent.
+ * Uses the agent's single chat (one chat per agent).
  * @param {import('mongoose').Document} agent
  * @returns {Promise<import('mongoose').Document>}
  */
 async function ensureScheduleChat(agent) {
-  const title = `Schedule · ${agent.name}`;
-  if (agent.schedule?.chatId) {
-    const existing = await Chat.findOne({
-      _id: agent.schedule.chatId,
-      user: agent.user,
-      agent: agent._id,
-    });
-    if (existing) return existing;
-  }
-  let chat = await Chat.findOne({
-    user: agent.user,
-    agent: agent._id,
-    title,
+  const chat = await ensureAgentChat(agent.user, agent._id, {
+    agentName: agent.name,
+    title: agent.name,
   });
-  if (!chat) {
-    chat = await Chat.create({
-      user: agent.user,
-      agent: agent._id,
-      title,
-    });
-  }
   agent.schedule = agent.schedule || {};
   agent.schedule.chatId = chat._id;
   return chat;

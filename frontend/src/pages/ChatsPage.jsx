@@ -1,12 +1,12 @@
 /**
- * @fileoverview Chat list — agent-bound chats + common inbox.
- * Purpose: Start conversations bound to an agent or open a neutral common chat.
- * Downstream: GET /api/chats includes `live` activity for threads with pending/running tasks.
+ * @fileoverview Chat list — one thread per agent + shared inbox.
+ * Purpose: Open each agent's sole ongoing chat (or create it); common inbox stays multi-thread.
+ * Downstream: GET /api/chats includes `live` activity; POST /api/chats reuses ensureAgentChat.
  */
 
 import { useEffect, useMemo, useRef, useState } from "react";
 
-/** Newest threads on first paint; scroll loads the previous page. */
+/** Newest threads on first paint; scroll loads the previous page (legacy extras + common). */
 const CHAT_PAGE = 100;
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
@@ -84,60 +84,49 @@ export function ChatsPage() {
   }, [chats]);
 
   /**
-   * Agent → chats tree. Groups ordered by most recent chat; chats inside each group newest first.
+   * One row per agent — newest chat only (extra legacy threads stay hidden).
+   * @type {{ agentId: string, name: string, skill: string, chat: object|null }[]}
    */
-  const agentChatTree = useMemo(() => {
-    /** @type {Map<string, { key: string, agentId: string, name: string, chats: object[], latest: number }>} */
-    const map = new Map();
+  const agentRows = useMemo(() => {
+    /** @type {Map<string, object>} */
+    const newestByAgent = new Map();
     for (const c of agentChats) {
-      const agentId = c.agent?._id
-        ? String(c.agent._id)
-        : c.agent
-          ? String(c.agent)
-          : "";
-      const name = String(c.agent?.name || "").trim() || (agentId ? "Agent" : "Unknown agent");
-      const key = agentId || `name:${name.toLowerCase()}`;
-      let row = map.get(key);
-      if (!row) {
-        row = { key, agentId, name, chats: [], latest: 0 };
-        map.set(key, row);
+      const aid = c.agent?._id ? String(c.agent._id) : c.agent ? String(c.agent) : "";
+      if (!aid || deletedIdsRef.current.has(String(c._id))) continue;
+      const prev = newestByAgent.get(aid);
+      if (!prev) {
+        newestByAgent.set(aid, c);
+        continue;
       }
-      row.chats.push(c);
-      const t = new Date(c.updatedAt || c.createdAt || 0).getTime() || 0;
-      if (t > row.latest) row.latest = t;
+      const ta = new Date(c.updatedAt || c.createdAt || 0).getTime() || 0;
+      const tb = new Date(prev.updatedAt || prev.createdAt || 0).getTime() || 0;
+      if (ta > tb) newestByAgent.set(aid, c);
     }
-    for (const row of map.values()) {
-      row.chats.sort((a, b) => {
-        const ta = new Date(a.updatedAt).getTime();
-        const tb = new Date(b.updatedAt).getTime();
-        if (tb !== ta) return tb - ta;
-        return String(b._id).localeCompare(String(a._id));
-      });
-    }
-    return [...map.values()].sort((a, b) => {
-      if (b.latest !== a.latest) return b.latest - a.latest;
+
+    const rows = (agents || []).map((a) => {
+      const id = String(a._id);
+      return {
+        agentId: id,
+        name: String(a.name || "Agent").trim() || "Agent",
+        skill: String(a.skill || "").trim(),
+        chat: newestByAgent.get(id) || null,
+      };
+    });
+
+    return rows.sort((a, b) => {
+      const ta = a.chat ? new Date(a.chat.updatedAt || a.chat.createdAt || 0).getTime() || 0 : 0;
+      const tb = b.chat ? new Date(b.chat.updatedAt || b.chat.createdAt || 0).getTime() || 0 : 0;
+      if (tb !== ta) return tb - ta;
       return a.name.localeCompare(b.name, undefined, { sensitivity: "base" });
     });
-  }, [agentChats]);
-
-  /** Collapsed agent folders (missing key = expanded). */
-  const [collapsedAgents, setCollapsedAgents] = useState(() => new Set());
-
-  /**
-   * @param {string} key
-   */
-  function toggleAgentFolder(key) {
-    setCollapsedAgents((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  }
+  }, [agents, agentChats]);
 
   const workingCount = useMemo(
-    () => chats.filter((c) => c.live?.status === "running" || c.live?.status === "waiting_user").length,
-    [chats]
+    () =>
+      agentRows.filter(
+        (r) => r.chat?.live?.status === "running" || r.chat?.live?.status === "waiting_user"
+      ).length,
+    [agentRows]
   );
 
   /**
@@ -167,7 +156,6 @@ export function ChatsPage() {
         api("/api/agents"),
       ]);
       const page = chatData.chats || [];
-      // Why: clear tombstones once the API no longer returns those ids on the newest page.
       for (const id of [...deletedIdsRef.current]) {
         if (!page.some((c) => String(c._id) === id) && chatsRef.current.length <= CHAT_PAGE) {
           deletedIdsRef.current.delete(id);
@@ -189,9 +177,6 @@ export function ChatsPage() {
     }
   }
 
-  /**
-   * Appends the next 100 older threads when the user reaches the top/end of history.
-   */
   async function loadOlderChats() {
     if (loadingMoreRef.current || !hasMoreRef.current) return;
     const oldest = chatsRef.current[chatsRef.current.length - 1];
@@ -227,10 +212,6 @@ export function ChatsPage() {
   }, []);
 
   useEffect(() => {
-    /**
-     * Why: newest threads sit at the top; reaching the bottom (or the top after reading)
-     * loads the previous 100. Also fire when the user scrolls up near the top with more pages.
-     */
     function onWindowScroll() {
       const nearBottom =
         window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 240;
@@ -240,7 +221,6 @@ export function ChatsPage() {
     return () => window.removeEventListener("scroll", onWindowScroll);
   }, []);
 
-  /** Why: keep Live / Queued badges in sync while agents work without requiring a reload. */
   useEffect(() => {
     const id = window.setInterval(() => {
       load().catch(() => {});
@@ -249,11 +229,16 @@ export function ChatsPage() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [agentId]);
 
-  async function createAgentChat() {
-    if (!agentId) {
+  /**
+   * Opens the agent's sole chat (POST reuses existing via ensureAgentChat).
+   * @param {string} [id]
+   */
+  async function openAgentChat(id) {
+    const target = String(id || agentId || "").trim();
+    if (!target) {
       setError({
         title: "Pick an agent",
-        detail: "Create an agent first, then start a chat with it.",
+        detail: "Create an agent first, then open their chat.",
         hint: "Open Agents → New agent.",
       });
       return;
@@ -263,7 +248,7 @@ export function ChatsPage() {
     try {
       const data = await api("/api/chats", {
         method: "POST",
-        body: JSON.stringify({ agentId, kind: "agent" }),
+        body: JSON.stringify({ agentId: target, kind: "agent" }),
       });
       navigate(`/chats/${data.chat._id}`);
     } catch (err) {
@@ -317,14 +302,13 @@ export function ChatsPage() {
     const id = String(chat._id);
     if (
       !window.confirm(
-        `Delete “${label}”? Messages and queued goals for this thread will be removed. Running work from this thread will be stopped.`
+        `Delete “${label}”? Messages and queued goals for this thread will be removed. Running work from this thread will be stopped. Opening this agent again creates a fresh sole chat.`
       )
     ) {
       return;
     }
     setDeletingId(chat._id);
     setError(null);
-    // Why: remove immediately so the row vanishes before the 5s poll / merge can flash it back.
     deletedIdsRef.current.add(id);
     setChats((prev) => prev.filter((c) => String(c._id) !== id));
     try {
@@ -379,11 +363,6 @@ export function ChatsPage() {
                   {badge.label}
                 </span>
               ) : null}
-              {c.title?.startsWith("Trigger ·") ? (
-                <span className="shrink-0 rounded-md bg-violet-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-900">
-                  Ops
-                </span>
-              ) : null}
               <span className="truncate">{c.title}</span>
             </span>
             <span className="shrink-0 text-xs text-teal-900/60">
@@ -412,14 +391,14 @@ export function ChatsPage() {
         <div className="min-w-0">
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Chats</h1>
           <p className="text-sm text-teal-900/70">
-            Send goals in plain English — agents run them in cloud browsers.{" "}
-            <strong>Agent chats</strong> bind one worker per thread.{" "}
-            <strong>Shared inbox</strong> lets you pick an agent per message.
+            Each agent has <strong>one ongoing chat</strong> — goals, schedules, triggers, and
+            agent-to-agent work land in that thread. Shared inbox lets you pick an agent per
+            message.
             {workingCount > 0 ? (
               <>
                 {" "}
                 <span className="font-semibold text-emerald-800">
-                  {workingCount} thread{workingCount === 1 ? "" : "s"} working now.
+                  {workingCount} agent{workingCount === 1 ? "" : "s"} working now.
                 </span>
               </>
             ) : null}
@@ -471,7 +450,7 @@ export function ChatsPage() {
           </section>
 
           <section className="flex flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4">
-            <h2 className="text-sm font-bold text-teal-950">New agent chat</h2>
+            <h2 className="text-sm font-bold text-teal-950">Open agent chat</h2>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-end">
               <label className="flex w-full min-w-0 flex-col gap-1 text-sm sm:flex-1">
                 <FieldLabel helpId="chats.agentSelect">Agent</FieldLabel>
@@ -495,10 +474,10 @@ export function ChatsPage() {
                 <button
                   type="button"
                   disabled={busy || !agentId}
-                  onClick={createAgentChat}
+                  onClick={() => void openAgentChat()}
                   className="min-h-11 w-full rounded-xl bg-teal-700 px-4 font-semibold text-white disabled:opacity-50 sm:w-auto"
                 >
-                  {busy ? "Creating…" : "New agent chat"}
+                  {busy ? "Opening…" : "Open chat"}
                 </button>
               </ButtonWithHelp>
               <ButtonWithHelp helpId="chats.newAgentLink">
@@ -541,48 +520,73 @@ export function ChatsPage() {
           </section>
 
           <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-bold text-teal-900/80">Agent chats</h2>
-            {agentChatTree.length === 0 ? (
+            <h2 className="text-sm font-bold text-teal-900/80">Agents</h2>
+            {agentRows.length === 0 ? (
               <ul className="flex flex-col gap-2">
-                {renderChatList([], "No agent chats yet. Pick an agent and start a chat.")}
+                {renderChatList([], "No agents yet. Create one, then open their chat.")}
               </ul>
             ) : (
-              <ul className="flex flex-col gap-3">
-                {agentChatTree.map((group) => {
-                  const open = !collapsedAgents.has(group.key);
-                  const anyLive = group.chats.some(
-                    (c) => c.live?.status === "running" || c.live?.status === "waiting_user"
-                  );
+              <ul className="flex flex-col gap-2">
+                {agentRows.map((row) => {
+                  const c = row.chat;
+                  const badge = liveBadge(c?.live);
+                  const isWorking =
+                    c?.live?.status === "running" || c?.live?.status === "waiting_user";
                   return (
                     <li
-                      key={group.key}
-                      className="overflow-hidden rounded-2xl border border-teal-100 bg-teal-50/30"
+                      key={row.agentId}
+                      className={`flex min-w-0 flex-col gap-2 rounded-2xl border bg-white p-2 shadow-sm sm:flex-row sm:items-center sm:gap-3 sm:p-3 ${
+                        isWorking ? "border-emerald-300 ring-1 ring-emerald-100" : "border-teal-100"
+                      }`}
                     >
                       <button
                         type="button"
-                        className="flex min-h-11 w-full items-center gap-2 px-3 py-2 text-left"
-                        aria-expanded={open}
-                        onClick={() => toggleAgentFolder(group.key)}
+                        disabled={busy}
+                        onClick={() => {
+                          if (c?._id) navigate(`/chats/${c._id}`);
+                          else void openAgentChat(row.agentId);
+                        }}
+                        className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 text-left sm:flex-row sm:items-center sm:justify-between sm:px-2"
                       >
-                        <span className="w-4 shrink-0 text-teal-700" aria-hidden>
-                          {open ? "▾" : "▸"}
+                        <span className="flex min-w-0 items-center gap-2 truncate font-semibold">
+                          {badge ? (
+                            <span
+                              className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${badge.className}`}
+                              title={badge.title}
+                            >
+                              {c?.live?.status === "running" ? (
+                                <span
+                                  className="inline-block h-1.5 w-1.5 animate-pulse rounded-full bg-current"
+                                  aria-hidden
+                                />
+                              ) : null}
+                              {badge.label}
+                            </span>
+                          ) : null}
+                          <span className="truncate">{row.name}</span>
+                          {row.skill ? (
+                            <span className="hidden truncate text-xs font-normal text-teal-900/55 sm:inline">
+                              · {row.skill}
+                            </span>
+                          ) : null}
                         </span>
-                        <span className="min-w-0 flex-1 truncate text-sm font-bold text-teal-950">
-                          {group.name}{" "}
-                          <span className="font-semibold text-teal-800/70">
-                            ({group.chats.length})
-                          </span>
+                        <span className="shrink-0 text-xs text-teal-900/60">
+                          {c?.updatedAt
+                            ? new Date(c.updatedAt).toLocaleString()
+                            : "No messages yet — tap to open"}
                         </span>
-                        {anyLive ? (
-                          <span className="shrink-0 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-emerald-900">
-                            Live
-                          </span>
-                        ) : null}
                       </button>
-                      {open ? (
-                        <ul className="flex flex-col gap-2 border-t border-teal-100/80 bg-white/80 p-2">
-                          {renderChatList(group.chats, "")}
-                        </ul>
+                      {c ? (
+                        <ButtonWithHelp helpId="chats.delete">
+                          <button
+                            type="button"
+                            disabled={Boolean(deletingId)}
+                            onClick={() => deleteChat(c)}
+                            className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
+                          >
+                            {deletingId === c._id ? "Deleting…" : "Delete"}
+                          </button>
+                        </ButtonWithHelp>
                       ) : null}
                     </li>
                   );
@@ -599,8 +603,6 @@ export function ChatsPage() {
               >
                 Load earlier threads
               </button>
-            ) : chats.length > 0 ? (
-              <p className="py-2 text-center text-xs text-teal-900/40">All threads loaded</p>
             ) : null}
           </section>
         </>

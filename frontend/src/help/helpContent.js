@@ -945,7 +945,7 @@ export const HELP = {
   "agent.memory.dayHistory": {
     title: "Day history",
     body: helpBody(
-      "Each completed run adds to that calendar day’s summary. New chats always receive recent day summaries; keyword matches also inject fuller detail."
+      "Each completed run adds to that calendar day’s summary. The agent’s ongoing chat always receives recent day summaries; keyword matches also inject fuller detail."
     ),
   },
   "agent.memory.filter": {
@@ -1214,10 +1214,10 @@ export const HELP = {
   "chats.page": {
     title: "Chats page",
     body: helpBody(
-      "Two kinds of threads: **Shared inbox** — pick an agent per goal. **Agent chats** — grouped in a tree by agent name (most recently active agent first; newest chat first inside each folder).",
-      "Each agent still has its own cloud Chromium box and global FIFO queue per agent.",
-      "Threads with a live browser job show badges: Live (running), Needs you (waiting), or Queued.",
-      "The list shows the newest 100 threads; scroll down or tap Load earlier threads for the previous 100."
+      "Each agent has **one ongoing chat** — goals, schedules, triggers, and message_agent hops all land in that thread (not a new folder of chats).",
+      "**Shared inbox** stays separate: pick an agent per goal from a neutral thread.",
+      "Each agent still has its own cloud Chromium box and global FIFO queue.",
+      "Live / Needs you / Queued badges show when that agent’s sole chat has an active job."
     ),
     learnMore: "howto-chats",
   },
@@ -1231,13 +1231,13 @@ export const HELP = {
   "chats.agentSelect": {
     title: "Select agent",
     body: helpBody(
-      "Which agent owns the new chat. All tasks in this thread run on that agent's cloud computer with its persona and policies."
+      "Which agent’s sole chat to open. Opening reuses the existing thread — it does not create a second inbox."
     ),
   },
   "chats.newChat": {
-    title: "New agent chat",
+    title: "Open agent chat",
     body: helpBody(
-      "Creates empty thread bound to one agent. All goals in this thread run on that agent's cloud computer."
+      "Opens that agent’s single ongoing chat (creates it only if none exists yet). New goals are new messages in the same thread."
     ),
   },
   "chats.newAgentLink": {
@@ -2058,7 +2058,7 @@ export const HOW_TO_SECTIONS = [
       "2. Open Settings → add LLM API key, base URL, and model → Save.",
       "3. Optional: Vision LLM for screenshot recovery; DeathByCaptcha for some CAPTCHAs.",
       "4. Agents → New agent → fill Name, Skill, Profile, Standing instructions → Save.",
-      "5. Chats → pick agent → New chat → type a goal → watch live screen.",
+      "5. Chats → pick agent → Open chat → type a goal → watch live screen.",
       "6. Optional: Policies for approval gates and URL blocks; Goals for recurring objectives."
     ),
   },
@@ -2103,7 +2103,7 @@ export const HOW_TO_SECTIONS = [
     id: "howto-chats",
     title: "How chats & tasks work",
     body: helpBody(
-      "Chat message → Task created (pending) → cloud worker claims → status running → agent loop: observe page → LLM chooses action → execute in Playwright → repeat until finish or error.",
+      "Each agent has one ongoing chat. A chat message → Task (pending) → cloud worker claims → running → observe → LLM action → Playwright → finish or error.",
       "Statuses: pending, running, waiting_user (needs your answer), done, error, cancelled, blocked (waiting on dependsOn).",
       "Stop cancels running only. Answer unblocks waiting_user. Take control sends your input to the browser.",
       "Right rail: queue, live screen, DOM snapshot, trajectory for debugging."
@@ -2145,7 +2145,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "Set agent role Manager, select managedAgents (workers). Create parent goal owned by manager. Workforce page: pick parent, assign worker, add instructions → Delegate creates child goal for worker agent.",
       "Child goals inherit hierarchy for reporting. Workers execute browser tasks on their own cloud computers.",
-      "For mid-run handoffs, use message_agent (modes: task|question|approval|handoff|event). Max hop depth 2. Open Agent threads or Operations → Agent hops to review. Wait timeout soft-cancels the peer task."
+      "For mid-run handoffs, use message_agent (modes: task|question|approval|handoff|event). Max hop depth 2. Open Agent threads or Operations → Agent hops to review. Child work lands in the peer’s sole chat; wait polls up to 25m (no soft-cancel on timeout)."
     ),
   },
   {
