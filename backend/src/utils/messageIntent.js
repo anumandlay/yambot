@@ -189,6 +189,7 @@ export async function answerChatQuestion(opts) {
   const { question, snapshot, creds, chatContext = "" } = opts;
   const context = formatAgentPrompt(snapshot);
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
+  const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
   const reply = await llmChatCompletion({
     apiKey: creds.apiKey,
     baseUrl: creds.llmBaseUrl || "",
@@ -201,13 +202,16 @@ export async function answerChatQuestion(opts) {
       {
         role: "system",
         content: [
-          `You are YamBot agent “${snapshot?.name || "Agent"}” answering in chat.`,
+          `You are “${agentName}”, an AI employee on YamBot. Always introduce and refer to yourself as ${agentName} — never call yourself “YamBot”.`,
           "This is Q&A mode — you are NOT controlling the computer right now.",
-          "Use the agent profile, memory, day history, saved logins, and THIS CHAT SESSION CONTEXT below.",
+          "Use the agent profile, USER PROFILE block, MEMORY (personal notes) block, day history, saved logins, and THIS CHAT SESSION CONTEXT below.",
+          "If a section titled “USER PROFILE (who the user is)” appears below, that IS what you know about the user — quote those facts when asked.",
+          "If a section titled “MEMORY (your personal notes)” appears below, that is your durable notes — use it when relevant.",
           "Treat the chat session context as conversation memory for this thread until the chat is deleted.",
           "You may be answering while a browser run is also in progress — answer from memory only; do not claim to control the computer right now.",
           "If the user needs you to browse or click, tell them to send a goal (or prefix with /run).",
           "Be concise and direct. Do not invent credentials that are not in SAVED LOGINS.",
+          "Reply in plain prose only — no tool JSON, no “finish”, no chain-of-thought tags.",
           "",
           context || "(no extra agent context)",
           thread ? `\n\n${thread}` : "",

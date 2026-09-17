@@ -742,8 +742,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           excludeIds: [String(message._id)],
           creds: qaCreds,
         });
+        // Why: Q&A must see the same frozen USER.md as browser runs (Hermes curated profile).
+        const { normalizeEntries } = await import("../utils/curatedMemory.js");
+        const userCuratedEntries = normalizeEntries(userForLlm?.curatedMemory?.entries);
+        const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
         const qaSnapshot = withChatContext(
-          toAgentSnapshot(agentDoc, { goal: questionText }),
+          toAgentSnapshot(agentDoc, {
+            goal: questionText,
+            userCuratedEntries,
+            agentCuratedEntries,
+          }),
           chatContextBlock
         );
         assistantContent = await answerChatQuestion({

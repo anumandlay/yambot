@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 13:52] Chat Q&A: agent name + curated USER memory
+
+- **Prompt Provided:** Hi greeted as YamBot; USER memory question saw nothing.
+- **Architectural Flow:** Q&A snapshot now loads User+Agent curatedMemory into toAgentSnapshot. answerChatQuestion identifies as agent name (never “YamBot”) and explicitly uses USER PROFILE / MEMORY blocks.
+- **Impacted Files:** `chats.js`, `messageIntent.js`, PROMPT_LOG
+
 ## [2026-09-17 13:42] Fix curated memory ENTRY_DELIMITER.join
 
 - **Prompt Provided:** /settings/memory Server error — ENTRY_DELIMITER.join is not a function
