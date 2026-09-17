@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:51] Grok agent list: stable order + search
+
+- **Prompt Provided:** Stick agent order permanently; add search box above agent names.
+- **Architectural Flow:** Left rail sorts A–Z by name (ignores API `updatedAt` reshuffles from 5s poll). Search filters by name/skill above the list.
+- **Impacted Files:** `GrokStylePage.jsx`, PROMPT_LOG
+
 ## [2026-09-17 11:47] Grok-style red attention dots
 
 - **Prompt Provided:** Also show a red dot when the agent needs human attention.
