@@ -237,6 +237,9 @@ function pickAgentFields(body, opts = {}) {
     }
   }
   if (body.mode != null || !opts.partial) {
+    const mode = String(body.mode || "browser").toLowerCase().trim();
+    set("mode", AGENT_MODES.includes(mode) ? mode : "browser");
+  }
   if (body.instructions != null) set("instructions", String(body.instructions || "").trim());
   if (body.facts != null) set("facts", normalizeFacts(body.facts));
   if (body.successCriteria != null) {

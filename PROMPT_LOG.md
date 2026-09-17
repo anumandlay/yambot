@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 12:03] Fix API 502 — agents.js syntax
+
+- **Prompt Provided:** Request failed HTTP 502
+- **Architectural Flow:** Avatar edit left `if (body.mode…)` open without body/close → API crash-loop SyntaxError. Restored mode assignment block; redeploy.
+- **Impacted Files:** `backend/src/routes/agents.js`, PROMPT_LOG
+
 ## [2026-09-17 11:55] Agent profile pictures
 
 - **Prompt Provided:** Upload profile picture for an agent; show it wherever agents appear.
