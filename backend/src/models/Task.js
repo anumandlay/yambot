@@ -188,6 +188,13 @@ const taskSchema = new mongoose.Schema(
             },
             resultSummary: { type: String, default: "" },
             consumed: { type: Boolean, default: false },
+            /** async = fire-and-forget; soft = work until softWaitUntil then pause for peer. */
+            waitMode: {
+              type: String,
+              enum: ["async", "soft"],
+              default: "async",
+            },
+            softWaitUntil: { type: Date, default: null },
             createdAt: { type: Date, default: Date.now },
             completedAt: { type: Date, default: null },
             consumedAt: { type: Date, default: null },

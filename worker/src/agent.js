@@ -2111,6 +2111,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
               },
             }).catch(() => {});
           }
+          if (Array.isArray(drained?.softDue) && drained.softDue.length) {
+            const soft = await api(`/api/worker/tasks/${taskId}/peer-results/soft-pause`, {
+              method: "POST",
+              body: JSON.stringify({}),
+            });
+            for (const note of soft?.notes || []) {
+              notes.push(note);
+              await mirror(taskId, "info", {
+                appendMessage: note.slice(0, 1500),
+                payload: { kind: "soft_wait" },
+              }).catch(() => {});
+            }
+          }
         } catch {
           /* peer drain is best-effort */
         }
@@ -2298,7 +2311,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Use wait:false when you still have other work; a PEER RESULT note will appear when they finish. Use wait:true only when you cannot proceed without their answer.",
+              "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Use wait:false when you still have other work; wait:\"soft\" (optional soft_wait_minutes) to work a few minutes then pause for the peer; wait:true only when you cannot proceed without their answer.",
               "OPERATOR CHAT: The human may send OPERATOR MESSAGE notes while you run — treat them as high-priority guidance for the current goal (do not start an unrelated new goal unless they clearly ask).",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
@@ -3394,36 +3407,58 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, http: result };
       }
       case "message_agent": {
-        const wantWait = action.wait !== false && action.mode !== "event";
+        const mode = action.mode || "task";
+        const rawWait = action.wait;
+        const waitMode =
+          rawWait === "soft" || rawWait === "soft_wait"
+            ? "soft"
+            : rawWait === false || rawWait === "false"
+              ? "async"
+              : mode === "event"
+                ? "async"
+                : rawWait === true || rawWait === undefined || rawWait === null
+                  ? "block"
+                  : "block";
+        const softWaitMinutes =
+          action.soft_wait_minutes ?? action.softWaitMinutes ?? 3;
+        const wantBlock = waitMode === "block";
         const start = await api("/api/worker/tools/message-agent", {
           method: "POST",
           body: JSON.stringify({
             agentId: config.agentId || agentSnapshot?.id,
             taskId,
             to: action.to || action.agent || action.name,
-            mode: action.mode || "task",
+            mode,
             content: action.content || action.message || action.question || "",
-            // Why: never block HTTP for minutes — enqueue then poll (avoids fetch failed).
-            wait: false,
-            clientWait: wantWait,
+            wait: waitMode === "block" ? true : waitMode === "soft" ? "soft" : false,
+            waitMode,
+            softWaitMinutes,
+            clientWait: wantBlock,
           }),
         });
-        if (!wantWait || !start.ok || !start.agentMessageId) {
+        if (!wantBlock || !start.ok || !start.agentMessageId) {
           const note = String(start.note || start.resultSummary || "").slice(0, 6000);
           notes.push(
             note ||
               (start.ok
-                ? "Peer message queued (async). Continue other work — PEER RESULT will appear when they finish."
+                ? waitMode === "soft"
+                  ? `Peer queued (soft wait ${softWaitMinutes}m). Continue other work — will pause if they are still running after the soft window.`
+                  : "Peer message queued (async). Continue other work — PEER RESULT will appear when they finish."
                 : "Peer message failed.")
           );
-          return { ok: Boolean(start.ok), messageAgent: start, summary: note, async: !wantWait };
+          return {
+            ok: Boolean(start.ok),
+            messageAgent: start,
+            summary: note,
+            async: !wantBlock,
+            waitMode,
+          };
         }
 
         const waitMs = Number(start.waitMs) || 25 * 60 * 1000;
         const deadline = Date.now() + waitMs;
         let last = start;
         while (Date.now() < deadline) {
-          // Why: keep reclaim timer + Live Wall alive while the peer works.
           await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
           await sleep(3000);
           last = await api(

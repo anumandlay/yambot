@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:30] A2A v3: soft wait (work then pause for peer)
+
+- **Prompt Provided:** lets go with v3, v4 and v5 one by one (this entry = v3).
+- **Architectural Flow:** `wait:"soft"` (+ optional `soft_wait_minutes`, default 3) registers async mailbox with softWaitUntil. Parent keeps working; when the soft deadline passes and peer is still waiting, worker calls soft-pause and blocks until peer finishes (or hard timeout).
+- **Impacted Files:** Task model, agentMessageBus, worker routes/agent/actions, apiAgentRunner/Actions, PROMPT_LOG
+
 ## [2026-09-17 15:25] A2A v2: mid-run chat injects into running agent
 
 - **Prompt Provided:** lets go with v2 (chat with Agent A while it runs / waits on B).

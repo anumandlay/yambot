@@ -36,6 +36,9 @@ import {
   finalizeAgentMessagesForChildTask,
   consumePendingPeerResults,
   consumePendingOperatorMessages,
+  softPauseForDuePeers,
+  listSoftDuePeerWaits,
+  normalizeMessageWaitMode,
   AGENT_MESSAGE_WAIT_MS,
 } from "../utils/agentMessageBus.js";
 import { Skill } from "../models/Skill.js";
@@ -1037,11 +1040,11 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
     const to = String(req.body?.to || "").trim();
     const mode = String(req.body?.mode || "task").trim().toLowerCase();
     const content = String(req.body?.content || req.body?.message || "").trim();
-    // Why: always queue immediately over HTTP; clientWait tells the worker to poll.
+    const waitMode = normalizeMessageWaitMode(req.body?.waitMode ?? req.body?.wait, mode);
+    // Why: always queue immediately over HTTP; clientWait tells the worker to poll (block mode only).
     const clientWait =
-      req.body?.clientWait === true ||
-      req.body?.wait === true ||
-      (req.body?.wait === undefined && mode !== "event");
+      req.body?.clientWait === true || waitMode === "block";
+    const softWaitMinutes = req.body?.softWaitMinutes ?? req.body?.soft_wait_minutes;
 
     if (!agentId) {
       res.status(400).json({ ok: false, title: "Bad request", detail: "agentId required" });
@@ -1079,7 +1082,9 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       mode,
       content,
       parentTaskId: taskId || null,
-      wait: false,
+      wait: waitMode === "block",
+      waitMode,
+      softWaitMinutes,
     });
 
     res.json({
@@ -1087,6 +1092,8 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       note: result.note,
       waiting: Boolean(clientWait && result.ok),
       clientWait: Boolean(clientWait),
+      waitMode: result.waitMode || waitMode,
+      softWaitMinutes: result.softWaitMinutes ?? null,
       waitMs: AGENT_MESSAGE_WAIT_MS,
       agentMessageId: result.agentMessageId || null,
       childTaskId: result.childTaskId || null,
@@ -1137,12 +1144,38 @@ workerRouter.post("/tasks/:id/peer-results/consume", async (req, res, next) => {
     }
     const peers = await consumePendingPeerResults(String(req.params.id));
     const operators = await consumePendingOperatorMessages(String(req.params.id));
+    const softDue = await listSoftDuePeerWaits(String(req.params.id));
     res.json({
       ok: true,
       notes: [...operators.notes, ...peers.notes],
       rows: peers.rows,
       operatorRows: operators.rows,
+      softDue: softDue.map((r) => ({
+        agentMessageId: r.agentMessageId,
+        toAgentName: r.toAgentName || "peer",
+        softWaitUntil: r.softWaitUntil,
+      })),
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/tasks/:id/peer-results/soft-pause — block until soft-due peers finish (v3).
+ * Why: runs on the worker’s request so the parent can pause without holding the consume call forever by default.
+ */
+workerRouter.post("/tasks/:id/peer-results/soft-pause", async (req, res, next) => {
+  try {
+    const task = await Task.findOne({ _id: req.params.id, user: req.userId })
+      .select("_id")
+      .lean();
+    if (!task) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
+      return;
+    }
+    const soft = await softPauseForDuePeers(req.userId, String(req.params.id));
+    res.json({ ok: true, notes: soft.notes, paused: soft.paused });
   } catch (err) {
     next(err);
   }

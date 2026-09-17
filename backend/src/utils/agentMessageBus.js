@@ -16,6 +16,11 @@ import { emitEvent } from "./eventBus.js";
 export const MAX_AGENT_MESSAGE_HOP_DEPTH = 2;
 /** Max wait for peer when wait:true (ms) — browser inspections often exceed 8m. */
 export const AGENT_MESSAGE_WAIT_MS = 25 * 60 * 1000;
+/** Default soft-wait window: work this long, then pause if peer still running. */
+export const SOFT_WAIT_DEFAULT_MS = 3 * 60 * 1000;
+/** Soft-wait clamp (minutes). */
+export const SOFT_WAIT_MIN_MINUTES = 1;
+export const SOFT_WAIT_MAX_MINUTES = 15;
 const POLL_MS = 2_000;
 
 /** Outbound modes agents may send (result is system-generated). */
@@ -37,6 +42,33 @@ export function normalizeAgentMessageMode(raw) {
     .toLowerCase();
   if (AGENT_MESSAGE_OUTBOUND_MODES.includes(m)) return /** @type {any} */ (m);
   return "task";
+}
+
+/**
+ * Normalize message_agent wait into block | async | soft.
+ * @param {unknown} wait
+ * @param {string} [mode]
+ * @returns {"block"|"async"|"soft"}
+ */
+export function normalizeMessageWaitMode(wait, mode = "task") {
+  if (String(mode || "").toLowerCase() === "event") return "async";
+  if (wait === false || wait === "false" || wait === 0 || wait === "0") return "async";
+  if (wait === "soft" || wait === "soft_wait") return "soft";
+  if (wait === true || wait === "true" || wait === 1 || wait === "1") return "block";
+  if (wait === undefined || wait === null || wait === "") return "block";
+  return "block";
+}
+
+/**
+ * @param {unknown} rawMinutes
+ * @returns {number} ms
+ */
+export function softWaitMsFromMinutes(rawMinutes) {
+  const n = Number(rawMinutes);
+  const minutes = Number.isFinite(n)
+    ? Math.min(SOFT_WAIT_MAX_MINUTES, Math.max(SOFT_WAIT_MIN_MINUTES, Math.round(n)))
+    : SOFT_WAIT_DEFAULT_MS / 60_000;
+  return minutes * 60_000;
 }
 
 /**
@@ -450,10 +482,13 @@ export async function sendAgentMessage(opts) {
   const fromAgentId = String(opts.fromAgentId || "").trim();
   const content = String(opts.content || "").trim();
   const mode = normalizeAgentMessageMode(opts.mode);
-  const wait =
-    opts.wait === undefined || opts.wait === null
-      ? defaultWaitForMode(mode)
-      : opts.wait !== false;
+  const waitMode =
+    opts.waitMode === "soft" || opts.waitMode === "async" || opts.waitMode === "block"
+      ? opts.waitMode
+      : normalizeMessageWaitMode(opts.wait, mode);
+  const wait = waitMode === "block";
+  const softWaitMs =
+    waitMode === "soft" ? softWaitMsFromMinutes(opts.softWaitMinutes) : 0;
   const parentTaskId = String(opts.parentTaskId || "").trim() || null;
 
   if (!userId || !fromAgentId) {
@@ -588,8 +623,10 @@ export async function sendAgentMessage(opts) {
     },
   }).catch(() => null);
 
-  // Why: only async (wait:false) parents need a mailbox — blocking wait already returns the note inline.
+  // Why: async + soft parents need a mailbox — blocking wait already returns the note inline.
   if (parentTaskId && !wait) {
+    const softUntil =
+      waitMode === "soft" ? new Date(Date.now() + softWaitMs) : null;
     await Task.findByIdAndUpdate(parentTaskId, {
       $push: {
         pendingPeerResults: {
@@ -601,6 +638,8 @@ export async function sendAgentMessage(opts) {
           status: "waiting",
           resultSummary: "",
           consumed: false,
+          waitMode: waitMode === "soft" ? "soft" : "async",
+          softWaitUntil: softUntil,
           createdAt: new Date(),
           completedAt: null,
         },
@@ -612,6 +651,8 @@ export async function sendAgentMessage(opts) {
             toAgentName: toAgent.name,
             mode,
             async: true,
+            waitMode: waitMode === "soft" ? "soft" : "async",
+            softWaitUntil: softUntil ? softUntil.toISOString() : null,
             childTaskId: String(enq.task._id),
           },
           at: new Date(),
@@ -638,6 +679,8 @@ export async function sendAgentMessage(opts) {
       mode,
       hopDepth,
       wait,
+      waitMode,
+      softWaitMinutes: waitMode === "soft" ? softWaitMs / 60_000 : null,
       childTaskId: String(enq.task._id),
       conversationKey,
     },
@@ -645,17 +688,24 @@ export async function sendAgentMessage(opts) {
   }).catch(() => null);
 
   if (!wait) {
+    const softNote =
+      waitMode === "soft"
+        ? ` soft — keep working ~${Math.round(softWaitMs / 60_000)}m, then pause if peer still running`
+        : " async — keep working; peer result will appear as PEER RESULT when they finish";
     return {
       ok: true,
-      note: `Queued for ${toAgent.name} (${mode}, async — keep working; peer result will appear as PEER RESULT when they finish). Child task ${enq.task._id}. Thread ${conversationKey}.`,
+      note: `Queued for ${toAgent.name} (${mode},${softNote}). Child task ${enq.task._id}. Thread ${conversationKey}.`,
       agentMessageId: String(outbound._id),
       childTaskId: String(enq.task._id),
       conversationKey,
       async: true,
+      waitMode,
+      softWaitMinutes: waitMode === "soft" ? softWaitMs / 60_000 : null,
       resultPayload: {
         success: true,
         queued: true,
         async: true,
+        waitMode,
         mode,
         hopDepth,
         conversationKey,
@@ -790,10 +840,11 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
   });
   return [
     "PEER AGENTS (collaborate via message_agent; use exact names):",
-    'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false }',
+    'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false|"soft", "soft_wait_minutes": 3 }',
     "Modes: task=do work; question=answer; approval=approve/reject via finish; handoff=peer owns work; event=FYI (default wait:false).",
     "wait:true = block until peer finishes (use when you need their answer before any other step).",
     "wait:false = fire-and-forget; keep doing your remaining work. When the peer finishes, a PEER RESULT note appears — use it, then finish or continue.",
+    "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until the peer finishes if they are still running.",
     "Peers must finish with the answer — they must not message_agent you back.",
     "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
@@ -878,6 +929,69 @@ export async function consumePendingPeerResults(parentTaskId) {
   }
   if (changed) await task.save();
   return { notes, rows };
+}
+
+/**
+ * Soft-wait peers whose softWaitUntil has passed and are still waiting.
+ * @param {string} parentTaskId
+ * @returns {Promise<object[]>}
+ */
+export async function listSoftDuePeerWaits(parentTaskId) {
+  const id = String(parentTaskId || "").trim();
+  if (!id) return [];
+  const task = await Task.findById(id).select("pendingPeerResults").lean();
+  const now = Date.now();
+  return (task?.pendingPeerResults || []).filter((row) => {
+    if (row.consumed || row.status !== "waiting") return false;
+    if (row.waitMode !== "soft" || !row.softWaitUntil) return false;
+    return new Date(row.softWaitUntil).getTime() <= now;
+  });
+}
+
+/**
+ * Block-poll soft-due peers until done/error/timeout (v3 soft wait pause).
+ * @param {string} userId
+ * @param {string} parentTaskId
+ * @param {{ hardWaitMs?: number }} [opts]
+ * @returns {Promise<{ notes: string[], paused: boolean }>}
+ */
+export async function softPauseForDuePeers(userId, parentTaskId, opts = {}) {
+  const due = await listSoftDuePeerWaits(parentTaskId);
+  if (!due.length) return { notes: [], paused: false };
+
+  const hardWaitMs = Number(opts.hardWaitMs) || AGENT_MESSAGE_WAIT_MS;
+  /** @type {string[]} */
+  const notes = [
+    `SOFT WAIT: Soft deadline reached for ${due.length} peer(s) — pausing until they finish…`,
+  ];
+
+  for (const row of due) {
+    const id = String(row.agentMessageId || "").trim();
+    if (!id) continue;
+    const deadline = Date.now() + hardWaitMs;
+    let last = { waiting: true };
+    while (Date.now() < deadline) {
+      await Task.findByIdAndUpdate(parentTaskId, { $set: { claimedAt: new Date() } }).catch(
+        () => null
+      );
+      last = await pollAgentMessageStatus(userId, id, { parentTaskId });
+      if (!last.waiting) break;
+      await new Promise((r) => setTimeout(r, POLL_MS));
+    }
+    if (last.waiting) {
+      notes.push(
+        `SOFT WAIT timeout for “${row.toAgentName || "peer"}” — continuing; late PEER RESULT may still arrive.`
+      );
+    } else {
+      notes.push(
+        String(last.note || last.resultSummary || `Peer “${row.toAgentName || "peer"}” finished.`)
+      );
+    }
+  }
+
+  const drained = await consumePendingPeerResults(parentTaskId);
+  notes.push(...drained.notes);
+  return { notes, paused: true };
 }
 
 /**

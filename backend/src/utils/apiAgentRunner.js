@@ -31,7 +31,7 @@ import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js
 import { normalizeEntries } from "./curatedMemory.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
-import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
 const STUCK_RUNNING_MS = 20 * 60 * 1000;
@@ -266,7 +266,13 @@ async function executeApiTask(task, agent, userId) {
       }
       const drained = await consumePendingPeerResults(String(task._id));
       const opDrained = await consumePendingOperatorMessages(String(task._id));
-      const allNotes = [...opDrained.notes, ...drained.notes];
+      const softDue = await listSoftDuePeerWaits(String(task._id));
+      let softNotes = [];
+      if (softDue.length) {
+        const soft = await softPauseForDuePeers(userId, String(task._id));
+        softNotes = soft.notes || [];
+      }
+      const allNotes = [...opDrained.notes, ...drained.notes, ...softNotes];
       if (allNotes.length) {
         const block = allNotes.join("\n\n");
         messages.push({
@@ -437,7 +443,8 @@ async function executeApiAction(action, ctx) {
         return await runHttpRequest(action, ctx);
       case "message_agent": {
         const mode = action.mode || "task";
-        const wantWait = action.wait !== false && mode !== "event";
+        const waitMode = normalizeMessageWaitMode(action.wait, mode);
+        const softWaitMinutes = action.soft_wait_minutes ?? action.softWaitMinutes ?? 3;
         const result = await sendAgentMessage({
           userId: ctx.userId,
           fromAgentId: String(ctx.agent._id),
@@ -445,15 +452,19 @@ async function executeApiAction(action, ctx) {
           mode,
           content: action.content || action.message || action.question || "",
           parentTaskId: ctx.taskId || null,
-          wait: false,
+          wait: waitMode === "block",
+          waitMode,
+          softWaitMinutes,
         });
-        if (!wantWait || !result.ok || !result.agentMessageId) {
+        if (waitMode !== "block" || !result.ok || !result.agentMessageId) {
           return {
             ok: result.ok,
             note:
               result.note ||
               (result.ok
-                ? "Peer queued (async). Continue — PEER RESULT appears when they finish."
+                ? waitMode === "soft"
+                  ? `Peer queued (soft ${softWaitMinutes}m). Continue — will pause if still running after the window.`
+                  : "Peer queued (async). Continue — PEER RESULT appears when they finish."
                 : "Peer message failed."),
           };
         }
