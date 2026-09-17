@@ -11,26 +11,21 @@ import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 
 /**
- * Newest agent-bound chat for one agent.
+ * True when any of this agent's chats has a queued or active browser/API job.
  * @param {object[]} chats
  * @param {string} agentId
- * @returns {object|null}
+ * @returns {boolean}
  */
-function findAgentChat(chats, agentId) {
+function agentIsWorking(chats, agentId) {
   const id = String(agentId);
-  let best = null;
-  let bestT = -1;
   for (const c of chats || []) {
     if (c?.kind === "common") continue;
     const aid = c?.agent?._id || c?.agent;
     if (!aid || String(aid) !== id) continue;
-    const t = new Date(c.updatedAt || c.createdAt || 0).getTime() || 0;
-    if (t >= bestT) {
-      best = c;
-      bestT = t;
-    }
+    const s = c?.live?.status;
+    if (s === "running" || s === "waiting_user" || s === "pending") return true;
   }
-  return best;
+  return false;
 }
 
 /**
@@ -78,13 +73,13 @@ export function GrokStylePage() {
     })();
   }, [reload]);
 
+  // Why: keep green activity dots fresh even on the empty “pick an agent” screen.
   useEffect(() => {
-    if (!chatId) return undefined;
     const t = window.setInterval(() => {
       void reload().catch(() => {});
-    }, 15000);
+    }, 5000);
     return () => window.clearInterval(t);
-  }, [chatId, reload]);
+  }, [reload]);
 
   const selectedAgentId = useMemo(() => {
     if (!chatId) return "";
@@ -159,9 +154,7 @@ export function GrokStylePage() {
             {agents.map((a) => {
               const id = String(a._id);
               const agentActive = selectedAgentId === id;
-              const sole = findAgentChat(chats, id);
-              const live =
-                sole?.live?.status === "running" || sole?.live?.status === "waiting_user";
+              const working = agentIsWorking(chats, id);
               return (
                 <li key={id}>
                   <button
@@ -173,19 +166,21 @@ export function GrokStylePage() {
                         ? "bg-teal-600 text-white"
                         : "text-teal-950 hover:bg-teal-50"
                     }`}
-                    title="Open chat"
+                    title={working ? "Agent is working — open chat" : "Open chat"}
                   >
+                    <span
+                      className={`h-2 w-2 shrink-0 rounded-full ${
+                        working
+                          ? "animate-pulse bg-emerald-500 ring-2 ring-emerald-500/30"
+                          : agentActive
+                            ? "bg-white/35"
+                            : "bg-teal-200"
+                      }`}
+                      aria-hidden
+                    />
                     <span className="min-w-0 flex-1 truncate">{a.name || "Agent"}</span>
-                    {live ? (
-                      <span
-                        className={`shrink-0 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase ${
-                          agentActive
-                            ? "bg-white/20 text-white"
-                            : "bg-emerald-100 text-emerald-800"
-                        }`}
-                      >
-                        Live
-                      </span>
+                    {working ? (
+                      <span className="sr-only">Working</span>
                     ) : null}
                   </button>
                 </li>

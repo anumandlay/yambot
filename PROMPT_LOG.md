@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:44] Grok-style agent working dots
+
+- **Prompt Provided:** In grok style left pane, add a green dot if that agent is doing something.
+- **Architectural Flow:** Left agent list shows a pulsing emerald dot when any of that agent’s chats has live status pending/running/waiting_user; idle agents get a muted dot. Poll chats every 5s so dots stay current.
+- **Impacted Files:** `GrokStylePage.jsx`, PROMPT_LOG
+
 ## [2026-09-17 11:40] Drop Delete on agent chat rows
 
 - **Prompt Provided:** Drop delete button (agent rows on Chats).
