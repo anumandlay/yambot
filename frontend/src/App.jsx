@@ -21,6 +21,7 @@ import { SettingsLlmProfilesPage } from "./pages/SettingsLlmProfilesPage.jsx";
 import { SettingsMemoryPage } from "./pages/SettingsMemoryPage.jsx";
 import { AgentsPage } from "./pages/AgentsPage.jsx";
 import { AgentEditPage } from "./pages/AgentEditPage.jsx";
+import { AgentLivePage } from "./pages/AgentLivePage.jsx";
 import { SystemPage } from "./pages/SystemPage.jsx";
 import { LiveWallPage } from "./pages/LiveWallPage.jsx";
 import { GoalsPage } from "./pages/GoalsPage.jsx";
@@ -245,6 +246,7 @@ export default function App() {
           <Route path="/agents/new" element={<AgentEditPage />} />
           <Route path="/agents/:agentId/runs" element={<AgentRunsPage />} />
           <Route path="/agents/:agentId/memory" element={<AgentMemoryPage />} />
+          <Route path="/agents/:agentId/live" element={<AgentLivePage />} />
           <Route path="/agents/:agentId" element={<AgentEditPage />} />
           <Route path="/runs" element={<AgentRunsPage />} />
           <Route path="/goals" element={<GoalsPage />} />

@@ -1,6 +1,6 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
- * Purpose: Left thread scrolls on desktop; agent rail (screen + snapshot + goal) beside or below on mobile.
+ * Purpose: Thread + composer on the left; live screen on the right; snapshot/trajectory at page bottom.
  * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
  */
 
@@ -12,8 +12,9 @@ import { Link, useLocation, useParams } from "react-router-dom";
 import { api, isTimeoutError } from "../lib/api.js";
 import { resolveAgentMention, listMentionSuggestions } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
-import { skillPickFromMessage, skillPickFromTask } from "../lib/skillPick.js";
+import { skillPickFromMessage } from "../lib/skillPick.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, ButtonWithHelp, PageGuideBanner, SectionTitle } from "../components/FieldLabel.jsx";
 import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
@@ -27,6 +28,7 @@ import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx
 export function ChatDetailPage() {
   const { chatId } = useParams();
   const location = useLocation();
+  const { user: authUser } = useAuth();
   /** Why: /grok/:chatId fills the workspace panes — drop classic chrome and max-width. */
   const grokMode = location.pathname.startsWith("/grok/");
   const chatPathPrefix = grokMode ? "/grok" : "/chats";
@@ -56,7 +58,6 @@ export function ChatDetailPage() {
   /** Highlight index in the @mention agent dropdown (−1 = none). */
   const [mentionHighlight, setMentionHighlight] = useState(0);
   const composeRef = useRef(null);
-  const [answer, setAnswer] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [stopping, setStopping] = useState(false);
@@ -357,12 +358,27 @@ export function ChatDetailPage() {
     );
   }, [activeRun, activeRuns, isCommon, watchAgentId]);
 
-  const activeSkillPick = useMemo(
-    () => skillPickFromTask(watchedRun || activeRun),
-    [activeRun, watchedRun]
-  );
-
   const isOpsTriggerChat = Boolean(chat?.title?.startsWith("Trigger ·"));
+
+  /** Display name for the signed-in human in the thread. */
+  const userDisplayName = String(authUser?.name || authUser?.email || "You").trim() || "You";
+
+  /**
+   * Agent display name for a chat message bubble.
+   * @param {object} message
+   * @returns {string}
+   */
+  function agentDisplayName(message) {
+    return (
+      String(
+        message?.meta?.agentName ||
+          message?.meta?.dispatchAgentName ||
+          chat?.agent?.name ||
+          liveAgentName ||
+          "Agent"
+      ).trim() || "Agent"
+    );
+  }
 
   useEffect(() => {
     if (isCommon || !liveAgentId || isOpsTriggerChat) {
@@ -419,6 +435,27 @@ export function ChatDetailPage() {
     const content = input.trim();
     if (!content) return;
 
+    // Why: when the agent asked a question, the same composer posts the answer — no second box.
+    if (waitingTask) {
+      setBusy(true);
+      setError(null);
+      stickToBottomRef.current = true;
+      try {
+        await api(`/api/chats/${chatId}/tasks/${waitingTask._id}/answer`, {
+          method: "POST",
+          body: JSON.stringify({ answer: content }),
+        });
+        setInput("");
+        await load();
+        scrollThreadToBottom(true);
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (parseLearnCommand(content)) {
       setBusy(true);
       setError(null);
@@ -464,29 +501,6 @@ export function ChatDetailPage() {
       } else {
         setError(err);
       }
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /**
-   * @param {React.FormEvent} e
-   */
-  async function sendAnswer(e) {
-    e.preventDefault();
-    if (!waitingTask || !answer.trim()) return;
-    setBusy(true);
-    stickToBottomRef.current = true;
-    try {
-      await api(`/api/chats/${chatId}/tasks/${waitingTask._id}/answer`, {
-        method: "POST",
-        body: JSON.stringify({ answer: answer.trim() }),
-      });
-      setAnswer("");
-      await load();
-      scrollThreadToBottom(true);
-    } catch (err) {
-      setError(err);
     } finally {
       setBusy(false);
     }
@@ -660,31 +674,13 @@ export function ChatDetailPage() {
     </div>
   );
 
-  /** Goal / instructions — own card section (not bundled with snapshot + trajectory scroll). */
-  const goalSection = (
+  /** Composer under the thread — waiting replies use this same box. */
+  const composeSection = (
     <section className="flex shrink-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
       {waitingTask ? (
-        <form
-          onSubmit={sendAnswer}
-          className="flex flex-col gap-2 rounded-2xl border border-amber-200 bg-amber-50 p-2 sm:p-3"
-        >
-          <FieldLabel helpId="chat.answer" className="text-xs text-amber-950 sm:text-sm">
-            Agent is waiting for your answer
-          </FieldLabel>
-          <input
-            className="min-h-10 w-full rounded-xl border border-amber-200 bg-white px-3 text-sm"
-            value={answer}
-            onChange={(e) => setAnswer(e.target.value)}
-            placeholder="Type your reply…"
-          />
-          <button
-            type="submit"
-            disabled={busy}
-            className="min-h-10 w-full rounded-xl bg-amber-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            Send answer
-          </button>
-        </form>
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+          Agent is waiting — type your reply below and send.
+        </p>
       ) : null}
 
       {isCommon && activeRuns.length > 1 ? (
@@ -812,37 +808,36 @@ export function ChatDetailPage() {
             </div>
           </div>
         ) : null}
-        <FieldLabel helpId="chat.goalInput" className="text-sm">
-          Message (question or goal)
-        </FieldLabel>
-        <div
-          className="mb-2 flex flex-wrap gap-1 rounded-xl border border-teal-100 bg-teal-50/40 p-1"
-          role="group"
-          aria-label="How to handle this message"
-        >
-          {[
-            { id: "auto", label: "Auto", title: "Decide: answer in chat vs use the computer" },
-            { id: "ask", label: "Answer", title: "Answer from memory only (no computer)" },
-            { id: "run", label: "Computer", title: "Queue a browser/API task" },
-          ].map((opt) => {
-            const active = intentMode === opt.id;
-            return (
-              <button
-                key={opt.id}
-                type="button"
-                title={opt.title}
-                onClick={() => setIntentMode(opt.id)}
-                className={`min-h-9 flex-1 rounded-lg px-2 text-xs font-semibold sm:text-sm ${
-                  active
-                    ? "bg-teal-700 text-white shadow-sm"
-                    : "bg-white text-teal-900 hover:bg-teal-50"
-                }`}
-              >
-                {opt.label}
-              </button>
-            );
-          })}
-        </div>
+        {!waitingTask ? (
+          <div
+            className="mb-1 flex flex-wrap gap-1 rounded-xl border border-teal-100 bg-teal-50/40 p-1"
+            role="group"
+            aria-label="How to handle this message"
+          >
+            {[
+              { id: "auto", label: "Auto", title: "Decide: answer in chat vs use the computer" },
+              { id: "ask", label: "Answer", title: "Answer from memory only (no computer)" },
+              { id: "run", label: "Computer", title: "Queue a browser/API task" },
+            ].map((opt) => {
+              const active = intentMode === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  title={opt.title}
+                  onClick={() => setIntentMode(opt.id)}
+                  className={`min-h-9 flex-1 rounded-lg px-2 text-xs font-semibold sm:text-sm ${
+                    active
+                      ? "bg-teal-700 text-white shadow-sm"
+                      : "bg-white text-teal-900 hover:bg-teal-50"
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
         <div className="relative">
           {isCommon && mentionSuggestions.length ? (
             <ul
@@ -863,7 +858,6 @@ export function ChatDetailPage() {
                         active ? "bg-violet-100 text-violet-950" : "text-teal-950 hover:bg-violet-50"
                       }`}
                       onMouseDown={(ev) => {
-                        // Why: mousedown before blur so click inserts before textarea loses focus.
                         ev.preventDefault();
                         pickMentionAgent(a);
                       }}
@@ -885,15 +879,17 @@ export function ChatDetailPage() {
             ref={composeRef}
             className="min-h-16 w-full resize-none rounded-2xl border border-teal-100 bg-white px-3 py-2 text-base shadow-sm sm:min-h-[4.5rem]"
             placeholder={
-              isCommon
-                ? autoRoute
-                  ? "Type @ to pick an agent, or send a message…"
-                  : "Type @ to pick an agent…"
-                : intentMode === "ask"
-                  ? "Ask a question (memory only)…"
-                  : intentMode === "run"
-                    ? "Describe what to do on the computer…"
-                    : "Ask a question or send a goal…"
+              waitingTask
+                ? "Type your reply to the agent…"
+                : isCommon
+                  ? autoRoute
+                    ? "Type @ to pick an agent, or send a message…"
+                    : "Type @ to pick an agent…"
+                  : intentMode === "ask"
+                    ? "Ask a question (memory only)…"
+                    : intentMode === "run"
+                      ? "Describe what to do on the computer…"
+                      : "Ask a question or send a goal…"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -909,22 +905,20 @@ export function ChatDetailPage() {
           >
             {busy
               ? "Sending…"
-              : intentMode === "ask"
-                ? "Ask"
-                : intentMode === "run"
-                  ? "Run on computer"
-                  : "Send"}
+              : waitingTask
+                ? "Send reply"
+                : intentMode === "ask"
+                  ? "Ask"
+                  : intentMode === "run"
+                    ? "Run on computer"
+                    : "Send"}
           </button>
         </ButtonWithHelp>
-        <p className="text-[0.7rem] leading-snug text-teal-900/55">
-          <strong>Auto</strong> decides: chat answer vs browser task. Use{" "}
-          <strong>Answer</strong> or <strong>Computer</strong> when you want to force it.
-        </p>
       </form>
     </section>
   );
 
-  const controlPanel = (
+  const agentRail = (
     <div className="flex flex-col gap-2 lg:gap-3">
       <AgentTaskQueue
         chatId={chatId}
@@ -934,9 +928,6 @@ export function ChatDetailPage() {
         onError={setError}
       />
       {agentScreenBlock}
-      <PageSnapshotPanel events={snapshotEvents} compact />
-      <TrajectoryPanel task={snapshotTask} />
-      {goalSection}
     </div>
   );
 
@@ -1017,134 +1008,150 @@ export function ChatDetailPage() {
         />
       ) : null}
 
-      {activeRun || tasks[0] ? (
-        <div className="flex shrink-0 flex-col gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
-          <div className="flex flex-wrap items-center justify-between gap-2 break-words">
-            <span>
-              {activeRun ? (
-                <>
-                  {isCommon && activeRun.agent?.name ? (
-                    <>
-                      <strong>{activeRun.agent.name}</strong> is{" "}
-                    </>
-                  ) : null}
-                  Agent is <strong>{activeRun.status}</strong>
-                  {activeRun.resultSummary
-                    ? ` — ${activeRun.resultSummary.slice(0, 120)}`
-                    : ` — ${activeRun.goal.slice(0, 80)}`}
-                </>
-              ) : (
-                <>
-                  Latest task: <strong>{tasks[0].status}</strong>
-                  {tasks[0].resultSummary ? ` — ${tasks[0].resultSummary.slice(0, 120)}` : ""}
-                </>
-              )}
-            </span>
-            {activeRun ? (
-              <ButtonWithHelp helpId="chat.stop" className="shrink-0 lg:hidden">
-                <button
-                  type="button"
-                  onClick={stopAgent}
-                  disabled={stopping}
-                  className="inline-flex min-h-11 shrink-0 items-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50"
-                >
-                  {stopping ? "Stopping…" : "Stop"}
-                </button>
-              </ButtonWithHelp>
-            ) : null}
-          </div>
-          {activeSkillPick ? (
-            <SkillPickNotice pick={activeSkillPick} className="text-xs" />
+      {activeRun ? (
+        <div className="flex shrink-0 flex-wrap items-center gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm">
+          <span
+            className={`inline-flex h-2.5 w-2.5 shrink-0 rounded-full ${
+              activeRun.status === "waiting_user"
+                ? "bg-amber-500"
+                : "animate-pulse bg-emerald-500"
+            }`}
+            title={
+              activeRun.status === "waiting_user"
+                ? "Waiting for your reply"
+                : "Agent is running"
+            }
+            aria-label={
+              activeRun.status === "waiting_user"
+                ? "Waiting for your reply"
+                : "Agent is running"
+            }
+          />
+          <span className="min-w-0 truncate text-teal-900/80">
+            {isCommon && activeRun.agent?.name ? (
+              <strong className="text-teal-950">{activeRun.agent.name}</strong>
+            ) : chat?.agent?.name ? (
+              <strong className="text-teal-950">{chat.agent.name}</strong>
+            ) : (
+              "Agent"
+            )}
+            {activeRun.status === "waiting_user" ? " · waiting for reply" : " · running"}
+          </span>
+          {activeRun ? (
+            <ButtonWithHelp helpId="chat.stop" className="ml-auto shrink-0 lg:hidden">
+              <button
+                type="button"
+                onClick={stopAgent}
+                disabled={stopping}
+                className="inline-flex min-h-9 shrink-0 items-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50"
+              >
+                {stopping ? "Stopping…" : "Stop"}
+              </button>
+            </ButtonWithHelp>
           ) : null}
         </div>
       ) : null}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
-        <div
-          ref={threadRef}
-          onScroll={onThreadScroll}
-          className="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
-        >
-          {loadingOlder ? (
-            <p className="text-center text-xs text-teal-900/60">Loading earlier messages…</p>
-          ) : hasOlderMessages ? (
-            <p className="text-center text-xs text-teal-900/50">Scroll up for earlier messages</p>
-          ) : messages.length > 0 ? (
-            <p className="text-center text-xs text-teal-900/40">Beginning of this chat</p>
-          ) : null}
-          {messages.length === 0 && !loadingOlder ? (
-            <p className="text-sm text-teal-900/60">
-              No messages yet. Ask a question or send a goal on the right.
-            </p>
-          ) : null}
-          {(() => {
-            /** @type {{ kind: "ops", items: object[] } | { kind: "msg", item: object }}[] */
-            const rows = [];
-            for (const m of messages) {
-              if (isOpsIconMessage(m)) {
-                const last = rows[rows.length - 1];
-                if (last?.kind === "ops") last.items.push(m);
-                else rows.push({ kind: "ops", items: [m] });
-              } else {
-                rows.push({ kind: "msg", item: m });
+        <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+          <div
+            ref={threadRef}
+            onScroll={onThreadScroll}
+            className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
+          >
+            {loadingOlder ? (
+              <p className="text-center text-xs text-teal-900/60">Loading earlier messages…</p>
+            ) : hasOlderMessages ? (
+              <p className="text-center text-xs text-teal-900/50">Scroll up for earlier messages</p>
+            ) : messages.length > 0 ? (
+              <p className="text-center text-xs text-teal-900/40">Beginning of this chat</p>
+            ) : null}
+            {messages.length === 0 && !loadingOlder ? (
+              <p className="text-sm text-teal-900/60">
+                No messages yet. Type below to ask a question or send a goal.
+              </p>
+            ) : null}
+            {(() => {
+              /** @type {{ kind: "ops", items: object[] } | { kind: "msg", item: object }}[] */
+              const rows = [];
+              for (const m of messages) {
+                if (isOpsIconMessage(m)) {
+                  const last = rows[rows.length - 1];
+                  if (last?.kind === "ops") last.items.push(m);
+                  else rows.push({ kind: "ops", items: [m] });
+                } else {
+                  rows.push({ kind: "msg", item: m });
+                }
               }
-            }
-            return rows.map((row) => {
-              if (row.kind === "ops") {
-                const key = row.items.map((m) => m._id).join("-");
-                return <RunOpsIconRow key={key || "ops"} messages={row.items} />;
-              }
-              const m = row.item;
-              const agentLabel = messageAgentLabel(m);
-              const skillPick =
-                m.meta?.kind === "skill_selected" && m.meta?.skillPick
-                  ? m.meta.skillPick
-                  : skillPickFromMessage(m);
-              return (
-                <article
-                  key={m._id}
-                  className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
-                    m.role === "user"
-                      ? "self-end bg-teal-700 text-white"
-                      : m.role === "assistant"
-                        ? "self-start bg-teal-50 text-teal-950"
-                        : "self-start bg-slate-50 text-slate-700"
-                  }`}
-                >
-                  <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
-                    <span className="uppercase">
-                      {m.role}
-                      {agentLabel ? (
-                        <span className="ml-1.5 normal-case font-semibold">· {agentLabel}</span>
+              return rows.map((row) => {
+                if (row.kind === "ops") {
+                  const key = row.items.map((m) => m._id).join("-");
+                  return <RunOpsIconRow key={key || "ops"} messages={row.items} />;
+                }
+                const m = row.item;
+                const agentLabel = messageAgentLabel(m);
+                const skillPick =
+                  m.meta?.kind === "skill_selected" && m.meta?.skillPick
+                    ? m.meta.skillPick
+                    : skillPickFromMessage(m);
+                const speaker =
+                  m.role === "user"
+                    ? userDisplayName
+                    : m.role === "assistant" || m.role === "agent"
+                      ? agentDisplayName(m)
+                      : m.role;
+                return (
+                  <article
+                    key={m._id}
+                    className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
+                      m.role === "user"
+                        ? "self-end bg-teal-700 text-white"
+                        : m.role === "assistant" || m.role === "agent"
+                          ? "self-start bg-teal-50 text-teal-950"
+                          : "self-start bg-slate-50 text-slate-700"
+                    }`}
+                  >
+                    <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
+                      <span className="font-semibold normal-case">
+                        {speaker}
+                        {agentLabel && m.role === "user" ? (
+                          <span className="ml-1.5 font-normal">· {agentLabel}</span>
+                        ) : null}
+                      </span>
+                      {m.createdAt ? (
+                        <time
+                          dateTime={new Date(m.createdAt).toISOString()}
+                          className="shrink-0 normal-case tabular-nums"
+                        >
+                          {formatChatMessageTime(m.createdAt)}
+                        </time>
                       ) : null}
-                    </span>
-                    {m.createdAt ? (
-                      <time
-                        dateTime={new Date(m.createdAt).toISOString()}
-                        className="shrink-0 normal-case tabular-nums"
-                      >
-                        {formatChatMessageTime(m.createdAt)}
-                      </time>
-                    ) : null}
-                  </div>
-                  <>
-                    {m.role === "user" && skillPick ? (
-                      <div className="mb-2 [&_.rounded-xl]:border-teal-500/30 [&_.rounded-xl]:bg-teal-600/40 [&_.rounded-xl]:text-white">
-                        <SkillPickNotice pick={skillPick} />
-                      </div>
-                    ) : null}
-                    <div className="whitespace-pre-wrap break-words">{m.content}</div>
-                  </>
-                </article>
-              );
-            });
-          })()}
-          <div ref={bottomRef} className="h-px w-full shrink-0" />
+                    </div>
+                    <>
+                      {m.role === "user" && skillPick ? (
+                        <div className="mb-2 [&_.rounded-xl]:border-teal-500/30 [&_.rounded-xl]:bg-teal-600/40 [&_.rounded-xl]:text-white">
+                          <SkillPickNotice pick={skillPick} />
+                        </div>
+                      ) : null}
+                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                    </>
+                  </article>
+                );
+              });
+            })()}
+            <div ref={bottomRef} className="h-px w-full shrink-0" />
+          </div>
+          {composeSection}
         </div>
 
         <aside className="flex min-h-0 w-full min-w-0 flex-col gap-2 sm:gap-3 lg:max-h-full lg:overflow-y-auto lg:overscroll-contain">
-          {controlPanel}
+          {agentRail}
         </aside>
+      </div>
+
+      <div className="flex shrink-0 flex-col gap-2 border-t border-teal-100 pt-2 sm:gap-3">
+        <PageSnapshotPanel events={snapshotEvents} compact />
+        <TrajectoryPanel task={snapshotTask} />
       </div>
     </div>
   );

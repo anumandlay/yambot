@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 14:30] Zoom pop-out: open live view in a new tab
+
+- **Prompt Provided:** After Zoom button, small icon that opens zoom in a new tab.
+- **Architectural Flow:** Icon beside Zoom opens `/agents/:agentId/live` in a new tab. `AgentLivePage` mounts `LiveScreen` with `autoZoom` so view-only noVNC Zoom starts when the stream is online.
+- **Impacted Files:** `LiveScreen.jsx`, `AgentLivePage.jsx`, `App.jsx`, `PROMPT_LOG.md`
+
 ## [2026-09-17 14:20] Quiet chat: icons for run ops + vague one-word → Answer
 
 - **Prompt Provided:** Don’t show queued/started/plan/LLM/step/ask-agent lines as bubbles; use icons. “now” should not start computer.

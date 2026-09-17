@@ -1,7 +1,7 @@
 /**
  * @fileoverview Live + interactive cloud-computer screen (remote-desktop style).
- * Purpose: Stream JPEG thumbnail inline; Zoom opens view-only noVNC; Take control for interactive remote desktop.
- * Inputs: agentId (+ optional attention / wallMode); Downstream: `/api/agents/:id/live|control`.
+ * Purpose: Stream JPEG thumbnail inline; Zoom opens view-only noVNC; pop-out icon opens Zoom in a new tab; Take control for interactive remote desktop.
+ * Inputs: agentId (+ optional attention / wallMode / autoZoom); Downstream: `/api/agents/:id/live|control|desktop/session`.
  */
 
 import { useEffect, useRef, useState } from "react";
@@ -65,6 +65,7 @@ function playwrightKeyFromEvent(e) {
  *   demoTitle?: string,
  *   recordDemo?: boolean,
  *   chatId?: string,
+ *   autoZoom?: boolean,
  * }} props
  */
 export function LiveScreen({
@@ -80,6 +81,7 @@ export function LiveScreen({
   demoTitle = "Demonstration",
   recordDemo = false,
   chatId,
+  autoZoom = false,
 }) {
   const [live, setLive] = useState(null);
   const [error, setError] = useState(null);
@@ -103,6 +105,8 @@ export function LiveScreen({
   const controlOnRef = useRef(false);
   const teachModeRef = useRef(false);
   const demoIdRef = useRef(null);
+  /** Why: autoZoom (new-tab live page) should fire once when the stream comes online. */
+  const autoZoomStartedRef = useRef(false);
   /** Last click/hover on live screen — default targets Vughy left nav. */
   const lastPointerRef = useRef({ xNorm: 0.06, yNorm: 0.55 });
 
@@ -391,6 +395,24 @@ export function LiveScreen({
     setZoomed(true);
     await openLiveView();
   }
+
+  /**
+   * Opens the same Zoom live view in a new browser tab (dedicated agent live route).
+   * Why: operators often want a second monitor / detached window without leaving the chat.
+   */
+  function openZoomInNewTab() {
+    if (!agentId) return;
+    const path = `/agents/${encodeURIComponent(agentId)}/live`;
+    window.open(path, "_blank", "noopener,noreferrer");
+  }
+
+  // Why: `/agents/:id/live` mounts with autoZoom so the pop-out tab lands in Zoom immediately.
+  useEffect(() => {
+    if (!autoZoom || autoZoomStartedRef.current || !live?.online || zoomed) return;
+    autoZoomStartedRef.current = true;
+    setZoomed(true);
+    void openLiveView();
+  }, [autoZoom, live?.online, zoomed]);
 
   /**
    * @param {boolean} active
@@ -742,6 +764,25 @@ export function LiveScreen({
               title={zoomed ? "Close live view (Esc)" : "Open live screen (real-time)"}
             >
               {openingView ? "Connecting…" : zoomed ? "Close" : "Zoom"}
+            </button>
+            <button
+              type="button"
+              onClick={openZoomInNewTab}
+              disabled={!live?.online}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-teal-200 bg-white text-teal-900 disabled:opacity-40"
+              title="Open zoom in a new tab"
+              aria-label="Open zoom in a new tab"
+            >
+              <svg
+                xmlns="http://www.w3.org/2000/svg"
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-4 w-4"
+                aria-hidden="true"
+              >
+                <path d="M6.75 3.5A.75.75 0 0 0 6 4.25v11.5c0 .414.336.75.75.75h6.5a.75.75 0 0 0 .75-.75V9.75a.75.75 0 0 1 1.5 0v5.75A2.25 2.25 0 0 1 13.25 18h-6.5A2.25 2.25 0 0 1 4.5 15.75V4.25A2.25 2.25 0 0 1 6.75 2h5.75a.75.75 0 0 1 0 1.5H6.75Z" />
+                <path d="M13.22 3.22a.75.75 0 0 1 1.06 0l3.5 3.5a.75.75 0 1 1-1.06 1.06L14.5 5.56v5.69a.75.75 0 0 1-1.5 0V5.56l-2.22 2.22a.75.75 0 0 1-1.06-1.06l3.5-3.5Z" />
+              </svg>
             </button>
           </div>
         </div>
