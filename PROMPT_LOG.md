@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:25] A2A v2: mid-run chat injects into running agent
+
+- **Prompt Provided:** lets go with v2 (chat with Agent A while it runs / waits on B).
+- **Architectural Flow:** `POST /chats/:id/tasks/:taskId/inject` pushes `pendingOperatorMessages`. Worker/API drain each turn as OPERATOR MESSAGE notes. Chat Auto mode while running uses inject; Answer = Q&A; Computer still queues a new goal.
+- **Impacted Files:** Task model, agentMessageBus, chats/worker routes, worker agent, apiAgentRunner, ChatDetailPage, help, PROMPT_LOG
+
 ## [2026-09-17 15:20] A2A v1: async peer results while parent keeps working
 
 - **Prompt Provided:** Implement v1 — Agent A keeps doing remaining work after delegating to B; merge B’s result later. Also list next versions.

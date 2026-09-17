@@ -35,6 +35,7 @@ import {
   pollAgentMessageStatus,
   finalizeAgentMessagesForChildTask,
   consumePendingPeerResults,
+  consumePendingOperatorMessages,
   AGENT_MESSAGE_WAIT_MS,
 } from "../utils/agentMessageBus.js";
 import { Skill } from "../models/Skill.js";
@@ -1114,8 +1115,8 @@ workerRouter.get("/tools/message-agent/:id", async (req, res, next) => {
 });
 
 /**
- * POST /api/worker/tasks/:id/peer-results/consume — drain finished async peer results into notes.
- * Why: parent keeps working after wait:false; each LLM turn pulls newly finished PEER RESULT lines.
+ * POST /api/worker/tasks/:id/peer-results/consume — drain peer + operator mid-run notes.
+ * Why: parent keeps working after wait:false; each LLM turn pulls PEER RESULT / OPERATOR MESSAGE lines.
  */
 workerRouter.post("/tasks/:id/peer-results/consume", async (req, res, next) => {
   try {
@@ -1134,8 +1135,14 @@ workerRouter.post("/tasks/:id/peer-results/consume", async (req, res, next) => {
         parentTaskId: String(req.params.id),
       }).catch(() => null);
     }
-    const drained = await consumePendingPeerResults(String(req.params.id));
-    res.json({ ok: true, notes: drained.notes, rows: drained.rows });
+    const peers = await consumePendingPeerResults(String(req.params.id));
+    const operators = await consumePendingOperatorMessages(String(req.params.id));
+    res.json({
+      ok: true,
+      notes: [...operators.notes, ...peers.notes],
+      rows: peers.rows,
+      operatorRows: operators.rows,
+    });
   } catch (err) {
     next(err);
   }

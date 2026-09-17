@@ -1,6 +1,7 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
  * Purpose: Thread + composer on the left; live screen on the right with snapshot/trajectory icon popovers below it.
+ * Mid-run (v2): while the agent is running, Auto injects OPERATOR MESSAGE notes into the live task.
  * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
  */
 
@@ -458,6 +459,34 @@ export function ChatDetailPage() {
       return;
     }
 
+    // Why: v2 mid-run chat — while A is running, Auto/Answer steer the live task instead of queuing.
+    // Computer mode still queues a new goal behind the active run.
+    const runningTask =
+      activeRun && String(activeRun.status) === "running" ? activeRun : null;
+    if (runningTask && intentMode !== "run") {
+      setBusy(true);
+      setError(null);
+      stickToBottomRef.current = true;
+      try {
+        if (intentMode === "ask") {
+          await postGoalMessage(content, { forceAsk: true });
+        } else {
+          await api(`/api/chats/${chatId}/tasks/${runningTask._id}/inject`, {
+            method: "POST",
+            body: JSON.stringify({ content }),
+          });
+          setInput("");
+          await load();
+          scrollThreadToBottom(true);
+        }
+      } catch (err) {
+        setError(err);
+      } finally {
+        setBusy(false);
+      }
+      return;
+    }
+
     if (parseLearnCommand(content)) {
       setBusy(true);
       setError(null);
@@ -706,6 +735,12 @@ export function ChatDetailPage() {
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           Agent is waiting — type your reply below and send.
         </p>
+      ) : activeRun && String(activeRun.status) === "running" && intentMode !== "run" ? (
+        <p className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-xs text-sky-950">
+          Agent is running — your message goes to them on their next step
+          {intentMode === "ask" ? " (Answer = memory Q&A)." : "."} Switch to{" "}
+          <strong>Computer</strong> to queue a new goal instead.
+        </p>
       ) : null}
 
       {isCommon && activeRuns.length > 1 ? (
@@ -906,6 +941,10 @@ export function ChatDetailPage() {
             placeholder={
               waitingTask
                 ? "Type your reply to the agent…"
+                : activeRun && String(activeRun.status) === "running" && intentMode !== "run"
+                  ? intentMode === "ask"
+                    ? "Ask while they run (memory only)…"
+                    : "Steer the running agent (mid-run note)…"
                 : isCommon
                   ? autoRoute
                     ? "Type @ to pick an agent, or send a message…"
@@ -932,6 +971,8 @@ export function ChatDetailPage() {
               ? "Sending…"
               : waitingTask
                 ? "Send reply"
+                : activeRun && String(activeRun.status) === "running" && intentMode === "auto"
+                  ? "Send to running agent"
                 : intentMode === "ask"
                   ? "Ask"
                   : intentMode === "run"

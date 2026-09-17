@@ -2106,7 +2106,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
             notes.push(note);
             await mirror(taskId, "info", {
               appendMessage: note.slice(0, 1500),
-              payload: { kind: "peer_result" },
+              payload: {
+                kind: /^(OPERATOR MESSAGE)/i.test(note) ? "operator_inject" : "peer_result",
+              },
             }).catch(() => {});
           }
         } catch {
@@ -2240,6 +2242,15 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   .join("\n---\n")}`
               : "";
           })(),
+          (() => {
+            const opNotes = notes.filter((n) => /^(OPERATOR MESSAGE)\b/i.test(String(n)));
+            return opNotes.length
+              ? `OPERATOR MESSAGES (human mid-run guidance — prioritize):\n${opNotes
+                  .slice(-3)
+                  .map((n) => String(n).slice(0, 2000))
+                  .join("\n---\n")}`
+              : "";
+          })(),
           summarizeSessionContext(history),
           history.length
             ? `RECENT ACTIONS (last 6 only — current refs; do not treat this as the whole run):\n${history
@@ -2288,6 +2299,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Use wait:false when you still have other work; a PEER RESULT note will appear when they finish. Use wait:true only when you cannot proceed without their answer.",
+              "OPERATOR CHAT: The human may send OPERATOR MESSAGE notes while you run — treat them as high-priority guidance for the current goal (do not start an unrelated new goal unless they clearly ask).",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",

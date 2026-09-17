@@ -31,7 +31,7 @@ import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js
 import { normalizeEntries } from "./curatedMemory.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
-import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
 const STUCK_RUNNING_MS = 20 * 60 * 1000;
@@ -265,17 +265,19 @@ async function executeApiTask(task, agent, userId) {
         }).catch(() => null);
       }
       const drained = await consumePendingPeerResults(String(task._id));
-      if (drained.notes.length) {
-        const block = drained.notes.join("\n\n");
+      const opDrained = await consumePendingOperatorMessages(String(task._id));
+      const allNotes = [...opDrained.notes, ...drained.notes];
+      if (allNotes.length) {
+        const block = allNotes.join("\n\n");
         messages.push({
           role: "user",
-          content: `${block}\n\nUse these peer results if relevant, then continue or finish.`,
+          content: `${block}\n\nUse these updates if relevant, then continue or finish.`,
         });
         await Message.create({
           chat: task.chat,
           role: "system",
           content: block.slice(0, 1500),
-          meta: { taskId: task._id, kind: "peer_result", ui: "icon" },
+          meta: { taskId: task._id, kind: "inbox_drain", ui: "icon" },
         }).catch(() => null);
       }
     } catch {

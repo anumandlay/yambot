@@ -197,6 +197,25 @@ const taskSchema = new mongoose.Schema(
       ],
       default: [],
     },
+    /**
+     * Mid-run chat (v2): operator messages injected while the task is running.
+     * Worker drains unconsumed rows into OPERATOR MESSAGE notes each LLM turn.
+     */
+    pendingOperatorMessages: {
+      type: [
+        new mongoose.Schema(
+          {
+            messageId: { type: String, default: "" },
+            content: { type: String, required: true, maxlength: 8000 },
+            consumed: { type: Boolean, default: false },
+            createdAt: { type: Date, default: Date.now },
+            consumedAt: { type: Date, default: null },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     /** Compact observe→action→verify chain recorded at task complete (Phase 5). */
     trajectory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     resultSummary: { type: String, default: "" },

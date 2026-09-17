@@ -881,6 +881,84 @@ export async function consumePendingPeerResults(parentTaskId) {
 }
 
 /**
+ * Drain mid-run operator chat into LLM notes (marks consumed).
+ * @param {string} parentTaskId
+ * @returns {Promise<{ notes: string[], rows: object[] }>}
+ */
+export async function consumePendingOperatorMessages(parentTaskId) {
+  const id = String(parentTaskId || "").trim();
+  if (!id) return { notes: [], rows: [] };
+
+  const task = await Task.findById(id);
+  if (!task?.pendingOperatorMessages?.length) return { notes: [], rows: [] };
+
+  /** @type {object[]} */
+  const rows = [];
+  /** @type {string[]} */
+  const notes = [];
+  let changed = false;
+  for (const row of task.pendingOperatorMessages) {
+    if (row.consumed) continue;
+    const body = String(row.content || "").trim();
+    if (!body) {
+      row.consumed = true;
+      row.consumedAt = new Date();
+      changed = true;
+      continue;
+    }
+    row.consumed = true;
+    row.consumedAt = new Date();
+    changed = true;
+    const note = `OPERATOR MESSAGE (from the human — follow this guidance now):\n${body}`;
+    notes.push(note);
+    rows.push({ messageId: row.messageId || "", content: body });
+  }
+  if (changed) await task.save();
+  return { notes, rows };
+}
+
+/**
+ * Push a mid-run chat line onto a running task’s operator mailbox.
+ * @param {{ taskId: string, userId: string, content: string, messageId?: string }} opts
+ * @returns {Promise<{ ok: boolean, note?: string }>}
+ */
+export async function injectOperatorMessage(opts) {
+  const taskId = String(opts.taskId || "").trim();
+  const userId = String(opts.userId || "").trim();
+  const content = String(opts.content || "").trim();
+  if (!taskId || !userId || !content) {
+    return { ok: false, note: "taskId, userId, and content required" };
+  }
+  const task = await Task.findOne({ _id: taskId, user: userId });
+  if (!task) return { ok: false, note: "Task missing" };
+  if (task.status !== "running") {
+    return {
+      ok: false,
+      note: `Task is ${task.status} — inject only works while running (use answer when waiting_user).`,
+    };
+  }
+  task.pendingOperatorMessages.push({
+    messageId: opts.messageId ? String(opts.messageId) : "",
+    content: content.slice(0, 8000),
+    consumed: false,
+    createdAt: new Date(),
+    consumedAt: null,
+  });
+  task.events.push({
+    type: "operator_inject",
+    payload: {
+      messageId: opts.messageId || null,
+      content: content.slice(0, 2000),
+    },
+    at: new Date(),
+  });
+  // Why: keep reclaim alive so a long peer-wait does not look stuck.
+  task.claimedAt = new Date();
+  await task.save();
+  return { ok: true };
+}
+
+/**
  * @param {string} userId
  * @param {{ limit?: number, taskId?: string, agentId?: string, conversationKey?: string }} [opts]
  * @returns {Promise<object[]>}

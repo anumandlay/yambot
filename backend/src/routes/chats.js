@@ -991,6 +991,106 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 });
 
 /**
+ * POST /api/chats/:id/tasks/:taskId/inject — mid-run chat to a running agent (v2).
+ * Body: { content }
+ * Why: while A is running (e.g. waiting async on B), the human can steer A without queuing a new goal.
+ */
+chatsRouter.post("/:id/tasks/:taskId/inject", async (req, res, next) => {
+  try {
+    const content = String(req.body?.content || "").trim();
+    if (!content) {
+      res.status(400).json({
+        ok: false,
+        title: "Empty message",
+        detail: "Enter a note for the running agent.",
+      });
+      return;
+    }
+    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId });
+    if (!chat) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
+      return;
+    }
+    const task = await Task.findOne({
+      _id: req.params.taskId,
+      user: req.userId,
+    });
+    if (!task || !taskMatchesChat(chat, task)) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
+      return;
+    }
+    if (task.status === "waiting_user") {
+      res.status(409).json({
+        ok: false,
+        title: "Agent is asking you",
+        detail: "Use the composer to answer the agent’s question (not inject).",
+        hint: "Send your reply in the same box — it posts as an answer.",
+      });
+      return;
+    }
+    if (task.status !== "running") {
+      res.status(409).json({
+        ok: false,
+        title: "No running task",
+        detail: `Task is ${task.status} — inject only works while the agent is running.`,
+      });
+      return;
+    }
+
+    const message = await Message.create({
+      chat: chat._id,
+      role: "user",
+      content,
+      meta: {
+        kind: "operator_inject",
+        taskId: String(task._id),
+        agentId: task.agent ? String(task.agent) : null,
+      },
+    });
+
+    const { injectOperatorMessage } = await import("../utils/agentMessageBus.js");
+    const injected = await injectOperatorMessage({
+      taskId: String(task._id),
+      userId: req.userId,
+      content,
+      messageId: String(message._id),
+    });
+    if (!injected.ok) {
+      res.status(409).json({
+        ok: false,
+        title: "Inject failed",
+        detail: injected.note || "Could not inject into running task",
+      });
+      return;
+    }
+
+    const systemMessage = await Message.create({
+      chat: chat._id,
+      role: "system",
+      content: "Sent to the running agent — they will see it on their next step.",
+      meta: {
+        kind: "operator_inject_ack",
+        ui: "icon",
+        taskId: String(task._id),
+      },
+    });
+
+    chat.updatedAt = new Date();
+    await chat.save();
+
+    res.status(201).json({
+      ok: true,
+      injected: true,
+      message,
+      systemMessage,
+      taskId: String(task._id),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/chats/:id/tasks/:taskId/answer — reply when agent asks the user.
  * Body: { answer }
  */

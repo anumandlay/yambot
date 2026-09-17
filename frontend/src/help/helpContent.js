@@ -1313,15 +1313,14 @@ export const HELP = {
     title: "Message (question or goal)",
     body: helpBody(
       "YamBot classifies each message: questions answer in chat from agent memory (no computer); goals enqueue a browser Task.",
-      "You can ask questions while a run is in progress — the answer comes from memory and the browser keeps working.",
-      "If you send a new goal while the agent is busy, it stays pending until the current run finishes (it does not cancel the active task).",
-      "Composer toggle: Auto (classifier), Answer (memory only), Computer (browser task). /ask and /run remain optional aliases."
+      "While an agent is running: Auto sends a mid-run note into that run (they see it on the next step). Answer = memory Q&A. Computer = queue a new goal behind the active run.",
+      "Composer toggle: Auto / Answer / Computer. /ask and /run remain optional aliases."
     ),
   },
   "chat.send": {
     title: "Send",
     body: helpBody(
-      "Posts your message. Questions get an assistant reply immediately (even mid-run). Goals enqueue a browser task; if the agent is already working, the new goal waits in the queue."
+      "Posts your message. While the agent is running (Auto), your text is injected as an OPERATOR MESSAGE into the live task. Answer mode replies from memory. Computer mode queues a new browser goal."
     ),
   },
   "chat.stop": {
