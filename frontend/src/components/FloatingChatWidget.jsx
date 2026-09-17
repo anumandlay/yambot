@@ -8,6 +8,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, isTimeoutError } from "../lib/api.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 import { skillPickFromMessage } from "../lib/skillPick.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { SkillPickNotice } from "./SkillPickNotice.jsx";
 import { HelpTooltip } from "./HelpTooltip.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "./RunOpsIconRow.jsx";
@@ -19,9 +20,13 @@ import { isOpsIconMessage, RunOpsIconRow } from "./RunOpsIconRow.jsx";
  * }} props
  */
 export function FloatingChatWidget({ chatId, className = "" }) {
+  const { user: authUser } = useAuth();
+  const userDisplayName =
+    String(authUser?.displayName || authUser?.name || authUser?.email || "You").trim() || "You";
   const [open, setOpen] = useState(true);
   const [messages, setMessages] = useState([]);
   const [chatTitle, setChatTitle] = useState("");
+  const [agentName, setAgentName] = useState("");
   const [error, setError] = useState(null);
   const listRef = useRef(null);
   const stickRef = useRef(true);
@@ -34,6 +39,7 @@ export function FloatingChatWidget({ chatId, className = "" }) {
       const data = await api(`/api/chats/${chatId}?limit=100`);
       setMessages(data.messages || []);
       setChatTitle(data.chat?.title || "Chat");
+      setAgentName(String(data.chat?.agent?.name || "").trim());
       setError(null);
     } catch (err) {
       if (!isTimeoutError(err)) setError(err);
@@ -109,6 +115,12 @@ export function FloatingChatWidget({ chatId, className = "" }) {
               m.meta?.kind === "skill_selected" && m.meta?.skillPick
                 ? m.meta.skillPick
                 : skillPickFromMessage(m);
+            const speaker =
+              m.role === "user"
+                ? String(m.meta?.senderName || userDisplayName).trim() || userDisplayName
+                : m.role === "assistant" || m.role === "agent"
+                  ? String(m.meta?.agentName || agentName || "Agent").trim() || "Agent"
+                  : m.role;
             return (
               <article
                 key={m._id}
@@ -120,8 +132,8 @@ export function FloatingChatWidget({ chatId, className = "" }) {
                       : "bg-white/5 text-white/80"
                 }`}
               >
-                <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] uppercase opacity-60">
-                  <span>{m.role}</span>
+                <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] opacity-60">
+                  <span className="font-semibold normal-case">{speaker}</span>
                   {m.createdAt ? (
                     <time dateTime={new Date(m.createdAt).toISOString()}>
                       {formatChatMessageTime(m.createdAt)}

@@ -364,8 +364,9 @@ export function ChatDetailPage() {
 
   const isOpsTriggerChat = Boolean(chat?.title?.startsWith("Trigger ·"));
 
-  /** Display name for the signed-in human in the thread. */
-  const userDisplayName = String(authUser?.name || authUser?.email || "You").trim() || "You";
+  /** Display name for the signed-in human in the thread (curated “I am …” or account name). */
+  const userDisplayName =
+    String(authUser?.displayName || authUser?.name || authUser?.email || "You").trim() || "You";
 
   /**
    * Agent display name for a chat message bubble.
@@ -1165,7 +1166,7 @@ export function ChatDetailPage() {
                     : skillPickFromMessage(m);
                 const speaker =
                   m.role === "user"
-                    ? userDisplayName
+                    ? String(m.meta?.senderName || userDisplayName).trim() || userDisplayName
                     : m.role === "assistant" || m.role === "agent"
                       ? agentDisplayName(m)
                       : m.role;

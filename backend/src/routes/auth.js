@@ -148,7 +148,10 @@ authRouter.get("/me", async (req, res, next) => {
       res.status(401).json({ ok: false, title: "Unauthorized", detail: "Invalid token" });
       return;
     }
-    const user = await User.findById(payload.sub).select("name email role walletBalanceCents createdAt");
+    // Why: curatedMemory feeds displayName (“I am …”) for chat speaker labels.
+    const user = await User.findById(payload.sub).select(
+      "name email role walletBalanceCents createdAt curatedMemory"
+    );
     if (!user) {
       res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
       return;

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 16:15] Chat bubbles show human display name (not chat title)
+
+- **Prompt Provided:** “it should show the user name when i send a message” (clarifying “test” on the bubble).
+- **Architectural Flow:** Speaker label uses `displayName` from curated “I am …” (else account name) + `meta.senderName` on new user messages. Auto-rename chat title when it still equals the signup name stub so the page header is not confused with the speaker.
+- **Impacted Files:** userPublic.js, auth /me, chats.js, ChatDetailPage, FloatingChatWidget, PROMPT_LOG
+
 ## [2026-09-17 15:55] Collapse A2A system/peer lines into status icons
 
 - **Prompt Provided:** Chat titled “test” while goal was delegation; make icons for system messages (→/← peer, PEER RESULT).

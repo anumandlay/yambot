@@ -28,6 +28,7 @@ import {
   withChatContext,
 } from "../utils/chatContext.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
+import { resolveHumanDisplayName } from "../utils/userPublic.js";
 
 export const chatsRouter = Router();
 
@@ -37,6 +38,22 @@ export const chatsRouter = Router();
  */
 function isCommonChat(chat) {
   return chat?.kind === "common" || (!chat?.agent && chat?.kind !== "agent");
+}
+
+/**
+ * Whether the thread title is still a placeholder (or equals the account name stub).
+ * Why: a chat titled “test” when the user’s signup name is also “test” looks like the speaker, not the goal.
+ * @param {string} title
+ * @param {string} [accountName]
+ * @returns {boolean}
+ */
+function shouldAutoRenameChatTitle(title, accountName = "") {
+  const t = String(title || "").trim();
+  if (!t) return true;
+  if (/^New chat$/i.test(t) || /^Common chat$/i.test(t) || /^Chat ·/i.test(t)) return true;
+  const account = String(accountName || "").trim();
+  if (account && t.toLowerCase() === account.toLowerCase()) return true;
+  return false;
 }
 
 /**
@@ -701,8 +718,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
     if (classification.intent === "question") {
       const questionText = classification.text || goalText || content;
-      const defaultTitles = ["Chat ·", "New chat", "Common chat"];
-      if (defaultTitles.some((prefix) => chat.title === prefix || chat.title.startsWith("Chat ·"))) {
+      const owner = await User.findById(req.userId).select("name curatedMemory email");
+      if (shouldAutoRenameChatTitle(chat.title, owner?.name)) {
         chat.title = questionText.slice(0, 60);
       }
       chat.updatedAt = new Date();
@@ -712,6 +729,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         intent: "question",
         intentReason: classification.reason,
         intentConfidence: classification.confidence,
+        senderName: resolveHumanDisplayName(owner),
       };
       if (common) {
         Object.assign(messageMeta, {
@@ -839,14 +857,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       .select("_id status goal")
       .lean();
 
-    const defaultTitles = ["Chat ·", "New chat", "Common chat"];
-    if (defaultTitles.some((prefix) => chat.title === prefix || chat.title.startsWith("Chat ·"))) {
+    const owner = await User.findById(req.userId).select("name curatedMemory email");
+    if (shouldAutoRenameChatTitle(chat.title, owner?.name)) {
       chat.title = (goalText || content).slice(0, 60);
     }
     chat.updatedAt = new Date();
     await chat.save();
 
-    const messageMeta = {};
+    const messageMeta = {
+      senderName: resolveHumanDisplayName(owner),
+    };
     if (common) {
       Object.assign(messageMeta, {
         dispatchAgentId: snapshot?.id || String(agentDoc._id),
@@ -1037,6 +1057,7 @@ chatsRouter.post("/:id/tasks/:taskId/inject", async (req, res, next) => {
       return;
     }
 
+    const owner = await User.findById(req.userId).select("name curatedMemory email");
     const message = await Message.create({
       chat: chat._id,
       role: "user",
@@ -1045,6 +1066,7 @@ chatsRouter.post("/:id/tasks/:taskId/inject", async (req, res, next) => {
         kind: "operator_inject",
         taskId: String(task._id),
         agentId: task.agent ? String(task.agent) : null,
+        senderName: resolveHumanDisplayName(owner),
       },
     });
 
@@ -1127,11 +1149,16 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
     if (task.agent) {
       await clearAgentNeedsAttention(task.agent);
     }
+    const owner = await User.findById(req.userId).select("name curatedMemory email");
     await Message.create({
       chat: task.chat,
       role: "user",
       content: answer,
-      meta: { taskId: task._id, kind: "answer" },
+      meta: {
+        taskId: task._id,
+        kind: "answer",
+        senderName: resolveHumanDisplayName(owner),
+      },
     });
     if (isApi && task.agent) {
       const { kickApiAgent } = await import("../utils/apiAgentRunner.js");
