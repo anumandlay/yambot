@@ -12,6 +12,7 @@ import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/Field
 import { GroupAssignSelect, GroupFilterBar } from "../components/GroupFilterBar.jsx";
 import { GettingStartedCard } from "../components/GettingStartedCard.jsx";
 import { useSetupStatus } from "../hooks/useSetupStatus.js";
+import { AgentAvatar } from "../components/AgentAvatar.jsx";
 
 /**
  * @param {object} props
@@ -38,7 +39,9 @@ function AgentRow({
 }) {
   return (
     <li className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:flex-row sm:items-center sm:justify-between sm:p-4">
-      <div className="min-w-0">
+      <div className="flex min-w-0 items-start gap-3">
+        <AgentAvatar agent={agent} size="md" className="mt-0.5" />
+        <div className="min-w-0">
         <div className="truncate font-semibold">{agent.name}</div>
         <div className="flex flex-wrap gap-2 text-xs uppercase tracking-wide text-teal-800/60">
           {agent.skill ? <span className="normal-case">{agent.skill}</span> : null}
@@ -99,6 +102,7 @@ function AgentRow({
         {agent.description ? (
           <p className="mt-1 break-words text-sm text-teal-900/70">{agent.description}</p>
         ) : null}
+        </div>
       </div>
       <div className="flex w-full flex-col gap-2 sm:w-auto sm:min-w-[14rem]">
         <label className="flex flex-col gap-1 text-xs">

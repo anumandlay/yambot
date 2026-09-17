@@ -208,7 +208,7 @@ chatsRouter.get("/", async (req, res, next) => {
     let query = Chat.find(filter)
       .sort({ updatedAt: -1, _id: -1 })
       .select("title agent kind createdAt updatedAt")
-      .populate("agent", "name skill");
+      .populate("agent", "name skill avatarMime avatarBase64");
     if (limit > 0) query = query.limit(limit + 1);
     const found = await query.lean();
     const hasMore = limit > 0 && found.length > limit;
@@ -307,7 +307,7 @@ chatsRouter.post("/", async (req, res, next) => {
 chatsRouter.get("/:id", async (req, res, next) => {
   try {
     const chat = await Chat.findOne({ _id: req.params.id, user: req.userId })
-      .populate("agent", "name skill runner")
+      .populate("agent", "name skill runner avatarMime avatarBase64")
       .populate("defaultAgent", "name skill")
       .populate("lastDispatchAgent", "name skill")
       .lean();

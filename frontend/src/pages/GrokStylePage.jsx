@@ -9,6 +9,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
+import { AgentAvatar } from "../components/AgentAvatar.jsx";
 
 /**
  * Activity flags for the left-rail dots.
@@ -223,6 +224,7 @@ export function GrokStylePage() {
                     }`}
                     title={title}
                   >
+                    <AgentAvatar agent={a} size="sm" selected={agentActive} />
                     <span className="flex shrink-0 items-center gap-1" aria-hidden>
                       {needsYou ? (
                         <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 ring-2 ring-red-500/30" />

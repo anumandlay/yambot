@@ -130,6 +130,12 @@ const agentSchema = new mongoose.Schema(
       maxlength: 500,
     },
     /**
+     * Optional profile picture (JPEG/WebP/PNG thumbnail as base64, no data: prefix).
+     * Why: small enough to include on agent list APIs; client resizes before upload.
+     */
+    avatarMime: { type: String, default: "", trim: true },
+    avatarBase64: { type: String, default: "" },
+    /**
      * Execution mode:
      * - browser — Chromium cloud computer (can also call APIs)
      * - api — no computer; in-API tool loop only (saves VPS RAM)

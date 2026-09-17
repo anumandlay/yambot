@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:55] Agent profile pictures
+
+- **Prompt Provided:** Upload profile picture for an agent; show it wherever agents appear.
+- **Architectural Flow:** `avatarMime` + `avatarBase64` on Agent (resized JPEG/WebP thumbnail ≤~100KB). Edit page upload/clear; shared `AgentAvatar` on Agents, Chats, grok-style, chat header, Live Wall. Chats populate includes avatar fields. Copy agent copies avatar.
+- **Impacted Files:** `Agent.js`, `agents.js`, `chats.js`, `agentAvatar.js`, `AgentAvatar.jsx`, AgentEdit/Agents/Chats/Grok/ChatDetail/LiveWall pages, help, PROMPT_LOG
+
 ## [2026-09-17 11:51] Grok agent list: stable order + search
 
 - **Prompt Provided:** Stick agent order permanently; add search box above agent names.

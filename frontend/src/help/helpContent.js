@@ -546,6 +546,13 @@ export const HELP = {
       "The cloud container is labeled with this agent's ID internally; name is for humans only."
     ),
   },
+  "agent.avatar": {
+    title: "Profile picture",
+    body: helpBody(
+      "Optional square photo or logo for this agent. YamBot resizes it to a small thumbnail and stores it on the agent.",
+      "Shown next to the name on Agents, Chats, grok-style, and the chat header. Remove clears it."
+    ),
+  },
   "agent.jobBrief": {
     title: "Job brief (plain English)",
     body: helpBody(

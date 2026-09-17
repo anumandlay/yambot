@@ -10,6 +10,7 @@ import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { PageGuideBanner } from "../components/FieldLabel.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
+import { AgentAvatar } from "../components/AgentAvatar.jsx";
 
 export function LiveWallPage() {
   const [screens, setScreens] = useState([]);
@@ -87,6 +88,14 @@ export function LiveWallPage() {
           <div key={s.id} className="flex min-h-0 flex-col gap-2">
             <div className="flex min-w-0 items-center justify-between gap-2 px-0.5">
               <div className="flex min-w-0 flex-wrap items-center gap-2">
+                <AgentAvatar
+                  agent={{
+                    name: s.name,
+                    avatarMime: s.avatarMime,
+                    avatarBase64: s.avatarBase64,
+                  }}
+                  size="sm"
+                />
                 <Link
                   to={`/agents/${s.id}`}
                   className="min-w-0 truncate text-sm font-bold text-teal-950 hover:underline"

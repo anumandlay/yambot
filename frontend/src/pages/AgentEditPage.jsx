@@ -16,12 +16,16 @@ import {
 import { HelpTooltip } from "../components/HelpTooltip.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { SiteProfilesPanel } from "../components/SiteProfilesPanel.jsx";
+import { AgentAvatar } from "../components/AgentAvatar.jsx";
+import { resizeImageFileToAvatar } from "../lib/agentAvatar.js";
 
 const EMPTY = {
   name: "",
   description: "",
   profile: "",
   skill: "",
+  avatarMime: "",
+  avatarBase64: "",
   instructions: "",
   facts: [{ key: "", value: "" }],
   successCriteria: "",
@@ -170,6 +174,8 @@ export function AgentEditPage() {
             description: a.description || "",
             profile: a.profile || "",
             skill: a.skill || "",
+            avatarMime: a.avatarMime || "",
+            avatarBase64: a.avatarBase64 || "",
             instructions: a.instructions || "",
             facts: a.facts?.length ? a.facts : [{ key: "", value: "" }],
             successCriteria: a.successCriteria || "",
@@ -612,6 +618,65 @@ export function AgentEditPage() {
             required
           />
         </label>
+
+        <div className="flex flex-col gap-2 rounded-xl border border-teal-100 bg-teal-50/40 p-3 sm:flex-row sm:items-center sm:gap-4">
+          <AgentAvatar
+            agent={{
+              name: form.name,
+              avatarMime: form.avatarMime,
+              avatarBase64: form.avatarBase64,
+            }}
+            size="lg"
+          />
+          <div className="min-w-0 flex-1">
+            <FieldLabel helpId="agent.avatar">Profile picture</FieldLabel>
+            <p className="mt-0.5 text-xs text-teal-900/65">
+              Square crop, resized automatically. Shown on Agents, Chats, and grok-style.
+            </p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <label className="inline-flex min-h-11 cursor-pointer items-center rounded-xl border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-900">
+                Upload
+                <input
+                  type="file"
+                  accept="image/*"
+                  className="sr-only"
+                  onChange={async (e) => {
+                    const file = e.target.files?.[0];
+                    e.target.value = "";
+                    if (!file) return;
+                    setError(null);
+                    try {
+                      const { mime, base64 } = await resizeImageFileToAvatar(file);
+                      setForm((prev) => ({
+                        ...prev,
+                        avatarMime: mime,
+                        avatarBase64: base64,
+                      }));
+                    } catch (err) {
+                      setError(err);
+                    }
+                  }}
+                />
+              </label>
+              {form.avatarBase64 ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setForm((prev) => ({
+                      ...prev,
+                      avatarMime: "",
+                      avatarBase64: "",
+                    }))
+                  }
+                  className="min-h-11 rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700"
+                >
+                  Remove
+                </button>
+              ) : null}
+            </div>
+          </div>
+        </div>
+
         {readiness ? (
           <div className="rounded-xl border border-teal-100 bg-teal-50/80 p-3 text-sm">
             <div

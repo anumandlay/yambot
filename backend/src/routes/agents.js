@@ -204,10 +204,39 @@ function pickAgentFields(body, opts = {}) {
   if (body.description != null) set("description", String(body.description || "").trim());
   if (body.profile != null) set("profile", String(body.profile || "").trim());
   if (body.skill != null) set("skill", String(body.skill || "").trim().slice(0, 500));
-  if (body.mode != null || !opts.partial) {
-    const mode = String(body.mode || "browser").toLowerCase().trim();
-    set("mode", AGENT_MODES.includes(mode) ? mode : "browser");
+  // Why: profile picture — empty clears; client sends resized JPEG/WebP base64 (no data: prefix).
+  if (body.avatarBase64 != null || body.avatarMime != null || body.clearAvatar === true) {
+    if (body.clearAvatar === true || (body.avatarBase64 === "" && body.avatarMime === "")) {
+      set("avatarMime", "");
+      set("avatarBase64", "");
+    } else if (body.avatarBase64 != null) {
+      let b64 = String(body.avatarBase64 || "").trim();
+      if (b64.includes(",")) b64 = b64.split(",").pop() || "";
+      b64 = b64.replace(/\s/g, "");
+      let mime = String(body.avatarMime || "image/jpeg").trim().toLowerCase();
+      if (mime === "image/jpg") mime = "image/jpeg";
+      const allowed = ["image/jpeg", "image/png", "image/webp", "image/gif"];
+      if (!b64) {
+        set("avatarMime", "");
+        set("avatarBase64", "");
+      } else if (!allowed.includes(mime)) {
+        const err = new Error("Avatar must be JPEG, PNG, WebP, or GIF");
+        err.status = 400;
+        err.title = "Invalid avatar";
+        throw err;
+      } else if (b64.length > 140_000) {
+        // ~100KB decoded — clients should resize before upload.
+        const err = new Error("Avatar is too large. Use a smaller image (about 256×256).");
+        err.status = 400;
+        err.title = "Avatar too large";
+        throw err;
+      } else {
+        set("avatarMime", mime);
+        set("avatarBase64", b64);
+      }
+    }
   }
+  if (body.mode != null || !opts.partial) {
   if (body.instructions != null) set("instructions", String(body.instructions || "").trim());
   if (body.facts != null) set("facts", normalizeFacts(body.facts));
   if (body.successCriteria != null) {
@@ -502,6 +531,8 @@ agentsRouter.get("/live-wall", async (req, res, next) => {
       return {
         id: String(a._id),
         name: a.name,
+        avatarMime: a.avatarMime || "",
+        avatarBase64: a.avatarBase64 || "",
         runner: a.runner || "cloud",
         mode: a.mode || "browser",
         online,
@@ -1487,6 +1518,8 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       description: src.description || "",
       profile: src.profile || "",
       skill: src.skill || "",
+      avatarMime: src.avatarMime || "",
+      avatarBase64: src.avatarBase64 || "",
       mode: src.mode || "browser",
       instructions: src.instructions || "",
       facts: Array.isArray(src.facts) ? src.facts : [],

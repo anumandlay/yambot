@@ -22,6 +22,7 @@ import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
 import { TrajectoryPanel } from "../components/TrajectoryPanel.jsx";
 import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { LlmTraceMessage } from "../components/LlmTraceMessage.jsx";
+import { AgentAvatar } from "../components/AgentAvatar.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -920,9 +921,12 @@ export function ChatDetailPage() {
             {liveAgentName ? ` · live: ${liveAgentName}` : ""}
           </span>
         ) : chat?.agent?.name ? (
-          <span className="max-w-full truncate rounded-full border border-teal-100 bg-teal-50 px-3 py-2 text-xs font-semibold text-teal-900">
-            {chat.agent.name}
-            {chat.agent.skill ? ` · ${chat.agent.skill}` : ""}
+          <span className="inline-flex max-w-full items-center gap-2 truncate rounded-full border border-teal-100 bg-teal-50 py-1.5 pl-1.5 pr-3 text-xs font-semibold text-teal-900">
+            <AgentAvatar agent={chat.agent} size="sm" />
+            <span className="min-w-0 truncate">
+              {chat.agent.name}
+              {chat.agent.skill ? ` · ${chat.agent.skill}` : ""}
+            </span>
           </span>
         ) : null}
       </div>

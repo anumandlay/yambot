@@ -14,6 +14,7 @@ import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
 import { GettingStartedCard } from "../components/GettingStartedCard.jsx";
 import { useSetupStatus } from "../hooks/useSetupStatus.js";
+import { AgentAvatar } from "../components/AgentAvatar.jsx";
 
 /**
  * @param {object} chat
@@ -85,7 +86,7 @@ export function ChatsPage() {
 
   /**
    * One row per agent — newest chat only (extra legacy threads stay hidden).
-   * @type {{ agentId: string, name: string, skill: string, chat: object|null }[]}
+   * @type {{ agentId: string, name: string, skill: string, avatarMime: string, avatarBase64: string, chat: object|null }[]}
    */
   const agentRows = useMemo(() => {
     /** @type {Map<string, object>} */
@@ -109,6 +110,8 @@ export function ChatsPage() {
         agentId: id,
         name: String(a.name || "Agent").trim() || "Agent",
         skill: String(a.skill || "").trim(),
+        avatarMime: a.avatarMime || "",
+        avatarBase64: a.avatarBase64 || "",
         chat: newestByAgent.get(id) || null,
       };
     });
@@ -549,6 +552,14 @@ export function ChatsPage() {
                         className="flex min-h-11 min-w-0 flex-1 flex-col gap-1 px-1 py-1 text-left sm:flex-row sm:items-center sm:justify-between sm:px-2"
                       >
                         <span className="flex min-w-0 items-center gap-2 truncate font-semibold">
+                          <AgentAvatar
+                            agent={{
+                              name: row.name,
+                              avatarMime: row.avatarMime,
+                              avatarBase64: row.avatarBase64,
+                            }}
+                            size="sm"
+                          />
                           {badge ? (
                             <span
                               className={`inline-flex shrink-0 items-center gap-1 rounded-md px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide ${badge.className}`}
