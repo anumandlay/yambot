@@ -1366,7 +1366,8 @@ export const HELP = {
   "chat.liveScreen": {
     title: "Live screen (chat)",
     body: helpBody(
-      "Real-time view of what the cloud browser shows. Updates during task execution."
+      "Real-time view of what the cloud browser shows. Updates during task execution.",
+      "Under the screen: peer badges show Waiting on B / B replied (tap to read). Soft-wait peers are labeled Soft wait."
     ),
   },
   "chat.snapshot": {

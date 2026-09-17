@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:35] A2A v4: peer status badges under agent screen
+
+- **Prompt Provided:** v3, v4, v5 one by one (this entry = v4).
+- **Architectural Flow:** Queue APIs include `pendingPeerResults`. `PeerStatusBadges` under live screen shows Waiting on B / B replied (tap expands result). Soft-wait peers labeled Soft wait.
+- **Impacted Files:** chats.js queue selects, PeerStatusBadges.jsx, ChatDetailPage, help, PROMPT_LOG
+
 ## [2026-09-17 15:30] A2A v3: soft wait (work then pause for peer)
 
 - **Prompt Provided:** lets go with v3, v4 and v5 one by one (this entry = v3).

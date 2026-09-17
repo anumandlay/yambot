@@ -22,6 +22,7 @@ import { AgentTaskQueue } from "../components/AgentTaskQueue.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { PageSnapshotPanel } from "../components/PageSnapshotPanel.jsx";
 import { TrajectoryPanel } from "../components/TrajectoryPanel.jsx";
+import { PeerStatusBadges } from "../components/PeerStatusBadges.jsx";
 import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
@@ -429,6 +430,7 @@ export function ChatDetailPage() {
   }, [activeRun, tasks, watchedRun]);
 
   const snapshotEvents = snapshotTask?.events || [];
+  const peerResults = snapshotTask?.pendingPeerResults || activeRun?.pendingPeerResults || [];
 
   /**
    * @param {React.FormEvent} e
@@ -704,6 +706,7 @@ export function ChatDetailPage() {
       </div>
       {/* Why: keep debug surfaces as tiny icons under the screen so the rail stays short. */}
       <div className="mt-1.5 flex flex-col gap-1.5">
+        <PeerStatusBadges peers={peerResults} />
         <div className="flex items-center gap-1.5">
           <PageSnapshotPanel
             events={snapshotEvents}

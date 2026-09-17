@@ -61,7 +61,7 @@ async function loadAgentQueue(userId, agentRef) {
       status: { $in: ["running", "waiting_user"] },
     })
       .sort({ claimedAt: -1, updatedAt: -1 })
-      .select("goal status createdAt chat message resultSummary events agent")
+      .select("goal status createdAt chat message resultSummary events agent pendingPeerResults")
       .populate("chat", "title kind")
       .lean(),
   ]);
@@ -88,7 +88,7 @@ async function loadChatScopedQueue(userId, chatId) {
       status: { $in: ["running", "waiting_user"] },
     })
       .sort({ updatedAt: -1 })
-      .select("goal status createdAt chat message resultSummary events agent")
+      .select("goal status createdAt chat message resultSummary events agent pendingPeerResults")
       .populate("chat", "title kind")
       .populate("agent", "name")
       .lean(),
