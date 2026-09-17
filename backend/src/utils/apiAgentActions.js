@@ -44,7 +44,7 @@ export function buildApiActionSchemaForPrompt() {
     "",
     "Action fields:",
     '- http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://...", "headers":{}, "body":"..." }',
-    '- message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false|"soft", "soft_wait_minutes": 3 } — wait:false keeps working; wait:"soft" works then pauses; PEER RESULT appears later',
+    '- message_agent: { "type":"message_agent", "to":"Name"|["B","C"], "content":"...", "wait": true|false|"soft", "soft_wait_minutes": 3 } or fanout:[{to,content}…] — parallel peers (max 5)',
     '- memory: { "type":"memory", "action":"add|replace|remove", "target":"user|memory", "content":"...", "old_text":"..." }',
     '- send_email: { "type":"send_email", "to":"...", "subject":"...", "text":"..." }',
     '- check_email: { "type":"check_email", "limit": 5, "unseen": true }',

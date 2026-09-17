@@ -443,47 +443,132 @@ async function executeApiAction(action, ctx) {
         return await runHttpRequest(action, ctx);
       case "message_agent": {
         const mode = action.mode || "task";
+        const sharedContent = String(
+          action.content || action.message || action.question || ""
+        ).trim();
+        /** @type {{ to: string, content: string, mode: string }[]} */
+        let targets = [];
+        if (Array.isArray(action.fanout) && action.fanout.length) {
+          targets = action.fanout
+            .slice(0, 5)
+            .map((row) => ({
+              to: String(row?.to || row?.agent || row?.name || "").trim(),
+              content: String(row?.content || row?.message || sharedContent || "").trim(),
+              mode: String(row?.mode || mode).trim() || mode,
+            }))
+            .filter((r) => r.to && r.content);
+        } else {
+          const toRaw = action.to || action.agent || action.name;
+          if (Array.isArray(toRaw)) {
+            targets = toRaw
+              .slice(0, 5)
+              .map((t) => String(t || "").trim())
+              .filter(Boolean)
+              .map((to) => ({ to, content: sharedContent, mode }));
+          } else {
+            const toStr = String(toRaw || "").trim();
+            if (toStr.includes(",")) {
+              targets = toStr
+                .split(",")
+                .map((s) => s.trim())
+                .filter(Boolean)
+                .slice(0, 5)
+                .map((to) => ({ to, content: sharedContent, mode }));
+            } else if (toStr && sharedContent) {
+              targets = [{ to: toStr, content: sharedContent, mode }];
+            }
+          }
+        }
+        if (!targets.length) {
+          return { ok: false, note: "message_agent needs to + content (or fanout)." };
+        }
+
         const waitMode = normalizeMessageWaitMode(action.wait, mode);
         const softWaitMinutes = action.soft_wait_minutes ?? action.softWaitMinutes ?? 3;
-        const result = await sendAgentMessage({
-          userId: ctx.userId,
-          fromAgentId: String(ctx.agent._id),
-          to: action.to || action.agent || action.name,
-          mode,
-          content: action.content || action.message || action.question || "",
-          parentTaskId: ctx.taskId || null,
-          wait: waitMode === "block",
-          waitMode,
-          softWaitMinutes,
-        });
-        if (waitMode !== "block" || !result.ok || !result.agentMessageId) {
-          return {
-            ok: result.ok,
-            note:
-              result.note ||
-              (result.ok
-                ? waitMode === "soft"
-                  ? `Peer queued (soft ${softWaitMinutes}m). Continue — will pause if still running after the window.`
-                  : "Peer queued (async). Continue — PEER RESULT appears when they finish."
-                : "Peer message failed."),
-          };
-        }
-        const deadline = Date.now() + AGENT_MESSAGE_WAIT_MS;
-        let last = result;
-        while (Date.now() < deadline) {
-          await new Promise((r) => setTimeout(r, 3000));
-          last = await pollAgentMessageStatus(ctx.userId, result.agentMessageId, {
+        /** @type {object[]} */
+        const starts = [];
+        for (const t of targets) {
+          const result = await sendAgentMessage({
+            userId: ctx.userId,
+            fromAgentId: String(ctx.agent._id),
+            to: t.to,
+            mode: t.mode,
+            content: t.content,
             parentTaskId: ctx.taskId || null,
+            wait: false,
+            waitMode,
+            softWaitMinutes,
           });
-          if (!last.waiting) break;
+          starts.push({ ...result, to: t.to });
         }
-        if (last.waiting) {
+
+        if (waitMode !== "block") {
+          const lines = starts.map((s) =>
+            s.ok ? `→ ${s.to}: queued (${waitMode})` : `→ ${s.to}: ${s.note || "failed"}`
+          );
           return {
-            ok: false,
-            note: `Timed out waiting for peer — continuing async; PEER RESULT will appear if they finish.`,
+            ok: starts.some((s) => s.ok),
+            note: [
+              targets.length > 1 ? `Fan-out (${targets.length}):` : null,
+              ...lines,
+              waitMode === "soft"
+                ? `Soft ${softWaitMinutes}m — continue; pause if peers still running after.`
+                : "Continue — PEER RESULT per peer when done.",
+            ]
+              .filter(Boolean)
+              .join("\n"),
           };
         }
-        return { ok: Boolean(last.ok), note: last.note || last.resultSummary || "Peer done." };
+
+        const deadline = Date.now() + AGENT_MESSAGE_WAIT_MS;
+        /** @type {Map<string, object>} */
+        const lastById = new Map();
+        const okStarts = starts.filter((s) => s.ok && s.agentMessageId);
+        for (const s of okStarts) lastById.set(String(s.agentMessageId), { ...s, waiting: true });
+        while (Date.now() < deadline) {
+          let anyWaiting = false;
+          for (const s of okStarts) {
+            const id = String(s.agentMessageId);
+            const prev = lastById.get(id);
+            if (prev && prev.waiting === false) continue;
+            const last = await pollAgentMessageStatus(ctx.userId, id, {
+              parentTaskId: ctx.taskId || null,
+            });
+            lastById.set(id, { ...last, to: s.to });
+            if (last.waiting) anyWaiting = true;
+          }
+          if (!anyWaiting) break;
+          await new Promise((r) => setTimeout(r, 3000));
+        }
+
+        const resultLines = [];
+        let allOk = true;
+        for (const s of starts) {
+          if (!s.ok || !s.agentMessageId) {
+            resultLines.push(`← ${s.to}: ${s.note || "failed"}`);
+            allOk = false;
+            continue;
+          }
+          const last = lastById.get(String(s.agentMessageId)) || s;
+          if (last.waiting) {
+            resultLines.push(`← ${s.to}: still running (timeout)`);
+            allOk = false;
+          } else {
+            resultLines.push(
+              `← ${s.to}: ${String(last.note || last.resultSummary || "done").slice(0, 800)}`
+            );
+            if (!last.ok) allOk = false;
+          }
+        }
+        return {
+          ok: allOk,
+          note: [
+            targets.length > 1 ? `Fan-out results (${targets.length}):` : null,
+            ...resultLines,
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        };
       }
       case "memory": {
         const { mutateCuratedMemory } = await import("./curatedMemoryOps.js");

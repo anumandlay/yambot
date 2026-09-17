@@ -840,11 +840,12 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
   });
   return [
     "PEER AGENTS (collaborate via message_agent; use exact names):",
-    'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false|"soft", "soft_wait_minutes": 3 }',
+    'Action: { "type":"message_agent", "to":"<exact name>"|["B","C"], "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false|"soft", "soft_wait_minutes": 3 }',
+    'Or fan-out: { "type":"message_agent", "fanout":[{ "to":"B", "content":"..." }, { "to":"C", "content":"..." }], "wait": false } (max 5 peers in parallel).',
     "Modes: task=do work; question=answer; approval=approve/reject via finish; handoff=peer owns work; event=FYI (default wait:false).",
-    "wait:true = block until peer finishes (use when you need their answer before any other step).",
-    "wait:false = fire-and-forget; keep doing your remaining work. When the peer finishes, a PEER RESULT note appears — use it, then finish or continue.",
-    "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until the peer finishes if they are still running.",
+    "wait:true = block until peer(s) finish (use when you need their answer before any other step).",
+    "wait:false = fire-and-forget; keep doing your remaining work. When each peer finishes, a PEER RESULT note appears.",
+    "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until remaining peers finish.",
     "Peers must finish with the answer — they must not message_agent you back.",
     "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +

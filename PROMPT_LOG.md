@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:40] A2A v5: multi-peer fan-out (B+C in parallel)
+
+- **Prompt Provided:** v3, v4, v5 one by one (this entry = v5).
+- **Architectural Flow:** `message_agent` accepts `to: ["B","C"]`, comma-separated names, or `fanout:[{to,content}]` (max 5). Queues peers in parallel; block waits for all; async/soft register each in pendingPeerResults (UI badges show each).
+- **Impacted Files:** worker agent/actions, apiAgentRunner/Actions, agentMessageBus peer prompt, PROMPT_LOG
+
 ## [2026-09-17 15:35] A2A v4: peer status badges under agent screen
 
 - **Prompt Provided:** v3, v4, v5 one by one (this entry = v4).

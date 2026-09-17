@@ -2311,7 +2311,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Use wait:false when you still have other work; wait:\"soft\" (optional soft_wait_minutes) to work a few minutes then pause for the peer; wait:true only when you cannot proceed without their answer.",
+              "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers. Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers.",
               "OPERATOR CHAT: The human may send OPERATOR MESSAGE notes while you run — treat them as high-priority guidance for the current goal (do not start an unrelated new goal unless they clearly ask).",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
@@ -3407,14 +3407,60 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, http: result };
       }
       case "message_agent": {
-        const mode = action.mode || "task";
+        /**
+         * v5 fan-out: to as array / comma list, or fanout:[{to,content}].
+         * @returns {{ to: string, content: string, mode: string }[]}
+         */
+        function normalizeFanoutTargets() {
+          const mode = action.mode || "task";
+          const sharedContent = String(
+            action.content || action.message || action.question || ""
+          ).trim();
+          if (Array.isArray(action.fanout) && action.fanout.length) {
+            return action.fanout
+              .slice(0, 5)
+              .map((row) => ({
+                to: String(row?.to || row?.agent || row?.name || "").trim(),
+                content: String(row?.content || row?.message || sharedContent || "").trim(),
+                mode: String(row?.mode || mode).trim() || mode,
+              }))
+              .filter((r) => r.to && r.content);
+          }
+          const toRaw = action.to || action.agent || action.name;
+          if (Array.isArray(toRaw)) {
+            return toRaw
+              .slice(0, 5)
+              .map((t) => String(t || "").trim())
+              .filter(Boolean)
+              .map((to) => ({ to, content: sharedContent, mode }));
+          }
+          const toStr = String(toRaw || "").trim();
+          if (toStr.includes(",")) {
+            return toStr
+              .split(",")
+              .map((s) => s.trim())
+              .filter(Boolean)
+              .slice(0, 5)
+              .map((to) => ({ to, content: sharedContent, mode }));
+          }
+          return toStr && sharedContent
+            ? [{ to: toStr, content: sharedContent, mode }]
+            : [];
+        }
+
+        const targets = normalizeFanoutTargets();
+        if (!targets.length) {
+          notes.push("message_agent needs to + content (or fanout:[{to,content}]).");
+          return { ok: false, summary: "missing peer targets" };
+        }
+
         const rawWait = action.wait;
         const waitMode =
           rawWait === "soft" || rawWait === "soft_wait"
             ? "soft"
             : rawWait === false || rawWait === "false"
               ? "async"
-              : mode === "event"
+              : targets[0].mode === "event" || action.mode === "event"
                 ? "async"
                 : rawWait === true || rawWait === undefined || rawWait === null
                   ? "block"
@@ -3422,61 +3468,111 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const softWaitMinutes =
           action.soft_wait_minutes ?? action.softWaitMinutes ?? 3;
         const wantBlock = waitMode === "block";
-        const start = await api("/api/worker/tools/message-agent", {
-          method: "POST",
-          body: JSON.stringify({
-            agentId: config.agentId || agentSnapshot?.id,
-            taskId,
-            to: action.to || action.agent || action.name,
-            mode,
-            content: action.content || action.message || action.question || "",
-            wait: waitMode === "block" ? true : waitMode === "soft" ? "soft" : false,
-            waitMode,
-            softWaitMinutes,
-            clientWait: wantBlock,
-          }),
-        });
-        if (!wantBlock || !start.ok || !start.agentMessageId) {
-          const note = String(start.note || start.resultSummary || "").slice(0, 6000);
-          notes.push(
-            note ||
-              (start.ok
-                ? waitMode === "soft"
-                  ? `Peer queued (soft wait ${softWaitMinutes}m). Continue other work — will pause if they are still running after the soft window.`
-                  : "Peer message queued (async). Continue other work — PEER RESULT will appear when they finish."
-                : "Peer message failed.")
+
+        /** @type {object[]} */
+        const starts = [];
+        for (const t of targets) {
+          const start = await api("/api/worker/tools/message-agent", {
+            method: "POST",
+            body: JSON.stringify({
+              agentId: config.agentId || agentSnapshot?.id,
+              taskId,
+              to: t.to,
+              mode: t.mode,
+              content: t.content,
+              wait: waitMode === "block" ? true : waitMode === "soft" ? "soft" : false,
+              waitMode,
+              softWaitMinutes,
+              // Why: always enqueue immediately; fan-out block waits via parallel poll below.
+              clientWait: false,
+            }),
+          });
+          starts.push({ ...start, to: t.to });
+        }
+
+        const okStarts = starts.filter((s) => s.ok && s.agentMessageId);
+        if (!wantBlock) {
+          const lines = starts.map((s) =>
+            s.ok
+              ? `→ ${s.to}: queued (${waitMode})`
+              : `→ ${s.to}: failed (${s.note || "error"})`
           );
+          const note = [
+            targets.length > 1
+              ? `Fan-out to ${targets.length} peers (${waitMode}):`
+              : null,
+            ...lines,
+            waitMode === "soft"
+              ? `Soft window ${softWaitMinutes}m — continue work; will pause if peers still running after.`
+              : "Continue other work — PEER RESULT notes appear as each peer finishes.",
+          ]
+            .filter(Boolean)
+            .join("\n");
+          notes.push(note);
           return {
-            ok: Boolean(start.ok),
-            messageAgent: start,
+            ok: okStarts.length > 0,
+            messageAgent: starts,
             summary: note,
-            async: !wantBlock,
+            async: true,
             waitMode,
+            fanout: targets.length,
           };
         }
 
-        const waitMs = Number(start.waitMs) || 25 * 60 * 1000;
+        // Block: poll all peers until each finishes or hard timeout.
+        const waitMs = 25 * 60 * 1000;
         const deadline = Date.now() + waitMs;
-        let last = start;
+        /** @type {Map<string, object>} */
+        const lastById = new Map();
+        for (const s of okStarts) lastById.set(String(s.agentMessageId), { ...s, waiting: true });
         while (Date.now() < deadline) {
-          await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+          let anyWaiting = false;
+          for (const s of okStarts) {
+            const id = String(s.agentMessageId);
+            const prev = lastById.get(id);
+            if (prev && prev.waiting === false) continue;
+            await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+            const last = await api(
+              `/api/worker/tools/message-agent/${id}?parentTaskId=${encodeURIComponent(taskId || "")}`
+            );
+            lastById.set(id, { ...last, to: s.to });
+            if (last.waiting) anyWaiting = true;
+          }
+          if (!anyWaiting) break;
           await sleep(3000);
-          last = await api(
-            `/api/worker/tools/message-agent/${start.agentMessageId}?parentTaskId=${encodeURIComponent(taskId || "")}`
-          );
-          if (!last.waiting) break;
         }
-        if (last.waiting) {
-          const timeoutNote = `Timed out waiting for peer after ${Math.round(waitMs / 60000)}m — peer may still finish (see Agent threads). Switching to async: continue work; PEER RESULT will appear if they complete.`;
-          notes.push(timeoutNote);
-          return { ok: false, messageAgent: last, summary: timeoutNote, async: true };
+
+        const resultLines = [];
+        let allOk = true;
+        for (const s of starts) {
+          if (!s.ok || !s.agentMessageId) {
+            resultLines.push(`← ${s.to}: ${s.note || "failed to queue"}`);
+            allOk = false;
+            continue;
+          }
+          const last = lastById.get(String(s.agentMessageId)) || s;
+          if (last.waiting) {
+            resultLines.push(`← ${s.to}: still running (timeout — PEER RESULT may arrive later)`);
+            allOk = false;
+          } else {
+            resultLines.push(
+              `← ${s.to}: ${String(last.note || last.resultSummary || (last.ok ? "done" : "failed")).slice(0, 1500)}`
+            );
+            if (!last.ok) allOk = false;
+          }
         }
-        const note = String(last.note || last.resultSummary || "").slice(0, 6000);
-        notes.push(note || (last.ok ? "Peer message done." : "Peer message failed."));
+        const note = [
+          targets.length > 1 ? `Fan-out results (${targets.length} peers):` : null,
+          ...resultLines,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        notes.push(note);
         return {
-          ok: Boolean(last.ok),
-          messageAgent: last,
+          ok: allOk,
+          messageAgent: [...lastById.values()],
           summary: note,
+          fanout: targets.length,
         };
       }
       case "memory": {
