@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:40] Drop Delete on agent chat rows
+
+- **Prompt Provided:** Drop delete button (agent rows on Chats).
+- **Architectural Flow:** Agent list on Chats / grok-style is open-only. Delete remains only for shared-inbox threads. Agent removal stays on Agents page.
+- **Impacted Files:** `ChatsPage.jsx`, `GrokStylePage.jsx`, help, PROMPT_LOG
+
 ## [2026-09-17 11:45] One chat per agent
 
 - **Prompt Provided:** Yes, let’s go (one chat per agent; simplify Chats UI).

@@ -57,7 +57,6 @@ export function GrokStylePage() {
   const [chats, setChats] = useState([]);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState("");
-  const [deletingId, setDeletingId] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
 
   const reload = useCallback(async () => {
@@ -119,36 +118,6 @@ export function GrokStylePage() {
     }
   }
 
-  /**
-   * @param {object} chat
-   * @param {React.MouseEvent} e
-   */
-  async function deleteChat(chat, e) {
-    e?.stopPropagation?.();
-    e?.preventDefault?.();
-    const label = String(chat?.title || "this chat").trim() || "this chat";
-    const id = String(chat._id);
-    if (
-      !window.confirm(
-        `Delete “${label}”? Messages and queued goals for this thread will be removed. Running work from this thread will be stopped.`
-      )
-    ) {
-      return;
-    }
-    setDeletingId(id);
-    setError(null);
-    setChats((prev) => prev.filter((c) => String(c._id) !== id));
-    try {
-      await api(`/api/chats/${id}`, { method: "DELETE" });
-      if (String(chatId) === id) navigate("/grok");
-    } catch (err) {
-      setError(err);
-      await reload();
-    } finally {
-      setDeletingId("");
-    }
-  }
-
   const agentRail = (
     <aside
       className={`flex h-full min-h-0 w-full flex-col border-teal-100 bg-white lg:w-72 lg:shrink-0 lg:border-r ${
@@ -194,12 +163,12 @@ export function GrokStylePage() {
               const live =
                 sole?.live?.status === "running" || sole?.live?.status === "waiting_user";
               return (
-                <li key={id} className="group flex min-h-11 items-center gap-0.5 rounded-xl">
+                <li key={id}>
                   <button
                     type="button"
                     disabled={busyId === id}
                     onClick={() => void openAgent(id)}
-                    className={`flex min-h-11 min-w-0 flex-1 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold disabled:opacity-50 ${
+                    className={`flex min-h-11 w-full min-w-0 items-center gap-2 rounded-xl px-3 py-2 text-left text-sm font-semibold disabled:opacity-50 ${
                       agentActive
                         ? "bg-teal-600 text-white"
                         : "text-teal-950 hover:bg-teal-50"
@@ -219,18 +188,6 @@ export function GrokStylePage() {
                       </span>
                     ) : null}
                   </button>
-                  {sole ? (
-                    <button
-                      type="button"
-                      disabled={deletingId === String(sole._id)}
-                      onClick={(e) => void deleteChat(sole, e)}
-                      className="inline-flex min-h-11 min-w-10 shrink-0 items-center justify-center rounded-lg text-teal-700/50 opacity-70 hover:bg-red-50 hover:text-red-600 group-hover:opacity-100 disabled:opacity-40"
-                      title="Delete chat"
-                      aria-label={`Delete chat for ${a.name || "agent"}`}
-                    >
-                      {deletingId === String(sole._id) ? "…" : "🗑"}
-                    </button>
-                  ) : null}
                 </li>
               );
             })}

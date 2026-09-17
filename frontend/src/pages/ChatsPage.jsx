@@ -576,18 +576,6 @@ export function ChatsPage() {
                             : "No messages yet — tap to open"}
                         </span>
                       </button>
-                      {c ? (
-                        <ButtonWithHelp helpId="chats.delete">
-                          <button
-                            type="button"
-                            disabled={Boolean(deletingId)}
-                            onClick={() => deleteChat(c)}
-                            className="inline-flex min-h-11 w-full shrink-0 items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
-                          >
-                            {deletingId === c._id ? "Deleting…" : "Delete"}
-                          </button>
-                        </ButtonWithHelp>
-                      ) : null}
                     </li>
                   );
                 })}

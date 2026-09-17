@@ -1247,10 +1247,10 @@ export const HELP = {
     ),
   },
   "chats.delete": {
-    title: "Delete chat",
+    title: "Delete shared thread",
     body: helpBody(
-      "Removes this thread, its messages, and queued goals. Work running from this thread is stopped.",
-      "Other chats with the same agent are not affected."
+      "Removes a shared-inbox thread, its messages, and queued goals. Work running from this thread is stopped.",
+      "Agent chats are one ongoing thread each — they are not deleted from the Chats list (remove the agent under Agents if needed)."
     ),
   },
   "chat.agentPicker": {
