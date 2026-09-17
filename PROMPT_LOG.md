@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 15:20] A2A v1: async peer results while parent keeps working
+
+- **Prompt Provided:** Implement v1 — Agent A keeps doing remaining work after delegating to B; merge B’s result later. Also list next versions.
+- **Architectural Flow:** `message_agent` with `wait:false` registers `Task.pendingPeerResults`. Child complete finalizes AgentMessage + fills the parent mailbox. Each parent LLM turn drains via `POST .../peer-results/consume` into PEER RESULT notes. `wait:true` still blocks when A needs the answer first.
+- **Impacted Files:** Task model, agentMessageBus, worker routes/agent/actions, apiAgentRunner/Actions, PROMPT_LOG
+
 ## [2026-09-17 15:05] Fix: parent agent must not open URL meant for peer
 
 - **Prompt Provided:** Agent A tasked Agent B to open a website and report back — why is A opening the same site?

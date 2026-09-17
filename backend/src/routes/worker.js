@@ -33,6 +33,8 @@ import {
   formatPeerAgentsBlock,
   sendAgentMessage,
   pollAgentMessageStatus,
+  finalizeAgentMessagesForChildTask,
+  consumePendingPeerResults,
   AGENT_MESSAGE_WAIT_MS,
 } from "../utils/agentMessageBus.js";
 import { Skill } from "../models/Skill.js";
@@ -546,6 +548,9 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     });
     await task.save();
     await unblockDependentTasks(req.userId);
+
+    // Why: parent may have wait:false — finalize AgentMessage + fill pendingPeerResults without a poll.
+    await finalizeAgentMessagesForChildTask(req.userId, task).catch(() => null);
 
     if (success && task.enrollmentRef) {
       await finalizeCampaignSendOnTaskComplete(task).catch(() => null);
@@ -1103,6 +1108,34 @@ workerRouter.get("/tools/message-agent/:id", async (req, res, next) => {
       parentTaskId: String(req.query?.parentTaskId || "").trim() || null,
     });
     res.json(status);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/tasks/:id/peer-results/consume — drain finished async peer results into notes.
+ * Why: parent keeps working after wait:false; each LLM turn pulls newly finished PEER RESULT lines.
+ */
+workerRouter.post("/tasks/:id/peer-results/consume", async (req, res, next) => {
+  try {
+    const task = await Task.findOne({ _id: req.params.id, user: req.userId })
+      .select("_id")
+      .lean();
+    if (!task) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
+      return;
+    }
+    // Why: also sync any finished children that nobody polled yet.
+    const waiting = await Task.findById(req.params.id).select("pendingPeerResults").lean();
+    for (const row of waiting?.pendingPeerResults || []) {
+      if (row.status !== "waiting" || !row.agentMessageId) continue;
+      await pollAgentMessageStatus(req.userId, row.agentMessageId, {
+        parentTaskId: String(req.params.id),
+      }).catch(() => null);
+    }
+    const drained = await consumePendingPeerResults(String(req.params.id));
+    res.json({ ok: true, notes: drained.notes, rows: drained.rows });
   } catch (err) {
     next(err);
   }

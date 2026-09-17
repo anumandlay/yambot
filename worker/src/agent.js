@@ -2095,6 +2095,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
         await waitWhileHumanControl({ taskId });
         await pushLiveScreen({ taskId, screenshot: false }).catch(() => {});
+
+        // Why: v1 async A2A — drain finished peer results into notes so A can keep working then merge B’s answer.
+        try {
+          const drained = await api(`/api/worker/tasks/${taskId}/peer-results/consume`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          for (const note of drained?.notes || []) {
+            notes.push(note);
+            await mirror(taskId, "info", {
+              appendMessage: note.slice(0, 1500),
+              payload: { kind: "peer_result" },
+            }).catch(() => {});
+          }
+        } catch {
+          /* peer drain is best-effort */
+        }
+
         const pageUrlNow = safePageUrl(page);
         const reuseObs = Boolean(prevObs && prevUrl && pageUrlNow === prevUrl);
         const captchaGate = await handleCaptchaIfPresent(
@@ -2211,6 +2229,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
                 .map((n) => String(n).slice(0, 700))
                 .join("\n---\n")}`
             : "",
+          (() => {
+            const peerNotes = notes.filter((n) =>
+              /^(PEER RESULT|PEER FAILED)\b/i.test(String(n))
+            );
+            return peerNotes.length
+              ? `PEER RESULTS (from async message_agent — use these; do not re-ask the peer):\n${peerNotes
+                  .slice(-3)
+                  .map((n) => String(n).slice(0, 2000))
+                  .join("\n---\n")}`
+              : "";
+          })(),
           summarizeSessionContext(history),
           history.length
             ? `RECENT ACTIONS (last 6 only — current refs; do not treat this as the whole run):\n${history
@@ -2258,7 +2287,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Wait for the peer finish result, then finish with their answer.",
+              "DELEGATION: If the user asks you to have a peer open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Use wait:false when you still have other work; a PEER RESULT note will appear when they finish. Use wait:true only when you cannot proceed without their answer.",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
@@ -3369,8 +3398,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
         if (!wantWait || !start.ok || !start.agentMessageId) {
           const note = String(start.note || start.resultSummary || "").slice(0, 6000);
-          notes.push(note || (start.ok ? "Peer message queued." : "Peer message failed."));
-          return { ok: Boolean(start.ok), messageAgent: start, summary: note };
+          notes.push(
+            note ||
+              (start.ok
+                ? "Peer message queued (async). Continue other work — PEER RESULT will appear when they finish."
+                : "Peer message failed.")
+          );
+          return { ok: Boolean(start.ok), messageAgent: start, summary: note, async: !wantWait };
         }
 
         const waitMs = Number(start.waitMs) || 25 * 60 * 1000;
@@ -3386,9 +3420,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           if (!last.waiting) break;
         }
         if (last.waiting) {
-          const timeoutNote = `Timed out waiting for peer after ${Math.round(waitMs / 60000)}m — peer may still finish (see Agent threads).`;
+          const timeoutNote = `Timed out waiting for peer after ${Math.round(waitMs / 60000)}m — peer may still finish (see Agent threads). Switching to async: continue work; PEER RESULT will appear if they complete.`;
           notes.push(timeoutNote);
-          return { ok: false, messageAgent: last, summary: timeoutNote };
+          return { ok: false, messageAgent: last, summary: timeoutNote, async: true };
         }
         const note = String(last.note || last.resultSummary || "").slice(0, 6000);
         notes.push(note || (last.ok ? "Peer message done." : "Peer message failed."));

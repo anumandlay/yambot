@@ -31,7 +31,7 @@ import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js
 import { normalizeEntries } from "./curatedMemory.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
-import { formatPeerAgentsBlock, sendAgentMessage } from "./agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
 const STUCK_RUNNING_MS = 20 * 60 * 1000;
@@ -255,6 +255,33 @@ async function executeApiTask(task, agent, userId) {
     if (!fresh || fresh.status === "cancelled") return;
     if (fresh.status === "waiting_user") return;
 
+    // Why: async message_agent peers finish into pendingPeerResults — inject before each LLM turn.
+    try {
+      const waitingRows = await Task.findById(task._id).select("pendingPeerResults").lean();
+      for (const row of waitingRows?.pendingPeerResults || []) {
+        if (row.status !== "waiting" || !row.agentMessageId) continue;
+        await pollAgentMessageStatus(userId, row.agentMessageId, {
+          parentTaskId: String(task._id),
+        }).catch(() => null);
+      }
+      const drained = await consumePendingPeerResults(String(task._id));
+      if (drained.notes.length) {
+        const block = drained.notes.join("\n\n");
+        messages.push({
+          role: "user",
+          content: `${block}\n\nUse these peer results if relevant, then continue or finish.`,
+        });
+        await Message.create({
+          chat: task.chat,
+          role: "system",
+          content: block.slice(0, 1500),
+          meta: { taskId: task._id, kind: "peer_result", ui: "icon" },
+        }).catch(() => null);
+      }
+    } catch {
+      /* best-effort */
+    }
+
     let raw;
     try {
       raw = await llmChatCompletion({
@@ -407,16 +434,43 @@ async function executeApiAction(action, ctx) {
       case "http_request":
         return await runHttpRequest(action, ctx);
       case "message_agent": {
+        const mode = action.mode || "task";
+        const wantWait = action.wait !== false && mode !== "event";
         const result = await sendAgentMessage({
           userId: ctx.userId,
           fromAgentId: String(ctx.agent._id),
           to: action.to || action.agent || action.name,
-          mode: action.mode || "task",
+          mode,
           content: action.content || action.message || action.question || "",
           parentTaskId: ctx.taskId || null,
-          wait: action.wait,
+          wait: false,
         });
-        return { ok: result.ok, note: result.note };
+        if (!wantWait || !result.ok || !result.agentMessageId) {
+          return {
+            ok: result.ok,
+            note:
+              result.note ||
+              (result.ok
+                ? "Peer queued (async). Continue — PEER RESULT appears when they finish."
+                : "Peer message failed."),
+          };
+        }
+        const deadline = Date.now() + AGENT_MESSAGE_WAIT_MS;
+        let last = result;
+        while (Date.now() < deadline) {
+          await new Promise((r) => setTimeout(r, 3000));
+          last = await pollAgentMessageStatus(ctx.userId, result.agentMessageId, {
+            parentTaskId: ctx.taskId || null,
+          });
+          if (!last.waiting) break;
+        }
+        if (last.waiting) {
+          return {
+            ok: false,
+            note: `Timed out waiting for peer — continuing async; PEER RESULT will appear if they finish.`,
+          };
+        }
+        return { ok: Boolean(last.ok), note: last.note || last.resultSummary || "Peer done." };
       }
       case "memory": {
         const { mutateCuratedMemory } = await import("./curatedMemoryOps.js");
@@ -690,6 +744,7 @@ async function finalizeApiTask(task, userId, result) {
   });
   await task.save();
   await unblockDependentTasks(userId);
+  await finalizeAgentMessagesForChildTask(userId, task).catch(() => null);
 
   await emitEvent({
     userId,

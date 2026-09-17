@@ -168,6 +168,35 @@ const taskSchema = new mongoose.Schema(
     estimatedValueUsd: { type: Number, default: 0, min: 0 },
     startedAt: { type: Date, default: null },
     events: { type: [eventSchema], default: [] },
+    /**
+     * Async A2A: peer hops A fired with wait:false; B’s finish fills resultSummary.
+     * Worker/API drain unconsumed done/error rows into the parent LLM notes each turn.
+     */
+    pendingPeerResults: {
+      type: [
+        new mongoose.Schema(
+          {
+            agentMessageId: { type: String, required: true },
+            toAgentId: { type: String, default: "" },
+            toAgentName: { type: String, default: "" },
+            mode: { type: String, default: "task" },
+            contentPreview: { type: String, default: "" },
+            status: {
+              type: String,
+              enum: ["waiting", "done", "error"],
+              default: "waiting",
+            },
+            resultSummary: { type: String, default: "" },
+            consumed: { type: Boolean, default: false },
+            createdAt: { type: Date, default: Date.now },
+            completedAt: { type: Date, default: null },
+            consumedAt: { type: Date, default: null },
+          },
+          { _id: false }
+        ),
+      ],
+      default: [],
+    },
     /** Compact observe→action→verify chain recorded at task complete (Phase 5). */
     trajectory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     resultSummary: { type: String, default: "" },

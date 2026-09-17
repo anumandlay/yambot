@@ -1,6 +1,6 @@
 /**
- * @fileoverview Agent-to-agent message bus (v3.1).
- * Purpose: Typed hops, depth 2, managedAgents gates; wait is polled (no soft-cancel on timeout).
+ * @fileoverview Agent-to-agent message bus (v3.2).
+ * Purpose: Typed hops, depth 2, managedAgents gates; wait:true polls; wait:false keeps parent working and injects peer results later.
  * Downstream: worker/API message_agent; Operations; Agent Threads page.
  */
 
@@ -202,6 +202,63 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
   outbound.lastError = success ? "" : summary;
   outbound.resultPayload = resultPayload;
   await outbound.save();
+
+  // Why: async parents (wait:false) keep working — stash B’s answer on A’s task for the next LLM turn.
+  if (parentTaskId) {
+    const peerStatus = success ? "done" : "error";
+    const updated = await Task.updateOne(
+      { _id: parentTaskId, "pendingPeerResults.agentMessageId": String(outbound._id) },
+      {
+        $set: {
+          "pendingPeerResults.$.status": peerStatus,
+          "pendingPeerResults.$.resultSummary": summary,
+          "pendingPeerResults.$.completedAt": new Date(),
+        },
+        $push: {
+          events: {
+            type: "peer_result",
+            payload: {
+              agentMessageId: String(outbound._id),
+              toAgentName,
+              mode,
+              success,
+              summary: summary.slice(0, 2000),
+            },
+            at: new Date(),
+          },
+        },
+      }
+    );
+    if (!updated.modifiedCount) {
+      await Task.findByIdAndUpdate(parentTaskId, {
+        $push: {
+          pendingPeerResults: {
+            agentMessageId: String(outbound._id),
+            toAgentId: String(toAgentId),
+            toAgentName,
+            mode,
+            contentPreview: String(outbound.content || "").slice(0, 240),
+            status: peerStatus,
+            resultSummary: summary,
+            consumed: false,
+            createdAt: outbound.createdAt || new Date(),
+            completedAt: new Date(),
+          },
+          events: {
+            type: "peer_result",
+            payload: {
+              agentMessageId: String(outbound._id),
+              toAgentName,
+              mode,
+              success,
+              summary: summary.slice(0, 2000),
+            },
+            at: new Date(),
+          },
+        },
+      }).catch(() => null);
+    }
+  }
 
   const existingResult = await AgentMessage.findOne({
     conversationKey,
@@ -531,6 +588,38 @@ export async function sendAgentMessage(opts) {
     },
   }).catch(() => null);
 
+  // Why: only async (wait:false) parents need a mailbox — blocking wait already returns the note inline.
+  if (parentTaskId && !wait) {
+    await Task.findByIdAndUpdate(parentTaskId, {
+      $push: {
+        pendingPeerResults: {
+          agentMessageId: String(outbound._id),
+          toAgentId: String(toAgent._id),
+          toAgentName: toAgent.name,
+          mode,
+          contentPreview: content.slice(0, 240),
+          status: "waiting",
+          resultSummary: "",
+          consumed: false,
+          createdAt: new Date(),
+          completedAt: null,
+        },
+        events: {
+          type: "peer_delegated",
+          payload: {
+            agentMessageId: String(outbound._id),
+            toAgentId: String(toAgent._id),
+            toAgentName: toAgent.name,
+            mode,
+            async: true,
+            childTaskId: String(enq.task._id),
+          },
+          at: new Date(),
+        },
+      },
+    }).catch(() => null);
+  }
+
   await emitEvent({
     userId,
     type: "agent.message.sent",
@@ -558,13 +647,15 @@ export async function sendAgentMessage(opts) {
   if (!wait) {
     return {
       ok: true,
-      note: `Queued for ${toAgent.name} (${mode}, not waiting). Child task ${enq.task._id}. Thread ${conversationKey}.`,
+      note: `Queued for ${toAgent.name} (${mode}, async — keep working; peer result will appear as PEER RESULT when they finish). Child task ${enq.task._id}. Thread ${conversationKey}.`,
       agentMessageId: String(outbound._id),
       childTaskId: String(enq.task._id),
       conversationKey,
+      async: true,
       resultPayload: {
         success: true,
         queued: true,
+        async: true,
         mode,
         hopDepth,
         conversationKey,
@@ -699,14 +790,94 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
   });
   return [
     "PEER AGENTS (collaborate via message_agent; use exact names):",
-    'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true }',
+    'Action: { "type":"message_agent", "to":"<exact name>", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false }',
     "Modes: task=do work; question=answer; approval=approve/reject via finish; handoff=peer owns work; event=FYI (default wait:false).",
+    "wait:true = block until peer finishes (use when you need their answer before any other step).",
+    "wait:false = fire-and-forget; keep doing your remaining work. When the peer finishes, a PEER RESULT note appears — use it, then finish or continue.",
     "Peers must finish with the answer — they must not message_agent you back.",
     "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
       (allowIds ? " You are a manager — only message managedAgents listed below." : ""),
     ...lines,
   ].join("\n");
+}
+
+/**
+ * When a child task completes, finalize any outbound AgentMessage that pointed at it.
+ * Why: async parents never poll — without this hook, AgentMessage stays “running” forever.
+ * @param {string} userId
+ * @param {object} childTask — mongoose doc or lean with _id, status, resultSummary, lastError
+ * @returns {Promise<object|null>}
+ */
+export async function finalizeAgentMessagesForChildTask(userId, childTask) {
+  if (!childTask?._id) return null;
+  const status = String(childTask.status || "");
+  if (!["done", "error", "cancelled"].includes(status)) return null;
+
+  const outbound = await AgentMessage.findOne({
+    user: userId,
+    childTask: childTask._id,
+    type: { $in: AGENT_MESSAGE_OUTBOUND_MODES },
+    status: { $in: ["queued", "running", "timeout"] },
+  });
+  if (!outbound) return null;
+
+  let parentChatId = null;
+  if (outbound.parentTask) {
+    const pt = await Task.findById(outbound.parentTask).select("chat").lean();
+    parentChatId = pt?.chat ? String(pt.chat) : null;
+  }
+  const toAgent = await Agent.findById(outbound.toAgent).select("name").lean();
+  return finalizeOutboundFromChild(outbound, childTask, {
+    parentChatId,
+    toAgentName: toAgent?.name || "peer",
+    fromAgentId: String(outbound.fromAgent),
+    toAgentId: String(outbound.toAgent),
+    mode: outbound.type,
+  });
+}
+
+/**
+ * Drain finished async peer results from the parent task into LLM notes (marks consumed).
+ * @param {string} parentTaskId
+ * @returns {Promise<{ notes: string[], rows: object[] }>}
+ */
+export async function consumePendingPeerResults(parentTaskId) {
+  const id = String(parentTaskId || "").trim();
+  if (!id) return { notes: [], rows: [] };
+
+  const task = await Task.findById(id);
+  if (!task?.pendingPeerResults?.length) return { notes: [], rows: [] };
+
+  /** @type {object[]} */
+  const rows = [];
+  /** @type {string[]} */
+  const notes = [];
+  let changed = false;
+  for (const row of task.pendingPeerResults) {
+    if (row.consumed) continue;
+    if (row.status !== "done" && row.status !== "error") continue;
+    row.consumed = true;
+    row.consumedAt = new Date();
+    changed = true;
+    const name = row.toAgentName || "peer";
+    const mode = row.mode || "task";
+    const body = String(row.resultSummary || "").trim() || "(empty)";
+    const note =
+      row.status === "done"
+        ? `PEER RESULT from “${name}” [${mode}]:\n${body}`
+        : `PEER FAILED from “${name}” [${mode}]:\n${body}`;
+    notes.push(note);
+    rows.push({
+      agentMessageId: row.agentMessageId,
+      toAgentName: name,
+      mode,
+      status: row.status,
+      resultSummary: body,
+    });
+  }
+  if (changed) await task.save();
+  return { notes, rows };
 }
 
 /**

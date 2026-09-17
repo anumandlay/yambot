@@ -44,7 +44,7 @@ export function buildApiActionSchemaForPrompt() {
     "",
     "Action fields:",
     '- http_request: { "type":"http_request", "method":"GET|POST|PUT|PATCH|DELETE", "url":"https://...", "headers":{}, "body":"..." }',
-    '- message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true }',
+    '- message_agent: { "type":"message_agent", "to":"Exact Peer Name", "mode":"task|question|approval|handoff|event", "content":"...", "wait": true|false } — wait:false keeps you working; PEER RESULT appears later',
     '- memory: { "type":"memory", "action":"add|replace|remove", "target":"user|memory", "content":"...", "old_text":"..." }',
     '- send_email: { "type":"send_email", "to":"...", "subject":"...", "text":"..." }',
     '- check_email: { "type":"check_email", "limit": 5, "unseen": true }',
@@ -58,7 +58,7 @@ export function buildApiActionSchemaForPrompt() {
     '- investigate / update_kpi / tickets / slack / webhook / sms / crm_sync: use fields matching the worker catalog when needed',
     "",
     "Rules: Prefer http_request for external APIs. Never invent browser actions (navigate/click/type).",
-    "Use message_agent to collaborate with peers (modes: task|question|approval|handoff|event; max hop depth 2).",
+    "Use message_agent to collaborate with peers (modes: task|question|approval|handoff|event; max hop depth 2). Prefer wait:false when you have remaining work.",
     "Use memory to save durable user prefs (target user) or agent notes (target memory); hard char caps — replace/remove when full.",
     "Call finish when the goal is done or clearly impossible.",
   ].join("\n");
