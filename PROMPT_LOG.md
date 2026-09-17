@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 11:47] Grok-style red attention dots
+
+- **Prompt Provided:** Also show a red dot when the agent needs human attention.
+- **Architectural Flow:** Left rail: red pulsing dot for `waiting_user` or `computer.needsAttention`; green for pending/running. Both can show together. Idle stays muted.
+- **Impacted Files:** `GrokStylePage.jsx`, PROMPT_LOG
+
 ## [2026-09-17 11:44] Grok-style agent working dots
 
 - **Prompt Provided:** In grok style left pane, add a green dot if that agent is doing something.

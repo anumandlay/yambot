@@ -11,21 +11,25 @@ import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 
 /**
- * True when any of this agent's chats has a queued or active browser/API job.
+ * Activity flags for the left-rail dots.
  * @param {object[]} chats
  * @param {string} agentId
- * @returns {boolean}
+ * @param {object} [agent] — optional agent doc (computer.needsAttention)
+ * @returns {{ working: boolean, needsYou: boolean }}
  */
-function agentIsWorking(chats, agentId) {
+function agentActivity(chats, agentId, agent) {
   const id = String(agentId);
+  let working = false;
+  let needsYou = Boolean(agent?.computer?.needsAttention);
   for (const c of chats || []) {
     if (c?.kind === "common") continue;
     const aid = c?.agent?._id || c?.agent;
     if (!aid || String(aid) !== id) continue;
     const s = c?.live?.status;
-    if (s === "running" || s === "waiting_user" || s === "pending") return true;
+    if (s === "waiting_user") needsYou = true;
+    if (s === "running" || s === "pending") working = true;
   }
-  return false;
+  return { working, needsYou };
 }
 
 /**
@@ -154,7 +158,14 @@ export function GrokStylePage() {
             {agents.map((a) => {
               const id = String(a._id);
               const agentActive = selectedAgentId === id;
-              const working = agentIsWorking(chats, id);
+              const { working, needsYou } = agentActivity(chats, id, a);
+              const title = needsYou
+                ? working
+                  ? "Needs you (also working) — open chat"
+                  : "Needs your attention — open chat"
+                : working
+                  ? "Agent is working — open chat"
+                  : "Open chat";
               return (
                 <li key={id}>
                   <button
@@ -166,22 +177,26 @@ export function GrokStylePage() {
                         ? "bg-teal-600 text-white"
                         : "text-teal-950 hover:bg-teal-50"
                     }`}
-                    title={working ? "Agent is working — open chat" : "Open chat"}
+                    title={title}
                   >
-                    <span
-                      className={`h-2 w-2 shrink-0 rounded-full ${
-                        working
-                          ? "animate-pulse bg-emerald-500 ring-2 ring-emerald-500/30"
-                          : agentActive
-                            ? "bg-white/35"
-                            : "bg-teal-200"
-                      }`}
-                      aria-hidden
-                    />
+                    <span className="flex shrink-0 items-center gap-1" aria-hidden>
+                      {needsYou ? (
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-red-500 ring-2 ring-red-500/30" />
+                      ) : null}
+                      {working ? (
+                        <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-500 ring-2 ring-emerald-500/30" />
+                      ) : null}
+                      {!needsYou && !working ? (
+                        <span
+                          className={`h-2 w-2 rounded-full ${
+                            agentActive ? "bg-white/35" : "bg-teal-200"
+                          }`}
+                        />
+                      ) : null}
+                    </span>
                     <span className="min-w-0 flex-1 truncate">{a.name || "Agent"}</span>
-                    {working ? (
-                      <span className="sr-only">Working</span>
-                    ) : null}
+                    {needsYou ? <span className="sr-only">Needs attention</span> : null}
+                    {working ? <span className="sr-only">Working</span> : null}
                   </button>
                 </li>
               );
