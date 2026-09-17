@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-17 13:42] Fix curated memory ENTRY_DELIMITER.join
+
+- **Prompt Provided:** /settings/memory Server error — ENTRY_DELIMITER.join is not a function
+- **Architectural Flow:** Python-style `delimiter.join(list)` → JS `list.join(delimiter)` in charCount + renderCuratedBlock.
+- **Impacted Files:** `curatedMemory.js`, PROMPT_LOG
+
 ## [2026-09-17 13:40] Hermes-style curated USER + MEMORY
 
 - **Prompt Provided:** Yes lets go (implement Hermes MemoryStore on Mongo).

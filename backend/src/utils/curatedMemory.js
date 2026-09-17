@@ -92,7 +92,7 @@ export function normalizeEntries(entries) {
 export function charCount(entries) {
   const list = normalizeEntries(entries);
   if (!list.length) return 0;
-  return ENTRY_DELIMITER.join(list).length;
+  return list.join(ENTRY_DELIMITER).length;
 }
 
 /**
@@ -123,7 +123,7 @@ export function renderCuratedBlock(target, entries) {
   const list = normalizeEntries(entries);
   if (!list.length) return "";
   const limit = charLimitFor(target);
-  const content = ENTRY_DELIMITER.join(list);
+  const content = list.join(ENTRY_DELIMITER);
   const current = content.length;
   const pct = limit > 0 ? Math.floor((current / limit) * 100) : 0;
   const header =
