@@ -265,7 +265,7 @@ export function ChatDetailPage() {
     void load({ silent: false });
     // Why: while a task runs, poll faster so step announcements keep up with the live screen.
     const active = (tasks || []).some((t) =>
-      ["running", "waiting_user", "queued"].includes(String(t.status || ""))
+      ["running", "waiting_user", "waiting_peer", "queued"].includes(String(t.status || ""))
     );
     const id = setInterval(() => void load({ silent: true }), active ? 900 : 2500);
     return () => clearInterval(id);

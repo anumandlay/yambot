@@ -181,7 +181,12 @@ export function AgentTaskQueue({ chatId, agentQueue, isCommon = false, onChanged
     return (
       <div className="rounded-xl border border-sky-200 bg-sky-50 px-3 py-2 text-sm text-sky-950">
         <div className="mb-1 text-[0.7rem] font-bold uppercase tracking-wide text-sky-800">
-          Now: {task.status === "waiting_user" ? "waiting for you" : "running"}
+          Now:{" "}
+          {task.status === "waiting_user"
+            ? "waiting for you"
+            : task.status === "waiting_peer"
+              ? "waiting on peers"
+              : "running"}
         </div>
         <p className="line-clamp-3 whitespace-pre-wrap break-words">{task.goal}</p>
         {!isCommon ? <p className="mt-1 text-xs text-sky-800/80">{taskMetaLabel(task)}</p> : null}

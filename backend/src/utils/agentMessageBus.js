@@ -369,8 +369,10 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
   }).catch(() => null);
 
   // Why: v6 — if A already finished before B’s answer arrived, spawn a short resume run on A.
+  // Also wake parked waiting_peer parents when the last peer finishes.
   let lateResume = null;
   if (parentTaskId) {
+    const peerWake = await maybeWakeWaitingPeerParent(parentTaskId).catch(() => null);
     lateResume = await resumeParentForLatePeer({
       parentTaskId,
       userId: String(outbound.user),
@@ -381,6 +383,9 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
       mode,
       fromAgentId,
     }).catch((err) => ({ ok: false, reason: err?.message || String(err) }));
+    if (peerWake?.woken) {
+      lateResume = { ...(lateResume || {}), wokenWaitingPeer: true };
+    }
   }
 
   return {
@@ -401,6 +406,39 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
       lateResumeReason: lateResume?.reason || null,
     },
   };
+}
+
+/**
+ * If parent is parked in waiting_peer and no peers remain waiting, re-queue it as pending
+ * so the worker can claim it (computer was free for other goals meanwhile).
+ * @param {string} parentTaskId
+ * @returns {Promise<{ ok: boolean, reason?: string, woken?: boolean }>}
+ */
+export async function maybeWakeWaitingPeerParent(parentTaskId) {
+  const id = String(parentTaskId || "").trim();
+  if (!id) return { ok: false, reason: "missing_id" };
+  const parent = await Task.findById(id);
+  if (!parent) return { ok: false, reason: "no_parent" };
+  if (String(parent.status) !== "waiting_peer") {
+    return { ok: false, reason: "not_waiting_peer" };
+  }
+  const stillWaiting = (parent.pendingPeerResults || []).some((r) => r.status === "waiting");
+  if (stillWaiting) return { ok: true, woken: false, reason: "peers_still_waiting" };
+
+  parent.status = "pending";
+  parent.priority = "high";
+  parent.priorityRank = priorityRank("high");
+  parent.claimedAt = null;
+  parent.events.push({
+    type: "peer_wait_resume",
+    payload: {
+      reason: "all_peers_finished",
+      peerCount: (parent.pendingPeerResults || []).length,
+    },
+    at: new Date(),
+  });
+  await parent.save();
+  return { ok: true, woken: true };
 }
 
 /**

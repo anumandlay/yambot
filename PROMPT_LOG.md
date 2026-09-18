@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 19:00] Peer-wait frees computer for next goal
+
+- **Prompt Provided:** WOM peer-wait left github.com pending while browser idle — allow next goal.
+- **Architectural Flow:** After message_agent queues peers, parent parks as `waiting_peer` (not `running`) and the worker exits so claimNext can start the next pending goal. claimNext only blocks on `running` / `waiting_user`. When all peers finish, `maybeWakeWaitingPeerParent` requeues the parent as high-priority `pending` to resume and finish. Stop cancels `waiting_peer` too.
+- **Impacted Files:** Task.js, worker.js (park + claim), agentMessageBus.js, worker/agent.js, chats.js, AgentTaskQueue.jsx, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 17:25] Fix duplicate chat bubbles + thread order
 
 - **Prompt Provided:** One send showed twice; thread order scrambled after Auto stream.

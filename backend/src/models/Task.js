@@ -153,7 +153,17 @@ const taskSchema = new mongoose.Schema(
     },
     status: {
       type: String,
-      enum: ["pending", "blocked", "running", "waiting_user", "done", "error", "cancelled"],
+      enum: [
+        "pending",
+        "blocked",
+        "running",
+        "waiting_user",
+        /** Browser idle — parked while peers run; does not block claiming the next goal. */
+        "waiting_peer",
+        "done",
+        "error",
+        "cancelled",
+      ],
       default: "pending",
       index: true,
     },

@@ -2799,6 +2799,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
           break;
         }
 
+        // Why: peer park releases this worker so claimNext can run the next pending goal.
+        if (result?.parkedPeerWait) {
+          log(`[${config.workerName}] Task ${taskId} parked waiting_peer — computer free`);
+          finishedTask = true;
+          break;
+        }
+
         if (failedHard || BATCH_STOP_TYPES.has(actionToRun.type)) {
           break;
         }
@@ -3568,17 +3575,58 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
 
         const okStarts = starts.filter((s) => s.ok && s.agentMessageId);
+        const queueLines = starts.map((s) =>
+          s.ok
+            ? `→ ${s.to}: queued (${waitMode})`
+            : `→ ${s.to}: failed (${s.note || "error"})`
+        );
+        const queueNote = [
+          targets.length > 1
+            ? `Fan-out to ${targets.length} peers (${waitMode}):`
+            : null,
+          ...queueLines,
+          "Parked for peer results — computer freed for other goals; this task resumes when peers finish.",
+        ]
+          .filter(Boolean)
+          .join("\n");
+
+        // Why: never hold Chromium in a 25m peer poll — park as waiting_peer so claimNext
+        // can start the next human goal (e.g. open github.com) while WI/CI work.
+        if (okStarts.length) {
+          try {
+            const park = await api(`/api/worker/tasks/${taskId}/park-peer-wait`, {
+              method: "POST",
+              body: JSON.stringify({}),
+            });
+            if (park?.parked) {
+              notes.push(queueNote);
+              await mirror(taskId, "info", {
+                appendMessage: `Waiting on peers (${okStarts.length}) — computer free for queued goals.`,
+                payload: { kind: "waiting_peer", waitingCount: okStarts.length },
+              }).catch(() => {});
+              return {
+                ok: true,
+                messageAgent: starts,
+                summary: queueNote,
+                async: true,
+                waitMode,
+                fanout: targets.length,
+                parkedPeerWait: true,
+              };
+            }
+          } catch (parkErr) {
+            notes.push(
+              `Peer park failed (${String(parkErr?.message || parkErr).slice(0, 120)}) — falling back.`
+            );
+          }
+        }
+
         if (!wantBlock) {
-          const lines = starts.map((s) =>
-            s.ok
-              ? `→ ${s.to}: queued (${waitMode})`
-              : `→ ${s.to}: failed (${s.note || "error"})`
-          );
           const note = [
             targets.length > 1
               ? `Fan-out to ${targets.length} peers (${waitMode}):`
               : null,
-            ...lines,
+            ...queueLines,
             waitMode === "soft"
               ? `Soft window ${softWaitMinutes}m — continue work; will pause if peers still running after.`
               : "Continue other work — PEER RESULT notes appear as each peer finishes.",
@@ -3596,7 +3644,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           };
         }
 
-        // Block: poll all peers until each finishes or hard timeout.
+        // Block fallback only if park failed: poll peers until done or timeout.
+        notes.push(queueNote);
         const waitMs = 25 * 60 * 1000;
         const deadline = Date.now() + waitMs;
         /** @type {Map<string, object>} */

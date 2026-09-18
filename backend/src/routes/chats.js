@@ -77,7 +77,7 @@ async function loadAgentQueue(userId, agentRef) {
     Task.findOne({
       user: userId,
       agent: agentId,
-      status: { $in: ["running", "waiting_user"] },
+      status: { $in: ["running", "waiting_user", "waiting_peer"] },
     })
       .sort({ claimedAt: -1, updatedAt: -1 })
       .select("goal status createdAt chat message resultSummary events agent pendingPeerResults")
@@ -104,7 +104,7 @@ async function loadChatScopedQueue(userId, chatId) {
     Task.find({
       user: userId,
       chat: chatId,
-      status: { $in: ["running", "waiting_user"] },
+      status: { $in: ["running", "waiting_user", "waiting_peer"] },
     })
       .sort({ updatedAt: -1 })
       .select("goal status createdAt chat message resultSummary events agent pendingPeerResults")
@@ -237,14 +237,14 @@ chatsRouter.get("/", async (req, res, next) => {
     const liveTasks = await Task.find({
       user: req.userId,
       chat: { $in: chats.map((c) => c._id) },
-      status: { $in: ["pending", "running", "waiting_user"] },
+      status: { $in: ["pending", "running", "waiting_user", "waiting_peer"] },
     })
       .select("chat status goal updatedAt")
       .sort({ updatedAt: -1 })
       .lean();
 
-    /** Prefer running / waiting_user over pending when a thread has both. */
-    const rank = { running: 3, waiting_user: 2, pending: 1 };
+    /** Prefer running / waiting_user / waiting_peer over pending when a thread has both. */
+    const rank = { running: 4, waiting_user: 3, waiting_peer: 2, pending: 1 };
     /** @type {Map<string, { status: string, goal: string }>} */
     const liveByChat = new Map();
     for (const t of liveTasks) {
@@ -356,7 +356,9 @@ chatsRouter.get("/:id", async (req, res, next) => {
         .lean()
         .then(async (rows) => {
           const activeIds = rows
-            .filter((t) => ["running", "waiting_user"].includes(String(t.status || "")))
+            .filter((t) =>
+              ["running", "waiting_user", "waiting_peer"].includes(String(t.status || ""))
+            )
             .map((t) => t._id);
           if (!activeIds.length) return rows;
           const withEvents = await Task.find({ _id: { $in: activeIds } })
@@ -1614,7 +1616,7 @@ chatsRouter.delete("/:id", async (req, res, next) => {
     const active = await Task.find({
       user: req.userId,
       chat: chatId,
-      status: { $in: ["running", "waiting_user"] },
+      status: { $in: ["running", "waiting_user", "waiting_peer"] },
     });
     const agentIds = new Set();
     for (const task of active) {
@@ -1695,7 +1697,7 @@ chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats/:id/stop — cancel active run (running / waiting_user).
+ * POST /api/chats/:id/stop — cancel active run (running / waiting_user / waiting_peer).
  */
 chatsRouter.post("/:id/stop", async (req, res, next) => {
   try {
@@ -1706,7 +1708,7 @@ chatsRouter.post("/:id/stop", async (req, res, next) => {
     }
     const filter = {
       user: req.userId,
-      status: { $in: ["running", "waiting_user"] },
+      status: { $in: ["running", "waiting_user", "waiting_peer"] },
     };
     if (isCommonChat(chat)) {
       filter.chat = chat._id;

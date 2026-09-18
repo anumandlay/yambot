@@ -180,7 +180,8 @@ async function claimNextTask(userId, opts = {}) {
     },
   });
 
-  // Why: one agent computer — do not claim another task while this agent still has a live run.
+  // Why: one agent computer — block only while actively running or waiting on the human.
+  // waiting_peer parks the browser (idle) so a newer goal (e.g. open github.com) can claim.
   if (opts.agentId) {
     const busy = await Task.exists({
       user: userId,
@@ -1153,6 +1154,58 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       conversationKey: result.conversationKey || null,
       resultSummary: result.resultSummary || "",
       resultPayload: result.resultPayload || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/tasks/:id/park-peer-wait — release the computer while peers run.
+ * Why: parent stays durable (waiting_peer) but claimNext can start the next human goal.
+ */
+workerRouter.post("/tasks/:id/park-peer-wait", async (req, res, next) => {
+  try {
+    const task = await Task.findOne({ _id: req.params.id, user: req.userId });
+    if (!task) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
+      return;
+    }
+    if (!["running", "waiting_peer"].includes(String(task.status))) {
+      res.json({
+        ok: true,
+        parked: false,
+        status: task.status,
+        detail: `Task is ${task.status} — park only from running.`,
+      });
+      return;
+    }
+    const waiting = (task.pendingPeerResults || []).filter((r) => r.status === "waiting");
+    if (!waiting.length) {
+      res.json({
+        ok: true,
+        parked: false,
+        status: task.status,
+        detail: "No waiting peers — nothing to park for.",
+      });
+      return;
+    }
+    task.status = "waiting_peer";
+    task.events.push({
+      type: "waiting_peer",
+      payload: {
+        reason: "park_for_peer_results",
+        waitingCount: waiting.length,
+        peers: waiting.map((r) => r.toAgentName || r.toAgentId).slice(0, 8),
+      },
+      at: new Date(),
+    });
+    await task.save();
+    res.json({
+      ok: true,
+      parked: true,
+      status: "waiting_peer",
+      waitingCount: waiting.length,
     });
   } catch (err) {
     next(err);
