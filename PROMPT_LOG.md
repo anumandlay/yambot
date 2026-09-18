@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 16:50] Step 3: Auto chat timing metrics
+
+- **Prompt Provided:** Hermes-style chat step 3 — timing metrics.
+- **Architectural Flow:** Auto turns record firstTokenMs, decisionMs, toolRounds, lookups, path, totalMs. Values stream as NDJSON `timing`, land on message `meta.hermesTiming`, and appear on the Answer/Queued ops icon text (“Timing: …”). Task `queued` events include hermesTiming when Auto queued a goal. Worker/A2A unchanged.
+- **Impacted Files:** chatAutoTurn.js, chats.js, api.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 16:45] Step 2: Auto light tool loop (status / peers)
 
 - **Prompt Provided:** Hermes-style chat step 2 — light in-chat tool loop.

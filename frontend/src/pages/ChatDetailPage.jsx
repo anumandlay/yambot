@@ -633,6 +633,12 @@ export function ChatDetailPage() {
           );
           scrollThreadToBottom(true);
         },
+        onTiming: (timing) => {
+          // Why: Hermes-style debug — keep in console; durable copy is on ops icon / message meta.
+          if (timing && typeof console !== "undefined" && console.debug) {
+            console.debug("[yambot auto timing]", timing);
+          }
+        },
         onRouting: (info) => {
           if (info?.ack) {
             setMessages((prev) =>

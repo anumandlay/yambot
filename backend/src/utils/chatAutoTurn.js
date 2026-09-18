@@ -86,6 +86,95 @@ export const AUTO_CHAT_TOOLS = [
 export const AUTO_CHAT_MAX_TOOL_ROUNDS = 3;
 
 /**
+ * @returns {{
+ *   markFirstToken: () => void,
+ *   markDecision: (action: string) => void,
+ *   addLookup: (name: string) => void,
+ *   setPath: (path: string) => void,
+ *   setToolRounds: (n: number) => void,
+ *   wrapOnDelta: (onDelta?: (chunk: string) => void) => ((chunk: string) => void)|undefined,
+ *   finish: (extra?: object) => object,
+ * }}
+ */
+export function createAutoTimingTracker() {
+  const t0 = Date.now();
+  /** @type {number|null} */
+  let firstTokenMs = null;
+  /** @type {number|null} */
+  let decisionMs = null;
+  /** @type {string|null} */
+  let decisionAction = null;
+  /** @type {string[]} */
+  const lookups = [];
+  let toolRounds = 0;
+  let path = "unknown";
+
+  return {
+    markFirstToken() {
+      if (firstTokenMs == null) firstTokenMs = Date.now() - t0;
+    },
+    markDecision(action) {
+      if (decisionMs == null) {
+        decisionMs = Date.now() - t0;
+        decisionAction = String(action || "");
+      }
+    },
+    addLookup(name) {
+      lookups.push(String(name || "lookup"));
+    },
+    setPath(p) {
+      path = String(p || path);
+    },
+    setToolRounds(n) {
+      toolRounds = Math.max(0, Number(n) || 0);
+    },
+    wrapOnDelta(onDelta) {
+      if (typeof onDelta !== "function") return undefined;
+      return (chunk) => {
+        if (String(chunk || "").length) this.markFirstToken();
+        onDelta(chunk);
+      };
+    },
+    finish(extra = {}) {
+      const totalMs = Date.now() - t0;
+      return {
+        totalMs,
+        firstTokenMs,
+        decisionMs,
+        decisionAction,
+        toolRounds,
+        lookupCount: lookups.length,
+        lookups: lookups.slice(0, 8),
+        path,
+        ...extra,
+      };
+    },
+  };
+}
+
+/**
+ * Human-readable one-liner for ops icons / logs.
+ * @param {object|null|undefined} timing
+ * @returns {string}
+ */
+export function formatAutoTimingSummary(timing) {
+  if (!timing || typeof timing !== "object") return "";
+  const total = Number(timing.totalMs);
+  if (!Number.isFinite(total)) return "";
+  const parts = [`${(total / 1000).toFixed(2)}s total`];
+  if (timing.firstTokenMs != null) {
+    parts.push(`first token ${(Number(timing.firstTokenMs) / 1000).toFixed(2)}s`);
+  }
+  if (timing.decisionMs != null) {
+    parts.push(`decision ${(Number(timing.decisionMs) / 1000).toFixed(2)}s`);
+  }
+  if (timing.toolRounds) parts.push(`${timing.toolRounds} tool round(s)`);
+  if (timing.lookupCount) parts.push(`${timing.lookupCount} lookup(s)`);
+  if (timing.path) parts.push(String(timing.path));
+  return parts.join(" · ");
+}
+
+/**
  * @param {string} rawArgs
  * @returns {object}
  */
@@ -366,9 +455,12 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
 /**
  * Text-protocol Auto turn (streaming-friendly). Used when tools unsupported or empty.
  * @param {object} opts
- * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string }>}
+ * @param {ReturnType<typeof createAutoTimingTracker>} [timing]
+ * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string, timing: object }>}
  */
-async function runChatAutoTurnTextFallback(opts) {
+async function runChatAutoTurnTextFallback(opts, timing) {
+  const track = timing || createAutoTimingTracker();
+  track.setPath("text_fallback");
   const { question, snapshot, creds, chatContext = "", stream = false, onDelta } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -392,8 +484,9 @@ async function runChatAutoTurnTextFallback(opts) {
     messages,
   };
 
+  const delta = track.wrapOnDelta(onDelta);
   let raw;
-  if (stream && typeof onDelta === "function") {
+  if (stream && typeof delta === "function") {
     let buf = "";
     let emitted = 0;
     raw = await llmChatCompletionStream(llmOpts, (chunk) => {
@@ -401,7 +494,7 @@ async function runChatAutoTurnTextFallback(opts) {
       const { visible, mode } = streamVisibleFromBuffer(buf);
       if (mode === "queue_goal") return;
       if (visible.length > emitted) {
-        onDelta(visible.slice(emitted));
+        delta(visible.slice(emitted));
         emitted = visible.length;
       }
     });
@@ -410,7 +503,11 @@ async function runChatAutoTurnTextFallback(opts) {
   }
 
   const parsed = parseAutoTurnOutput(raw);
-  return { ...parsed, reason: "model_auto_turn_text" };
+  track.markDecision(parsed.action);
+  if (parsed.action === "reply" && parsed.content && typeof delta === "function" && !stream) {
+    delta(parsed.content);
+  }
+  return { ...parsed, reason: "model_auto_turn_text", timing: track.finish() };
 }
 
 /**
@@ -427,7 +524,7 @@ async function runChatAutoTurnTextFallback(opts) {
  *     listPeerAgents?: () => Promise<object|string>,
  *   },
  * }} opts
- * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string }>}
+ * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string, timing?: object }>}
  */
 export async function runChatAutoTurn(opts) {
   const {
@@ -441,14 +538,19 @@ export async function runChatAutoTurn(opts) {
   } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
+  const track = createAutoTimingTracker();
+  const delta = track.wrapOnDelta(onDelta);
 
   if (autoTurnHeuristicGate(text) === "queue_goal") {
+    track.setPath("heuristic");
+    track.markDecision("queue_goal");
     return {
       action: "queue_goal",
       content: "",
       goal: text,
       ack: "",
       reason: "heuristic_queue_goal",
+      timing: track.finish(),
     };
   }
 
@@ -463,7 +565,9 @@ export async function runChatAutoTurn(opts) {
   ];
 
   try {
+    track.setPath("tools");
     for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
+      track.setToolRounds(round + 1);
       const msg = await llmChatCompletionMessage({
         apiKey: creds.apiKey,
         baseUrl: creds.llmBaseUrl || "",
@@ -479,12 +583,14 @@ export async function runChatAutoTurn(opts) {
 
       const terminal = parseAutoToolCalls(msg.toolCalls);
       if (terminal) {
-        if (terminal.action === "reply" && terminal.content && typeof onDelta === "function") {
-          onDelta(terminal.content);
+        track.markDecision(terminal.action);
+        if (terminal.action === "reply" && terminal.content && typeof delta === "function") {
+          delta(terminal.content);
         }
         return {
           ...terminal,
           reason: round === 0 ? "model_auto_tool_call" : "model_auto_tool_loop",
+          timing: track.finish(),
         };
       }
 
@@ -494,7 +600,6 @@ export async function runChatAutoTurn(opts) {
       });
 
       if (lookups.length) {
-        // Why: append assistant tool_calls then tool results so the next round can reply/queue.
         const assistantToolMessage = msg.rawMessage?.tool_calls
           ? {
               role: "assistant",
@@ -518,6 +623,7 @@ export async function runChatAutoTurn(opts) {
         for (let i = 0; i < lookups.length; i++) {
           const tc = lookups[i];
           const kind = classifyAutoToolName(tc);
+          track.addLookup(kind);
           const toolCallId =
             tc.id ||
             assistantToolMessage.tool_calls?.[i]?.id ||
@@ -532,19 +638,18 @@ export async function runChatAutoTurn(opts) {
         continue;
       }
 
-      // No tool_calls — treat content as text protocol finish.
       if (msg.content) {
         const parsed = parseAutoTurnOutput(msg.content);
-        if (parsed.action === "reply" && parsed.content && typeof onDelta === "function") {
-          onDelta(parsed.content);
+        track.markDecision(parsed.action);
+        if (parsed.action === "reply" && parsed.content && typeof delta === "function") {
+          delta(parsed.content);
         }
-        return { ...parsed, reason: "model_auto_turn_after_tools" };
+        return { ...parsed, reason: "model_auto_turn_after_tools", timing: track.finish() };
       }
 
       break;
     }
 
-    // Exhausted rounds without a terminal tool — force a plain reply.
     const forced = await llmChatCompletionMessage({
       apiKey: creds.apiKey,
       baseUrl: creds.llmBaseUrl || "",
@@ -568,17 +673,19 @@ export async function runChatAutoTurn(opts) {
     });
     const term = parseAutoToolCalls(forced.toolCalls);
     if (term) {
-      if (term.action === "reply" && term.content && typeof onDelta === "function") {
-        onDelta(term.content);
+      track.markDecision(term.action);
+      if (term.action === "reply" && term.content && typeof delta === "function") {
+        delta(term.content);
       }
-      return { ...term, reason: "model_auto_tool_loop_cap" };
+      return { ...term, reason: "model_auto_tool_loop_cap", timing: track.finish() };
     }
     if (forced.content) {
       const parsed = parseAutoTurnOutput(forced.content);
-      if (parsed.action === "reply" && parsed.content && typeof onDelta === "function") {
-        onDelta(parsed.content);
+      track.markDecision(parsed.action);
+      if (parsed.action === "reply" && parsed.content && typeof delta === "function") {
+        delta(parsed.content);
       }
-      return { ...parsed, reason: "model_auto_tool_loop_cap_text" };
+      return { ...parsed, reason: "model_auto_tool_loop_cap_text", timing: track.finish() };
     }
   } catch (err) {
     const status = Number(err?.status) || 0;
@@ -592,14 +699,17 @@ export async function runChatAutoTurn(opts) {
     if (!toolsUnsupported && status >= 500) throw err;
   }
 
-  return runChatAutoTurnTextFallback({
-    question,
-    snapshot,
-    creds,
-    chatContext,
-    stream,
-    onDelta,
-  });
+  return runChatAutoTurnTextFallback(
+    {
+      question,
+      snapshot,
+      creds,
+      chatContext,
+      stream,
+      onDelta,
+    },
+    track
+  );
 }
 
 /**

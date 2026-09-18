@@ -21,7 +21,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary } from "../utils/chatAutoTurn.js";
 import { formatPeerAgentsBlock } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
@@ -679,6 +679,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let precreatedUserMessage = null;
     /** @type {string} */
     let autoAck = "";
+    /** @type {object|null} */
+    let autoTiming = null;
 
     let classification = classifyMessageIntent(goalText || content, {
       forceGoal,
@@ -898,12 +900,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           reason: turn.reason || "hermes_auto_queue_goal",
           text: goalText,
         };
+        autoTiming = turn.timing || null;
         if (wantStream) {
+          if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           writeNdjson({
             type: "routing",
             action: "queue_goal",
             goal: goalText,
             ack: turn.ack || turn.content || "",
+            timing: autoTiming,
           });
         }
         // Why: user message already saved — reuse it in the goal enqueue path.
@@ -913,6 +918,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         const assistantContent =
           String(turn.content || "").trim() ||
           "I am here — ask a question or send a computer goal.";
+        autoTiming = turn.timing || null;
+        const timingLine = formatAutoTimingSummary(autoTiming);
         const assistantMessage = await Message.create({
           chat: chat._id,
           role: "assistant",
@@ -926,15 +933,21 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             agentName: agentDoc.name,
             answeredWhileBusy: Boolean(busyRun),
             hermesAuto: true,
+            hermesTiming: autoTiming || undefined,
             error: answerError ? String(answerError.message || answerError) : undefined,
           },
         });
         const systemMessage = await Message.create({
           chat: chat._id,
           role: "system",
-          content: busyRun
-            ? `Answered in chat (Hermes Auto — no computer). The current browser run continues.`
-            : `Answered in chat (Hermes Auto — no computer).`,
+          content: [
+            busyRun
+              ? `Answered in chat (Hermes Auto — no computer). The current browser run continues.`
+              : `Answered in chat (Hermes Auto — no computer).`,
+            timingLine ? `Timing: ${timingLine}` : null,
+          ]
+            .filter(Boolean)
+            .join(" "),
           meta: {
             kind: "intent_question",
             ui: "icon",
@@ -943,12 +956,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             agentName: agentDoc.name,
             answeredWhileBusy: Boolean(busyRun),
             hermesAuto: true,
+            hermesTiming: autoTiming || undefined,
           },
         });
         if (qaCreds?.apiKey) {
           void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
         }
         if (wantStream) {
+          if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           writeNdjson({
             type: "result",
             ok: true,
@@ -957,6 +972,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             assistantMessage,
             systemMessage,
             task: null,
+            timing: autoTiming,
           });
           res.end();
           return;
@@ -968,6 +984,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           assistantMessage,
           systemMessage,
           task: null,
+          timing: autoTiming,
         });
         return;
       }
@@ -1244,6 +1261,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             invokedSkillId: invokedSkillDoc?._id || null,
             invokedSkillName: invokedSkillDoc?.name || null,
             skillSlug: skillSlashMeta?.slug || null,
+            hermesTiming: autoTiming || null,
           },
         },
       ],
@@ -1263,10 +1281,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       : snapshot?.mode === "api"
         ? "Queued for API agent (no live computer — saves VPS RAM)."
         : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
+    const timingLine = formatAutoTimingSummary(autoTiming);
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
-      content: `Goal queued${agentLabel}${skillLabel}${routeLabel}.${slashPickHint} ${queueHint}`,
+      content: [
+        `Goal queued${agentLabel}${skillLabel}${routeLabel}.${slashPickHint} ${queueHint}`,
+        timingLine ? `Timing: ${timingLine}` : null,
+      ]
+        .filter(Boolean)
+        .join(" "),
       meta: {
         taskId: task._id,
         kind: "queued",
@@ -1293,6 +1317,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             }
           : null,
         runner: "cloud",
+        hermesAuto: Boolean(autoTiming),
+        hermesTiming: autoTiming || undefined,
       },
     });
 
@@ -1302,6 +1328,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     }
 
     if (wantStream && writeNdjson) {
+      if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
       writeNdjson({
         type: "result",
         ok: true,
@@ -1309,6 +1336,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         message,
         task,
         systemMessage: agentNote,
+        timing: autoTiming,
       });
       res.end();
       return;
@@ -1320,6 +1348,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       message,
       task,
       systemMessage: agentNote,
+      timing: autoTiming,
     });
   } catch (err) {
     next(err);
