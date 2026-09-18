@@ -1040,6 +1040,7 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
     "wait:false = fire-and-forget; keep doing your remaining work. When each peer finishes, a PEER RESULT note appears.",
     "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until remaining peers finish. Never finish during the soft window — the runtime blocks early finish.",
     "If the goal asks you to ask/message a peer (or soft wait): you MUST call message_agent on THIS run. Old peer replies in chat/memory do not count.",
+    "When the goal says both / at the same time / fan-out / in parallel: send ONE message_agent with to:[\"Peer A\",\"Peer B\"] (or fanout:[…]) so peers start together — never ask them one-after-another with wait:true.",
     "Peers must finish with the answer — they must not message_agent you back.",
     "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
@@ -1159,6 +1160,106 @@ export async function listSoftActivePeerWaits(parentTaskId) {
     if (row.waitMode !== "soft" || !row.softWaitUntil) return false;
     return new Date(row.softWaitUntil).getTime() > now;
   });
+}
+
+/**
+ * Goals that require parallel multi-peer messaging (v5 fan-out).
+ * @param {string} goal
+ * @returns {boolean}
+ */
+export function goalRequiresParallelFanOut(goal) {
+  const g = String(goal || "");
+  if (!g.trim()) return false;
+  if (
+    /\b(at the same time|in parallel|fan[\s-]?out|simultaneously|all at once)\b/i.test(g)
+  ) {
+    return true;
+  }
+  // Why: “ask both A and B” without the word parallel.
+  if (/\bboth\b[\s\S]{0,120}\band\b/i.test(g)) return true;
+  return false;
+}
+
+/**
+ * Peer display names mentioned in the goal (longest match first to avoid substring clashes).
+ * @param {string} goal
+ * @param {string[]} peerNames
+ * @returns {string[]}
+ */
+export function peersNamedInGoal(goal, peerNames) {
+  const g = String(goal || "").toLowerCase();
+  const names = (peerNames || [])
+    .map((n) => String(n || "").trim())
+    .filter((n) => n.length >= 3)
+    .sort((a, b) => b.length - a.length);
+  /** @type {string[]} */
+  const hit = [];
+  let remaining = g;
+  for (const name of names) {
+    const n = name.toLowerCase();
+    if (remaining.includes(n)) {
+      hit.push(name);
+      remaining = remaining.split(n).join(" ");
+    }
+  }
+  return hit;
+}
+
+/**
+ * When the goal asks for parallel peers but the model only targets one, expand to all named peers.
+ * Why: otherwise wait:true on the first peer serializes fan-out (v5 partial failure).
+ * @param {{
+ *   goal?: string,
+ *   targets?: { to: string, content: string, mode?: string }[],
+ *   peerNames?: string[],
+ * }} opts
+ * @returns {{ targets: { to: string, content: string, mode: string }[], expanded: boolean, required: string[] }}
+ */
+export function expandMessageAgentTargetsForFanOut(opts) {
+  const goal = String(opts.goal || "");
+  const peerNames = opts.peerNames || [];
+  /** @type {{ to: string, content: string, mode: string }[]} */
+  let targets = Array.isArray(opts.targets)
+    ? opts.targets.map((t) => ({
+        to: String(t?.to || "").trim(),
+        content: String(t?.content || "").trim(),
+        mode: String(t?.mode || "question").trim() || "question",
+      }))
+    : [];
+  targets = targets.filter((t) => t.to && t.content);
+  if (!goalRequiresParallelFanOut(goal) || !targets.length) {
+    return { targets, expanded: false, required: [] };
+  }
+  const required = peersNamedInGoal(goal, peerNames);
+  if (required.length < 2) {
+    return { targets, expanded: false, required };
+  }
+
+  const content = targets[0].content;
+  const mode = targets[0].mode || "question";
+  /** @type {Map<string, { to: string, content: string, mode: string }>} */
+  const byLower = new Map();
+  for (const t of targets) {
+    byLower.set(t.to.toLowerCase(), t);
+  }
+
+  let expanded = false;
+  for (const name of required) {
+    const key = name.toLowerCase();
+    const already = [...byLower.keys()].some(
+      (k) => k === key || key.includes(k) || k.includes(key)
+    );
+    if (!already) {
+      byLower.set(key, { to: name, content, mode });
+      expanded = true;
+    }
+  }
+
+  return {
+    targets: [...byLower.values()].slice(0, 5),
+    expanded,
+    required,
+  };
 }
 
 /**

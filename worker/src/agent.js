@@ -103,6 +103,7 @@ import {
   sessionCredentialsForAsk,
   extractSessionCredentials,
 } from "./browserState/index.js";
+import { expandMessageAgentTargetsForFanOut } from "./a2aFanout.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -2326,7 +2327,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers. Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers. After wait:\"soft\", NEVER finish in the same turn — keep working until the soft window ends or a PEER RESULT note arrives. If a goal starts with LATE PEER RESULT, incorporate that answer and finish — do not re-open the peer’s site unless verifying.",
+              "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers — when the goal says both/at the same time, put ALL peers in ONE message_agent (never ask them one-after-another with wait:true). Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers. After wait:\"soft\", NEVER finish in the same turn — keep working until the soft window ends or a PEER RESULT note arrives. If a goal starts with LATE PEER RESULT, incorporate that answer and finish — do not re-open the peer’s site unless verifying.",
               "OPERATOR CHAT: The human may send OPERATOR MESSAGE notes while you run — treat them as high-priority guidance for the current goal (do not start an unrelated new goal unless they clearly ask).",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes for THIS run. It may help with page facts, but if the goal asks you to ask/message a peer or use soft wait, you MUST call message_agent this run — never finish from an old peer reply in chat or memory.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
@@ -3490,10 +3491,23 @@ export function createCloudAgent({ api, config, log = console.log }) {
             : [];
         }
 
-        const targets = normalizeFanoutTargets();
-        if (!targets.length) {
+        const targetsRaw = normalizeFanoutTargets();
+        if (!targetsRaw.length) {
           notes.push("message_agent needs to + content (or fanout:[{to,content}]).");
           return { ok: false, summary: "missing peer targets" };
+        }
+
+        const peerNames = extractPeerNamesFromBlock(agentSnapshot?.peerAgentsBlock);
+        const fan = expandMessageAgentTargetsForFanOut({
+          goal: ctx.goal || "",
+          targets: targetsRaw,
+          peerNames,
+        });
+        const targets = fan.targets;
+        if (fan.expanded) {
+          notes.push(
+            `Parallel fan-out auto-expanded to: ${fan.required.join(", ")} (goal asked for both/at the same time — peers start together).`
+          );
         }
 
         const rawWait = action.wait;

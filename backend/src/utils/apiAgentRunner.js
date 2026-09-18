@@ -31,7 +31,7 @@ import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js
 import { normalizeEntries } from "./curatedMemory.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
-import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, listSoftActivePeerWaits, guardFinishAgainstSoftWaits, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, listSoftActivePeerWaits, guardFinishAgainstSoftWaits, expandMessageAgentTargetsForFanOut, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
 const STUCK_RUNNING_MS = 20 * 60 * 1000;
@@ -514,6 +514,27 @@ async function executeApiAction(action, ctx) {
           return { ok: false, note: "message_agent needs to + content (or fanout)." };
         }
 
+        const peerDocs = await Agent.find({
+          user: ctx.userId,
+          active: { $ne: false },
+          _id: { $ne: ctx.agent._id },
+        })
+          .select("name")
+          .lean();
+        const fan = expandMessageAgentTargetsForFanOut({
+          goal: ctx.goal || "",
+          targets,
+          peerNames: peerDocs.map((a) => a.name),
+        });
+        targets = fan.targets;
+        /** @type {string[]} */
+        const expandNotes = [];
+        if (fan.expanded) {
+          expandNotes.push(
+            `Parallel fan-out auto-expanded to: ${fan.required.join(", ")} (goal asked for both/at the same time).`
+          );
+        }
+
         const waitMode = normalizeMessageWaitMode(action.wait, mode);
         const softWaitMinutes = action.soft_wait_minutes ?? action.softWaitMinutes ?? 3;
         /** @type {object[]} */
@@ -540,6 +561,7 @@ async function executeApiAction(action, ctx) {
           return {
             ok: starts.some((s) => s.ok),
             note: [
+              ...expandNotes,
               targets.length > 1 ? `Fan-out (${targets.length}):` : null,
               ...lines,
               waitMode === "soft"
@@ -594,6 +616,7 @@ async function executeApiAction(action, ctx) {
         return {
           ok: allOk,
           note: [
+            ...expandNotes,
             targets.length > 1 ? `Fan-out results (${targets.length}):` : null,
             ...resultLines,
           ]

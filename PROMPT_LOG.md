@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 15:25] Fix v5 fan-out: auto-expand parallel peers in one step
+
+- **Prompt Provided:** How can we solve sequential (partial) fan-out?
+- **Architectural Flow:** When the goal says both/at the same time/fan-out, `expandMessageAgentTargetsForFanOut` adds every peer named in the goal to a single message_agent call so they queue together (not wait:true then the next peer).
+- **Impacted Files:** agentMessageBus.js, worker a2aFanout.js + agent.js, apiAgentRunner.js, PROMPT_LOG
+
 ## [2026-09-18 14:50] Block finish that reuses old peer replies from memory
 
 - **Prompt Provided:** How can we solve reusing memory on soft-wait retests?
