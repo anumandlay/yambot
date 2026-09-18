@@ -1,7 +1,7 @@
 /**
  * @fileoverview Hermes-style Auto chat turn — model picks from YamBot chat tools.
- * Purpose: reply / queue_goal (+ optional status/peer lookups in a short loop); text fallback.
- * Downstream: chats.js POST /messages (Auto mode only — does not change worker/A2A).
+ * Purpose: reply / queue_goal (+ optional status/peer lookups); harden malformed output,
+ * default queue acks, and stream→non-stream recovery. Downstream: chats.js Auto mode only.
  */
 
 import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
@@ -179,22 +179,222 @@ export function formatAutoTimingSummary(timing) {
  * @returns {object}
  */
 function parseToolArgs(rawArgs) {
-  const s = String(rawArgs || "").trim();
+  let s = String(rawArgs || "").trim();
   if (!s) return {};
-  try {
-    return JSON.parse(s);
-  } catch {
-    // Why: some providers wrap args or emit trailing commas — try a loose object extract.
-    const m = s.match(/\{[\s\S]*\}/);
-    if (m) {
+  // Why: some providers emit single quotes, trailing commas, or unquoted keys.
+  const quoteKeys = (input) =>
+    String(input || "").replace(/([{,]\s*)([A-Za-z_][A-Za-z0-9_]*)\s*:/g, '$1"$2":');
+  const attempts = [
+    s,
+    s.replace(/,\s*([}\]])/g, "$1"),
+    s.replace(/'/g, '"'),
+    s.replace(/,\s*([}\]])/g, "$1").replace(/'/g, '"'),
+    quoteKeys(s),
+    quoteKeys(s.replace(/,\s*([}\]])/g, "$1")),
+    quoteKeys(s.replace(/'/g, '"')),
+    quoteKeys(s.replace(/,\s*([}\]])/g, "$1").replace(/'/g, '"')),
+  ];
+  for (const candidate of attempts) {
+    try {
+      const parsed = JSON.parse(candidate);
+      if (parsed && typeof parsed === "object") return parsed;
+    } catch {
+      /* try next */
+    }
+  }
+  const m = s.match(/\{[\s\S]*\}/);
+  if (m) {
+    for (const candidate of [
+      m[0],
+      m[0].replace(/,\s*([}\]])/g, "$1"),
+      m[0].replace(/'/g, '"'),
+      quoteKeys(m[0].replace(/,\s*([}\]])/g, "$1").replace(/'/g, '"')),
+    ]) {
       try {
-        return JSON.parse(m[0]);
+        const parsed = JSON.parse(candidate);
+        if (parsed && typeof parsed === "object") return parsed;
       } catch {
-        return {};
+        /* continue */
       }
     }
-    return {};
   }
+  // Why: bare string args sometimes arrive without JSON wrapping.
+  if (!s.startsWith("{") && !s.startsWith("[")) {
+    return { content: s, goal: s };
+  }
+  return {};
+}
+
+/**
+ * Strip protocol headers / tool-call junk from user-visible reply text.
+ * @param {string} text
+ * @returns {string}
+ */
+export function sanitizeAutoReplyContent(text) {
+  let s = stripModelThinking(String(text || "")).trim();
+  if (!s) return "";
+  s = s
+    .replace(/^REPLY\s*\n+/i, "")
+    .replace(/^ANSWER\s*\n+/i, "")
+    .replace(/^QUEUE_GOAL\s*\n+/i, "")
+    .replace(/^```(?:json|text)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .replace(/<\/?tool_call>/gi, "")
+    .replace(/<\/?function_call>/gi, "")
+    .trim();
+  // Drop accidental goal:/ack: labels left in a reply body.
+  if (/^goal:\s*/i.test(s) && /\nack:\s*/i.test(s)) {
+    return "";
+  }
+  return s;
+}
+
+/**
+ * Default short ack when Auto queues a computer goal without one.
+ * @param {string} goal
+ * @param {string} [agentName]
+ * @returns {string}
+ */
+export function defaultQueueAck(goal, agentName = "Agent") {
+  const g = String(goal || "").replace(/\s+/g, " ").trim();
+  const preview = g.length > 90 ? `${g.slice(0, 87)}…` : g;
+  const who = String(agentName || "Agent").trim() || "Agent";
+  if (!preview) return `Starting ${who}’s computer now.`;
+  return `Starting ${who}’s computer: ${preview}`;
+}
+
+/**
+ * Runtime validation after model proposes reply/queue_goal.
+ * Why: never trust empty goals, leaked headers, or unknown actions.
+ * @param {{ action?: string, content?: string, goal?: string, ack?: string, reason?: string, timing?: object }} result
+ * @param {{ userText?: string, agentName?: string }} [ctx]
+ * @returns {{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string, timing?: object }}
+ */
+export function ensureAutoTurnResult(result, ctx = {}) {
+  const userText = String(ctx.userText || "").trim();
+  const agentName = String(ctx.agentName || "Agent").trim() || "Agent";
+  const reason = String(result?.reason || "normalized").trim() || "normalized";
+  let action =
+    result?.action === "queue_goal" || result?.action === "goal" || result?.action === "run"
+      ? "queue_goal"
+      : "reply";
+
+  let content = sanitizeAutoReplyContent(result?.content || "");
+  let goal = String(result?.goal || "").replace(/\s+/g, " ").trim();
+  let ack = sanitizeAutoReplyContent(result?.ack || "");
+
+  if (action === "queue_goal") {
+    if (!goal) goal = userText;
+    if (!goal) {
+      // Cannot queue without instructions — fall back to a safe chat reply.
+      return {
+        action: "reply",
+        content:
+          content ||
+          "I need a clearer computer goal (what site or peer work should I run?).",
+        goal: "",
+        ack: "",
+        reason: `${reason}_empty_goal_to_reply`,
+        timing: result?.timing,
+      };
+    }
+    if (!ack) ack = defaultQueueAck(goal, agentName);
+    return {
+      action: "queue_goal",
+      content: ack,
+      goal,
+      ack,
+      reason,
+      timing: result?.timing,
+    };
+  }
+
+  if (!content) {
+    // Empty reply — if the user clearly needed the computer, queue instead.
+    if (userText && autoTurnHeuristicGate(userText) === "queue_goal") {
+      const g = userText;
+      const a = defaultQueueAck(g, agentName);
+      return {
+        action: "queue_goal",
+        content: a,
+        goal: g,
+        ack: a,
+        reason: `${reason}_empty_reply_to_queue`,
+        timing: result?.timing,
+      };
+    }
+    content =
+      "I am here. Ask a question, or send a computer goal (open a site, ask peers, etc.).";
+  }
+
+  return {
+    action: "reply",
+    content,
+    goal: "",
+    ack: "",
+    reason,
+    timing: result?.timing,
+  };
+}
+
+/**
+ * Last-resort parse when the model returns junk / mixed formats.
+ * @param {string} raw
+ * @param {string} userText
+ * @returns {{ action: "reply"|"queue_goal", content: string, goal: string, ack: string }}
+ */
+export function recoverMalformedAutoOutput(raw, userText = "") {
+  const cleaned = stripModelThinking(String(raw || "")).trim();
+  const user = String(userText || "").trim();
+
+  if (!cleaned) {
+    if (user && autoTurnHeuristicGate(user) === "queue_goal") {
+      return { action: "queue_goal", content: "", goal: user, ack: "" };
+    }
+    return { action: "reply", content: "", goal: "", ack: "" };
+  }
+
+  // Tool-call XML / JSON-ish name fields
+  if (/queue_goal|QUEUE_GOAL|"action"\s*:\s*"queue/i.test(cleaned)) {
+    const goalMatch =
+      cleaned.match(/"goal"\s*:\s*"([^"]+)"/i) ||
+      cleaned.match(/goal:\s*(.+)$/im);
+    const ackMatch =
+      cleaned.match(/"ack"\s*:\s*"([^"]+)"/i) ||
+      cleaned.match(/ack:\s*(.+)$/im);
+    const goal = String(goalMatch?.[1] || user || "").trim();
+    const ack = String(ackMatch?.[1] || "").trim();
+    if (goal) return { action: "queue_goal", content: ack, goal, ack };
+  }
+
+  if (/"name"\s*:\s*"reply"|REPLY\b/i.test(cleaned)) {
+    const contentMatch =
+      cleaned.match(/"content"\s*:\s*"((?:\\.|[^"\\])*)"/i) ||
+      cleaned.match(/^REPLY\s*\n+([\s\S]+)/i);
+    let content = contentMatch ? contentMatch[1] : cleaned;
+    try {
+      content = JSON.parse(`"${content}"`);
+    } catch {
+      content = sanitizeAutoReplyContent(content);
+    }
+    return {
+      action: "reply",
+      content: sanitizeAutoReplyContent(content) || sanitizeAutoReplyContent(cleaned),
+      goal: "",
+      ack: "",
+    };
+  }
+
+  if (user && autoTurnHeuristicGate(user) === "queue_goal") {
+    return { action: "queue_goal", content: "", goal: user, ack: "" };
+  }
+
+  return {
+    action: "reply",
+    content: sanitizeAutoReplyContent(cleaned),
+    goal: "",
+    ack: "",
+  };
 }
 
 /**
@@ -282,12 +482,13 @@ export async function executeAutoLookupTool(kind, runtime = {}) {
 
 /**
  * @param {string} raw
+ * @param {string} [userText]
  * @returns {{ action: "reply"|"queue_goal", content: string, goal: string, ack: string }}
  */
-export function parseAutoTurnOutput(raw) {
+export function parseAutoTurnOutput(raw, userText = "") {
   const cleaned = stripModelThinking(String(raw || "")).trim();
   if (!cleaned) {
-    return { action: "reply", content: "", goal: "", ack: "" };
+    return recoverMalformedAutoOutput("", userText);
   }
 
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
@@ -304,9 +505,32 @@ export function parseAutoTurnOutput(raw) {
       if (action === "queue_goal") {
         return { action, content: ack || content, goal: goal || content, ack };
       }
-      return { action: "reply", content: content || cleaned, goal: "", ack: "" };
+      return {
+        action: "reply",
+        content: sanitizeAutoReplyContent(content || cleaned),
+        goal: "",
+        ack: "",
+      };
     } catch {
-      /* fall through */
+      /* fall through — maybe trailing commas / single quotes */
+      const loose = parseToolArgs(jsonMatch[0]);
+      if (loose && (loose.action || loose.goal || loose.content || loose.reply)) {
+        const action =
+          loose.action === "queue_goal" || loose.action === "goal" || loose.action === "run"
+            ? "queue_goal"
+            : loose.goal && !loose.content
+              ? "queue_goal"
+              : "reply";
+        if (action === "queue_goal") {
+          const goal = String(loose.goal || loose.task || userText || "").trim();
+          const ack = String(loose.ack || loose.note || "").trim();
+          if (goal) return { action, content: ack, goal, ack };
+        }
+        const content = String(loose.content || loose.reply || loose.message || "").trim();
+        if (content) {
+          return { action: "reply", content: sanitizeAutoReplyContent(content), goal: "", ack: "" };
+        }
+      }
     }
   }
 
@@ -331,10 +555,28 @@ export function parseAutoTurnOutput(raw) {
   }
 
   if (head === "REPLY" || head === "ANSWER") {
-    return { action: "reply", content: body || cleaned, goal: "", ack: "" };
+    return {
+      action: "reply",
+      content: sanitizeAutoReplyContent(body || cleaned),
+      goal: "",
+      ack: "",
+    };
   }
 
-  return { action: "reply", content: cleaned, goal: "", ack: "" };
+  // Why: junk / mixed tool XML — last-resort recover instead of dumping raw protocol text.
+  if (
+    /<\/?tool_call>|<\/?function_call>|"name"\s*:\s*"(reply|queue_goal)"/i.test(cleaned) ||
+    /QUEUE_GOAL|REPLY\b/i.test(cleaned)
+  ) {
+    return recoverMalformedAutoOutput(cleaned, userText);
+  }
+
+  return {
+    action: "reply",
+    content: sanitizeAutoReplyContent(cleaned),
+    goal: "",
+    ack: "",
+  };
 }
 
 /**
@@ -486,7 +728,9 @@ async function runChatAutoTurnTextFallback(opts, timing) {
 
   const delta = track.wrapOnDelta(onDelta);
   let raw;
+  let usedStream = false;
   if (stream && typeof delta === "function") {
+    usedStream = true;
     let buf = "";
     let emitted = 0;
     raw = await llmChatCompletionStream(llmOpts, (chunk) => {
@@ -498,16 +742,34 @@ async function runChatAutoTurnTextFallback(opts, timing) {
         emitted = visible.length;
       }
     });
+    // Why: some providers accept stream:true but return empty SSE — retry one-shot.
+    if (!String(raw || "").trim()) {
+      track.setPath("text_fallback_stream_empty");
+      raw = await llmChatCompletion(llmOpts);
+      usedStream = false;
+    }
   } else {
     raw = await llmChatCompletion(llmOpts);
   }
 
-  const parsed = parseAutoTurnOutput(raw);
-  track.markDecision(parsed.action);
-  if (parsed.action === "reply" && parsed.content && typeof delta === "function" && !stream) {
-    delta(parsed.content);
+  let parsed = parseAutoTurnOutput(raw, text);
+  if (!parsed.content && !parsed.goal) {
+    parsed = recoverMalformedAutoOutput(raw, text);
   }
-  return { ...parsed, reason: "model_auto_turn_text", timing: track.finish() };
+  track.markDecision(parsed.action);
+  const normalized = ensureAutoTurnResult(
+    { ...parsed, reason: "model_auto_turn_text" },
+    { userText: text, agentName }
+  );
+  if (
+    normalized.action === "reply" &&
+    normalized.content &&
+    typeof delta === "function" &&
+    !usedStream
+  ) {
+    delta(normalized.content);
+  }
+  return { ...normalized, timing: track.finish() };
 }
 
 /**
@@ -540,18 +802,23 @@ export async function runChatAutoTurn(opts) {
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
   const track = createAutoTimingTracker();
   const delta = track.wrapOnDelta(onDelta);
+  const finalize = (partial) =>
+    ensureAutoTurnResult(
+      { ...partial, timing: partial.timing || track.finish() },
+      { userText: text, agentName }
+    );
 
   if (autoTurnHeuristicGate(text) === "queue_goal") {
     track.setPath("heuristic");
     track.markDecision("queue_goal");
-    return {
+    return finalize({
       action: "queue_goal",
       content: "",
       goal: text,
       ack: "",
       reason: "heuristic_queue_goal",
       timing: track.finish(),
-    };
+    });
   }
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
@@ -584,14 +851,15 @@ export async function runChatAutoTurn(opts) {
       const terminal = parseAutoToolCalls(msg.toolCalls);
       if (terminal) {
         track.markDecision(terminal.action);
-        if (terminal.action === "reply" && terminal.content && typeof delta === "function") {
-          delta(terminal.content);
-        }
-        return {
+        const out = finalize({
           ...terminal,
           reason: round === 0 ? "model_auto_tool_call" : "model_auto_tool_loop",
           timing: track.finish(),
-        };
+        });
+        if (out.action === "reply" && out.content && typeof delta === "function") {
+          delta(out.content);
+        }
+        return out;
       }
 
       const lookups = (msg.toolCalls || []).filter((tc) => {
@@ -639,12 +907,20 @@ export async function runChatAutoTurn(opts) {
       }
 
       if (msg.content) {
-        const parsed = parseAutoTurnOutput(msg.content);
-        track.markDecision(parsed.action);
-        if (parsed.action === "reply" && parsed.content && typeof delta === "function") {
-          delta(parsed.content);
+        let parsed = parseAutoTurnOutput(msg.content, text);
+        if (!parsed.content && !parsed.goal) {
+          parsed = recoverMalformedAutoOutput(msg.content, text);
         }
-        return { ...parsed, reason: "model_auto_turn_after_tools", timing: track.finish() };
+        track.markDecision(parsed.action);
+        const out = finalize({
+          ...parsed,
+          reason: "model_auto_turn_after_tools",
+          timing: track.finish(),
+        });
+        if (out.action === "reply" && out.content && typeof delta === "function") {
+          delta(out.content);
+        }
+        return out;
       }
 
       break;
@@ -674,18 +950,31 @@ export async function runChatAutoTurn(opts) {
     const term = parseAutoToolCalls(forced.toolCalls);
     if (term) {
       track.markDecision(term.action);
-      if (term.action === "reply" && term.content && typeof delta === "function") {
-        delta(term.content);
+      const out = finalize({
+        ...term,
+        reason: "model_auto_tool_loop_cap",
+        timing: track.finish(),
+      });
+      if (out.action === "reply" && out.content && typeof delta === "function") {
+        delta(out.content);
       }
-      return { ...term, reason: "model_auto_tool_loop_cap", timing: track.finish() };
+      return out;
     }
     if (forced.content) {
-      const parsed = parseAutoTurnOutput(forced.content);
-      track.markDecision(parsed.action);
-      if (parsed.action === "reply" && parsed.content && typeof delta === "function") {
-        delta(parsed.content);
+      let parsed = parseAutoTurnOutput(forced.content, text);
+      if (!parsed.content && !parsed.goal) {
+        parsed = recoverMalformedAutoOutput(forced.content, text);
       }
-      return { ...parsed, reason: "model_auto_tool_loop_cap_text", timing: track.finish() };
+      track.markDecision(parsed.action);
+      const out = finalize({
+        ...parsed,
+        reason: "model_auto_tool_loop_cap_text",
+        timing: track.finish(),
+      });
+      if (out.action === "reply" && out.content && typeof delta === "function") {
+        delta(out.content);
+      }
+      return out;
     }
   } catch (err) {
     const status = Number(err?.status) || 0;
@@ -699,7 +988,7 @@ export async function runChatAutoTurn(opts) {
     if (!toolsUnsupported && status >= 500) throw err;
   }
 
-  return runChatAutoTurnTextFallback(
+  const fallback = await runChatAutoTurnTextFallback(
     {
       question,
       snapshot,
@@ -710,6 +999,7 @@ export async function runChatAutoTurn(opts) {
     },
     track
   );
+  return finalize(fallback);
 }
 
 /**

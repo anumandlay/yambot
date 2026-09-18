@@ -305,7 +305,21 @@ export async function llmChatCompletionStream(opts, onDelta) {
         if (typeof onDelta === "function") onDelta(piece);
       }
     }
-    return full.trim();
+    const streamed = full.trim();
+    if (streamed) return streamed;
+    // Why: some providers accept stream:true but emit empty SSE — one-shot retry.
+    const fallback = await llmChatCompletion({
+      apiKey,
+      baseUrl,
+      model,
+      messages,
+      temperature,
+      maxTokens,
+      timeoutMs,
+      openAiAccountId,
+    });
+    if (typeof onDelta === "function" && fallback) onDelta(fallback);
+    return String(fallback || "").trim();
   } finally {
     clearTimeout(timer);
   }

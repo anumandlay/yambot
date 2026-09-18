@@ -21,7 +21,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck } from "../utils/chatAutoTurn.js";
 import { formatPeerAgentsBlock } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
@@ -901,19 +901,22 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           text: goalText,
         };
         autoTiming = turn.timing || null;
+        // Why: always show a short ack — model ack, or a clear default (never silent queue).
+        autoAck =
+          String(turn.ack || turn.content || "").trim() ||
+          defaultQueueAck(goalText, agentDoc.name);
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           writeNdjson({
             type: "routing",
             action: "queue_goal",
             goal: goalText,
-            ack: turn.ack || turn.content || "",
+            ack: autoAck,
             timing: autoTiming,
           });
         }
         // Why: user message already saved — reuse it in the goal enqueue path.
         precreatedUserMessage = message;
-        autoAck = String(turn.ack || turn.content || "").trim();
       } else {
         const assistantContent =
           String(turn.content || "").trim() ||

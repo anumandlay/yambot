@@ -640,11 +640,14 @@ export function ChatDetailPage() {
           }
         },
         onRouting: (info) => {
-          if (info?.ack) {
+          const ack =
+            String(info?.ack || "").trim() ||
+            (info?.action === "queue_goal" ? "Queuing computer…" : "");
+          if (ack) {
             setMessages((prev) =>
               prev.map((m) =>
                 m._id === `${streamId}-assistant`
-                  ? { ...m, content: String(info.ack), meta: { ...m.meta, streaming: false } }
+                  ? { ...m, content: ack, meta: { ...m.meta, streaming: false } }
                   : m
               )
             );

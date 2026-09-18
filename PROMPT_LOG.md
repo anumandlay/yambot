@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 17:10] Step 4: Auto chat hardening
+
+- **Prompt Provided:** Hermes-style chat step 4 — hardening.
+- **Architectural Flow:** Runtime normalizes every Auto turn (`ensureAutoTurnResult`): sanitize reply text, fill default queue acks (`Starting {agent}’s computer: …`), recover empty/malformed model output (`recoverMalformedAutoOutput`), and loose-parse tool args (single quotes, trailing commas, unquoted keys). Empty SSE streams retry as one-shot completions in `llmChatCompletionStream` + text fallback. chats.js always posts/streams a queue ack; UI shows “Queuing computer…” if routing has no ack yet. Worker/A2A unchanged.
+- **Impacted Files:** chatAutoTurn.js, llmChat.js, chats.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 16:50] Step 3: Auto chat timing metrics
 
 - **Prompt Provided:** Hermes-style chat step 3 — timing metrics.
