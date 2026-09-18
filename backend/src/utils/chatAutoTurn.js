@@ -1,14 +1,117 @@
 /**
  * @fileoverview Hermes-style Auto chat turn — one model call decides reply vs queue_goal.
- * Purpose: Skip the separate intent-classifier LLM; the conversational model either answers
- * or asks the runtime to enqueue a computer/A2A goal (like Hermes tool selection).
- * Downstream: chats.js POST /messages (Auto mode).
+ * Purpose: Skip the separate intent-classifier LLM; expose YamBot chat tools (reply / queue_goal)
+ * like Hermes tool selection, with REPLY/QUEUE_GOAL text fallback for providers without tools.
+ * Downstream: chats.js POST /messages (Auto mode only — does not change worker/A2A).
  */
 
-import { llmChatCompletion, llmChatCompletionStream } from "./llmChat.js";
+import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { formatAgentPrompt } from "../models/Agent.js";
 import { classifyMessageIntent } from "./messageIntent.js";
+
+/**
+ * OpenAI-compatible tool schemas for Auto chat (YamBot-only surface).
+ * Why: model proposes; runtime validates and either posts chat text or enqueues a computer goal.
+ * @type {object[]}
+ */
+export const AUTO_CHAT_TOOLS = [
+  {
+    type: "function",
+    function: {
+      name: "reply",
+      description:
+        "Answer the user in chat from memory, profile, or stable knowledge. Do NOT use for browsing, opening sites, or messaging peer agents.",
+      parameters: {
+        type: "object",
+        properties: {
+          content: {
+            type: "string",
+            description: "Plain prose reply for the user (no tool JSON).",
+          },
+        },
+        required: ["content"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "queue_goal",
+      description:
+        "Queue a cloud computer / peer-agent goal (Playwright or message_agent). Use when the user needs browsing, live web work, fan-out, soft-wait, or handoff.",
+      parameters: {
+        type: "object",
+        properties: {
+          goal: {
+            type: "string",
+            description: "Exact instructions for the worker / peer run.",
+          },
+          ack: {
+            type: "string",
+            description: "Optional one short sentence shown to the user while the goal queues.",
+          },
+        },
+        required: ["goal"],
+      },
+    },
+  },
+];
+
+/**
+ * @param {string} rawArgs
+ * @returns {object}
+ */
+function parseToolArgs(rawArgs) {
+  const s = String(rawArgs || "").trim();
+  if (!s) return {};
+  try {
+    return JSON.parse(s);
+  } catch {
+    // Why: some providers wrap args or emit trailing commas — try a loose object extract.
+    const m = s.match(/\{[\s\S]*\}/);
+    if (m) {
+      try {
+        return JSON.parse(m[0]);
+      } catch {
+        return {};
+      }
+    }
+    return {};
+  }
+}
+
+/**
+ * Map native tool_calls into Auto turn result.
+ * @param {{ id: string, name: string, arguments: string }[]} toolCalls
+ * @returns {{ action: "reply"|"queue_goal", content: string, goal: string, ack: string }|null}
+ */
+export function parseAutoToolCalls(toolCalls) {
+  const list = Array.isArray(toolCalls) ? toolCalls : [];
+  for (const tc of list) {
+    const name = String(tc?.name || "")
+      .trim()
+      .toLowerCase();
+    const args = parseToolArgs(tc?.arguments);
+    if (name === "queue_goal" || name === "queuegoal" || name === "run_goal") {
+      const goal = String(args.goal || args.task || args.content || "").trim();
+      const ack = String(args.ack || args.note || "").trim();
+      if (!goal && !ack) continue;
+      return {
+        action: "queue_goal",
+        content: ack,
+        goal: goal || ack,
+        ack,
+      };
+    }
+    if (name === "reply" || name === "answer" || name === "chat_reply") {
+      const content = String(args.content || args.reply || args.message || "").trim();
+      if (!content) continue;
+      return { action: "reply", content, goal: "", ack: "" };
+    }
+  }
+  return null;
+}
 
 /**
  * @param {string} raw
@@ -103,7 +206,6 @@ function streamVisibleFromBuffer(buf) {
     if (head === "REPLY" || head === "ANSWER") {
       return { visible: "", mode: "pending" };
     }
-    // Freeform prose — stream as-is once we have enough that it is not a short header.
     if (buf.length >= 12) return { visible: buf, mode: "reply" };
     return { visible: "", mode: "pending" };
   }
@@ -119,52 +221,50 @@ function streamVisibleFromBuffer(buf) {
 }
 
 /**
- * One Auto turn: model (or heuristic) chooses reply vs queue_goal.
- * @param {{
- *   question: string,
- *   snapshot: object,
- *   creds: { apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string },
- *   chatContext?: string,
- *   stream?: boolean,
- *   onDelta?: (chunk: string) => void,
- * }} opts
- * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string }>}
+ * @param {object} snapshot
+ * @param {string} agentName
+ * @param {string} thread
+ * @param {"tools"|"text"} mode
+ * @returns {string}
  */
-export async function runChatAutoTurn(opts) {
-  const { question, snapshot, creds, chatContext = "", stream = false, onDelta } = opts;
-  const text = String(question || "").trim();
-  const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
-
-  if (autoTurnHeuristicGate(text) === "queue_goal") {
-    return {
-      action: "queue_goal",
-      content: "",
-      goal: text,
-      ack: "",
-      reason: "heuristic_queue_goal",
-    };
-  }
-
+function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
   const context = formatAgentPrompt(snapshot);
-  const thread = String(chatContext || snapshot?.chatContext || "").trim();
-  const system = [
+  const shared = [
     `You are “${agentName}”, an AI employee on YamBot. Always introduce and refer to yourself as ${agentName} — never call yourself “YamBot”.`,
     "",
-    "Hermes-style turn: you either ANSWER in chat OR ask the runtime to QUEUE a computer/peer goal.",
     "You are NOT controlling the browser in this turn. Queuing starts a cloud computer / A2A workers.",
     "",
-    "Choose QUEUE_GOAL when the user wants you to:",
+    "Use queue_goal / QUEUE_GOAL when the user wants:",
     "- open/navigate/click/fill a website or use the live computer",
     "- message/ask peers, fan-out, soft-wait, handoff (message_agent)",
-    "- do live research that needs browsing right now",
+    "- live research that needs browsing right now",
     "- change something external (send mail, download, submit forms)",
     "",
-    "Choose REPLY when you can answer from conversation, profile, memory, or stable knowledge:",
+    "Use reply / REPLY when you can answer from conversation, profile, memory, or stable knowledge:",
     "- greetings, thanks, status from memory",
     "- explanations, code examples, planning advice",
     "- questions that do not require opening a site or peers",
     "",
-    "Output format (strict):",
+    "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing or peers.",
+  ];
+
+  if (mode === "tools") {
+    return [
+      ...shared,
+      "",
+      "Call exactly one tool: reply OR queue_goal. Do not invent other tool names.",
+      "",
+      context || "(no extra agent context)",
+      thread ? `\n\n${thread}` : "",
+    ]
+      .filter(Boolean)
+      .join("\n");
+  }
+
+  return [
+    ...shared,
+    "",
+    "Output format (strict) — text fallback when tools are unavailable:",
     "Option A — direct answer:",
     "REPLY",
     "<plain prose for the user — no tool JSON>",
@@ -174,16 +274,28 @@ export async function runChatAutoTurn(opts) {
     "goal: <exact instructions for the worker>",
     "ack: <optional one short sentence to the user>",
     "",
-    "Do not invent credentials. Prefer REPLY when unsure unless they clearly need browsing or peers.",
-    "",
     context || "(no extra agent context)",
     thread ? `\n\n${thread}` : "",
   ]
     .filter(Boolean)
     .join("\n");
+}
 
+/**
+ * Text-protocol Auto turn (streaming-friendly). Used when tools unsupported or empty.
+ * @param {object} opts
+ * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string }>}
+ */
+async function runChatAutoTurnTextFallback(opts) {
+  const { question, snapshot, creds, chatContext = "", stream = false, onDelta } = opts;
+  const text = String(question || "").trim();
+  const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
+  const thread = String(chatContext || snapshot?.chatContext || "").trim();
   const messages = [
-    { role: "system", content: system },
+    {
+      role: "system",
+      content: buildAutoSystemPrompt(snapshot, agentName, thread, "text"),
+    },
     { role: "user", content: text.slice(0, 4000) },
   ];
 
@@ -216,7 +328,97 @@ export async function runChatAutoTurn(opts) {
   }
 
   const parsed = parseAutoTurnOutput(raw);
-  return { ...parsed, reason: "model_auto_turn" };
+  return { ...parsed, reason: "model_auto_turn_text" };
+}
+
+/**
+ * One Auto turn: native tools first, then REPLY/QUEUE_GOAL text fallback.
+ * @param {{
+ *   question: string,
+ *   snapshot: object,
+ *   creds: { apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string },
+ *   chatContext?: string,
+ *   stream?: boolean,
+ *   onDelta?: (chunk: string) => void,
+ * }} opts
+ * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string }>}
+ */
+export async function runChatAutoTurn(opts) {
+  const { question, snapshot, creds, chatContext = "", stream = false, onDelta } = opts;
+  const text = String(question || "").trim();
+  const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
+
+  if (autoTurnHeuristicGate(text) === "queue_goal") {
+    return {
+      action: "queue_goal",
+      content: "",
+      goal: text,
+      ack: "",
+      reason: "heuristic_queue_goal",
+    };
+  }
+
+  const thread = String(chatContext || snapshot?.chatContext || "").trim();
+  const toolMessages = [
+    {
+      role: "system",
+      content: buildAutoSystemPrompt(snapshot, agentName, thread, "tools"),
+    },
+    { role: "user", content: text.slice(0, 4000) },
+  ];
+
+  try {
+    const msg = await llmChatCompletionMessage({
+      apiKey: creds.apiKey,
+      baseUrl: creds.llmBaseUrl || "",
+      model: creds.llmModel || "",
+      openAiAccountId: creds.openAiAccountId,
+      temperature: 0.3,
+      maxTokens: 900,
+      timeoutMs: 60_000,
+      messages: toolMessages,
+      tools: AUTO_CHAT_TOOLS,
+      toolChoice: "auto",
+    });
+
+    const fromTools = parseAutoToolCalls(msg.toolCalls);
+    if (fromTools) {
+      if (fromTools.action === "reply" && fromTools.content && typeof onDelta === "function") {
+        onDelta(fromTools.content);
+      }
+      return { ...fromTools, reason: "model_auto_tool_call" };
+    }
+
+    // Provider accepted tools but returned prose — parse text protocol from content.
+    if (msg.content) {
+      const parsed = parseAutoTurnOutput(msg.content);
+      if (parsed.action === "reply" && parsed.content && typeof onDelta === "function") {
+        onDelta(parsed.content);
+      }
+      return { ...parsed, reason: "model_auto_turn_after_tools" };
+    }
+  } catch (err) {
+    // Why: many YamBot LLM providers reject tools — fall back without failing the chat.
+    const status = Number(err?.status) || 0;
+    const detail = String(err?.message || err || "");
+    const toolsUnsupported =
+      status === 400 ||
+      status === 404 ||
+      /tool/i.test(detail) ||
+      /function/i.test(detail) ||
+      /not support/i.test(detail);
+    if (!toolsUnsupported && status >= 500) throw err;
+    // continue to text fallback
+  }
+
+  return runChatAutoTurnTextFallback({
+    question,
+    snapshot,
+    creds,
+    chatContext,
+    stream,
+    onDelta,
+  });
 }
 
 /**

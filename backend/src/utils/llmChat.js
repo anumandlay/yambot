@@ -33,10 +33,33 @@ function flattenLlmContent(content) {
 }
 
 /**
- * @param {{ apiKey: string, baseUrl: string, model: string, messages: object[], temperature?: number, maxTokens?: number, timeoutMs?: number, openAiAccountId?: string }} opts
+ * @param {{ apiKey: string, baseUrl: string, model: string, messages: object[], temperature?: number, maxTokens?: number, timeoutMs?: number, openAiAccountId?: string, tools?: object[], toolChoice?: string|object }} opts
  * @returns {Promise<string>}
  */
 export async function llmChatCompletion(opts) {
+  const result = await llmChatCompletionMessage(opts);
+  return result.content || "";
+}
+
+/**
+ * Chat completion returning content + optional native tool_calls (OpenAI-compatible).
+ * Why: Hermes-style Auto exposes reply/queue_goal as tools; providers that reject tools
+ * should be handled by the caller (retry without tools).
+ * @param {{
+ *   apiKey: string,
+ *   baseUrl: string,
+ *   model: string,
+ *   messages: object[],
+ *   temperature?: number,
+ *   maxTokens?: number,
+ *   timeoutMs?: number,
+ *   openAiAccountId?: string,
+ *   tools?: object[],
+ *   toolChoice?: string|object,
+ * }} opts
+ * @returns {Promise<{ content: string, toolCalls: { id: string, name: string, arguments: string }[], rawMessage: object }>}
+ */
+export async function llmChatCompletionMessage(opts) {
   const {
     apiKey,
     baseUrl,
@@ -46,6 +69,8 @@ export async function llmChatCompletion(opts) {
     maxTokens = 256,
     timeoutMs = 20_000,
     openAiAccountId,
+    tools,
+    toolChoice,
   } = opts;
   const root = String(baseUrl || "").replace(/\/$/, "");
   const key = normalizeApiKey(apiKey);
@@ -58,6 +83,7 @@ export async function llmChatCompletion(opts) {
   }
 
   if (isOpenAiCodexBaseUrl(root)) {
+    // Why: Codex path has no tool_calls adapter here — content-only; Auto falls back to text protocol.
     const codex = await codexChatCompletion({
       accessToken: apiKey,
       accountId: openAiAccountId || "",
@@ -68,7 +94,19 @@ export async function llmChatCompletion(opts) {
       temperature,
       maxTokens,
     });
-    return String(codex.content || "").trim();
+    const content = String(codex.content || "").trim();
+    return { content, toolCalls: [], rawMessage: { role: "assistant", content } };
+  }
+
+  const body = {
+    model,
+    temperature,
+    max_tokens: maxTokens,
+    messages,
+  };
+  if (Array.isArray(tools) && tools.length) {
+    body.tools = tools;
+    body.tool_choice = toolChoice || "auto";
   }
 
   const controller = new AbortController();
@@ -77,21 +115,19 @@ export async function llmChatCompletion(opts) {
     const response = await fetch(`${root}/chat/completions`, {
       method: "POST",
       headers: buildLlmAuthHeaders({ apiKey: key, baseUrl: root }),
-      body: JSON.stringify({
-        model,
-        temperature,
-        max_tokens: maxTokens,
-        messages,
-      }),
+      body: JSON.stringify(body),
       signal: controller.signal,
     });
     const text = await response.text();
     if (!response.ok) {
       const detail = extractLlmApiMessage(text) || text.slice(0, 300) || `HTTP ${response.status}`;
-      throw Object.assign(new Error(detail), {
+      const err = Object.assign(new Error(detail), {
         title: `LLM request failed (${response.status})`,
         hint: hintForLlmStatus(response.status, text),
+        status: response.status,
+        bodyText: text.slice(0, 500),
       });
+      throw err;
     }
     let data;
     try {
@@ -104,10 +140,36 @@ export async function llmChatCompletion(opts) {
     const message = data.choices?.[0]?.message || {};
     const content = flattenLlmContent(message.content);
     const reasoning = flattenLlmContent(message.reasoning_content);
-    // Why: some models put the JSON draft in reasoning and a short sentence in content.
-    if (content.includes("{") && content.includes("}")) return content.trim();
-    if (reasoning.includes("{") && reasoning.includes("}")) return reasoning.trim();
-    return (content || reasoning).trim();
+    let resolved = content.trim();
+    if (!(resolved.includes("{") && resolved.includes("}")) && reasoning.includes("{") && reasoning.includes("}")) {
+      resolved = reasoning.trim();
+    } else if (!resolved) {
+      resolved = reasoning.trim();
+    }
+
+    /** @type {{ id: string, name: string, arguments: string }[]} */
+    const toolCalls = [];
+    const rawCalls = Array.isArray(message.tool_calls) ? message.tool_calls : [];
+    for (const tc of rawCalls) {
+      const fn = tc?.function || tc;
+      const name = String(fn?.name || tc?.name || "").trim();
+      if (!name) continue;
+      let args = fn?.arguments ?? tc?.arguments ?? "{}";
+      if (typeof args !== "string") {
+        try {
+          args = JSON.stringify(args);
+        } catch {
+          args = "{}";
+        }
+      }
+      toolCalls.push({
+        id: String(tc?.id || ""),
+        name,
+        arguments: String(args || "{}"),
+      });
+    }
+
+    return { content: resolved, toolCalls, rawMessage: message };
   } finally {
     clearTimeout(timer);
   }

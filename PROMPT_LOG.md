@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 16:25] Step 1: Auto chat tools (reply / queue_goal) + text fallback
+
+- **Prompt Provided:** Hermes-style chat step 1 — structured Auto tools without affecting worker/A2A.
+- **Architectural Flow:** Auto exposes OpenAI-compatible tools `reply` and `queue_goal`. Runtime validates and posts chat or enqueues a computer goal. If the provider rejects tools (or returns no tool_calls), fall back to existing REPLY/QUEUE_GOAL text protocol + streaming. Heuristic peer/browser gate unchanged. Answer/Computer/worker paths untouched.
+- **Impacted Files:** chatAutoTurn.js, llmChat.js (llmChatCompletionMessage), PROMPT_LOG
+
 ## [2026-09-18 16:10] Hermes-style Auto: one turn + streamed replies
 
 - **Prompt Provided:** Make YamBot more Hermes-like — fast replies; model decides question vs computer (not a separate classifier).
