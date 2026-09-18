@@ -1038,7 +1038,7 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
     "Modes: task=do work; question=answer; approval=approve/reject via finish; handoff=peer owns work; event=FYI (default wait:false).",
     "wait:true = block until peer(s) finish (use when you need their answer before any other step).",
     "wait:false = fire-and-forget; keep doing your remaining work. When each peer finishes, a PEER RESULT note appears.",
-    "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until remaining peers finish.",
+    "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until remaining peers finish. Never finish during the soft window — the runtime blocks early finish.",
     "Peers must finish with the answer — they must not message_agent you back.",
     "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
@@ -1140,6 +1140,55 @@ export async function listSoftDuePeerWaits(parentTaskId) {
     if (row.waitMode !== "soft" || !row.softWaitUntil) return false;
     return new Date(row.softWaitUntil).getTime() <= now;
   });
+}
+
+/**
+ * Soft-wait peers still inside the soft window (not yet due).
+ * Why: parent must not call finish in the same turn as message_agent soft — window has not elapsed.
+ * @param {string} parentTaskId
+ * @returns {Promise<object[]>}
+ */
+export async function listSoftActivePeerWaits(parentTaskId) {
+  const id = String(parentTaskId || "").trim();
+  if (!id) return [];
+  const task = await Task.findById(id).select("pendingPeerResults").lean();
+  const now = Date.now();
+  return (task?.pendingPeerResults || []).filter((row) => {
+    if (row.consumed || row.status !== "waiting") return false;
+    if (row.waitMode !== "soft" || !row.softWaitUntil) return false;
+    return new Date(row.softWaitUntil).getTime() > now;
+  });
+}
+
+/**
+ * Gate finish while soft waits are outstanding.
+ * - Inside soft window → block finish (keep working).
+ * - Past soft deadline → pause until peers finish (or hard timeout), then allow finish.
+ * @param {string} userId
+ * @param {string} parentTaskId
+ * @returns {Promise<{ allowFinish: boolean, notes: string[] }>}
+ */
+export async function guardFinishAgainstSoftWaits(userId, parentTaskId) {
+  const notes = [];
+  const active = await listSoftActivePeerWaits(parentTaskId);
+  if (active.length) {
+    const untilMs = Math.min(
+      ...active.map((r) => new Date(r.softWaitUntil).getTime())
+    );
+    const untilIso = new Date(untilMs).toISOString();
+    const names = active.map((r) => r.toAgentName || "peer").join(", ");
+    const secsLeft = Math.max(1, Math.ceil((untilMs - Date.now()) / 1000));
+    notes.push(
+      `SOFT WAIT ACTIVE (${secsLeft}s left, until ${untilIso}) for ${names} — do NOT finish yet. Keep working on other parts of the goal. When the soft window ends the runtime will pause for their reply.`
+    );
+    return { allowFinish: false, notes };
+  }
+  const due = await listSoftDuePeerWaits(parentTaskId);
+  if (due.length) {
+    const soft = await softPauseForDuePeers(userId, parentTaskId);
+    notes.push(...(soft.notes || []));
+  }
+  return { allowFinish: true, notes };
 }
 
 /**

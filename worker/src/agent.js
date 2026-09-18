@@ -2111,6 +2111,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
               },
             }).catch(() => {});
           }
+          if (Array.isArray(drained?.softActive) && drained.softActive.length) {
+            const names = drained.softActive.map((r) => r.toAgentName || "peer").join(", ");
+            const until = drained.softActive
+              .map((r) => r.softWaitUntil)
+              .filter(Boolean)
+              .map((d) => new Date(d).getTime())
+              .sort((a, b) => a - b)[0];
+            const untilIso = until ? new Date(until).toISOString() : "";
+            const softNote = `SOFT WAIT ACTIVE until ${untilIso} for ${names} — do NOT finish yet; keep working. Runtime will pause for peers when the soft window ends.`;
+            notes.push(softNote);
+            await mirror(taskId, "info", {
+              appendMessage: softNote.slice(0, 1500),
+              payload: { kind: "soft_wait" },
+            }).catch(() => {});
+          }
           if (Array.isArray(drained?.softDue) && drained.softDue.length) {
             const soft = await api(`/api/worker/tasks/${taskId}/peer-results/soft-pause`, {
               method: "POST",
@@ -2311,7 +2326,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
-              "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers. Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers. If a goal starts with LATE PEER RESULT, incorporate that answer and finish — do not re-open the peer’s site unless verifying.",
+              "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers. Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers. After wait:\"soft\", NEVER finish in the same turn — keep working until the soft window ends or a PEER RESULT note arrives. If a goal starts with LATE PEER RESULT, incorporate that answer and finish — do not re-open the peer’s site unless verifying.",
               "OPERATOR CHAT: The human may send OPERATOR MESSAGE notes while you run — treat them as high-priority guidance for the current goal (do not start an unrelated new goal unless they clearly ask).",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes. If those facts already answer the goal, call finish. Do not re-do a search listed there.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
@@ -2757,7 +2772,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           screenshot: isLastInBatch || BATCH_STOP_TYPES.has(actionToRun.type),
         }).catch(() => {});
 
-        if (actionToRun.type === "finish" || result?.finished) {
+        if (result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
           // Why: after signup, auto-save typed email/password into View memory vault (no chat prompt).
@@ -2973,6 +2988,33 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return { ok: true, userAnswer: answer };
       }
       case "finish": {
+        // Why: soft wait must not be skipped by finish in the same multi-action turn as message_agent.
+        try {
+          const guard = await api(`/api/worker/tasks/${taskId}/peer-results/finish-guard`, {
+            method: "POST",
+            body: JSON.stringify({}),
+          });
+          for (const note of guard?.notes || []) {
+            notes.push(note);
+            await mirror(taskId, "info", {
+              appendMessage: String(note).slice(0, 1500),
+              payload: { kind: "soft_wait" },
+            }).catch(() => {});
+          }
+          if (guard && guard.allowFinish === false) {
+            return {
+              ok: false,
+              finished: false,
+              blockedFinish: true,
+              reason: "soft_wait_active",
+              summary: "Soft wait still active — keep working; do not finish yet.",
+            };
+          }
+        } catch (err) {
+          notes.push(
+            `Soft-wait finish guard failed (${err?.message || err}) — continuing with finish.`
+          );
+        }
         return {
           ok: true,
           finished: true,

@@ -31,7 +31,7 @@ import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js
 import { normalizeEntries } from "./curatedMemory.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
-import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, listSoftActivePeerWaits, guardFinishAgainstSoftWaits, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
 const STUCK_RUNNING_MS = 20 * 60 * 1000;
@@ -267,10 +267,22 @@ async function executeApiTask(task, agent, userId) {
       const drained = await consumePendingPeerResults(String(task._id));
       const opDrained = await consumePendingOperatorMessages(String(task._id));
       const softDue = await listSoftDuePeerWaits(String(task._id));
+      const softActive = await listSoftActivePeerWaits(String(task._id));
       let softNotes = [];
+      if (softActive.length) {
+        const names = softActive.map((r) => r.toAgentName || "peer").join(", ");
+        const until = softActive
+          .map((r) => r.softWaitUntil)
+          .filter(Boolean)
+          .map((d) => new Date(d).getTime())
+          .sort((a, b) => a - b)[0];
+        softNotes.push(
+          `SOFT WAIT ACTIVE until ${until ? new Date(until).toISOString() : "?"} for ${names} — do NOT finish yet; keep working.`
+        );
+      }
       if (softDue.length) {
         const soft = await softPauseForDuePeers(userId, String(task._id));
-        softNotes = soft.notes || [];
+        softNotes = softNotes.concat(soft.notes || []);
       }
       const allNotes = [...opDrained.notes, ...drained.notes, ...softNotes];
       if (allNotes.length) {
@@ -343,6 +355,23 @@ async function executeApiTask(task, agent, userId) {
       }
 
       if (type === "finish") {
+        const guard = await guardFinishAgainstSoftWaits(userId, String(task._id));
+        if (guard.notes?.length) {
+          notes.push(...guard.notes);
+          messages.push({
+            role: "user",
+            content: `${guard.notes.join("\n")}\n\nContinue working; do not finish until soft wait completes.`,
+          });
+          await Message.create({
+            chat: task.chat,
+            role: "system",
+            content: guard.notes.join("\n").slice(0, 1500),
+            meta: { taskId: task._id, kind: "soft_wait", ui: "icon" },
+          }).catch(() => null);
+        }
+        if (!guard.allowFinish) {
+          continue;
+        }
         const success = action.success !== false;
         const summary = String(action.summary || action.result || "").trim() || (success ? "Done." : "Failed.");
         trajectory.push({

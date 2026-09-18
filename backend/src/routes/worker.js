@@ -38,6 +38,8 @@ import {
   consumePendingOperatorMessages,
   softPauseForDuePeers,
   listSoftDuePeerWaits,
+  listSoftActivePeerWaits,
+  guardFinishAgainstSoftWaits,
   normalizeMessageWaitMode,
   AGENT_MESSAGE_WAIT_MS,
 } from "../utils/agentMessageBus.js";
@@ -1153,12 +1155,18 @@ workerRouter.post("/tasks/:id/peer-results/consume", async (req, res, next) => {
     const peers = await consumePendingPeerResults(String(req.params.id));
     const operators = await consumePendingOperatorMessages(String(req.params.id));
     const softDue = await listSoftDuePeerWaits(String(req.params.id));
+    const softActive = await listSoftActivePeerWaits(String(req.params.id));
     res.json({
       ok: true,
       notes: [...operators.notes, ...peers.notes],
       rows: peers.rows,
       operatorRows: operators.rows,
       softDue: softDue.map((r) => ({
+        agentMessageId: r.agentMessageId,
+        toAgentName: r.toAgentName || "peer",
+        softWaitUntil: r.softWaitUntil,
+      })),
+      softActive: softActive.map((r) => ({
         agentMessageId: r.agentMessageId,
         toAgentName: r.toAgentName || "peer",
         softWaitUntil: r.softWaitUntil,
@@ -1184,6 +1192,29 @@ workerRouter.post("/tasks/:id/peer-results/soft-pause", async (req, res, next) =
     }
     const soft = await softPauseForDuePeers(req.userId, String(req.params.id));
     res.json({ ok: true, notes: soft.notes, paused: soft.paused });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/tasks/:id/peer-results/finish-guard — block early finish during soft wait (v3).
+ */
+workerRouter.post("/tasks/:id/peer-results/finish-guard", async (req, res, next) => {
+  try {
+    const task = await Task.findOne({ _id: req.params.id, user: req.userId })
+      .select("_id")
+      .lean();
+    if (!task) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
+      return;
+    }
+    const guard = await guardFinishAgainstSoftWaits(req.userId, String(req.params.id));
+    res.json({
+      ok: true,
+      allowFinish: guard.allowFinish,
+      notes: guard.notes || [],
+    });
   } catch (err) {
     next(err);
   }

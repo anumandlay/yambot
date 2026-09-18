@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 14:40] Fix soft wait: block early finish during soft window
+
+- **Prompt Provided:** Fix v3 soft wait — agent finished before soft deadline / same turn as message_agent.
+- **Architectural Flow:** `guardFinishAgainstSoftWaits` blocks finish while soft peers are still inside softWaitUntil; past deadline it soft-pauses then allows finish. Worker finish action + API runner call finish-guard; consume returns softActive notes; finish only completes when `result.finished` is true.
+- **Impacted Files:** agentMessageBus.js, worker routes, worker agent.js, apiAgentRunner.js, PROMPT_LOG
+
 ## [2026-09-17 16:15] Chat bubbles show human display name (not chat title)
 
 - **Prompt Provided:** “it should show the user name when i send a message” (clarifying “test” on the bubble).
