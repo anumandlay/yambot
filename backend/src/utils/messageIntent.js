@@ -48,6 +48,30 @@ export function classifyMessageIntent(text, opts = {}) {
       text: stripIntentOverrides(raw),
     };
   }
+
+  const cleanedEarly = stripIntentOverrides(raw);
+  const lowerEarly = cleanedEarly.toLowerCase();
+  // Why: Answer mode cannot call message_agent — escalate peer/fan-out goals even if forceAsk.
+  if (
+    cleanedEarly &&
+    (/\bmessage_agent\b/i.test(cleanedEarly) ||
+      /\b(fan-?out|fanout)\b/i.test(lowerEarly) ||
+      /\b(at the same time|in parallel|both)\b.+\b(ask|message|tell|send)\b.+\b(and)\b/i.test(
+        lowerEarly
+      ) ||
+      /\b(ask|message|tell|send)\b.+\b(both|each of)\b.+\b(and)\b/i.test(lowerEarly) ||
+      /\b(ask|message|tell)\b.+\b(agent|researcher|inspector|manager|peer)\b/i.test(lowerEarly) ||
+      /\b(soft.?wait|wait:?\s*soft|wait for both)\b/i.test(lowerEarly) ||
+      /\b(peer (agent|result|message)|handoff|delegat)/i.test(lowerEarly))
+  ) {
+    return {
+      intent: "goal",
+      confidence: 0.95,
+      reason: opts.forceAsk ? "peer_a2a_overrides_ask" : "peer_a2a_or_fanout",
+      text: cleanedEarly,
+    };
+  }
+
   if (opts.forceAsk) {
     return {
       intent: "question",
@@ -74,6 +98,17 @@ export function classifyMessageIntent(text, opts = {}) {
     };
   }
   if (/^\/ask\b/i.test(raw) || /^question:\s*/i.test(raw)) {
+    // Same override: /ask + peer fan-out still needs a worker.
+    if (
+      /\bmessage_agent\b/i.test(cleanedEarly) ||
+      /\b(fan-?out|fanout)\b/i.test(lowerEarly) ||
+      /\b(at the same time|in parallel|both)\b.+\b(ask|message|tell|send)\b.+\b(and)\b/i.test(
+        lowerEarly
+      ) ||
+      /\b(ask|message|tell)\b.+\b(agent|researcher|inspector|manager|peer)\b/i.test(lowerEarly)
+    ) {
+      return { intent: "goal", confidence: 0.95, reason: "peer_a2a_overrides_ask", text: cleanedEarly };
+    }
     return {
       intent: "question",
       confidence: 1,
@@ -82,8 +117,8 @@ export function classifyMessageIntent(text, opts = {}) {
     };
   }
 
-  const cleaned = stripIntentOverrides(raw);
-  const lower = cleaned.toLowerCase();
+  const cleaned = cleanedEarly;
+  const lower = lowerEarly;
 
   // Greetings / chit-chat — never boot the computer.
   if (
@@ -212,13 +247,13 @@ export async function refineMessageIntentWithLlm(text, creds, ctx = {}) {
           `You route messages for AI employee "${agentName}" on YamBot.`,
           'Reply with ONLY JSON: {"intent":"goal"|"question","confidence":0-1}',
           "",
-          "intent=question — answer in chat from memory/profile/day history. NO browser.",
+          "intent=question — answer in chat from memory/profile/day history. NO browser, NO peer messaging.",
           "Examples: hi/hello, thanks, now, ok, yes, what do you know about me, what happened last run, explain X, status check, chit-chat, any vague 1–3 word message without a website.",
           "",
-          "intent=goal — needs the live computer/browser (open sites, click, fill, buy, research on the web).",
-          "Examples: open gmail, go to amazon and buy…, log into CRM, scrape this page.",
+          "intent=goal — needs a live worker run: browser/computer OR messaging other agents (message_agent / fan-out / ask both peers / soft wait / handoff).",
+          "Examples: open gmail, go to amazon and buy…, log into CRM, scrape this page, ask both Market researcher and Content Inspector…, fan-out to peers, soft-wait for a peer reply.",
           "",
-          "If both apply, prefer goal. Greetings, one-word pings (now/ok), and memory questions are always question.",
+          "If both apply, prefer goal. Peer collaboration is always goal (Q&A cannot call message_agent). Greetings, one-word pings (now/ok), and memory questions are always question.",
         ].join("\n"),
       },
       {
@@ -281,7 +316,7 @@ export async function answerChatQuestion(opts) {
           "If a section titled “MEMORY (your personal notes)” appears below, that is your durable notes — use it when relevant.",
           "Treat the chat session context as conversation memory for this thread until the chat is deleted.",
           "You may be answering while a browser run is also in progress — answer from memory only; do not claim to control the computer right now.",
-          "If the user needs you to browse or click, tell them to choose “Computer” mode (or send a clear browser goal).",
+          "If the user needs you to browse, click, or message other agents (fan-out / ask peers), tell them to choose “Computer” mode (or Auto) — Q&A cannot call message_agent.",
           "Be concise and direct. Do not invent credentials that are not in SAVED LOGINS.",
           "Reply in plain prose only — no tool JSON, no “finish”, no <think> tags, no chain-of-thought.",
           "",

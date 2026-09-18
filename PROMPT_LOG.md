@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 15:42] Route peer fan-out as Computer goal (not Q&A)
+
+- **Prompt Provided:** FO-918-E replied “can’t send peer-agent messages in Q&A mode”.
+- **Architectural Flow:** Intent heuristics + LLM classifier treat ask-both / fan-out / message_agent / soft-wait as `goal` (confidence 0.95). Peer A2A overrides Answer/`forceAsk` because Q&A cannot call message_agent.
+- **Impacted Files:** messageIntent.js, PROMPT_LOG
+
 ## [2026-09-18 15:40] Fix fan-out: never block HTTP on first peer
 
 - **Prompt Provided:** check live what happened (FO-918-D — still ~38s between peers).
