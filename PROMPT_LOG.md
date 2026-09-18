@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 16:45] Step 2: Auto light tool loop (status / peers)
+
+- **Prompt Provided:** Hermes-style chat step 2 — light in-chat tool loop.
+- **Architectural Flow:** Auto tools add `check_run_status` and `list_peer_agents` (lookups only). Up to 3 model↔tool rounds; terminal tools remain `reply` / `queue_goal`. Runtime in chats.js supplies live Task status + peer list. No Playwright from lookups. Text REPLY/QUEUE_GOAL fallback unchanged when tools unsupported.
+- **Impacted Files:** chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-18 16:25] Step 1: Auto chat tools (reply / queue_goal) + text fallback
 
 - **Prompt Provided:** Hermes-style chat step 1 — structured Auto tools without affecting worker/A2A.

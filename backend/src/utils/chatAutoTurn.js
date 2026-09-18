@@ -1,7 +1,6 @@
 /**
- * @fileoverview Hermes-style Auto chat turn — one model call decides reply vs queue_goal.
- * Purpose: Skip the separate intent-classifier LLM; expose YamBot chat tools (reply / queue_goal)
- * like Hermes tool selection, with REPLY/QUEUE_GOAL text fallback for providers without tools.
+ * @fileoverview Hermes-style Auto chat turn — model picks from YamBot chat tools.
+ * Purpose: reply / queue_goal (+ optional status/peer lookups in a short loop); text fallback.
  * Downstream: chats.js POST /messages (Auto mode only — does not change worker/A2A).
  */
 
@@ -12,7 +11,8 @@ import { classifyMessageIntent } from "./messageIntent.js";
 
 /**
  * OpenAI-compatible tool schemas for Auto chat (YamBot-only surface).
- * Why: model proposes; runtime validates and either posts chat text or enqueues a computer goal.
+ * Terminal: reply, queue_goal. Lookup (loop): check_run_status, list_peer_agents.
+ * Why: model proposes; runtime validates — never starts Playwright from a lookup tool.
  * @type {object[]}
  */
 export const AUTO_CHAT_TOOLS = [
@@ -56,7 +56,34 @@ export const AUTO_CHAT_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "check_run_status",
+      description:
+        "Look up whether this agent currently has a running, waiting, or pending computer task. Use before answering status questions. Does not start the browser.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "list_peer_agents",
+      description:
+        "List peer agent names this agent can message_agent (managedAgents). Use when the user asks who they can fan-out to. Does not start the browser.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
 ];
+
+/** Max model↔tool rounds in one Auto message (lookups + final reply/queue). */
+export const AUTO_CHAT_MAX_TOOL_ROUNDS = 3;
 
 /**
  * @param {string} rawArgs
@@ -82,7 +109,7 @@ function parseToolArgs(rawArgs) {
 }
 
 /**
- * Map native tool_calls into Auto turn result.
+ * Map native tool_calls into Auto turn result (terminal tools only).
  * @param {{ id: string, name: string, arguments: string }[]} toolCalls
  * @returns {{ action: "reply"|"queue_goal", content: string, goal: string, ack: string }|null}
  */
@@ -111,6 +138,57 @@ export function parseAutoToolCalls(toolCalls) {
     }
   }
   return null;
+}
+
+/**
+ * Classify the first tool call in a batch.
+ * @param {{ id: string, name: string, arguments: string }} tc
+ * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"unknown"}
+ */
+export function classifyAutoToolName(tc) {
+  const name = String(tc?.name || "")
+    .trim()
+    .toLowerCase();
+  if (name === "reply" || name === "answer" || name === "chat_reply") return "reply";
+  if (name === "queue_goal" || name === "queuegoal" || name === "run_goal") return "queue_goal";
+  if (name === "check_run_status" || name === "run_status" || name === "status") {
+    return "check_run_status";
+  }
+  if (name === "list_peer_agents" || name === "list_peers" || name === "peers") {
+    return "list_peer_agents";
+  }
+  return "unknown";
+}
+
+/**
+ * Run one non-terminal Auto tool via runtime callbacks.
+ * @param {string} kind
+ * @param {{
+ *   checkRunStatus?: () => Promise<object|string>,
+ *   listPeerAgents?: () => Promise<object|string>,
+ * }} [runtime]
+ * @returns {Promise<string>}
+ */
+export async function executeAutoLookupTool(kind, runtime = {}) {
+  try {
+    if (kind === "check_run_status") {
+      if (typeof runtime.checkRunStatus !== "function") {
+        return JSON.stringify({ ok: false, detail: "check_run_status not available" });
+      }
+      const data = await runtime.checkRunStatus();
+      return typeof data === "string" ? data : JSON.stringify(data);
+    }
+    if (kind === "list_peer_agents") {
+      if (typeof runtime.listPeerAgents !== "function") {
+        return JSON.stringify({ ok: false, detail: "list_peer_agents not available" });
+      }
+      const data = await runtime.listPeerAgents();
+      return typeof data === "string" ? data : JSON.stringify(data);
+    }
+  } catch (err) {
+    return JSON.stringify({ ok: false, detail: String(err?.message || err) });
+  }
+  return JSON.stringify({ ok: false, detail: `Unknown lookup tool: ${kind}` });
 }
 
 /**
@@ -252,7 +330,11 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     return [
       ...shared,
       "",
-      "Call exactly one tool: reply OR queue_goal. Do not invent other tool names.",
+      "You may call tools. Prefer:",
+      "- check_run_status / list_peer_agents when you need live facts before answering",
+      "- then reply OR queue_goal to finish the turn",
+      "Do not invent other tool names. Lookups never start the browser.",
+      `At most ${AUTO_CHAT_MAX_TOOL_ROUNDS} tool rounds — then you must reply or queue_goal.`,
       "",
       context || "(no extra agent context)",
       thread ? `\n\n${thread}` : "",
@@ -332,7 +414,7 @@ async function runChatAutoTurnTextFallback(opts) {
 }
 
 /**
- * One Auto turn: native tools first, then REPLY/QUEUE_GOAL text fallback.
+ * Auto turn: native tools with a short lookup loop, then text fallback.
  * @param {{
  *   question: string,
  *   snapshot: object,
@@ -340,11 +422,23 @@ async function runChatAutoTurnTextFallback(opts) {
  *   chatContext?: string,
  *   stream?: boolean,
  *   onDelta?: (chunk: string) => void,
+ *   runtime?: {
+ *     checkRunStatus?: () => Promise<object|string>,
+ *     listPeerAgents?: () => Promise<object|string>,
+ *   },
  * }} opts
  * @returns {Promise<{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string }>}
  */
 export async function runChatAutoTurn(opts) {
-  const { question, snapshot, creds, chatContext = "", stream = false, onDelta } = opts;
+  const {
+    question,
+    snapshot,
+    creds,
+    chatContext = "",
+    stream = false,
+    onDelta,
+    runtime = {},
+  } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
 
@@ -359,7 +453,8 @@ export async function runChatAutoTurn(opts) {
   }
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
-  const toolMessages = [
+  /** @type {object[]} */
+  const messages = [
     {
       role: "system",
       content: buildAutoSystemPrompt(snapshot, agentName, thread, "tools"),
@@ -368,37 +463,124 @@ export async function runChatAutoTurn(opts) {
   ];
 
   try {
-    const msg = await llmChatCompletionMessage({
+    for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
+      const msg = await llmChatCompletionMessage({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl || "",
+        model: creds.llmModel || "",
+        openAiAccountId: creds.openAiAccountId,
+        temperature: 0.3,
+        maxTokens: 900,
+        timeoutMs: 60_000,
+        messages,
+        tools: AUTO_CHAT_TOOLS,
+        toolChoice: "auto",
+      });
+
+      const terminal = parseAutoToolCalls(msg.toolCalls);
+      if (terminal) {
+        if (terminal.action === "reply" && terminal.content && typeof onDelta === "function") {
+          onDelta(terminal.content);
+        }
+        return {
+          ...terminal,
+          reason: round === 0 ? "model_auto_tool_call" : "model_auto_tool_loop",
+        };
+      }
+
+      const lookups = (msg.toolCalls || []).filter((tc) => {
+        const kind = classifyAutoToolName(tc);
+        return kind === "check_run_status" || kind === "list_peer_agents";
+      });
+
+      if (lookups.length) {
+        // Why: append assistant tool_calls then tool results so the next round can reply/queue.
+        const assistantToolMessage = msg.rawMessage?.tool_calls
+          ? {
+              role: "assistant",
+              content: msg.content || null,
+              tool_calls: msg.rawMessage.tool_calls,
+            }
+          : {
+              role: "assistant",
+              content: msg.content || null,
+              tool_calls: lookups.map((tc, i) => ({
+                id: tc.id || `call_${round}_${i}`,
+                type: "function",
+                function: {
+                  name: tc.name,
+                  arguments: tc.arguments || "{}",
+                },
+              })),
+            };
+        messages.push(assistantToolMessage);
+
+        for (let i = 0; i < lookups.length; i++) {
+          const tc = lookups[i];
+          const kind = classifyAutoToolName(tc);
+          const toolCallId =
+            tc.id ||
+            assistantToolMessage.tool_calls?.[i]?.id ||
+            `call_${round}_${i}`;
+          const resultText = await executeAutoLookupTool(kind, runtime);
+          messages.push({
+            role: "tool",
+            tool_call_id: toolCallId,
+            content: resultText.slice(0, 4000),
+          });
+        }
+        continue;
+      }
+
+      // No tool_calls — treat content as text protocol finish.
+      if (msg.content) {
+        const parsed = parseAutoTurnOutput(msg.content);
+        if (parsed.action === "reply" && parsed.content && typeof onDelta === "function") {
+          onDelta(parsed.content);
+        }
+        return { ...parsed, reason: "model_auto_turn_after_tools" };
+      }
+
+      break;
+    }
+
+    // Exhausted rounds without a terminal tool — force a plain reply.
+    const forced = await llmChatCompletionMessage({
       apiKey: creds.apiKey,
       baseUrl: creds.llmBaseUrl || "",
       model: creds.llmModel || "",
       openAiAccountId: creds.openAiAccountId,
       temperature: 0.3,
-      maxTokens: 900,
-      timeoutMs: 60_000,
-      messages: toolMessages,
-      tools: AUTO_CHAT_TOOLS,
+      maxTokens: 600,
+      timeoutMs: 45_000,
+      messages: [
+        ...messages,
+        {
+          role: "user",
+          content:
+            "Tool round limit reached. Reply to the user now with the reply tool or plain prose — do not call more lookup tools.",
+        },
+      ],
+      tools: AUTO_CHAT_TOOLS.filter((t) =>
+        ["reply", "queue_goal"].includes(t.function?.name)
+      ),
       toolChoice: "auto",
     });
-
-    const fromTools = parseAutoToolCalls(msg.toolCalls);
-    if (fromTools) {
-      if (fromTools.action === "reply" && fromTools.content && typeof onDelta === "function") {
-        onDelta(fromTools.content);
+    const term = parseAutoToolCalls(forced.toolCalls);
+    if (term) {
+      if (term.action === "reply" && term.content && typeof onDelta === "function") {
+        onDelta(term.content);
       }
-      return { ...fromTools, reason: "model_auto_tool_call" };
+      return { ...term, reason: "model_auto_tool_loop_cap" };
     }
-
-    // Provider accepted tools but returned prose — parse text protocol from content.
-    if (msg.content) {
-      const parsed = parseAutoTurnOutput(msg.content);
+    if (forced.content) {
+      const parsed = parseAutoTurnOutput(forced.content);
       if (parsed.action === "reply" && parsed.content && typeof onDelta === "function") {
         onDelta(parsed.content);
       }
-      return { ...parsed, reason: "model_auto_turn_after_tools" };
+      return { ...parsed, reason: "model_auto_tool_loop_cap_text" };
     }
   } catch (err) {
-    // Why: many YamBot LLM providers reject tools — fall back without failing the chat.
     const status = Number(err?.status) || 0;
     const detail = String(err?.message || err || "");
     const toolsUnsupported =
@@ -408,7 +590,6 @@ export async function runChatAutoTurn(opts) {
       /function/i.test(detail) ||
       /not support/i.test(detail);
     if (!toolsUnsupported && status >= 500) throw err;
-    // continue to text fallback
   }
 
   return runChatAutoTurnTextFallback({

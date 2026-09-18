@@ -22,6 +22,7 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion } from "../utils/chatAutoTurn.js";
+import { formatPeerAgentsBlock } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
   buildChatContextPrompt,
@@ -822,6 +823,58 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           onDelta: wantStream
             ? (chunk) => writeNdjson({ type: "delta", text: chunk })
             : undefined,
+          // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
+          runtime: {
+            checkRunStatus: async () => {
+              const [active, pendingCount] = await Promise.all([
+                Task.findOne({
+                  agent: agentDoc._id,
+                  user: req.userId,
+                  status: { $in: ["running", "waiting_user"] },
+                })
+                  .select("_id status goal updatedAt")
+                  .lean(),
+                Task.countDocuments({
+                  agent: agentDoc._id,
+                  user: req.userId,
+                  status: "pending",
+                }),
+              ]);
+              return {
+                ok: true,
+                agentName: agentDoc.name,
+                active: active
+                  ? {
+                      taskId: String(active._id),
+                      status: active.status,
+                      goal: String(active.goal || "").slice(0, 240),
+                      updatedAt: active.updatedAt,
+                    }
+                  : null,
+                pendingCount,
+                busy: Boolean(active),
+              };
+            },
+            listPeerAgents: async () => {
+              const block = await formatPeerAgentsBlock(
+                req.userId,
+                String(agentDoc._id),
+                40
+              );
+              /** @type {string[]} */
+              const peers = [];
+              for (const line of String(block || "").split("\n")) {
+                const m = line.match(/^\s*-\s+(.+?)(?:\s*\([^)]*\))?\s*$/);
+                if (m) peers.push(m[1].trim());
+              }
+              return {
+                ok: true,
+                agentName: agentDoc.name,
+                peers,
+                peerBlockPreview: String(block || "").slice(0, 1200),
+              };
+            },
+          },
         });
       } catch (err) {
         answerError = err;
