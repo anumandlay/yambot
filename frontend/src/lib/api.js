@@ -229,6 +229,132 @@ export async function apiNdjson(path, options = {}) {
 }
 
 /**
+ * POST /api/chats/:id/messages with NDJSON stream (Hermes-style fast Auto/Answer).
+ * Events: user_message, delta, routing, result, error.
+ * @param {string} path
+ * @param {{
+ *   body?: object,
+ *   auth?: boolean,
+ *   timeoutMs?: number,
+ *   onUserMessage?: (msg: object) => void,
+ *   onDelta?: (text: string) => void,
+ *   onRouting?: (info: object) => void,
+ * }} [options]
+ * @returns {Promise<object>} Final result event
+ */
+export async function apiChatMessageStream(path, options = {}) {
+  const {
+    auth = true,
+    body,
+    timeoutMs = 120000,
+    onUserMessage,
+    onDelta,
+    onRouting,
+  } = options;
+  const h = new Headers();
+  h.set("Content-Type", "application/json");
+  h.set("Accept", "application/x-ndjson, application/json");
+  if (auth) {
+    const token = getToken();
+    if (token) h.set("Authorization", `Bearer ${token}`);
+  }
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  let res;
+  try {
+    res = await fetch(`${API_BASE}${path}`, {
+      method: "POST",
+      headers: h,
+      body: JSON.stringify({ ...(body || {}), stream: true }),
+      signal: controller.signal,
+    });
+  } catch (err) {
+    clearTimeout(timer);
+    if (err?.name === "AbortError") {
+      const timeoutErr = new Error("Request timed out — check your connection and try again.");
+      timeoutErr.title = "Request timed out";
+      timeoutErr.detail = timeoutErr.message;
+      timeoutErr.isTimeout = true;
+      throw timeoutErr;
+    }
+    throw err;
+  }
+
+  const contentType = String(res.headers.get("content-type") || "");
+  if (!contentType.includes("ndjson")) {
+    clearTimeout(timer);
+    let data = null;
+    try {
+      data = await res.json();
+    } catch {
+      data = null;
+    }
+    if (!res.ok || data?.ok === false) {
+      const err = new Error(data?.detail || data?.message || `HTTP ${res.status}`);
+      err.title = data?.title || "Request failed";
+      err.detail = data?.detail || err.message;
+      err.hint = data?.hint || "";
+      err.status = res.status;
+      throw err;
+    }
+    return data;
+  }
+
+  try {
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error("No response body to stream");
+    const decoder = new TextDecoder();
+    let buffer = "";
+    /** @type {object|null} */
+    let final = null;
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split("\n");
+      buffer = lines.pop() || "";
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
+        let obj;
+        try {
+          obj = JSON.parse(trimmed);
+        } catch {
+          continue;
+        }
+        if (obj.type === "user_message" && obj.message) {
+          if (typeof onUserMessage === "function") onUserMessage(obj.message);
+        } else if (obj.type === "delta" && obj.text) {
+          if (typeof onDelta === "function") onDelta(String(obj.text));
+        } else if (obj.type === "routing") {
+          if (typeof onRouting === "function") onRouting(obj);
+        } else if (obj.type === "result") {
+          final = obj;
+        } else if (obj.type === "error") {
+          const err = new Error(obj.detail || obj.message || "Request failed");
+          err.title = obj.title || "Request failed";
+          err.detail = obj.detail || err.message;
+          err.hint = obj.hint || "";
+          err.status = res.status || 400;
+          throw err;
+        }
+      }
+    }
+
+    if (!final || final.ok === false) {
+      const err = new Error(final?.detail || "No result from stream");
+      err.title = final?.title || "Request failed";
+      err.detail = final?.detail || err.message;
+      throw err;
+    }
+    return final;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * True when a background poll aborted on the client timeout (not a user-facing hard failure).
  * @param {unknown} err
  * @returns {boolean}

@@ -21,6 +21,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
+import { runChatAutoTurn, streamChatQuestion } from "../utils/chatAutoTurn.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
   buildChatContextPrompt,
@@ -667,17 +668,41 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       return;
     }
 
-    // Why: questions answer from memory/LLM without booting the computer or cancelling runs.
+    // Why: Hermes-style Auto — one model turn (reply vs queue_goal), not a separate classify LLM.
+    // Answer/Computer toggles still force paths; slash skills always queue.
     const forceGoal = Boolean(req.body?.forceGoal) || Boolean(req.body?.asGoal);
     const forceAsk = Boolean(req.body?.forceAsk) || Boolean(req.body?.asQuestion);
+    const wantStream = Boolean(req.body?.stream) || String(req.query?.stream || "") === "1";
+    const useHermesAuto = !forceGoal && !forceAsk && !invokedSkillDoc;
+    /** @type {object|null} */
+    let precreatedUserMessage = null;
+    /** @type {string} */
+    let autoAck = "";
+
     let classification = classifyMessageIntent(goalText || content, {
       forceGoal,
       forceAsk,
       hasSkillSlash: Boolean(invokedSkillDoc),
     });
 
-    // Why: Auto mode — LLM refine whenever heuristics are soft (not only "ambiguous").
-    if (shouldRefineIntentWithLlm(classification)) {
+    /** @type {null | ((obj: object) => void)} */
+    let writeNdjson = null;
+    const startNdjson = () => {
+      if (writeNdjson) return;
+      res.status(200);
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      if (typeof res.flushHeaders === "function") res.flushHeaders();
+      writeNdjson = (obj) => {
+        if (res.writableEnded) return;
+        res.write(`${JSON.stringify(obj)}\n`);
+        if (typeof res.flush === "function") res.flush();
+      };
+    };
+
+    // Legacy refine only when not using Hermes Auto (should rarely run).
+    if (!useHermesAuto && shouldRefineIntentWithLlm(classification)) {
       try {
         const userForLlm = await User.findById(req.userId);
         const classifyCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
@@ -716,7 +741,184 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       }
     }
 
-    if (classification.intent === "question") {
+    if (useHermesAuto) {
+      const questionText = goalText || content;
+      const owner = await User.findById(req.userId).select("name curatedMemory email");
+      if (shouldAutoRenameChatTitle(chat.title, owner?.name)) {
+        chat.title = questionText.slice(0, 60);
+      }
+      chat.updatedAt = new Date();
+      await chat.save();
+
+      const messageMeta = {
+        intent: "auto",
+        intentReason: "hermes_auto_turn",
+        senderName: resolveHumanDisplayName(owner),
+      };
+      if (common) {
+        Object.assign(messageMeta, {
+          dispatchAgentId: String(agentDoc._id),
+          dispatchAgentName: agentDoc.name,
+          goalText: questionText,
+          mention: mentionMeta,
+          router: routerMeta,
+        });
+      }
+
+      const message = await Message.create({
+        chat: chat._id,
+        role: "user",
+        content,
+        meta: messageMeta,
+      });
+
+      if (wantStream) {
+        startNdjson();
+        writeNdjson({ type: "user_message", message });
+      }
+
+      const busyRun = await Task.findOne({
+        agent: agentDoc._id,
+        user: req.userId,
+        status: { $in: ["running", "waiting_user"] },
+      })
+        .select("_id status")
+        .lean();
+
+      let turn;
+      let answerError = null;
+      let qaCreds = null;
+      try {
+        const userForLlm = await User.findById(req.userId);
+        qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
+        if (!qaCreds.apiKey) {
+          throw Object.assign(new Error("No LLM credentials configured"), {
+            title: "LLM not configured",
+            hint: "Add an LLM key in Settings, or use Computer mode / /run …",
+          });
+        }
+        await refreshChatContextIfNeeded(chat, qaCreds);
+        const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
+          excludeIds: [String(message._id)],
+          creds: qaCreds,
+        });
+        const { normalizeEntries } = await import("../utils/curatedMemory.js");
+        const userCuratedEntries = normalizeEntries(userForLlm?.curatedMemory?.entries);
+        const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+        const qaSnapshot = withChatContext(
+          toAgentSnapshot(agentDoc, {
+            goal: questionText,
+            userCuratedEntries,
+            agentCuratedEntries,
+          }),
+          chatContextBlock
+        );
+        turn = await runChatAutoTurn({
+          question: questionText,
+          snapshot: qaSnapshot,
+          creds: qaCreds,
+          chatContext: chatContextBlock,
+          stream: wantStream,
+          onDelta: wantStream
+            ? (chunk) => writeNdjson({ type: "delta", text: chunk })
+            : undefined,
+        });
+      } catch (err) {
+        answerError = err;
+        turn = {
+          action: "reply",
+          content:
+            `I could not complete that turn. ${String(err?.message || err)}\n\n` +
+            `Try Computer mode for a browser goal, or fix LLM settings.`,
+          goal: "",
+          ack: "",
+          reason: "auto_turn_error",
+        };
+      }
+
+      if (turn.action === "queue_goal") {
+        // Fall through to computer enqueue with the model's (or heuristic) goal text.
+        goalText = String(turn.goal || questionText).trim() || questionText;
+        classification = {
+          intent: "goal",
+          confidence: 0.95,
+          reason: turn.reason || "hermes_auto_queue_goal",
+          text: goalText,
+        };
+        if (wantStream) {
+          writeNdjson({
+            type: "routing",
+            action: "queue_goal",
+            goal: goalText,
+            ack: turn.ack || turn.content || "",
+          });
+        }
+        // Why: user message already saved — reuse it in the goal enqueue path.
+        precreatedUserMessage = message;
+        autoAck = String(turn.ack || turn.content || "").trim();
+      } else {
+        const assistantContent =
+          String(turn.content || "").trim() ||
+          "I am here — ask a question or send a computer goal.";
+        const assistantMessage = await Message.create({
+          chat: chat._id,
+          role: "assistant",
+          content: assistantContent,
+          meta: {
+            kind: "chat_qa",
+            intent: "question",
+            intentReason: turn.reason || "hermes_auto_reply",
+            intentConfidence: 0.9,
+            agentId: String(agentDoc._id),
+            agentName: agentDoc.name,
+            answeredWhileBusy: Boolean(busyRun),
+            hermesAuto: true,
+            error: answerError ? String(answerError.message || answerError) : undefined,
+          },
+        });
+        const systemMessage = await Message.create({
+          chat: chat._id,
+          role: "system",
+          content: busyRun
+            ? `Answered in chat (Hermes Auto — no computer). The current browser run continues.`
+            : `Answered in chat (Hermes Auto — no computer).`,
+          meta: {
+            kind: "intent_question",
+            ui: "icon",
+            intentReason: turn.reason || "hermes_auto_reply",
+            agentId: String(agentDoc._id),
+            agentName: agentDoc.name,
+            answeredWhileBusy: Boolean(busyRun),
+            hermesAuto: true,
+          },
+        });
+        if (qaCreds?.apiKey) {
+          void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
+        }
+        if (wantStream) {
+          writeNdjson({
+            type: "result",
+            ok: true,
+            intent: "question",
+            message,
+            assistantMessage,
+            systemMessage,
+            task: null,
+          });
+          res.end();
+          return;
+        }
+        res.status(201).json({
+          ok: true,
+          intent: "question",
+          message,
+          assistantMessage,
+          systemMessage,
+          task: null,
+        });
+        return;
+      }
+    } else if (classification.intent === "question") {
       const questionText = classification.text || goalText || content;
       const owner = await User.findById(req.userId).select("name curatedMemory email");
       if (shouldAutoRenameChatTitle(chat.title, owner?.name)) {
@@ -748,6 +950,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         meta: messageMeta,
       });
 
+      if (wantStream) {
+        startNdjson();
+        writeNdjson({ type: "user_message", message });
+      }
+
       const busyRun = await Task.findOne({
         agent: agentDoc._id,
         user: req.userId,
@@ -768,13 +975,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hint: "Add an LLM key in Settings, or send /run … to use the computer.",
           });
         }
-        // Why: fold older turns into summary before packing so Q&A sees this chat’s memory.
         await refreshChatContextIfNeeded(chat, qaCreds);
         const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
           excludeIds: [String(message._id)],
           creds: qaCreds,
         });
-        // Why: Q&A must see the same frozen USER.md as browser runs (Hermes curated profile).
         const { normalizeEntries } = await import("../utils/curatedMemory.js");
         const userCuratedEntries = normalizeEntries(userForLlm?.curatedMemory?.entries);
         const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
@@ -786,17 +991,28 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           }),
           chatContextBlock
         );
-        assistantContent = await answerChatQuestion({
-          question: questionText,
-          snapshot: qaSnapshot,
-          creds: qaCreds,
-          chatContext: chatContextBlock,
-        });
+        if (wantStream) {
+          assistantContent = await streamChatQuestion({
+            question: questionText,
+            snapshot: qaSnapshot,
+            creds: qaCreds,
+            chatContext: chatContextBlock,
+            onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
+          });
+        } else {
+          assistantContent = await answerChatQuestion({
+            question: questionText,
+            snapshot: qaSnapshot,
+            creds: qaCreds,
+            chatContext: chatContextBlock,
+          });
+        }
       } catch (err) {
         answerError = err;
         assistantContent =
           `I treated that as a question (no computer). ${String(err?.message || err)}\n\n` +
           `Send the same request with /run … to use the browser, or fix LLM settings.`;
+        if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
       }
 
       const assistantMessage = await Message.create({
@@ -832,9 +1048,22 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         },
       });
 
-      // Why: after both turns exist, refresh summary for the next message in this chat.
       if (qaCreds?.apiKey) {
         void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
+      }
+
+      if (wantStream) {
+        writeNdjson({
+          type: "result",
+          ok: true,
+          intent: "question",
+          message,
+          assistantMessage,
+          systemMessage,
+          task: null,
+        });
+        res.end();
+        return;
       }
 
       res.status(201).json({
@@ -858,7 +1087,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       .lean();
 
     const owner = await User.findById(req.userId).select("name curatedMemory email");
-    if (shouldAutoRenameChatTitle(chat.title, owner?.name)) {
+    if (!precreatedUserMessage && shouldAutoRenameChatTitle(chat.title, owner?.name)) {
       chat.title = (goalText || content).slice(0, 60);
     }
     chat.updatedAt = new Date();
@@ -866,6 +1095,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
     const messageMeta = {
       senderName: resolveHumanDisplayName(owner),
+      intent: "goal",
+      intentReason: classification.reason,
+      intentConfidence: classification.confidence,
     };
     if (common) {
       Object.assign(messageMeta, {
@@ -893,12 +1125,30 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       });
     }
 
-    const message = await Message.create({
-      chat: chat._id,
-      role: "user",
-      content,
-      meta: Object.keys(messageMeta).length ? messageMeta : null,
-    });
+    const message =
+      precreatedUserMessage ||
+      (await Message.create({
+        chat: chat._id,
+        role: "user",
+        content,
+        meta: Object.keys(messageMeta).length ? messageMeta : null,
+      }));
+
+    if (autoAck) {
+      await Message.create({
+        chat: chat._id,
+        role: "assistant",
+        content: autoAck,
+        meta: {
+          kind: "chat_qa",
+          intent: "goal",
+          intentReason: classification.reason,
+          hermesAuto: true,
+          agentId: String(agentDoc._id),
+          agentName: agentDoc.name,
+        },
+      });
+    }
 
     // Why: rebuild snapshot with final goal + this chat’s session context for the worker.
     snapshot = toAgentSnapshot(agentDoc, { goal: goalText || content });
@@ -996,6 +1246,19 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     if (snapshot?.mode === "api" && !activeRun) {
       const { kickApiAgent } = await import("../utils/apiAgentRunner.js");
       kickApiAgent(agentDoc._id, req.userId);
+    }
+
+    if (wantStream && writeNdjson) {
+      writeNdjson({
+        type: "result",
+        ok: true,
+        intent: "goal",
+        message,
+        task,
+        systemMessage: agentNote,
+      });
+      res.end();
+      return;
     }
 
     res.status(201).json({

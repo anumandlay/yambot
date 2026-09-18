@@ -2,6 +2,7 @@
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
  * Purpose: Thread + composer on the left; live screen on the right with snapshot/trajectory icon popovers below it.
  * Mid-run (v2): while the agent is running, Auto injects OPERATOR MESSAGE notes into the live task.
+ * Hermes-style Auto: one streamed model turn chooses chat reply vs queue_goal (no separate classify LLM).
  * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
  */
 
@@ -10,7 +11,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 /** Newest messages shown on first paint; scroll-up loads the previous page. */
 const MESSAGE_PAGE = 100;
 import { Link, useLocation, useParams } from "react-router-dom";
-import { api, isTimeoutError } from "../lib/api.js";
+import { api, apiChatMessageStream, isTimeoutError } from "../lib/api.js";
 import { resolveAgentMention, listMentionSuggestions } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
 import { skillPickFromMessage } from "../lib/skillPick.js";
@@ -580,14 +581,76 @@ export function ChatDetailPage() {
       }
       body.agentId = dispatchAgentId;
     }
-    await api(`/api/chats/${chatId}/messages`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    });
+
+    // Why: Auto/Answer stream tokens like Hermes; Computer mode stays one-shot JSON.
+    const useStream = !body.forceGoal;
+    if (!useStream) {
+      await api(`/api/chats/${chatId}/messages`, {
+        method: "POST",
+        body: JSON.stringify(body),
+        timeoutMs: 120000,
+      });
+      setInput("");
+      setPendingRoute(null);
+      await load();
+      scrollThreadToBottom(true);
+      return;
+    }
+
+    const streamId = `stream-${Date.now()}`;
     setInput("");
     setPendingRoute(null);
-    await load();
+    setMessages((prev) => [
+      ...prev,
+      {
+        _id: `${streamId}-user`,
+        role: "user",
+        content,
+        createdAt: new Date().toISOString(),
+        meta: { senderName: userDisplayName },
+      },
+      {
+        _id: `${streamId}-assistant`,
+        role: "assistant",
+        content: "",
+        createdAt: new Date().toISOString(),
+        meta: { kind: "chat_qa", streaming: true },
+      },
+    ]);
     scrollThreadToBottom(true);
+
+    try {
+      await apiChatMessageStream(`/api/chats/${chatId}/messages`, {
+        body,
+        timeoutMs: 120000,
+        onDelta: (text) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m._id === `${streamId}-assistant`
+                ? { ...m, content: String(m.content || "") + text }
+                : m
+            )
+          );
+          scrollThreadToBottom(true);
+        },
+        onRouting: (info) => {
+          if (info?.ack) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m._id === `${streamId}-assistant`
+                  ? { ...m, content: String(info.ack), meta: { ...m.meta, streaming: false } }
+                  : m
+              )
+            );
+          } else {
+            setMessages((prev) => prev.filter((m) => m._id !== `${streamId}-assistant`));
+          }
+        },
+      });
+    } finally {
+      await load();
+      scrollThreadToBottom(true);
+    }
   }
 
   async function confirmPendingRoute() {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 16:10] Hermes-style Auto: one turn + streamed replies
+
+- **Prompt Provided:** Make YamBot more Hermes-like — fast replies; model decides question vs computer (not a separate classifier).
+- **Architectural Flow:** Auto mode skips the classify LLM. `runChatAutoTurn` does one model call (REPLY vs QUEUE_GOAL); strong peer/browser heuristics still queue immediately. Answers stream via NDJSON (`delta` events) + `llmChatCompletionStream`. Answer mode streams too; Computer mode still force-queues. Frontend `apiChatMessageStream` paints tokens live.
+- **Impacted Files:** chatAutoTurn.js, llmChat.js, chats.js, api.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 15:55] Chat ops icons popup + sticky mobile composer
 
 - **Prompt Provided:** Icon click shows content in a popup; mobile chat message box sticky at bottom.
