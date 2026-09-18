@@ -1203,13 +1203,15 @@ workerRouter.post("/tasks/:id/peer-results/soft-pause", async (req, res, next) =
 workerRouter.post("/tasks/:id/peer-results/finish-guard", async (req, res, next) => {
   try {
     const task = await Task.findOne({ _id: req.params.id, user: req.userId })
-      .select("_id")
+      .select("_id goal")
       .lean();
     if (!task) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Task missing" });
       return;
     }
-    const guard = await guardFinishAgainstSoftWaits(req.userId, String(req.params.id));
+    const guard = await guardFinishAgainstSoftWaits(req.userId, String(req.params.id), {
+      goal: task.goal || "",
+    });
     res.json({
       ok: true,
       allowFinish: guard.allowFinish,

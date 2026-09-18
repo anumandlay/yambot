@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 14:50] Block finish that reuses old peer replies from memory
+
+- **Prompt Provided:** How can we solve reusing memory on soft-wait retests?
+- **Architectural Flow:** Finish guard requires a fresh `message_agent` hop on this parent task when the goal looks like soft-wait / ask-peer. Prompt no longer allows finishing peer asks from SESSION CONTEXT alone.
+- **Impacted Files:** agentMessageBus.js, worker finish-guard, worker agent.js, apiAgentRunner.js, PROMPT_LOG
+
 ## [2026-09-18 14:40] Fix soft wait: block early finish during soft window
 
 - **Prompt Provided:** Fix v3 soft wait — agent finished before soft deadline / same turn as message_agent.

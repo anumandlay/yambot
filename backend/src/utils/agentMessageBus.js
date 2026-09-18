@@ -1039,6 +1039,7 @@ export async function formatPeerAgentsBlock(userId, selfAgentId, limit = 40) {
     "wait:true = block until peer(s) finish (use when you need their answer before any other step).",
     "wait:false = fire-and-forget; keep doing your remaining work. When each peer finishes, a PEER RESULT note appears.",
     "wait:\"soft\" = keep working for soft_wait_minutes (default 3), then pause until remaining peers finish. Never finish during the soft window — the runtime blocks early finish.",
+    "If the goal asks you to ask/message a peer (or soft wait): you MUST call message_agent on THIS run. Old peer replies in chat/memory do not count.",
     "Peers must finish with the answer — they must not message_agent you back.",
     "If the goal is to have a peer open/check a website and report back: message_agent them only — do NOT navigate that URL yourself.",
     `Max hop depth: ${MAX_AGENT_MESSAGE_HOP_DEPTH} (A→B→C).` +
@@ -1161,15 +1162,70 @@ export async function listSoftActivePeerWaits(parentTaskId) {
 }
 
 /**
+ * Goals that must perform a new message_agent hop this run (not reuse chat/memory).
+ * @param {string} goal
+ * @returns {boolean}
+ */
+export function goalRequiresFreshPeerAsk(goal) {
+  const g = String(goal || "");
+  if (!g.trim()) return false;
+  // Why: late-resume and inbound peer tasks are not "ask a peer" parents.
+  if (/^\[?\s*LATE PEER RESULT/i.test(g)) return false;
+  if (/^\[?\s*AGENT MESSAGE from/i.test(g)) return false;
+  if (/\bsoft\s*wait\b/i.test(g)) return true;
+  if (/\bmessage_agent\b/i.test(g)) return true;
+  if (
+    /\b(ask|message|tell|ping|delegate(?:\s+to)?)\b[\s\S]{0,100}\b(researcher|inspector|manager|agent)\b/i.test(
+      g
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(researcher|inspector|manager)\b[\s\S]{0,60}\b(how are you|ask|message)\b/i.test(g)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * True if this parent task already queued at least one outbound peer hop.
+ * @param {string} parentTaskId
+ * @returns {Promise<boolean>}
+ */
+export async function taskHasPeerHopThisRun(parentTaskId) {
+  const id = String(parentTaskId || "").trim();
+  if (!id) return false;
+  const task = await Task.findById(id).select("pendingPeerResults events").lean();
+  if ((task?.pendingPeerResults || []).length > 0) return true;
+  if (
+    (task?.events || []).some((e) =>
+      /peer|agent_message|message_agent/i.test(String(e?.type || ""))
+    )
+  ) {
+    return true;
+  }
+  const am = await AgentMessage.exists({
+    parentTask: id,
+    type: { $in: AGENT_MESSAGE_OUTBOUND_MODES },
+  });
+  return Boolean(am);
+}
+
+/**
  * Gate finish while soft waits are outstanding.
  * - Inside soft window → block finish (keep working).
  * - Past soft deadline → pause until peers finish (or hard timeout), then allow finish.
+ * - Peer-ask / soft-wait goals → block finish until this run has called message_agent (no memory reuse).
  * @param {string} userId
  * @param {string} parentTaskId
+ * @param {{ goal?: string }} [opts]
  * @returns {Promise<{ allowFinish: boolean, notes: string[] }>}
  */
-export async function guardFinishAgainstSoftWaits(userId, parentTaskId) {
+export async function guardFinishAgainstSoftWaits(userId, parentTaskId, opts = {}) {
   const notes = [];
+  const goal = String(opts.goal || "");
   const active = await listSoftActivePeerWaits(parentTaskId);
   if (active.length) {
     const untilMs = Math.min(
@@ -1187,6 +1243,17 @@ export async function guardFinishAgainstSoftWaits(userId, parentTaskId) {
   if (due.length) {
     const soft = await softPauseForDuePeers(userId, parentTaskId);
     notes.push(...(soft.notes || []));
+  }
+
+  // Why: SESSION CONTEXT / prior chat answers tempt the model to skip message_agent on retests.
+  if (goalRequiresFreshPeerAsk(goal)) {
+    const hasHop = await taskHasPeerHopThisRun(parentTaskId);
+    if (!hasHop) {
+      notes.push(
+        "This goal requires a FRESH message_agent to a peer on THIS run. Do not reuse old peer replies from chat, session context, or memory. Call message_agent now (use wait:\"soft\" if the goal asks for soft wait), then continue."
+      );
+      return { allowFinish: false, notes };
+    }
   }
   return { allowFinish: true, notes };
 }

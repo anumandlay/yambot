@@ -355,7 +355,9 @@ async function executeApiTask(task, agent, userId) {
       }
 
       if (type === "finish") {
-        const guard = await guardFinishAgainstSoftWaits(userId, String(task._id));
+        const guard = await guardFinishAgainstSoftWaits(userId, String(task._id), {
+          goal: task.goal || "",
+        });
         if (guard.notes?.length) {
           notes.push(...guard.notes);
           messages.push({
