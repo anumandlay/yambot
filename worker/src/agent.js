@@ -3497,7 +3497,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
           return { ok: false, summary: "missing peer targets" };
         }
 
-        const peerNames = extractPeerNamesFromBlock(agentSnapshot?.peerAgentsBlock);
+        let peerNames = extractPeerNamesFromBlock(agentSnapshot?.peerAgentsBlock);
+        if (peerNames.length < 2) {
+          try {
+            const peerRes = await api(
+              `/api/worker/peers?agentId=${encodeURIComponent(
+                String(config.agentId || agentSnapshot?.id || "")
+              )}`
+            );
+            if (Array.isArray(peerRes?.names) && peerRes.names.length) {
+              peerNames = peerRes.names.map((n) => String(n || "").trim()).filter(Boolean);
+            }
+          } catch {
+            /* best-effort */
+          }
+        }
         const fan = expandMessageAgentTargetsForFanOut({
           goal: ctx.goal || "",
           targets: targetsRaw,
@@ -3507,6 +3521,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (fan.expanded) {
           notes.push(
             `Parallel fan-out auto-expanded to: ${fan.required.join(", ")} (goal asked for both/at the same time — peers start together).`
+          );
+        } else if (
+          fan.required.length >= 2 &&
+          targets.length < fan.required.length
+        ) {
+          notes.push(
+            `Fan-out incomplete: goal names ${fan.required.join(", ")} but only queued ${targets.map((t) => t.to).join(", ")}. Resend with to:[${fan.required.map((n) => JSON.stringify(n)).join(",")}].`
           );
         }
 

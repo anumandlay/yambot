@@ -245,6 +245,11 @@ async function taskJsonWithPeers(task, userId) {
   if (agentId) {
     const peerAgentsBlock = await formatPeerAgentsBlock(userId, agentId);
     obj.agentSnapshot = { ...(obj.agentSnapshot || {}), peerAgentsBlock };
+    // Why: persist so worker fan-out expand (and debugging) still see peers if the in-memory claim payload is thin.
+    await Task.updateOne(
+      { _id: obj._id },
+      { $set: { "agentSnapshot.peerAgentsBlock": peerAgentsBlock } }
+    ).catch(() => null);
   }
   return obj;
 }
@@ -1030,6 +1035,36 @@ workerRouter.post("/tools/memory", async (req, res, next) => {
       return;
     }
     res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/worker/peers?agentId= — peer display names for fan-out expand.
+ */
+workerRouter.get("/peers", async (req, res, next) => {
+  try {
+    const agentId = String(
+      req.query?.agentId || req.headers["x-yambot-agent-id"] || ""
+    ).trim();
+    if (!agentId) {
+      res.status(400).json({ ok: false, title: "Bad request", detail: "agentId required" });
+      return;
+    }
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId }).select("_id").lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const block = await formatPeerAgentsBlock(req.userId, agentId);
+    /** @type {string[]} */
+    const names = [];
+    for (const line of String(block || "").split("\n")) {
+      const m = line.match(/^- (.+?) \((?:browser|api)\)/);
+      if (m?.[1]) names.push(m[1].trim());
+    }
+    res.json({ ok: true, names, peerAgentsBlock: block });
   } catch (err) {
     next(err);
   }

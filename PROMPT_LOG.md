@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 15:35] Fix fan-out expand when peerAgentsBlock missing
+
+- **Prompt Provided:** check live FO-918-C — still sequential (~38s gap).
+- **Architectural Flow:** Claim now persists `agentSnapshot.peerAgentsBlock`; worker fetches `/api/worker/peers` when names missing so expand can add all goal-named peers in one message_agent step.
+- **Impacted Files:** worker routes, worker agent.js, PROMPT_LOG
+
 ## [2026-09-18 15:25] Fix v5 fan-out: auto-expand parallel peers in one step
 
 - **Prompt Provided:** How can we solve sequential (partial) fan-out?
