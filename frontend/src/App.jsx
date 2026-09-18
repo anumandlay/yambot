@@ -209,7 +209,9 @@ function ProtectedLayout() {
           <HelpToggle compact />
         </div>
 
-        <main className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden">{<Outlet />}</main>
+        <main className="flex min-h-0 flex-1 flex-col overflow-x-hidden overflow-y-auto lg:overflow-y-auto [&:has([data-chat-shell])]:overflow-hidden">
+          <Outlet />
+        </main>
       </div>
     </div>
   );

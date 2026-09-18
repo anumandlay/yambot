@@ -1,8 +1,12 @@
 /**
  * @fileoverview Compact run-status icons for operational chat messages.
- * Purpose: Replace noisy agent/system run logs with small icon chips (tooltip = full text).
+ * Purpose: Replace noisy agent/system run logs with small icon chips; click opens full content in a popup.
  * Downstream: ChatDetailPage, FloatingChatWidget.
  */
+
+import { useCallback, useEffect, useId, useState } from "react";
+import { createPortal } from "react-dom";
+import { formatChatMessageTime } from "../lib/formatDateTime.js";
 
 /**
  * Kinds / event types that should render as icons, not full bubbles.
@@ -59,9 +63,11 @@ export function isOpsIconMessage(message) {
       return true;
     }
   }
-  return /^(Goal queued|Queued for|Cloud computer|Plan:|Looking at:|Thinking…|Opening |Step \d|No skill matched|Skill:|→ Sent to LLM|← Received from LLM|← LLM error|Cloud agent asks:|Cloud agent:|API agent |PEER RESULT|PEER FAILED|SOFT WAIT)/i.test(
-    content
-  ) || /^(→|←)\s/.test(content);
+  return (
+    /^(Goal queued|Queued for|Cloud computer|Plan:|Looking at:|Thinking…|Opening |Step \d|No skill matched|Skill:|→ Sent to LLM|← Received from LLM|← LLM error|Cloud agent asks:|Cloud agent:|API agent |PEER RESULT|PEER FAILED|SOFT WAIT)/i.test(
+      content
+    ) || /^(→|←)\s/.test(content)
+  );
 }
 
 /**
@@ -117,10 +123,7 @@ export function opsIconMeta(message) {
   if (kind === "agent_message_in" || /^←\s/.test(content)) {
     return { icon: "↤", label: "From peer" };
   }
-  if (
-    kind === "peer_result" ||
-    /^(PEER RESULT|PEER FAILED)\b/i.test(content)
-  ) {
+  if (kind === "peer_result" || /^(PEER RESULT|PEER FAILED)\b/i.test(content)) {
     return { icon: "⇄", label: "Peer result" };
   }
   if (kind === "soft_wait" || /^SOFT WAIT\b/i.test(content)) {
@@ -132,33 +135,127 @@ export function opsIconMeta(message) {
 }
 
 /**
+ * Full-content popup for one ops icon message.
+ * @param {{
+ *   message: object,
+ *   label: string,
+ *   icon: string,
+ *   onClose: () => void,
+ * }} props
+ */
+function OpsIconPopup({ message, label, icon, onClose }) {
+  const titleId = useId();
+  const body = String(message?.content || "").trim() || label;
+
+  useEffect(() => {
+    function onKey(e) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [onClose]);
+
+  return createPortal(
+    <div
+      className="fixed inset-0 z-[110] flex items-end justify-center bg-teal-950/45 p-0 sm:items-center sm:p-4"
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        className="flex max-h-[min(85dvh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-teal-100 bg-white shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center gap-2 border-b border-teal-100 px-4 py-3">
+          <span
+            className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-sm text-teal-900"
+            aria-hidden="true"
+          >
+            {icon}
+          </span>
+          <div className="min-w-0 flex-1">
+            <h2 id={titleId} className="truncate text-sm font-bold text-teal-950">
+              {label}
+            </h2>
+            {message?.createdAt ? (
+              <p className="text-xs text-teal-900/60">
+                {formatChatMessageTime(message.createdAt)}
+              </p>
+            ) : null}
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-teal-100 text-lg font-bold text-teal-900"
+            aria-label="Close"
+          >
+            ×
+          </button>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
+          <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-teal-950">
+            {body}
+          </pre>
+        </div>
+      </div>
+    </div>,
+    document.body
+  );
+}
+
+/**
  * Renders one or more operational messages as a compact icon row.
+ * Click an icon to open the full message content in a popup.
  * @param {{ messages: object[] }} props
  */
 export function RunOpsIconRow({ messages }) {
   const list = Array.isArray(messages) ? messages : [];
+  const [openMsg, setOpenMsg] = useState(/** @type {object|null} */ (null));
+  const close = useCallback(() => setOpenMsg(null), []);
+
   if (!list.length) return null;
+
+  const openMeta = openMsg ? opsIconMeta(openMsg) : null;
+
   return (
-    <div
-      className="flex flex-wrap items-center gap-1 self-start px-0.5 py-0.5"
-      role="group"
-      aria-label="Run status"
-    >
-      {list.map((m) => {
-        const { icon, label } = opsIconMeta(m);
-        const tip = String(m.content || label).slice(0, 500);
-        return (
-          <span
-            key={m._id || `${label}-${tip.slice(0, 12)}`}
-            title={tip}
-            className="inline-flex h-7 min-w-7 cursor-default items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 px-1.5 text-xs text-teal-900"
-            aria-label={tip}
-          >
-            <span aria-hidden="true">{icon}</span>
-            <span className="sr-only">{tip}</span>
-          </span>
-        );
-      })}
-    </div>
+    <>
+      <div
+        className="flex flex-wrap items-center gap-1.5 self-start px-0.5 py-0.5"
+        role="group"
+        aria-label="Run status"
+      >
+        {list.map((m) => {
+          const { icon, label } = opsIconMeta(m);
+          const tip = String(m.content || label).slice(0, 120);
+          return (
+            <button
+              key={m._id || `${label}-${tip.slice(0, 12)}`}
+              type="button"
+              title={`${label} — tap for details`}
+              aria-label={`${label}: ${tip}`}
+              onClick={() => setOpenMsg(m)}
+              className="inline-flex h-9 min-h-9 min-w-9 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 px-2 text-xs text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95"
+            >
+              <span aria-hidden="true">{icon}</span>
+            </button>
+          );
+        })}
+      </div>
+      {openMsg && openMeta ? (
+        <OpsIconPopup
+          message={openMsg}
+          label={openMeta.label}
+          icon={openMeta.icon}
+          onClose={close}
+        />
+      ) : null}
+    </>
   );
 }

@@ -732,9 +732,10 @@ export function ChatDetailPage() {
     </div>
   );
 
-  /** Composer under the thread — waiting replies use this same box. */
+  /** Composer under the thread — waiting replies use this same box.
+   * Why: on mobile this sits sticky at the viewport bottom so the input never scrolls away. */
   const composeSection = (
-    <section className="flex shrink-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm">
+    <section className="flex shrink-0 flex-col gap-2 border-t border-teal-100 bg-white/95 p-3 pb-[max(0.75rem,env(safe-area-inset-bottom))] shadow-[0_-4px_16px_rgba(15,118,110,0.06)] backdrop-blur sm:rounded-2xl sm:border sm:shadow-sm lg:border lg:pb-3">
       {waitingTask ? (
         <p className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
           Agent is waiting — type your reply below and send.
@@ -1003,10 +1004,12 @@ export function ChatDetailPage() {
 
   return (
     <div
+      data-chat-shell=""
       className={
         grokMode
           ? "flex h-full min-h-0 w-full flex-col gap-2 overflow-hidden px-2 py-2 sm:gap-3 sm:px-3 sm:py-3"
-          : "mx-auto flex w-full max-w-6xl flex-col gap-3 px-3 py-3 sm:gap-4 sm:px-4 md:px-6 lg:flex lg:h-full lg:min-h-0 lg:min-h-full lg:flex-1 lg:overflow-hidden"
+          : // Why: fill the shell on mobile so the composer stays pinned; main uses :has([data-chat-shell]) overflow-hidden.
+            "mx-auto flex h-full min-h-0 w-full max-w-6xl flex-1 flex-col gap-2 overflow-hidden px-3 py-2 sm:gap-3 sm:px-4 sm:py-3 md:px-6"
       }
     >
       <div className="flex min-w-0 shrink-0 flex-wrap items-center gap-2">
@@ -1122,12 +1125,16 @@ export function ChatDetailPage() {
         </div>
       ) : null}
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 gap-3 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
-        <div className="flex min-h-0 min-w-0 flex-col gap-2 overflow-hidden">
+      <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
+        {/* Why: mobile order puts live screen above, then thread+composer so the input stays at the bottom. */}
+        <aside className="order-1 flex max-h-[28vh] min-h-0 w-full min-w-0 shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain sm:max-h-[32vh] lg:order-2 lg:max-h-full lg:overflow-y-auto">
+          {agentRail}
+        </aside>
+        <div className="order-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-1">
           <div
             ref={threadRef}
             onScroll={onThreadScroll}
-            className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
+            className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
           >
             {loadingOlder ? (
               <p className="text-center text-xs text-teal-900/60">Loading earlier messages…</p>
@@ -1213,10 +1220,6 @@ export function ChatDetailPage() {
           </div>
           {composeSection}
         </div>
-
-        <aside className="flex min-h-0 w-full min-w-0 flex-col gap-2 sm:gap-3 lg:max-h-full lg:overflow-y-auto lg:overscroll-contain">
-          {agentRail}
-        </aside>
       </div>
     </div>
   );

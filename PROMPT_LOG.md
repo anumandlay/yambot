@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 15:55] Chat ops icons popup + sticky mobile composer
+
+- **Prompt Provided:** Icon click shows content in a popup; mobile chat message box sticky at bottom.
+- **Architectural Flow:** `RunOpsIconRow` icons are buttons that open a bottom-sheet/dialog with full message text. Chat page fills the shell (`data-chat-shell`); main disables page scroll on chat; live rail sits above the thread on mobile so the composer stays pinned under the scrolling messages.
+- **Impacted Files:** RunOpsIconRow.jsx, ChatDetailPage.jsx, App.jsx, PROMPT_LOG
+
 ## [2026-09-18 15:42] Route peer fan-out as Computer goal (not Q&A)
 
 - **Prompt Provided:** FO-918-E replied “can’t send peer-agent messages in Q&A mode”.
