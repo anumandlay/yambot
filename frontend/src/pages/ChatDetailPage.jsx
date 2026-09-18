@@ -76,20 +76,60 @@ export function ChatDetailPage() {
   const hasOlderRef = useRef(false);
   /** Why: overlapping 2.5s polls stack and hit the 20s client abort → false "Request timed out" toasts. */
   const loadInFlightRef = useRef(false);
+  /** Why: setBusy is async — a second Enter/click can fire another POST before re-render. */
+  const sendInFlightRef = useRef(false);
 
   /**
-   * Merges message pages by id, oldest → newest.
+   * True for durable Mongo message ids (not optimistic stream rows).
+   * @param {unknown} id
+   * @returns {boolean}
+   */
+  function isRealMessageId(id) {
+    const s = String(id || "");
+    return /^[a-f\d]{24}$/i.test(s);
+  }
+
+  /**
+   * Merges message pages by id, oldest → newest (createdAt, then ObjectId).
+   * Keeps in-flight stream-* rows from prev until the send finishes replacing them.
    * @param {object[]} prev
    * @param {object[]} incoming
    * @returns {object[]}
    */
   function mergeMessages(prev, incoming) {
     const map = new Map();
-    for (const m of prev || []) map.set(String(m._id), m);
-    for (const m of incoming || []) map.set(String(m._id), m);
+    for (const m of prev || []) {
+      const id = String(m?._id || "");
+      if (!id) continue;
+      map.set(id, m);
+    }
+    for (const m of incoming || []) {
+      const id = String(m?._id || "");
+      if (!id || id.startsWith("stream-") || id.includes("-pending-")) continue;
+      map.set(id, m);
+      // Why: once the durable user/assistant row exists, drop the optimistic twin.
+      if (isRealMessageId(id)) {
+        for (const [sid, sm] of [...map.entries()]) {
+          if (!sid.startsWith("stream-")) continue;
+          const sameRole = sm.role === m.role;
+          const sameText =
+            String(sm.content || "").trim() &&
+            String(sm.content || "").trim() === String(m.content || "").trim();
+          if (sameRole && (sameText || sm.role === "user")) map.delete(sid);
+        }
+      }
+    }
     return [...map.values()].sort((a, b) => {
       const idA = String(a._id);
       const idB = String(b._id);
+      const realA = isRealMessageId(idA);
+      const realB = isRealMessageId(idB);
+      // Why: keep stream bubbles at the end while sending; never interleave into history.
+      if (realA && !realB) return -1;
+      if (!realA && realB) return 1;
+      const ta = a?.createdAt ? new Date(a.createdAt).getTime() : 0;
+      const tb = b?.createdAt ? new Date(b.createdAt).getTime() : 0;
+      if (ta !== tb) return ta - tb;
       return idA < idB ? -1 : idA > idB ? 1 : 0;
     });
   }
@@ -99,23 +139,22 @@ export function ChatDetailPage() {
    */
   const load = useCallback(async (opts = {}) => {
     const silent = Boolean(opts.silent);
+    // Why: mid-send polls merge real DB rows next to optimistic stream-* rows → duplicate thread.
+    if (silent && sendInFlightRef.current) return;
     if (loadInFlightRef.current) return;
     loadInFlightRef.current = true;
     try {
       const existing = messagesRef.current;
-      // Why: optimistic stream-* ids are not Mongo ObjectIds — using them as `after`
-      // falls back to a full page reload and can coincide with multi‑MB task payloads.
       const newestReal = [...existing]
         .reverse()
-        .find((m) => {
-          const id = String(m?._id || "");
-          return id && !id.startsWith("stream-") && /^[a-f\d]{24}$/i.test(id);
-        });
+        .find((m) => isRealMessageId(m?._id));
       const newestId = newestReal?._id ? String(newestReal._id) : "";
       const qs = newestId
         ? `?limit=${MESSAGE_PAGE}&after=${encodeURIComponent(newestId)}`
         : `?limit=${MESSAGE_PAGE}`;
       const data = await api(`/api/chats/${chatId}${qs}`);
+      // Why: a send may have started while this request was in flight — don't clobber the bubble.
+      if (silent && sendInFlightRef.current) return;
       setChat(data.chat);
       setIsCommon(Boolean(data.isCommon));
       if (newestId) {
@@ -449,6 +488,8 @@ export function ChatDetailPage() {
     e.preventDefault();
     const content = input.trim();
     if (!content) return;
+    if (sendInFlightRef.current || busy) return;
+    sendInFlightRef.current = true;
 
     // Why: when the agent asked a question, the same composer posts the answer — no second box.
     if (waitingTask) {
@@ -466,6 +507,7 @@ export function ChatDetailPage() {
       } catch (err) {
         setError(err);
       } finally {
+        sendInFlightRef.current = false;
         setBusy(false);
       }
       return;
@@ -494,6 +536,7 @@ export function ChatDetailPage() {
       } catch (err) {
         setError(err);
       } finally {
+        sendInFlightRef.current = false;
         setBusy(false);
       }
       return;
@@ -514,6 +557,7 @@ export function ChatDetailPage() {
       } catch (err) {
         setError(err);
       } finally {
+        sendInFlightRef.current = false;
         setBusy(false);
       }
       return;
@@ -524,6 +568,7 @@ export function ChatDetailPage() {
     const slash = parseSkillSlash(afterMention);
     const goalAfterMention = slash ? slash.goal : afterMention;
     if (isCommon && !goalAfterMention && !slash) {
+      sendInFlightRef.current = false;
       setError({
         title: "Add a goal",
         detail: "Type instructions after the @mention.",
@@ -545,6 +590,7 @@ export function ChatDetailPage() {
         setError(err);
       }
     } finally {
+      sendInFlightRef.current = false;
       setBusy(false);
     }
   }
@@ -665,31 +711,24 @@ export function ChatDetailPage() {
         },
       });
 
-      // Why: swap optimistic stream rows for durable ids immediately so polls stay cheap
-      // and the Send button is not blocked on a heavy chat reload.
+      // Why: swap optimistic stream rows for durable ids — never leave stream-* in the thread.
       const realUser = result?.message;
       const realAssistant = result?.assistantMessage;
+      const realSystem = result?.systemMessage;
       setMessages((prev) => {
-        const optAssistant = prev.find((m) => m._id === `${streamId}-assistant`);
-        const withoutOptimistic = prev.filter(
-          (m) => m._id !== `${streamId}-user` && m._id !== `${streamId}-assistant`
-        );
+        const withoutOptimistic = prev.filter((m) => {
+          const id = String(m?._id || "");
+          return !id.startsWith("stream-") && !id.includes("-pending-");
+        });
         const next = [...withoutOptimistic];
         if (realUser) next.push(realUser);
-        if (realAssistant) {
-          next.push(realAssistant);
-        } else if (optAssistant?.content) {
-          // Keep streamed/ack text visible until silent load replaces it.
-          next.push({
-            ...optAssistant,
-            _id: realUser?._id ? `${realUser._id}-pending-assistant` : optAssistant._id,
-            meta: { ...optAssistant.meta, streaming: false },
-          });
-        }
-        if (result?.systemMessage) next.push(result.systemMessage);
+        if (realAssistant) next.push(realAssistant);
+        if (realSystem) next.push(realSystem);
         return mergeMessages(next, []);
       });
     } finally {
+      // Clear send lock before silent load so the refresh is allowed.
+      sendInFlightRef.current = false;
       void load({ silent: true });
       scrollThreadToBottom(true);
     }
@@ -697,6 +736,8 @@ export function ChatDetailPage() {
 
   async function confirmPendingRoute() {
     if (!pendingRoute) return;
+    if (sendInFlightRef.current || busy) return;
+    sendInFlightRef.current = true;
     setBusy(true);
     setError(null);
     try {
@@ -708,6 +749,7 @@ export function ChatDetailPage() {
     } catch (err) {
       setError(err);
     } finally {
+      sendInFlightRef.current = false;
       setBusy(false);
     }
   }

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 17:25] Fix duplicate chat bubbles + thread order
+
+- **Prompt Provided:** One send showed twice; thread order scrambled after Auto stream.
+- **Architectural Flow:** DB had single copies — UI merged optimistic `stream-*` rows with polled real messages (different ids) and sorted synthetic ids into history. Pause silent polls while send is in flight; strip/replace stream rows on result; sort real ObjectIds before stream stubs; sendInFlightRef blocks double Enter/click.
+- **Impacted Files:** ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 17:20] Fix Auto “Sending…” hang on simple chat
 
 - **Prompt Provided:** “how are you” left Send on Sending for a long time.
