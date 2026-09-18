@@ -345,7 +345,34 @@ chatsRouter.get("/:id", async (req, res, next) => {
         before: before || undefined,
         after: after || undefined,
       }),
-      Task.find({ chat: chat._id }).sort({ createdAt: -1 }).lean(),
+      // Why: never ship full event blobs for every historical task — that made chat polls ~10–20MB
+      // and left the Send button on “Sending…” while the browser downloaded the payload.
+      Task.find({ chat: chat._id })
+        .sort({ createdAt: -1 })
+        .limit(40)
+        .select(
+          "goal status createdAt updatedAt claimedAt chat message agent resultSummary pendingPeerResults lastError"
+        )
+        .lean()
+        .then(async (rows) => {
+          const activeIds = rows
+            .filter((t) => ["running", "waiting_user"].includes(String(t.status || "")))
+            .map((t) => t._id);
+          if (!activeIds.length) return rows;
+          const withEvents = await Task.find({ _id: { $in: activeIds } })
+            .select("_id events pendingPeerResults")
+            .lean();
+          const byId = new Map(withEvents.map((t) => [String(t._id), t]));
+          return rows.map((t) => {
+            const full = byId.get(String(t._id));
+            if (!full) return t;
+            return {
+              ...t,
+              events: full.events || [],
+              pendingPeerResults: full.pendingPeerResults || t.pendingPeerResults,
+            };
+          });
+        }),
       common
         ? loadChatScopedQueue(req.userId, chat._id)
         : loadAgentQueue(req.userId, chat.agent),
@@ -800,11 +827,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hint: "Add an LLM key in Settings, or use Computer mode / /run …",
           });
         }
-        await refreshChatContextIfNeeded(chat, qaCreds);
+        // Why: never block the first chat token on a summary LLM — use current context, refresh later.
         const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
           excludeIds: [String(message._id)],
           creds: qaCreds,
         });
+        void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
         const { normalizeEntries } = await import("../utils/curatedMemory.js");
         const userCuratedEntries = normalizeEntries(userForLlm?.curatedMemory?.entries);
         const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
@@ -1207,8 +1235,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         meta: Object.keys(messageMeta).length ? messageMeta : null,
       }));
 
+    /** @type {object|null} */
+    let autoAckMessage = null;
     if (autoAck) {
-      await Message.create({
+      autoAckMessage = await Message.create({
         chat: chat._id,
         role: "assistant",
         content: autoAck,
@@ -1228,7 +1258,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     try {
       const userForCtx = await User.findById(req.userId);
       const ctxCreds = await resolveLlmCredentialsForAgent(userForCtx, agentDoc);
-      await refreshChatContextIfNeeded(chat, ctxCreds);
+      // Why: never delay queue ack / stream end on a summary LLM call.
       const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
         excludeIds: [String(message._id)],
         creds: ctxCreds,
@@ -1337,6 +1367,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         ok: true,
         intent: "goal",
         message,
+        assistantMessage: autoAckMessage || undefined,
         task,
         systemMessage: agentNote,
         timing: autoTiming,
@@ -1349,6 +1380,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       ok: true,
       intent: "goal",
       message,
+      assistantMessage: autoAckMessage || undefined,
       task,
       systemMessage: agentNote,
       timing: autoTiming,

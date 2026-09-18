@@ -821,6 +821,29 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
+  // Why: when the client wants a live bubble, stream REPLY/QUEUE_GOAL text immediately.
+  // Native tools are non-streaming and left “Sending…” blank for the whole LLM wait.
+  // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
+  const wantsLookup =
+    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers)\b/i.test(
+      text
+    );
+  if (stream && !wantsLookup) {
+    return finalize(
+      await runChatAutoTurnTextFallback(
+        {
+          question,
+          snapshot,
+          creds,
+          chatContext,
+          stream: true,
+          onDelta,
+        },
+        track
+      )
+    );
+  }
+
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
   /** @type {object[]} */
   const messages = [

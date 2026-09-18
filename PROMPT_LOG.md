@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 17:20] Fix Auto “Sending…” hang on simple chat
+
+- **Prompt Provided:** “how are you” left Send on Sending for a long time.
+- **Architectural Flow:** Chat GET was returning up to 40 recent tasks **with full event blobs** (~10–20MB), and optimistic `stream-*` message ids made `after=` fall back to heavy reloads during send. Trim task payloads (events only for running/waiting_user), ignore synthetic ids in poll cursors, merge stream result without awaiting full reload, prefer streamed text Auto path for normal chat (tools only for status/peer lookups), and stop blocking Auto/queue on context-summary LLM.
+- **Impacted Files:** chats.js, ChatDetailPage.jsx, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-18 17:10] Step 4: Auto chat hardening
 
 - **Prompt Provided:** Hermes-style chat step 4 — hardening.

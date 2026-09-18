@@ -103,7 +103,15 @@ export function ChatDetailPage() {
     loadInFlightRef.current = true;
     try {
       const existing = messagesRef.current;
-      const newestId = existing.length ? existing[existing.length - 1]._id : "";
+      // Why: optimistic stream-* ids are not Mongo ObjectIds — using them as `after`
+      // falls back to a full page reload and can coincide with multi‑MB task payloads.
+      const newestReal = [...existing]
+        .reverse()
+        .find((m) => {
+          const id = String(m?._id || "");
+          return id && !id.startsWith("stream-") && /^[a-f\d]{24}$/i.test(id);
+        });
+      const newestId = newestReal?._id ? String(newestReal._id) : "";
       const qs = newestId
         ? `?limit=${MESSAGE_PAGE}&after=${encodeURIComponent(newestId)}`
         : `?limit=${MESSAGE_PAGE}`;
@@ -620,7 +628,7 @@ export function ChatDetailPage() {
     scrollThreadToBottom(true);
 
     try {
-      await apiChatMessageStream(`/api/chats/${chatId}/messages`, {
+      const result = await apiChatMessageStream(`/api/chats/${chatId}/messages`, {
         body,
         timeoutMs: 120000,
         onDelta: (text) => {
@@ -656,8 +664,33 @@ export function ChatDetailPage() {
           }
         },
       });
+
+      // Why: swap optimistic stream rows for durable ids immediately so polls stay cheap
+      // and the Send button is not blocked on a heavy chat reload.
+      const realUser = result?.message;
+      const realAssistant = result?.assistantMessage;
+      setMessages((prev) => {
+        const optAssistant = prev.find((m) => m._id === `${streamId}-assistant`);
+        const withoutOptimistic = prev.filter(
+          (m) => m._id !== `${streamId}-user` && m._id !== `${streamId}-assistant`
+        );
+        const next = [...withoutOptimistic];
+        if (realUser) next.push(realUser);
+        if (realAssistant) {
+          next.push(realAssistant);
+        } else if (optAssistant?.content) {
+          // Keep streamed/ack text visible until silent load replaces it.
+          next.push({
+            ...optAssistant,
+            _id: realUser?._id ? `${realUser._id}-pending-assistant` : optAssistant._id,
+            meta: { ...optAssistant.meta, streaming: false },
+          });
+        }
+        if (result?.systemMessage) next.push(result.systemMessage);
+        return mergeMessages(next, []);
+      });
     } finally {
-      await load();
+      void load({ silent: true });
       scrollThreadToBottom(true);
     }
   }
