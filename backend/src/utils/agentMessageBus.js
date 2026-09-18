@@ -677,7 +677,10 @@ export async function sendAgentMessage(opts) {
     opts.waitMode === "soft" || opts.waitMode === "async" || opts.waitMode === "block"
       ? opts.waitMode
       : normalizeMessageWaitMode(opts.wait, mode);
-  const wait = waitMode === "block";
+  // Why: opts.wait:false must win so HTTP/fan-out can enqueue all peers immediately.
+  // waitMode "block" alone used to force an inline poll that serialized multi-peer fan-out.
+  const wait =
+    opts.wait === false ? false : opts.wait === true ? true : waitMode === "block";
   const softWaitMs =
     waitMode === "soft" ? softWaitMsFromMinutes(opts.softWaitMinutes) : 0;
   const parentTaskId = String(opts.parentTaskId || "").trim() || null;

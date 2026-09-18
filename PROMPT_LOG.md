@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 15:40] Fix fan-out: never block HTTP on first peer
+
+- **Prompt Provided:** check live what happened (FO-918-D — still ~38s between peers).
+- **Architectural Flow:** LLM already sent one `fanout` with both peers. Bug was `POST /tools/message-agent` calling `sendAgentMessage({ wait:true })`, which blocked until peer A finished before peer B was queued. Route now always enqueues (`wait:false`); worker polls all peers in parallel. `opts.wait:false` overrides waitMode block in the bus.
+- **Impacted Files:** worker.js, agentMessageBus.js, PROMPT_LOG
+
 ## [2026-09-18 15:35] Fix fan-out expand when peerAgentsBlock missing
 
 - **Prompt Provided:** check live FO-918-C — still sequential (~38s gap).

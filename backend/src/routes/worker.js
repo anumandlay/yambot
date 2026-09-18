@@ -1086,9 +1086,15 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
     const mode = String(req.body?.mode || "task").trim().toLowerCase();
     const content = String(req.body?.content || req.body?.message || "").trim();
     const waitMode = normalizeMessageWaitMode(req.body?.waitMode ?? req.body?.wait, mode);
-    // Why: always queue immediately over HTTP; clientWait tells the worker to poll (block mode only).
+    // Why: HTTP must never block on peer completion. If sendAgentMessage waits inline,
+    // fan-out starts peer B only after peer A finishes (~30–40s gaps). Workers poll instead.
+    // Explicit clientWait:false (fan-out) wins; otherwise block mode means "client will poll".
     const clientWait =
-      req.body?.clientWait === true || waitMode === "block";
+      req.body?.clientWait === true
+        ? true
+        : req.body?.clientWait === false
+          ? false
+          : waitMode === "block";
     const softWaitMinutes = req.body?.softWaitMinutes ?? req.body?.soft_wait_minutes;
 
     if (!agentId) {
@@ -1127,8 +1133,9 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       mode,
       content,
       parentTaskId: taskId || null,
-      wait: waitMode === "block",
-      waitMode,
+      // Why: always enqueue; never pass waitMode "block" (that blocks until the peer finishes).
+      wait: false,
+      waitMode: waitMode === "block" ? "async" : waitMode,
       softWaitMinutes,
     });
 
@@ -1137,7 +1144,8 @@ workerRouter.post("/tools/message-agent", async (req, res, next) => {
       note: result.note,
       waiting: Boolean(clientWait && result.ok),
       clientWait: Boolean(clientWait),
-      waitMode: result.waitMode || waitMode,
+      // Report the caller's wait intent (block/soft/async), not the enqueue waitMode.
+      waitMode,
       softWaitMinutes: result.softWaitMinutes ?? null,
       waitMs: AGENT_MESSAGE_WAIT_MS,
       agentMessageId: result.agentMessageId || null,
