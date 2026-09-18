@@ -426,6 +426,7 @@ async function executeApiTask(task, agent, userId) {
         user,
         policy,
         taskId: String(task._id),
+        goal: task.goal || "",
       });
       notes.push(`${type}: ${result.note}`);
       trajectory.push({
