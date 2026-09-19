@@ -73,6 +73,8 @@ export function ChatDetailPage() {
   const bottomRef = useRef(null);
   /** Why: follow live agent text unless the user scrolls the thread up to read history. */
   const stickToBottomRef = useRef(true);
+  /** Why: programmatic scrollTop fires onScroll — ignore so we don't flip stick mid-jump. */
+  const ignoreScrollRef = useRef(false);
   const messagesRef = useRef([]);
   const loadingOlderRef = useRef(false);
   const hasOlderRef = useRef(false);
@@ -121,7 +123,7 @@ export function ChatDetailPage() {
         }
       }
     }
-    return [...map.values()].sort((a, b) => {
+    const next = [...map.values()].sort((a, b) => {
       const idA = String(a._id);
       const idB = String(b._id);
       const realA = isRealMessageId(idA);
@@ -134,6 +136,29 @@ export function ChatDetailPage() {
       if (ta !== tb) return ta - tb;
       return idA < idB ? -1 : idA > idB ? 1 : 0;
     });
+    // Why: silent polls must not allocate a new array when nothing changed — that re-fires
+    // stick-to-bottom and shakes the thread when the user scrolls the last message up.
+    if (Array.isArray(prev) && prev.length === next.length) {
+      let same = true;
+      for (let i = 0; i < next.length; i++) {
+        const a = prev[i];
+        const b = next[i];
+        if (String(a?._id) !== String(b?._id)) {
+          same = false;
+          break;
+        }
+        if (String(a?.content || "") !== String(b?.content || "")) {
+          same = false;
+          break;
+        }
+        if (String(a?.role || "") !== String(b?.role || "")) {
+          same = false;
+          break;
+        }
+      }
+      if (same) return prev;
+    }
+    return next;
   }
 
   /**
@@ -275,16 +300,22 @@ export function ChatDetailPage() {
 
   /**
    * Keeps the left thread pinned to the newest messages while the agent streams.
+   * Why: only mutate the thread container’s scrollTop — scrollIntoView shakes mobile by
+   * scrolling ancestors / the visual viewport.
    */
   const scrollThreadToBottom = useCallback((smooth = false) => {
     const el = threadRef.current;
     if (!el) return;
+    const top = Math.max(0, el.scrollHeight - el.clientHeight);
+    ignoreScrollRef.current = true;
+    if (smooth) {
+      el.scrollTo({ top, behavior: "smooth" });
+    } else {
+      el.scrollTop = top;
+    }
+    // Why: one rAF is enough for the sync jump; smooth scroll may keep firing briefly.
     requestAnimationFrame(() => {
-      if (smooth) {
-        bottomRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
-      } else {
-        el.scrollTop = el.scrollHeight;
-      }
+      ignoreScrollRef.current = false;
     });
   }, []);
 
@@ -294,10 +325,17 @@ export function ChatDetailPage() {
   }, [messages, scrollThreadToBottom]);
 
   function onThreadScroll() {
+    if (ignoreScrollRef.current) return;
     const el = threadRef.current;
     if (!el) return;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickToBottomRef.current = gap < 96;
+    // Why: hysteresis — rubber-band / tiny upward nudges near the bottom must not keep
+    // stick=true (polls would yank back and shake) or flip every frame.
+    if (stickToBottomRef.current) {
+      if (gap > 120) stickToBottomRef.current = false;
+    } else if (gap < 40) {
+      stickToBottomRef.current = true;
+    }
     if (el.scrollTop < 80) {
       void loadOlder();
     }

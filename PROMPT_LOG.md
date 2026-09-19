@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 20:40] Fix mobile chat scroll shake
+
+- **Prompt Provided:** On mobile, scrolling the last chat message upward shakes the thread.
+- **Architectural Flow:** Silent polls rebuilt a new `messages` array even when unchanged, re-firing stick-to-bottom. Also `scrollIntoView` scrolled ancestors and a 96px threshold kept stick=true during small upward scrolls. Fix: stable merge (return prev when unchanged), scroll only via thread `scrollTop`, hysteresis (unstick >120 / restick <40), ignore programmatic onScroll.
+- **Impacted Files:** ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 20:10] @mention delegate in every agent chat
 
 - **Prompt Provided:** In every agent chat, typing `@` should list other agents so the user can pick one to delegate a task.
