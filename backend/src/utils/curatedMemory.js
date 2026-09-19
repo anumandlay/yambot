@@ -8,8 +8,8 @@
 /** Entry delimiter — same as Hermes MemoryStore (`\n§\n`). */
 export const ENTRY_DELIMITER = "\n§\n";
 
-/** Agent MEMORY.md equivalent (~3k tokens) — raised from Hermes 2.2k so operators can keep more durable facts. */
-export const MEMORY_CHAR_LIMIT = 8000;
+/** Agent MEMORY.md equivalent (~7k tokens). */
+export const MEMORY_CHAR_LIMIT = 20000;
 
 /** Account USER.md equivalent (~500 tokens). */
 export const USER_CHAR_LIMIT = 1375;

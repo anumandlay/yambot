@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 14:05] Raise curated MEMORY cap to 20,000 chars
+
+- **Prompt Provided:** Raise curated MEMORY cap to 20000.
+- **Architectural Flow:** `MEMORY_CHAR_LIMIT` 8000 → 20000. UI/help copy updated.
+- **Impacted Files:** curatedMemory.js, Agent.js, AgentMemoryPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 14:00] Raise curated MEMORY cap to 8,000 chars
 
 - **Prompt Provided:** Increase curated MEMORY cap from 2200 to more.
