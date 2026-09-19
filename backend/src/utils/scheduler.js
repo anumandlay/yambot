@@ -4,7 +4,7 @@
  * Downstream: Chat/Message/Task models (same path as a manual chat goal).
  */
 
-import { Agent, computeNextRunAt, toAgentSnapshot } from "../models/Agent.js";
+import { Agent, computeNextRunAt, listAgentScheduleJobs, toAgentSnapshot } from "../models/Agent.js";
 import { Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { ensureAgentChat, unblockDependentTasks } from "./enqueueTask.js";
@@ -37,26 +37,33 @@ import { tickScheduledReports } from "./scheduledReports.js";
 /**
  * Uses the agent's single chat (one chat per agent).
  * @param {import('mongoose').Document} agent
+ * @param {object} [job]
  * @returns {Promise<import('mongoose').Document>}
  */
-async function ensureScheduleChat(agent) {
+async function ensureScheduleChat(agent, job = null) {
   const chat = await ensureAgentChat(agent.user, agent._id, {
     agentName: agent.name,
     title: agent.name,
   });
-  agent.schedule = agent.schedule || {};
-  agent.schedule.chatId = chat._id;
+  if (job) {
+    job.chatId = chat._id;
+  } else {
+    agent.schedule = agent.schedule || {};
+    agent.schedule.chatId = chat._id;
+  }
   return chat;
 }
 
 /**
  * Enqueues one scheduled goal for an agent (skips if already busy).
  * @param {import('mongoose').Document} agent
+ * @param {object} [job] — one entry from schedules[]; defaults to legacy agent.schedule
  * @returns {Promise<{ ok: boolean, skipped?: string, taskId?: string }>}
  */
-export async function runScheduledAgent(agent) {
-  const goal = String(agent.schedule?.goal || "").trim();
-  if (!agent.schedule?.enabled || !goal) {
+export async function runScheduledAgent(agent, job = null) {
+  const sched = job || agent.schedule || {};
+  const goal = String(sched.goal || "").trim();
+  if (!sched.enabled || !goal) {
     return { ok: false, skipped: "disabled_or_empty" };
   }
 
@@ -66,20 +73,25 @@ export async function runScheduledAgent(agent) {
   });
   if (busy) {
     // Why: push nextRunAt so we retry later instead of spamming the queue.
-    agent.schedule.nextRunAt = computeNextRunAt(agent.schedule, new Date());
+    sched.nextRunAt = computeNextRunAt(sched, new Date());
     await agent.save();
     return { ok: false, skipped: "busy" };
   }
 
-  const chat = await ensureScheduleChat(agent);
+  const chat = await ensureScheduleChat(agent, job ? sched : null);
   const snapshot = toAgentSnapshot(agent, { goal });
   const now = new Date();
+  const jobLabel = String(sched.name || "").trim();
 
   const message = await Message.create({
     chat: chat._id,
     role: "user",
     content: goal,
-    meta: { kind: "scheduled" },
+    meta: {
+      kind: "scheduled",
+      scheduleJobId: sched._id ? String(sched._id) : null,
+      scheduleName: jobLabel || null,
+    },
   });
 
   const runner = agent.runner || "cloud";
@@ -98,6 +110,8 @@ export async function runScheduledAgent(agent) {
         payload: {
           goal,
           scheduled: true,
+          scheduleJobId: sched._id ? String(sched._id) : null,
+          scheduleName: jobLabel || null,
           agentId: snapshot.id,
           agentName: snapshot.name,
           runner,
@@ -111,17 +125,36 @@ export async function runScheduledAgent(agent) {
     role: "system",
     content:
       (agent.mode || "browser") === "api"
-        ? `Scheduled goal queued for API agent “${agent.name}” (no live computer).`
-        : `Scheduled goal queued for “${agent.name}”.`,
-    meta: { taskId: task._id, status: "pending", scheduled: true },
+        ? `Scheduled goal${jobLabel ? ` (“${jobLabel}”)` : ""} queued for API agent “${agent.name}” (no live computer).`
+        : `Scheduled goal${jobLabel ? ` (“${jobLabel}”)` : ""} queued for “${agent.name}”.`,
+    meta: {
+      taskId: task._id,
+      status: "pending",
+      scheduled: true,
+      ui: "icon",
+      kind: "queued",
+    },
   });
 
   chat.updatedAt = now;
   await chat.save();
 
-  agent.schedule.lastRunAt = now;
-  agent.schedule.nextRunAt = computeNextRunAt(agent.schedule, now);
-  agent.schedule.chatId = chat._id;
+  sched.lastRunAt = now;
+  sched.nextRunAt = computeNextRunAt(sched, now);
+  sched.chatId = chat._id;
+
+  // Why: keep legacy mirror in sync when firing the first schedules[] job.
+  if (job && Array.isArray(agent.schedules) && agent.schedules[0] && String(agent.schedules[0]._id) === String(job._id)) {
+    agent.schedule = agent.schedule || {};
+    agent.schedule.lastRunAt = sched.lastRunAt;
+    agent.schedule.nextRunAt = sched.nextRunAt;
+    agent.schedule.chatId = chat._id;
+  } else if (!job) {
+    agent.schedule.lastRunAt = now;
+    agent.schedule.nextRunAt = sched.nextRunAt;
+    agent.schedule.chatId = chat._id;
+  }
+
   await agent.save();
 
   if ((agent.mode || "browser") === "api") {
@@ -133,47 +166,75 @@ export async function runScheduledAgent(agent) {
 }
 
 /**
- * Due agents: enabled schedule with nextRunAt <= now (or missing nextRunAt).
+ * @param {object} sched
+ * @param {Date} now
+ * @returns {boolean}
+ */
+function scheduleJobIsDue(sched, now) {
+  if (!sched?.enabled || !String(sched.goal || "").trim()) return false;
+  if (!sched.nextRunAt) return true;
+  return new Date(sched.nextRunAt).getTime() <= now.getTime();
+}
+
+/**
+ * Due agents: any enabled schedule job with nextRunAt <= now (or missing nextRunAt).
  */
 export async function tickAgentSchedules() {
   const now = new Date();
   const due = await Agent.find({
     active: { $ne: false },
-    "schedule.enabled": true,
-    "schedule.goal": { $nin: [null, ""] },
     $or: [
-      { "schedule.nextRunAt": { $lte: now } },
-      { "schedule.nextRunAt": null },
-      { "schedule.nextRunAt": { $exists: false } },
+      {
+        "schedule.enabled": true,
+        "schedule.goal": { $nin: [null, ""] },
+        $or: [
+          { "schedule.nextRunAt": { $lte: now } },
+          { "schedule.nextRunAt": null },
+          { "schedule.nextRunAt": { $exists: false } },
+        ],
+      },
+      {
+        schedules: {
+          $elemMatch: {
+            enabled: true,
+            goal: { $nin: [null, ""] },
+            $or: [{ nextRunAt: { $lte: now } }, { nextRunAt: null }, { nextRunAt: { $exists: false } }],
+          },
+        },
+      },
     ],
   });
 
   let ran = 0;
   let skipped = 0;
+  let checked = 0;
   for (const agent of due) {
-    try {
-      if (!agent.schedule.nextRunAt) {
-        // Why: treat missing nextRunAt as due now (e.g. just enabled).
-        agent.schedule.nextRunAt = now;
-      }
-      if (new Date(agent.schedule.nextRunAt).getTime() > now.getTime()) {
-        skipped += 1;
-        continue;
-      }
-      const result = await runScheduledAgent(agent);
-      if (result.ok) ran += 1;
-      else skipped += 1;
-    } catch (err) {
-      console.error(`[scheduler] agent ${agent._id}:`, err?.message || err);
+    const jobs = listAgentScheduleJobs(agent);
+    const useMulti = Array.isArray(agent.schedules) && agent.schedules.length > 0;
+    for (const job of jobs) {
+      checked += 1;
       try {
-        agent.schedule.nextRunAt = computeNextRunAt(agent.schedule, new Date());
-        await agent.save();
-      } catch {
-        /* ignore */
+        if (!scheduleJobIsDue(job, now)) {
+          skipped += 1;
+          continue;
+        }
+        if (!job.nextRunAt) job.nextRunAt = now;
+        const result = await runScheduledAgent(agent, useMulti ? job : null);
+        if (result.ok) ran += 1;
+        else skipped += 1;
+      } catch (err) {
+        console.error(`[scheduler] agent ${agent._id} job ${job?._id || "legacy"}:`, err?.message || err);
+        try {
+          job.nextRunAt = computeNextRunAt(job, new Date());
+          await agent.save();
+        } catch {
+          /* ignore */
+        }
+        skipped += 1;
       }
     }
   }
-  return { ran, skipped, checked: due.length };
+  return { ran, skipped, checked };
 }
 
 /**

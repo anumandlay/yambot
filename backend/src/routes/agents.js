@@ -317,7 +317,60 @@ function pickAgentFields(body, opts = {}) {
         : [],
     });
   }
-  if (body.schedule != null && typeof body.schedule === "object") {
+  if (body.schedules != null && Array.isArray(body.schedules)) {
+    const jobs = body.schedules
+      .slice(0, 20)
+      .map((row) => {
+        if (!row || typeof row !== "object") return null;
+        const enabled = Boolean(row.enabled);
+        const interval = SCHEDULE_INTERVALS.includes(String(row.interval))
+          ? String(row.interval)
+          : "1h";
+        let dailyAt = String(row.dailyAt || "09:00").trim();
+        if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
+        const goal = String(row.goal || "").trim().slice(0, 8000);
+        const name = String(row.name || "").trim().slice(0, 80);
+        /** @type {object} */
+        const job = {
+          name,
+          enabled,
+          goal,
+          interval,
+          dailyAt,
+          pausedByEmergency: Boolean(row.pausedByEmergency),
+          enabledBeforeEmergency: Boolean(row.enabledBeforeEmergency),
+        };
+        if (row._id) job._id = row._id;
+        if (row.lastRunAt) job.lastRunAt = new Date(row.lastRunAt);
+        if (row.chatId) job.chatId = row.chatId;
+        if (enabled && goal) {
+          const incomingNext = row.nextRunAt ? new Date(row.nextRunAt) : null;
+          job.nextRunAt =
+            incomingNext &&
+            !Number.isNaN(incomingNext.getTime()) &&
+            incomingNext.getTime() > Date.now()
+              ? incomingNext
+              : new Date();
+        } else {
+          job.nextRunAt = null;
+        }
+        return job;
+      })
+      .filter(Boolean);
+    set("schedules", jobs);
+    // Why: mirror first job into legacy schedule for emergency-stop + older readers.
+    if (jobs.length) {
+      set("schedule", { ...jobs[0] });
+    } else {
+      set("schedule", {
+        enabled: false,
+        goal: "",
+        interval: "1h",
+        dailyAt: "09:00",
+        nextRunAt: null,
+      });
+    }
+  } else if (body.schedule != null && typeof body.schedule === "object") {
     const s = body.schedule;
     const enabled = Boolean(s.enabled);
     const interval = SCHEDULE_INTERVALS.includes(String(s.interval))
@@ -332,6 +385,7 @@ function pickAgentFields(body, opts = {}) {
       goal,
       interval,
       dailyAt,
+      name: String(s.name || "").trim().slice(0, 80),
     };
     if (s.lastRunAt) schedule.lastRunAt = new Date(s.lastRunAt);
     if (s.chatId) schedule.chatId = s.chatId;
@@ -346,6 +400,8 @@ function pickAgentFields(body, opts = {}) {
       schedule.nextRunAt = null;
     }
     set("schedule", schedule);
+    // Why: single-schedule edits still land in schedules[0] so multi-tick finds them.
+    set("schedules", [schedule]);
   }
   if (body.llm != null && typeof body.llm === "object") {
     const l = body.llm;
@@ -1008,7 +1064,48 @@ agentsRouter.put("/:id", async (req, res, next) => {
       res.status(400).json({ ok: false, title: "Name required", detail: "Name cannot be empty." });
       return;
     }
-    if (fields.schedule) {
+    if (fields.schedules) {
+      const prevJobs = Array.isArray(agent.schedules) && agent.schedules.length
+        ? agent.schedules
+        : agent.schedule
+          ? [agent.schedule]
+          : [];
+      const prevById = new Map(
+        prevJobs.filter((j) => j?._id).map((j) => [String(j._id), j])
+      );
+      fields.schedules = fields.schedules.map((job, idx) => {
+        const prev =
+          (job._id && prevById.get(String(job._id))) ||
+          (!job._id && prevJobs[idx]) ||
+          null;
+        if (prev) {
+          job.chatId = job.chatId || prev.chatId || null;
+          job.lastRunAt = job.lastRunAt || prev.lastRunAt || null;
+          const sameCadence =
+            Boolean(prev.enabled) === Boolean(job.enabled) &&
+            String(prev.interval || "") === String(job.interval || "") &&
+            String(prev.dailyAt || "") === String(job.dailyAt || "") &&
+            String(prev.goal || "") === String(job.goal || "");
+          if (
+            sameCadence &&
+            prev.nextRunAt &&
+            new Date(prev.nextRunAt).getTime() > Date.now()
+          ) {
+            job.nextRunAt = prev.nextRunAt;
+          }
+        }
+        return job;
+      });
+      fields.schedule = fields.schedules[0]
+        ? { ...fields.schedules[0] }
+        : {
+            enabled: false,
+            goal: "",
+            interval: "1h",
+            dailyAt: "09:00",
+            nextRunAt: null,
+          };
+    } else if (fields.schedule) {
       // Why: keep schedule chat + last run across edits; only recompute next when toggled/changed.
       fields.schedule.chatId = fields.schedule.chatId || agent.schedule?.chatId || null;
       fields.schedule.lastRunAt = fields.schedule.lastRunAt || agent.schedule?.lastRunAt || null;
@@ -1024,6 +1121,7 @@ agentsRouter.put("/:id", async (req, res, next) => {
       ) {
         fields.schedule.nextRunAt = agent.schedule.nextRunAt;
       }
+      fields.schedules = [fields.schedule];
     }
     if (fields.llm) {
       // Why: validate profile belongs to this user when selecting from dropdown.
@@ -1657,6 +1755,22 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
         nextRunAt: scheduleEnabled ? new Date() : null,
         chatId: null,
       },
+      schedules: (
+        Array.isArray(src.schedules) && src.schedules.length
+          ? src.schedules
+          : src.schedule
+            ? [src.schedule]
+            : []
+      ).map((j) => ({
+        name: j.name || "",
+        enabled: Boolean(j.enabled && j.goal),
+        goal: j.goal || "",
+        interval: j.interval || "1h",
+        dailyAt: j.dailyAt || "09:00",
+        lastRunAt: null,
+        nextRunAt: j.enabled && j.goal ? new Date() : null,
+        chatId: null,
+      })),
     };
 
     if (fields.group) {

@@ -70,9 +70,12 @@ const autonomySchema = new mongoose.Schema(
 
 /**
  * Per-agent goal scheduler — API process ticks and enqueues Tasks when due.
+ * Why: `_id: true` on jobs so an agent can hold many independent cron entries.
  */
-const scheduleSchema = new mongoose.Schema(
+const scheduleJobSchema = new mongoose.Schema(
   {
+    /** Optional label shown in the agent editor (e.g. "Morning crawl"). */
+    name: { type: String, default: "", trim: true, maxlength: 80 },
     enabled: { type: Boolean, default: false },
     /** Goal text queued on each tick (same as sending a chat goal). */
     goal: { type: String, default: "", trim: true },
@@ -91,15 +94,18 @@ const scheduleSchema = new mongoose.Schema(
      */
     pausedByEmergency: { type: Boolean, default: false },
     enabledBeforeEmergency: { type: Boolean, default: false },
-    /** Chat thread that receives scheduled goals (auto-created). */
+    /** Chat thread that receives scheduled goals (auto-created / shared). */
     chatId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Chat",
       default: null,
     },
   },
-  { _id: false }
+  { _id: true }
 );
+
+/** @deprecated Prefer `schedules[]` — kept as mirror of the first job for older code paths. */
+const scheduleSchema = scheduleJobSchema;
 
 const agentSchema = new mongoose.Schema(
   {
@@ -225,6 +231,11 @@ const agentSchema = new mongoose.Schema(
       model: { type: String, default: "", trim: true },
     },
     schedule: { type: scheduleSchema, default: () => ({}) },
+    /**
+     * Multiple independent cron jobs for this agent.
+     * Why: one agent often needs several recurring goals (e.g. hourly health + daily report).
+     */
+    schedules: { type: [scheduleJobSchema], default: [] },
     /**
      * SMTP/IMAP identity so the agent can send/read email like a human.
      * Password is encrypted at rest (smtpPasswordEnc).
@@ -938,6 +949,95 @@ export function computeNextRunAt(schedule, from = new Date()) {
     return next;
   }
   return new Date(from.getTime() + scheduleIntervalMs(interval));
+}
+
+/**
+ * Plain job object shape used by the scheduler + editor.
+ * @param {object} [raw]
+ * @returns {object}
+ */
+export function normalizeScheduleJob(raw = {}) {
+  const enabled = Boolean(raw.enabled);
+  const interval = SCHEDULE_INTERVALS.includes(String(raw.interval))
+    ? String(raw.interval)
+    : "1h";
+  let dailyAt = String(raw.dailyAt || "09:00").trim();
+  if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
+  const goal = String(raw.goal || "").trim().slice(0, 8000);
+  const name = String(raw.name || "").trim().slice(0, 80);
+  /** @type {object} */
+  const job = {
+    name,
+    enabled,
+    goal,
+    interval,
+    dailyAt,
+    pausedByEmergency: Boolean(raw.pausedByEmergency),
+    enabledBeforeEmergency: Boolean(raw.enabledBeforeEmergency),
+    lastRunAt: raw.lastRunAt ? new Date(raw.lastRunAt) : null,
+    nextRunAt: null,
+    chatId: raw.chatId || null,
+  };
+  if (raw._id) job._id = raw._id;
+  if (enabled && goal) {
+    const incomingNext = raw.nextRunAt ? new Date(raw.nextRunAt) : null;
+    job.nextRunAt =
+      incomingNext && !Number.isNaN(incomingNext.getTime()) && incomingNext.getTime() > Date.now()
+        ? incomingNext
+        : new Date();
+  }
+  return job;
+}
+
+/**
+ * Effective schedule jobs for an agent (multi `schedules[]`, else legacy single `schedule`).
+ * @param {object} agent
+ * @returns {object[]}
+ */
+export function listAgentScheduleJobs(agent) {
+  const multi = Array.isArray(agent?.schedules) ? agent.schedules.filter(Boolean) : [];
+  if (multi.length) return multi;
+  if (agent?.schedule && (agent.schedule.enabled || String(agent.schedule.goal || "").trim())) {
+    return [agent.schedule];
+  }
+  return [];
+}
+
+/**
+ * Keep legacy `schedule` mirrored to the first job so older readers keep working.
+ * @param {object} agent — mongoose doc or plain object (mutated)
+ * @param {object[]} jobs
+ */
+export function syncLegacyScheduleMirror(agent, jobs) {
+  const list = Array.isArray(jobs) ? jobs : [];
+  agent.schedules = list;
+  if (list.length) {
+    const first = list[0];
+    agent.schedule = {
+      name: first.name || "",
+      enabled: Boolean(first.enabled),
+      goal: first.goal || "",
+      interval: first.interval || "1h",
+      dailyAt: first.dailyAt || "09:00",
+      lastRunAt: first.lastRunAt || null,
+      nextRunAt: first.nextRunAt || null,
+      pausedByEmergency: Boolean(first.pausedByEmergency),
+      enabledBeforeEmergency: Boolean(first.enabledBeforeEmergency),
+      chatId: first.chatId || null,
+    };
+  } else {
+    agent.schedule = {
+      enabled: false,
+      goal: "",
+      interval: "1h",
+      dailyAt: "09:00",
+      lastRunAt: null,
+      nextRunAt: null,
+      pausedByEmergency: false,
+      enabledBeforeEmergency: false,
+      chatId: null,
+    };
+  }
 }
 
 export const Agent = mongoose.model("Agent", agentSchema);

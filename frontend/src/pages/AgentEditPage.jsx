@@ -57,6 +57,7 @@ const EMPTY = {
   },
   schedule: {
     enabled: false,
+    name: "",
     goal: "",
     interval: "1h",
     dailyAt: "09:00",
@@ -64,6 +65,19 @@ const EMPTY = {
     nextRunAt: null,
     chatId: null,
   },
+  /** Multiple cron jobs — primary source of truth in the editor. */
+  schedules: [
+    {
+      name: "",
+      enabled: false,
+      goal: "",
+      interval: "1h",
+      dailyAt: "09:00",
+      lastRunAt: null,
+      nextRunAt: null,
+      chatId: null,
+    },
+  ],
   llm: {
     profileId: "",
     visionProfileId: "",
@@ -205,6 +219,7 @@ export function AgentEditPage() {
             },
             schedule: {
               enabled: Boolean(a.schedule?.enabled),
+              name: a.schedule?.name || "",
               goal: a.schedule?.goal || "",
               interval: a.schedule?.interval || "1h",
               dailyAt: a.schedule?.dailyAt || "09:00",
@@ -212,6 +227,23 @@ export function AgentEditPage() {
               nextRunAt: a.schedule?.nextRunAt || null,
               chatId: a.schedule?.chatId || null,
             },
+            schedules: (
+              Array.isArray(a.schedules) && a.schedules.length
+                ? a.schedules
+                : a.schedule
+                  ? [a.schedule]
+                  : [{}]
+            ).map((j) => ({
+              _id: j._id || undefined,
+              name: j.name || "",
+              enabled: Boolean(j.enabled),
+              goal: j.goal || "",
+              interval: j.interval || "1h",
+              dailyAt: j.dailyAt || "09:00",
+              lastRunAt: j.lastRunAt || null,
+              nextRunAt: j.nextRunAt || null,
+              chatId: j.chatId || null,
+            })),
             llm: {
               profileId: a.llm?.profileId || "",
               visionProfileId: a.llm?.visionProfileId || "",
@@ -283,6 +315,73 @@ export function AgentEditPage() {
       ...prev,
       schedule: { ...prev.schedule, [key]: value },
     }));
+  }
+
+  /**
+   * @param {number} index
+   * @param {string} key
+   * @param {unknown} value
+   */
+  function updateScheduleJob(index, key, value) {
+    setForm((prev) => {
+      const list = [...(prev.schedules || [])];
+      const cur = { ...(list[index] || {}) };
+      cur[key] = value;
+      list[index] = cur;
+      return {
+        ...prev,
+        schedules: list,
+        // Why: keep legacy schedule mirrored to job 0 for older API readers.
+        schedule: index === 0 ? { ...prev.schedule, ...cur } : prev.schedule,
+      };
+    });
+  }
+
+  function addScheduleJob() {
+    setForm((prev) => ({
+      ...prev,
+      schedules: [
+        ...(prev.schedules || []),
+        {
+          name: "",
+          enabled: true,
+          goal: "",
+          interval: "1h",
+          dailyAt: "09:00",
+          lastRunAt: null,
+          nextRunAt: null,
+          chatId: null,
+        },
+      ],
+    }));
+  }
+
+  /**
+   * @param {number} index
+   */
+  function removeScheduleJob(index) {
+    setForm((prev) => {
+      const list = [...(prev.schedules || [])];
+      if (list.length <= 1) {
+        list[0] = {
+          name: "",
+          enabled: false,
+          goal: "",
+          interval: "1h",
+          dailyAt: "09:00",
+          lastRunAt: null,
+          nextRunAt: null,
+          chatId: null,
+        };
+      } else {
+        list.splice(index, 1);
+      }
+      return {
+        ...prev,
+        schedules: list,
+        schedule: { ...list[0] },
+      };
+    });
   }
 
   function updateEmail(key, value) {
@@ -890,82 +989,113 @@ export function AgentEditPage() {
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
           <legend className="px-1">
             <SectionTitle helpId="agent.schedule.enabled" as="div" className="text-sm font-semibold text-teal-900">
-              Scheduler
+              Schedulers
             </SectionTitle>
           </legend>
-          <label className="flex min-h-11 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={Boolean(form.schedule?.enabled)}
-              onChange={(e) => updateSchedule("enabled", e.target.checked)}
-            />
-            <FieldLabel helpId="agent.schedule.enabled">
-              Run a goal on a schedule for this agent
-            </FieldLabel>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="agent.schedule.goal">Scheduled goal</FieldLabel>
-            <textarea
-              className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2"
-              value={form.schedule?.goal || ""}
-              onChange={(e) => updateSchedule("goal", e.target.value)}
-              placeholder="Goal to enqueue automatically…"
-              disabled={!form.schedule?.enabled}
-            />
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="agent.schedule.interval">Frequency</FieldLabel>
-            <select
-              className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-              value={form.schedule?.interval || "1h"}
-              onChange={(e) => updateSchedule("interval", e.target.value)}
-              disabled={!form.schedule?.enabled}
-            >
-              {scheduleIntervals.map((iv) => (
-                <option key={iv} value={iv}>
-                  {iv === "daily"
-                    ? "Once daily (UTC time below)"
-                    : iv === "15m"
-                      ? "Every 15 minutes"
-                      : iv === "30m"
-                        ? "Every 30 minutes"
-                        : iv === "1h"
-                          ? "Every hour"
-                          : iv === "6h"
-                            ? "Every 6 hours"
-                            : iv === "12h"
-                              ? "Every 12 hours"
-                              : "Every 24 hours"}
-                </option>
-              ))}
-            </select>
-          </label>
-          {form.schedule?.interval === "daily" ? (
-            <label className="flex flex-col gap-1 text-sm">
-              <FieldLabel helpId="agent.schedule.dailyAt">Daily time (UTC)</FieldLabel>
-              <input
-                className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-                type="time"
-                value={form.schedule?.dailyAt || "09:00"}
-                onChange={(e) => updateSchedule("dailyAt", e.target.value)}
-                disabled={!form.schedule?.enabled}
-              />
-            </label>
-          ) : null}
-          {(form.schedule?.lastRunAt || form.schedule?.nextRunAt) && (
-            <p className="text-xs text-teal-900/70">
-              {form.schedule.lastRunAt
-                ? `Last run: ${new Date(form.schedule.lastRunAt).toLocaleString()}. `
-                : null}
-              {form.schedule.nextRunAt
-                ? `Next run: ${new Date(form.schedule.nextRunAt).toLocaleString()}.`
-                : null}
-            </p>
-          )}
-          <p className="text-xs text-teal-900/60">
-            Scheduled runs appear in a chat titled “Schedule · {form.name || "agent"}”. Skips a tick
-            if this agent already has a pending/running task.
+          <p className="text-xs text-teal-900/70">
+            Add multiple cron jobs for this agent (different goals and frequencies). Each job
+            enqueues into the agent’s chat when due. A tick is skipped if the agent is already busy.
           </p>
+          {(form.schedules || []).map((job, index) => (
+            <div
+              key={job._id || `sched-${index}`}
+              className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <label className="flex min-h-11 flex-1 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={Boolean(job.enabled)}
+                    onChange={(e) => updateScheduleJob(index, "enabled", e.target.checked)}
+                  />
+                  <FieldLabel helpId="agent.schedule.enabled">
+                    Job {index + 1} enabled
+                  </FieldLabel>
+                </label>
+                <button
+                  type="button"
+                  className="inline-flex min-h-11 items-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700"
+                  onClick={() => removeScheduleJob(index)}
+                >
+                  {(form.schedules || []).length <= 1 ? "Clear" : "Remove"}
+                </button>
+              </div>
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-semibold text-teal-900">Label (optional)</span>
+                <input
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  value={job.name || ""}
+                  onChange={(e) => updateScheduleJob(index, "name", e.target.value)}
+                  placeholder="e.g. Morning health check"
+                  disabled={!job.enabled}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="agent.schedule.goal">Scheduled goal</FieldLabel>
+                <textarea
+                  className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2"
+                  value={job.goal || ""}
+                  onChange={(e) => updateScheduleJob(index, "goal", e.target.value)}
+                  placeholder="Goal to enqueue automatically…"
+                  disabled={!job.enabled}
+                />
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
+                <FieldLabel helpId="agent.schedule.interval">Frequency</FieldLabel>
+                <select
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  value={job.interval || "1h"}
+                  onChange={(e) => updateScheduleJob(index, "interval", e.target.value)}
+                  disabled={!job.enabled}
+                >
+                  {scheduleIntervals.map((iv) => (
+                    <option key={iv} value={iv}>
+                      {iv === "daily"
+                        ? "Once daily (UTC time below)"
+                        : iv === "2m"
+                          ? "Every 2 minutes"
+                          : iv === "15m"
+                            ? "Every 15 minutes"
+                            : iv === "30m"
+                              ? "Every 30 minutes"
+                              : iv === "1h"
+                                ? "Every hour"
+                                : iv === "6h"
+                                  ? "Every 6 hours"
+                                  : iv === "12h"
+                                    ? "Every 12 hours"
+                                    : "Every 24 hours"}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              {job.interval === "daily" ? (
+                <label className="flex flex-col gap-1 text-sm">
+                  <FieldLabel helpId="agent.schedule.dailyAt">Daily time (UTC)</FieldLabel>
+                  <input
+                    className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                    type="time"
+                    value={job.dailyAt || "09:00"}
+                    onChange={(e) => updateScheduleJob(index, "dailyAt", e.target.value)}
+                    disabled={!job.enabled}
+                  />
+                </label>
+              ) : null}
+              {(job.lastRunAt || job.nextRunAt) && (
+                <p className="text-xs text-teal-900/70">
+                  {job.lastRunAt ? `Last run: ${new Date(job.lastRunAt).toLocaleString()}. ` : null}
+                  {job.nextRunAt ? `Next run: ${new Date(job.nextRunAt).toLocaleString()}.` : null}
+                </p>
+              )}
+            </div>
+          ))}
+          <button
+            type="button"
+            className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-200 bg-white px-4 text-sm font-semibold text-teal-900"
+            onClick={addScheduleJob}
+          >
+            + Add another schedule
+          </button>
         </fieldset>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">

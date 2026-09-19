@@ -233,14 +233,31 @@ systemRouter.post("/emergency-stop", async (req, res, next) => {
       }
       agent.computer.desired = "stopped";
       agent.schedule = agent.schedule || {};
+      if (!Array.isArray(agent.schedules)) agent.schedules = [];
+      // Why: pause every cron job (multi + legacy mirror).
+      const jobs =
+        agent.schedules.length > 0
+          ? agent.schedules
+          : agent.schedule.enabled || agent.schedule.goal
+            ? [agent.schedule]
+            : [];
+      if (agent.schedules.length === 0 && jobs.length) {
+        agent.schedules = jobs;
+      }
+      for (const job of jobs) {
+        if (job.enabled) {
+          job.enabledBeforeEmergency = true;
+          job.enabled = false;
+          job.pausedByEmergency = true;
+          job.nextRunAt = null;
+          schedulesPaused += 1;
+        }
+      }
       if (agent.schedule.enabled) {
         agent.schedule.enabledBeforeEmergency = true;
         agent.schedule.enabled = false;
         agent.schedule.pausedByEmergency = true;
         agent.schedule.nextRunAt = null;
-        schedulesPaused += 1;
-      } else if (agent.schedule.pausedByEmergency) {
-        /* already paused */
       }
       await agent.save();
       stopped += 1;
@@ -295,10 +312,31 @@ systemRouter.post("/emergency-resume", async (req, res, next) => {
           : "running";
       agent.computer.desiredBeforeEmergency = "";
       agent.schedule = agent.schedule || {};
+      if (!Array.isArray(agent.schedules)) agent.schedules = [];
+      const jobs =
+        agent.schedules.length > 0
+          ? agent.schedules
+          : agent.schedule.pausedByEmergency || agent.schedule.enabledBeforeEmergency
+            ? [agent.schedule]
+            : [];
+      if (agent.schedules.length === 0 && jobs.length) {
+        agent.schedules = jobs;
+      }
+      for (const job of jobs) {
+        if (job.pausedByEmergency || job.enabledBeforeEmergency) {
+          if (job.enabledBeforeEmergency) {
+            job.enabled = true;
+            job.nextRunAt = new Date();
+            schedulesRestored += 1;
+          }
+          job.pausedByEmergency = false;
+          job.enabledBeforeEmergency = false;
+        }
+      }
       if (agent.schedule.pausedByEmergency || agent.schedule.enabledBeforeEmergency) {
         if (agent.schedule.enabledBeforeEmergency) {
           agent.schedule.enabled = true;
-          schedulesRestored += 1;
+          agent.schedule.nextRunAt = new Date();
         }
         agent.schedule.pausedByEmergency = false;
         agent.schedule.enabledBeforeEmergency = false;

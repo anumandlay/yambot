@@ -13,7 +13,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 const MESSAGE_PAGE = 100;
 import { Link, useLocation, useParams } from "react-router-dom";
 import { api, apiChatMessageStream, isTimeoutError } from "../lib/api.js";
-import { resolveAgentMention, listMentionSuggestions } from "../lib/mentionAgent.js";
+import { resolveAgentMention, listMentionSuggestions, getMentionComposeState, insertMentionAt } from "../lib/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../lib/skillSlash.js";
 import { skillPickFromMessage } from "../lib/skillPick.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
@@ -63,6 +63,8 @@ export function ChatDetailPage() {
   const [intentMode, setIntentMode] = useState("auto");
   /** Highlight index in the @mention agent dropdown (−1 = none). */
   const [mentionHighlight, setMentionHighlight] = useState(0);
+  /** Why: mid-message `@` needs caret position — suggestions open at the cursor, not only at start. */
+  const [composeCursor, setComposeCursor] = useState(0);
   const composeRef = useRef(null);
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
@@ -357,29 +359,46 @@ export function ChatDetailPage() {
   }, [agents, chat?.agent, isCommon]);
 
   const mentionPreview = useMemo(() => {
-    if (!input.trim().startsWith("@")) return null;
+    if (!input.includes("@")) return null;
     return resolveAgentMention(input, mentionAgents);
   }, [input, mentionAgents]);
 
+  const mentionCompose = useMemo(
+    () => getMentionComposeState(input, composeCursor),
+    [input, composeCursor]
+  );
+
   const mentionSuggestions = useMemo(() => {
-    return listMentionSuggestions(input, mentionAgents);
-  }, [input, mentionAgents]);
+    return listMentionSuggestions(input, mentionAgents, composeCursor);
+  }, [input, mentionAgents, composeCursor]);
 
   useEffect(() => {
     setMentionHighlight(0);
-  }, [input, mentionSuggestions.length]);
+  }, [input, mentionSuggestions.length, mentionCompose.start]);
 
   /**
-   * Inserts `@AgentName ` into the compose box and syncs the dispatch picker.
+   * Inserts `@AgentName ` at the active @query and syncs the dispatch picker (common chat).
    * @param {{ _id: string, name: string }} agent
    */
   function pickMentionAgent(agent) {
     if (!agent?._id || !agent?.name) return;
-    setInput(`@${agent.name} `);
-    setDispatchAgentId(String(agent._id));
+    const state = getMentionComposeState(input, composeCursor);
+    const start = state.open ? state.start : input.length;
+    const end = state.open ? state.end : input.length;
+    const { text, cursor } = insertMentionAt(input, agent.name, start, end);
+    setInput(text);
+    setComposeCursor(cursor);
+    if (isCommon) setDispatchAgentId(String(agent._id));
     setMentionHighlight(0);
     requestAnimationFrame(() => {
-      composeRef.current?.focus();
+      const el = composeRef.current;
+      if (!el) return;
+      el.focus();
+      try {
+        el.setSelectionRange(cursor, cursor);
+      } catch {
+        /* ignore */
+      }
     });
   }
 
@@ -401,7 +420,13 @@ export function ChatDetailPage() {
     }
     if (e.key === "Escape") {
       e.preventDefault();
-      setInput("");
+      // Why: only clear the in-progress @query — do not wipe the whole compose box.
+      const state = getMentionComposeState(input, composeCursor);
+      if (state.open && state.start >= 0) {
+        const next = `${input.slice(0, state.start)}${input.slice(state.end)}`;
+        setInput(next);
+        setComposeCursor(state.start);
+      }
       return;
     }
     if (e.key === "Enter" || e.key === "Tab") {
@@ -411,6 +436,12 @@ export function ChatDetailPage() {
       const agent = mentionSuggestions[mentionHighlight] || mentionSuggestions[0];
       if (agent) pickMentionAgent(agent);
     }
+  }
+
+  function syncComposeCursor() {
+    const el = composeRef.current;
+    if (!el) return;
+    setComposeCursor(el.selectionStart ?? input.length);
   }
 
   const textAfterMention = useMemo(() => {
@@ -1183,7 +1214,13 @@ export function ChatDetailPage() {
                       : "Type @ to message a peer, or send a message…"
             }
             value={input}
-            onChange={(e) => setInput(e.target.value)}
+            onChange={(e) => {
+              setInput(e.target.value);
+              setComposeCursor(e.target.selectionStart ?? e.target.value.length);
+            }}
+            onSelect={syncComposeCursor}
+            onClick={syncComposeCursor}
+            onKeyUp={syncComposeCursor}
             onKeyDown={onComposeKeyDown}
             rows={3}
           />

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 23:00] Mid-message @ + multi schedules per agent
+
+- **Prompt Provided:** `@` only worked at the start of the compose box; also need multiple scheduled cron jobs per agent.
+- **Architectural Flow:** Mention picker/resolver now opens on `@` anywhere (whitespace-bounded) using caret position; insert replaces the in-progress query. Agents gain `schedules[]` (multiple jobs) with legacy `schedule` mirrored to job 0; scheduler ticks every due job; Agent Edit UI lists add/remove jobs.
+- **Impacted Files:** mentionAgent.js (fe+be), ChatDetailPage.jsx, Agent.js, scheduler.js, agents.js, system.js, AgentEditPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-18 22:50] Agent-chat @Peer = message_agent (not dispatch)
 
 - **Prompt Provided:** `@website inspector ask what he did…` in WOM asked Market researcher and started the wrong computer.
