@@ -196,6 +196,59 @@ export function shouldAnswerPeerCheaply(mode, content) {
 }
 
 /**
+ * Recent finished work for cheap Q&A (so “last task” is not answered from stale MEMORY only).
+ * @param {string} userId
+ * @param {string} agentId
+ * @param {number} [limit]
+ * @returns {Promise<string>}
+ */
+async function loadRecentAgentWorkBlock(userId, agentId, limit = 6) {
+  const rows = await Task.find({
+    user: userId,
+    agent: agentId,
+    status: "done",
+    resultSummary: { $nin: [null, ""] },
+  })
+    .sort({ finishedAt: -1, _id: -1 })
+    .limit(Math.max(limit * 3, 12))
+    .select("goal resultSummary finishedAt createdAt")
+    .lean();
+
+  /** @type {object[]} */
+  const real = [];
+  for (const t of rows) {
+    const g = String(t.goal || "");
+    // Why: cheap Q&A / resume wrappers are not “work the agent did”.
+    if (/^\[CHEAP PEER QUESTION/i.test(g)) continue;
+    if (/^\[PEER FANOUT/i.test(g)) continue;
+    if (/^\[PEER RESULTS READY/i.test(g)) continue;
+    if (/^\[LATE PEER RESULT/i.test(g)) continue;
+    real.push(t);
+    if (real.length >= limit) break;
+  }
+  if (!real.length) return "";
+
+  const lines = real.map((t, i) => {
+    const when = t.finishedAt || t.createdAt;
+    const iso = when ? new Date(when).toISOString() : "?";
+    const goalShort = String(t.goal || "")
+      .replace(/^COMPANY MEMORY:[\s\S]*?(?=\[AGENT MESSAGE|\n\n[A-Z]|$)/i, "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 220);
+    const result = String(t.resultSummary || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 420);
+    return `${i + 1}. [${iso}] goal: ${goalShort || "(no goal text)"}\n   result: ${result || "(empty)"}`;
+  });
+  return [
+    "YOUR RECENT COMPLETED WORK (newest first — ground truth for last-task questions):",
+    ...lines,
+  ].join("\n");
+}
+
+/**
  * One-shot LLM reply as the peer (no Playwright / API agent loop).
  * @param {{
  *   userId: string,
@@ -242,6 +295,7 @@ async function runCheapPeerQuestion(opts) {
     agentCuratedEntries: normalizeEntries(toAgent.curatedMemory?.entries),
   });
   const persona = formatAgentPrompt(snapshot);
+  const recentWork = await loadRecentAgentWorkBlock(userId, String(toAgent._id), 6);
   let reply = "";
   try {
     reply = await llmChatCompletion({
@@ -249,8 +303,8 @@ async function runCheapPeerQuestion(opts) {
       baseUrl: creds.llmBaseUrl || "",
       model: creds.llmModel || "",
       openAiAccountId: creds.openAiAccountId,
-      temperature: 0.4,
-      maxTokens: 400,
+      temperature: 0.3,
+      maxTokens: 500,
       timeoutMs: 25_000,
       messages: [
         {
@@ -258,10 +312,13 @@ async function runCheapPeerQuestion(opts) {
           content: [
             `You are “${toAgent.name}”, answering a short agent-to-agent message from “${fromAgent.name}”.`,
             "This is a cheap coordination turn — you do NOT control a browser or computer.",
-            "Reply in 1–4 short sentences. Be yourself (persona below). Do not invent browsing results.",
+            "Reply in 1–5 short sentences. Be yourself (persona below). Do not invent browsing results.",
             "Do not call tools, message other agents, or output JSON/finish tags.",
+            "If asked what you last did / recent work / last task: answer ONLY from YOUR RECENT COMPLETED WORK below.",
+            "If that block conflicts with older MEMORY notes, prefer RECENT COMPLETED WORK.",
             "",
             persona || "(no extra persona)",
+            recentWork ? `\n\n${recentWork}` : "\n\n(YOUR RECENT COMPLETED WORK: none on record.)",
           ]
             .filter(Boolean)
             .join("\n"),

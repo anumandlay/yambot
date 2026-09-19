@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 10:10] Cheap Q&A uses recent task history
+
+- **Prompt Provided:** After CI opened mellow.io, `@Content Inspector what is the last task you did` answered Vughy.com from memory.
+- **Architectural Flow:** Cheap peer questions only saw persona/curated MEMORY, not Task history. Fix: inject newest completed real tasks (skip cheap/resume wrappers) into the cheap LLM prompt and prefer that block for last-task answers.
+- **Impacted Files:** agentMessageBus.js, PROMPT_LOG
+
 ## [2026-09-19 09:55] Skip late-resume after cheap peer finish
 
 - **Prompt Provided:** `tell @Content Inspector to open https://www.hello.com/` — what went wrong?
