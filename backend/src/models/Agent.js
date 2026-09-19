@@ -385,7 +385,7 @@ const agentSchema = new mongoose.Schema(
     /**
      * Hermes-style MEMORY.md — curated agent notes (env facts, lessons).
      * Why: small durable facts in the prompt; separate from noisy episodic `memory`.
-     * Entries joined by `\n§\n`; hard cap 2,200 chars (see curatedMemory.js).
+     * Entries joined by `\n§\n`; hard cap 8,000 chars (see curatedMemory.js).
      * Frozen into task snapshot at enqueue; mid-run writes update Mongo only.
      */
     curatedMemory: {

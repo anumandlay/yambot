@@ -286,7 +286,7 @@ export function AgentMemoryPage() {
       await api(`/api/agents/${agentId}/curated-memory`, { method: "DELETE" });
       setCuratedEntries([]);
       setCuratedItems([]);
-      setCuratedUsage("0% — 0/2,200 chars");
+      setCuratedUsage("0% — 0/8,000 chars");
       setCuratedUpdatedAt(new Date().toISOString());
       setOkMsg("Curated MEMORY cleared.");
     } catch (err) {
@@ -333,7 +333,7 @@ export function AgentMemoryPage() {
       </div>
 
       <p className="text-sm text-teal-900/70">
-        Curated MEMORY (durable facts, 2,200 char cap) is frozen into each run. Day history and
+        Curated MEMORY (durable facts, 8,000 char cap) is frozen into each run. Day history and
         episodic notes stay separate. Account USER prefs live under Settings → Memory.
       </p>
 
