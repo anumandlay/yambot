@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 12:45] Room Send no longer blocks on full turn
+
+- **Prompt Provided:** Send button stuck on “Running turn…” for a long time.
+- **Architectural Flow:** POST /api/rooms/:id/messages now returns after saving the user bubble (+ pending icon); `runRoomTurn` continues in the background. Member cheap replies run in parallel. UI unlocks immediately and polls faster while `room_turn_pending`.
+- **Impacted Files:** rooms.js, roomTurn.js, RoomDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 12:00] Group rooms MVP (shared agent channels)
 
 - **Prompt Provided:** Develop Hermes-style group rooms as a separate feature on the existing A2A spine.

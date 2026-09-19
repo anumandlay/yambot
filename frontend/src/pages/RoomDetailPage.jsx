@@ -30,6 +30,14 @@ function speakerLabel(msg) {
   return msg.role || "Message";
 }
 
+/**
+ * @param {object[]} msgs
+ * @returns {boolean}
+ */
+function hasPendingTurn(msgs) {
+  return (msgs || []).some((m) => m?.meta?.kind === "room_turn_pending");
+}
+
 export function RoomDetailPage() {
   const { roomId } = useParams();
   const [room, setRoom] = useState(null);
@@ -40,6 +48,7 @@ export function RoomDetailPage() {
   const [loading, setLoading] = useState(true);
   const bottomRef = useRef(null);
   const pollRef = useRef(0);
+  const turnPending = hasPendingTurn(messages);
 
   const load = useCallback(async () => {
     if (!roomId) return;
@@ -55,11 +64,13 @@ export function RoomDetailPage() {
     }
   }, [roomId]);
 
+  // Why: while members are answering, poll every 2s; otherwise every 8s.
   useEffect(() => {
     void load();
-    pollRef.current = window.setInterval(() => void load(), 8000);
+    const ms = turnPending ? 2000 : 8000;
+    pollRef.current = window.setInterval(() => void load(), ms);
     return () => window.clearInterval(pollRef.current);
-  }, [load]);
+  }, [load, turnPending]);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
@@ -72,10 +83,11 @@ export function RoomDetailPage() {
     setBusy(true);
     setError(null);
     try {
+      // Why: server returns as soon as the user bubble is saved; turn runs in background.
       const data = await api(`/api/rooms/${roomId}/messages`, {
         method: "POST",
         body: JSON.stringify({ content }),
-        timeoutMs: 120_000,
+        timeoutMs: 30_000,
       });
       setDraft("");
       if (data.messages) setMessages(data.messages);
@@ -118,8 +130,12 @@ export function RoomDetailPage() {
           ))}
         </div>
         <p className="text-xs text-teal-900/60">
-          Members reply or PASS. Example: <code className="text-[0.7rem]">@Content Inspector open mellow.io</code>
+          Members reply or PASS. Example:{" "}
+          <code className="text-[0.7rem]">@Content Inspector open mellow.io</code>
         </p>
+        {turnPending ? (
+          <p className="text-xs font-semibold text-amber-800">Members are responding…</p>
+        ) : null}
       </div>
 
       {error ? (
@@ -190,7 +206,7 @@ export function RoomDetailPage() {
             disabled={busy || !draft.trim()}
             className="min-h-11 rounded-xl bg-teal-700 px-5 text-sm font-semibold text-white disabled:opacity-50"
           >
-            {busy ? "Running turn…" : "Send"}
+            {busy ? "Sending…" : "Send"}
           </button>
         </div>
       </form>

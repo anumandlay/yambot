@@ -239,8 +239,9 @@ roomsRouter.delete("/:id", async (req, res, next) => {
 });
 
 /**
- * POST /api/rooms/:id/messages — human post + room turn (reply / PASS / delegate).
+ * POST /api/rooms/:id/messages — save human post immediately; room turn runs in background.
  * Body: { content: string }
+ * Why: awaiting N member LLMs blocked the Send button for tens of seconds.
  */
 roomsRouter.post("/:id/messages", async (req, res, next) => {
   try {
@@ -262,12 +263,16 @@ roomsRouter.post("/:id/messages", async (req, res, next) => {
       meta: { kind: "room_user" },
     });
 
-    const turn = await runRoomTurn({
-      userId: String(req.userId),
-      chat: room,
-      content,
-      userMessageId: String(userMessage._id),
-    });
+    await Message.create({
+      chat: room._id,
+      role: "system",
+      content: "Members are responding…",
+      meta: {
+        kind: "room_turn_pending",
+        ui: "icon",
+        userMessageId: String(userMessage._id),
+      },
+    }).catch(() => null);
 
     const messages = await Message.find({ chat: room._id })
       .sort({ _id: -1 })
@@ -278,8 +283,41 @@ roomsRouter.post("/:id/messages", async (req, res, next) => {
     res.status(201).json({
       ok: true,
       message: userMessage,
-      turn,
+      turnPending: true,
       messages,
+    });
+
+    // Why: finish HTTP first so the UI unlocks; replies appear via poll.
+    const roomId = String(room._id);
+    const userId = String(req.userId);
+    setImmediate(() => {
+      void runRoomTurn({
+        userId,
+        chat: room,
+        content,
+        userMessageId: String(userMessage._id),
+      })
+        .then(async () => {
+          await Message.deleteMany({
+            chat: roomId,
+            "meta.kind": "room_turn_pending",
+            "meta.userMessageId": String(userMessage._id),
+          }).catch(() => null);
+        })
+        .catch((err) => {
+          console.warn("[rooms] background turn failed:", roomId, err?.message || err);
+          void Message.create({
+            chat: roomId,
+            role: "system",
+            content: `Room turn failed: ${err?.message || String(err)}`.slice(0, 500),
+            meta: { kind: "room_turn_error" },
+          }).catch(() => null);
+          void Message.deleteMany({
+            chat: roomId,
+            "meta.kind": "room_turn_pending",
+            "meta.userMessageId": String(userMessage._id),
+          }).catch(() => null);
+        });
     });
   } catch (err) {
     next(err);

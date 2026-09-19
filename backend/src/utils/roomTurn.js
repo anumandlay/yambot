@@ -250,18 +250,25 @@ export async function runRoomTurn(opts) {
 
   const delegatedIds = new Set(delegated.filter((d) => d.ok).map((d) => d.agentId));
 
-  for (const agent of ordered) {
-    if (delegatedIds.has(String(agent._id))) continue;
-    const addressedDirectly = mentionedIds.has(String(agent._id));
-    const result = await cheapRoomMemberReply({
-      userId,
-      agent,
-      roomTitle: chat.title,
-      memberNames,
-      humanMessage: content,
-      transcript,
-      addressedDirectly: addressedDirectly || mentionedIds.size === 0,
-    });
+  // Why: sequential LLM calls made Send feel stuck for N×25s — ask all members in parallel.
+  const speakers = ordered.filter((a) => !delegatedIds.has(String(a._id)));
+  const settled = await Promise.all(
+    speakers.map(async (agent) => {
+      const addressedDirectly = mentionedIds.has(String(agent._id));
+      const result = await cheapRoomMemberReply({
+        userId,
+        agent,
+        roomTitle: chat.title,
+        memberNames,
+        humanMessage: content,
+        transcript,
+        addressedDirectly: addressedDirectly || mentionedIds.size === 0,
+      });
+      return { agent, result };
+    })
+  );
+
+  for (const { agent, result } of settled) {
     if (!result) continue;
     replies.push({
       agentId: String(agent._id),
