@@ -99,6 +99,7 @@ function buildChildGoal(mode, fromName, content, hopDepth, canRelayFurther, pare
   const finishRule = [
     `CRITICAL: When done, call finish with your full answer in summary.`,
     `Do NOT message_agent “${fromName}” (the sender) — they already wait on your finish result.`,
+    `If their ask is unclear, answer from YOUR own work/status; never relay back to “${fromName}” via message_agent.`,
   ].join(" ");
   const depthNote = canRelayFurther
     ? `You may message_agent a *different* peer for help (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}), but prefer finishing yourself.`
@@ -425,6 +426,23 @@ export async function maybeWakeWaitingPeerParent(parentTaskId) {
   const stillWaiting = (parent.pendingPeerResults || []).some((r) => r.status === "waiting");
   if (stillWaiting) return { ok: true, woken: false, reason: "peers_still_waiting" };
 
+  // Why: original peer_ask goal still says “You must call message_agent” — without a rewrite,
+  // the model re-asks the peer forever after each resume.
+  const resumeGoal = [
+    "[PEER RESULTS READY — resume]",
+    "Your peer(s) finished. Read any PEER RESULT notes from the runtime.",
+    "Call finish NOW with a clear summary for the user.",
+    "Do NOT call message_agent again — you already have the peer reply.",
+    "",
+    "ORIGINAL GOAL:",
+    String(parent.goal || "").slice(0, 4000),
+  ].join("\n");
+  parent.goal = resumeGoal;
+  if (parent.agentSnapshot && typeof parent.agentSnapshot === "object") {
+    parent.agentSnapshot = { ...parent.agentSnapshot, goal: resumeGoal };
+    parent.markModified("agentSnapshot");
+  }
+
   parent.status = "pending";
   parent.priority = "high";
   parent.priorityRank = priorityRank("high");
@@ -434,6 +452,7 @@ export async function maybeWakeWaitingPeerParent(parentTaskId) {
     payload: {
       reason: "all_peers_finished",
       peerCount: (parent.pendingPeerResults || []).length,
+      goalRewrittenForFinish: true,
     },
     at: new Date(),
   });
@@ -747,6 +766,21 @@ export async function sendAgentMessage(opts) {
   }
   if (String(toAgent._id) === String(fromAgent._id)) {
     return { ok: false, note: "Cannot message_agent yourself — do the work directly." };
+  }
+
+  // Why: child peer tasks must not message_agent the parent sender — that causes WOM↔WI ping-pong.
+  // Prompt rules alone were ignored when the outbound content said “ask what he did…”.
+  if (parentTaskId) {
+    const spawnedBy = await AgentMessage.findOne({ childTask: parentTaskId })
+      .select("fromAgent")
+      .lean();
+    if (spawnedBy?.fromAgent && String(spawnedBy.fromAgent) === String(toAgent._id)) {
+      const senderName = toAgent.name || "sender";
+      return {
+        ok: false,
+        note: `Cannot message_agent “${senderName}” — they assigned you this work and wait on your finish. Call finish with your own answer instead.`,
+      };
+    }
   }
 
   const parentDepth = await hopDepthForTask(parentTaskId);
@@ -1168,6 +1202,12 @@ export async function consumePendingPeerResults(parentTaskId) {
     });
   }
   if (changed) await task.save();
+  // Why: after a peer reply, models still follow “You must call message_agent” and loop.
+  if (notes.length) {
+    notes.push(
+      "CRITICAL: Peer result(s) above are your answer for this goal. Call finish NOW with a user-facing summary. Do NOT call message_agent again."
+    );
+  }
   return { notes, rows };
 }
 
@@ -1314,8 +1354,9 @@ export function expandMessageAgentTargetsForFanOut(opts) {
 export function goalRequiresFreshPeerAsk(goal) {
   const g = String(goal || "");
   if (!g.trim()) return false;
-  // Why: late-resume and inbound peer tasks are not "ask a peer" parents.
+  // Why: late-resume, post-peer wake, and inbound peer tasks are not "ask a peer" parents.
   if (/^\[?\s*LATE PEER RESULT/i.test(g)) return false;
+  if (/^\[?\s*PEER RESULTS READY/i.test(g)) return false;
   if (/^\[?\s*AGENT MESSAGE from/i.test(g)) return false;
   if (/\bsoft\s*wait\b/i.test(g)) return true;
   if (/\bmessage_agent\b/i.test(g)) return true;
@@ -1398,6 +1439,19 @@ export async function guardFinishAgainstSoftWaits(userId, parentTaskId, opts = {
         "This goal requires a FRESH message_agent to a peer on THIS run. Do not reuse old peer replies from chat, session context, or memory. Call message_agent now (use wait:\"soft\" if the goal asks for soft wait), then continue."
       );
       return { allowFinish: false, notes };
+    }
+    // Why: once a hop exists, prefer finish — re-asking peers after PEER RESULT caused infinite loops.
+    const parent = await Task.findById(parentTaskId).select("pendingPeerResults").lean();
+    const hasPeerAnswer = (parent?.pendingPeerResults || []).some(
+      (r) => r.status === "done" || r.status === "error"
+    );
+    const stillWaitingPeers = (parent?.pendingPeerResults || []).some(
+      (r) => r.status === "waiting"
+    );
+    if (hasPeerAnswer && !stillWaitingPeers) {
+      notes.push(
+        "You already received peer result(s). Call finish with a summary for the user. Do NOT message_agent again."
+      );
     }
   }
   return { allowFinish: true, notes };

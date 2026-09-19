@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 23:30] Fix WOM↔WI peer_ask ping-pong loop
+
+- **Prompt Provided:** Same `@Website Inspector ask what he did…` in Website Operations Manager — diagnose what happened.
+- **Architectural Flow:** Peer_ask forwarded literal “ask what he did…” so WI messaged WOM back; after each peer_wait_resume WOM’s goal still required message_agent so it re-asked forever. Fix: rewrite ambiguous peer content to “report YOUR work”; hard-reject message_agent to the parent sender; on peer wake rewrite goal to PEER RESULTS READY + finish-only; consume/finish-guard notes forbid re-ask; cancel stuck parent task.
+- **Impacted Files:** chats.js, agentMessageBus.js, scripts/_stop_wom_loop_*, PROMPT_LOG
+
 ## [2026-09-18 23:00] Mid-message @ + multi schedules per agent
 
 - **Prompt Provided:** `@` only worked at the start of the compose box; also need multiple scheduled cron jobs per agent.

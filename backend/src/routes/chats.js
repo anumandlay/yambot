@@ -35,6 +35,34 @@ import { resolveHumanDisplayName } from "../utils/userPublic.js";
 export const chatsRouter = Router();
 
 /**
+ * Rewrite ambiguous peer_ask text so the peer reports *their* work instead of
+ * interpreting “ask what he did” as a relay instruction (which causes ping-pong).
+ * @param {string} ask — stripped user text after @Peer
+ * @param {string} peerName
+ * @returns {string}
+ */
+function rewritePeerAskContent(ask, peerName) {
+  const raw = String(ask || "").trim();
+  const name = String(peerName || "peer").trim() || "peer";
+  // “ask what he/she/they did …” → ask the peer about their own recent work.
+  if (
+    /\b(?:ask\s+)?what\s+(?:he|she|they|it)\s+(?:did|has\s+done|have\s+done)\b/i.test(raw) ||
+    /\bask\s+(?:him|her|them)\s+what\s+(?:he|she|they)\s+did\b/i.test(raw) ||
+    /\btake\s+(?:a\s+)?reply\s+from\s+(?:him|her|them)\b/i.test(raw)
+  ) {
+    return [
+      `Report what work YOU (“${name}”) completed recently:`,
+      `sites or tasks handled, key findings, blockers, and current status.`,
+      `Answer from your own activity only — do not message another agent.`,
+      `Reply with a concise structured summary.`,
+    ].join(" ");
+  }
+  // Drop a leading “ask …” wrapper aimed at the bound agent, not the peer.
+  const cleaned = raw.replace(/^(?:please\s+)?ask\s+/i, "").trim();
+  return cleaned || raw || "Please help with this request.";
+}
+
+/**
  * @param {object} chat
  * @returns {boolean}
  */
@@ -770,22 +798,24 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
       if (mention.matched && mention.agentId && String(mention.agentId) !== boundId) {
         const peerName = String(mention.agentName || "peer").trim() || "peer";
-        const ask =
+        const askRaw =
           String(goalText || afterMention || "").trim() ||
           "Please help with this request.";
+        const ask = rewritePeerAskContent(askRaw, peerName);
         const wantsReply =
           /\b(reply|respond|answer|wait|get back|report back|take (?:their |his |her |the )?reply|and (?:tell|let) me)\b/i.test(
             content
           ) || /\bask\b/i.test(content);
         goalText = [
-          `You must call message_agent to “${peerName}” (use that exact name).`,
+          `You must call message_agent to “${peerName}” (use that exact name) exactly once.`,
           wantsReply
             ? `Use wait:true so you receive their finish result before you finish.`
             : `Prefer wait:true if the user expects an answer back; otherwise wait:false is ok.`,
           `Send them this message content:`,
           ask,
           `Do not message any other agent. Do not browse the web unless “${peerName}” cannot help.`,
-          `After their result arrives, summarize it for the user and call finish.`,
+          `When a PEER RESULT note arrives, summarize it for the user and call finish immediately.`,
+          `Do NOT call message_agent again after you already have a peer result.`,
         ].join("\n");
         mentionMeta = {
           matched: true,
@@ -794,6 +824,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           stripped: mention.strippedContent !== content,
           dispatchSource: "peer_ask",
           wantsReply,
+          peerContentRewritten: ask !== askRaw,
         };
         peerAskForced = true;
       } else if (mention.matched) {
