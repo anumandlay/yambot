@@ -403,38 +403,44 @@ export function ChatDetailPage() {
   }
 
   /**
-   * Keyboard nav for the @ agent list (arrows / Enter / Tab / Esc).
+   * Keyboard: @-picker arrows/Enter; otherwise Enter sends, Shift+Enter newline.
    * @param {React.KeyboardEvent<HTMLTextAreaElement>} e
    */
   function onComposeKeyDown(e) {
-    if (!mentionSuggestions.length) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setMentionHighlight((i) => (i + 1) % mentionSuggestions.length);
-      return;
-    }
-    if (e.key === "ArrowUp") {
-      e.preventDefault();
-      setMentionHighlight((i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length);
-      return;
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      // Why: only clear the in-progress @query — do not wipe the whole compose box.
-      const state = getMentionComposeState(input, composeCursor);
-      if (state.open && state.start >= 0) {
-        const next = `${input.slice(0, state.start)}${input.slice(state.end)}`;
-        setInput(next);
-        setComposeCursor(state.start);
+    if (mentionSuggestions.length) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionHighlight((i) => (i + 1) % mentionSuggestions.length);
+        return;
       }
-      return;
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionHighlight((i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length);
+        return;
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        // Why: only clear the in-progress @query — do not wipe the whole compose box.
+        const state = getMentionComposeState(input, composeCursor);
+        if (state.open && state.start >= 0) {
+          const next = `${input.slice(0, state.start)}${input.slice(state.end)}`;
+          setInput(next);
+          setComposeCursor(state.start);
+        }
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        // Why: while the @ list is open, Enter picks an agent (Shift+Enter still newlines).
+        if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) return;
+        e.preventDefault();
+        const agent = mentionSuggestions[mentionHighlight] || mentionSuggestions[0];
+        if (agent) pickMentionAgent(agent);
+        return;
+      }
     }
-    if (e.key === "Enter" || e.key === "Tab") {
-      // Why: Enter alone usually submits the form — only intercept while picking an agent.
-      if (e.key === "Enter" && (e.shiftKey || e.ctrlKey || e.metaKey)) return;
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      const agent = mentionSuggestions[mentionHighlight] || mentionSuggestions[0];
-      if (agent) pickMentionAgent(agent);
+      e.currentTarget.form?.requestSubmit();
     }
   }
 

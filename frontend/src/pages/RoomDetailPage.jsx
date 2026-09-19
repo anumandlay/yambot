@@ -146,29 +146,40 @@ export function RoomDetailPage() {
    * @param {React.KeyboardEvent<HTMLTextAreaElement>} e
    */
   function onComposeKeyDown(e) {
-    if (!mentionSuggestions.length) return;
-    if (e.key === "ArrowDown") {
-      e.preventDefault();
-      setMentionHighlight((i) => (i + 1) % mentionSuggestions.length);
-      return;
+    if (mentionSuggestions.length) {
+      if (e.key === "ArrowDown") {
+        e.preventDefault();
+        setMentionHighlight((i) => (i + 1) % mentionSuggestions.length);
+        return;
+      }
+      if (e.key === "ArrowUp") {
+        e.preventDefault();
+        setMentionHighlight(
+          (i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length
+        );
+        return;
+      }
+      if (e.key === "Enter" || e.key === "Tab") {
+        const state = getMentionComposeState(draft, composeCursor);
+        if (!state.open) {
+          /* fall through to send */
+        } else {
+          if (e.key === "Enter" && e.shiftKey) return;
+          e.preventDefault();
+          const agent = mentionSuggestions[mentionHighlight] || mentionSuggestions[0];
+          if (agent) pickMentionAgent(agent);
+          return;
+        }
+      }
+      if (e.key === "Escape") {
+        e.preventDefault();
+        setComposeCursor(draft.length);
+        return;
+      }
     }
-    if (e.key === "ArrowUp") {
+    if (e.key === "Enter" && !e.shiftKey) {
       e.preventDefault();
-      setMentionHighlight(
-        (i) => (i - 1 + mentionSuggestions.length) % mentionSuggestions.length
-      );
-      return;
-    }
-    if (e.key === "Enter" || e.key === "Tab") {
-      const state = getMentionComposeState(draft, composeCursor);
-      if (!state.open) return;
-      e.preventDefault();
-      const agent = mentionSuggestions[mentionHighlight] || mentionSuggestions[0];
-      if (agent) pickMentionAgent(agent);
-    }
-    if (e.key === "Escape") {
-      e.preventDefault();
-      setComposeCursor(draft.length);
+      e.currentTarget.form?.requestSubmit();
     }
   }
 
@@ -351,7 +362,7 @@ export function RoomDetailPage() {
           <textarea
             ref={textareaRef}
             className="min-h-[5.5rem] w-full resize-y rounded-2xl border border-teal-200 px-3 py-2 text-sm"
-            placeholder="Message the room… type @ to mention a member"
+            placeholder="Message the room… Enter to send, Shift+Enter for a new line, @ to mention"
             value={draft}
             onChange={(e) => {
               setDraft(e.target.value);

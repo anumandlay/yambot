@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:15] Enter sends in chat/room composers
+
+- **Prompt Provided:** In all message boxes, Enter should send (not newline).
+- **Architectural Flow:** ChatDetailPage + RoomDetailPage: Enter submits; Shift+Enter inserts newline; @ picker still uses Enter to pick. Command Center / Business setup already behaved this way.
+- **Impacted Files:** ChatDetailPage.jsx, RoomDetailPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 13:10] Room list facilitator + @mention picker
 
 - **Prompt Provided:** On /rooms list show Facilitator after room name; in room compose, typing @ should list room agents.

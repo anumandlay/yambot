@@ -1340,7 +1340,7 @@ export const HELP = {
   "chat.send": {
     title: "Send",
     body: helpBody(
-      "Posts your message. While the agent is running (Auto), your text is injected as an OPERATOR MESSAGE into the live task. Answer mode replies from memory. Computer mode queues a new browser goal."
+      "Posts your message. Press Enter to send; Shift+Enter for a new line. While the agent is running (Auto), your text is injected as an OPERATOR MESSAGE into the live task. Answer mode replies from memory. Computer mode queues a new browser goal."
     ),
   },
   "chat.stop": {
