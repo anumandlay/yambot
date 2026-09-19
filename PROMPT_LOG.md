@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 12:50] Rooms in grok rail + edit existing rooms
+
+- **Prompt Provided:** Put /rooms in grok-style left menu; add Edit for created groups.
+- **Architectural Flow:** Grok left rail lists group rooms → `/grok/rooms` / `/grok/rooms/:roomId` (routes before `:chatId`). RoomsPage/RoomDetailPage use grok-aware base paths. RoomsPage edit mode PATCHes title, members, facilitator.
+- **Impacted Files:** GrokStylePage.jsx, App.jsx, RoomsPage.jsx, RoomDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 12:45] Room Send no longer blocks on full turn
 
 - **Prompt Provided:** Send button stuck on “Running turn…” for a long time.

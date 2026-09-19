@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useLocation, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
@@ -40,6 +40,8 @@ function hasPendingTurn(msgs) {
 
 export function RoomDetailPage() {
   const { roomId } = useParams();
+  const location = useLocation();
+  const roomsBase = location.pathname.startsWith("/grok") ? "/grok/rooms" : "/rooms";
   const [room, setRoom] = useState(null);
   const [messages, setMessages] = useState([]);
   const [draft, setDraft] = useState("");
@@ -109,7 +111,7 @@ export function RoomDetailPage() {
       <div className="mb-3 flex shrink-0 flex-col gap-2 border-b border-teal-100 pb-3">
         <div className="flex items-center gap-2">
           <Link
-            to="/rooms"
+            to={roomsBase}
             className="text-sm font-semibold text-teal-700 hover:underline"
           >
             ← Rooms

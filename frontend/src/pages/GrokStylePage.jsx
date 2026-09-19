@@ -1,12 +1,13 @@
 /**
- * @fileoverview Grok-style full-bleed workspace — agents | chat | live rail.
+ * @fileoverview Grok-style full-bleed workspace — agents | chat/rooms | live rail.
  * Purpose: Open in a new tab from the main nav; pick an agent on the left (one chat each),
- * chat in the middle, and reuse ChatDetailPage’s right rail on the right.
- * Downstream: GET /api/agents, GET /api/groups, GET/POST/DELETE /api/chats; ChatDetailPage at /grok/:chatId.
+ * open group rooms from the same rail, chat in the middle, and reuse ChatDetailPage’s right rail.
+ * Downstream: GET /api/agents, GET /api/groups, GET /api/rooms, GET/POST/DELETE /api/chats;
+ * ChatDetailPage at /grok/:chatId; RoomsPage/RoomDetailPage at /grok/rooms(/:roomId).
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, Outlet, useNavigate, useParams } from "react-router-dom";
+import { Link, Outlet, useLocation, useNavigate, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
@@ -63,14 +64,18 @@ export function GrokStyleLayout() {
 }
 
 /**
- * Three-pane workspace: grouped agent tree (left) + chat outlet.
+ * Three-pane workspace: grouped agent tree + group rooms (left) + chat/room outlet.
  */
 export function GrokStylePage() {
-  const { chatId } = useParams();
+  const { chatId, roomId } = useParams();
+  const location = useLocation();
   const navigate = useNavigate();
+  /** Why: rooms routes sit under /grok/rooms; treat that path as an active middle pane. */
+  const onRooms = location.pathname.startsWith("/grok/rooms");
   const [agents, setAgents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [chats, setChats] = useState([]);
+  const [rooms, setRooms] = useState([]);
   const [error, setError] = useState(null);
   const [busyId, setBusyId] = useState("");
   const [agentsOpen, setAgentsOpen] = useState(false);
@@ -79,14 +84,16 @@ export function GrokStylePage() {
   const [collapsed, setCollapsed] = useState(() => new Set());
 
   const reload = useCallback(async () => {
-    const [agentData, chatData, groupData] = await Promise.all([
+    const [agentData, chatData, groupData, roomsData] = await Promise.all([
       api("/api/agents"),
       api("/api/chats?limit=100"),
       api("/api/groups?type=agent").catch(() => ({ groups: [] })),
+      api("/api/rooms").catch(() => ({ rooms: [] })),
     ]);
     setAgents(agentData.agents || []);
     setChats(chatData.chats || []);
     setGroups(groupData.groups || []);
+    setRooms(roomsData.rooms || []);
   }, []);
 
   useEffect(() => {
@@ -112,6 +119,11 @@ export function GrokStylePage() {
     const aid = chat?.agent?._id || chat?.agent;
     return aid ? String(aid) : "";
   }, [chatId, chats]);
+
+  const selectedRoomId = useMemo(() => {
+    if (roomId) return String(roomId);
+    return "";
+  }, [roomId]);
 
   // Why: keep the selected agent’s group folder open so the tree stays oriented.
   useEffect(() => {
@@ -252,6 +264,7 @@ export function GrokStylePage() {
 
   const hasTreeFolders = tree.sections.length > 0 || tree.ungrouped.length > 0;
   const showAsTree = groups.length > 0;
+  const roomsListActive = onRooms && !selectedRoomId;
 
   const agentRail = (
     <aside
@@ -292,6 +305,56 @@ export function GrokStylePage() {
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain p-2">
+        {/* Why: rooms live in the same rail so operators never leave /grok for multi-agent channels. */}
+        <div className="mb-3 rounded-xl border border-teal-100 bg-teal-50/40 p-2">
+          <div className="mb-1 flex items-center justify-between gap-2 px-1">
+            <Link
+              to="/grok/rooms"
+              onClick={() => setAgentsOpen(false)}
+              className={`truncate text-xs font-bold uppercase tracking-wider ${
+                roomsListActive ? "text-teal-800" : "text-teal-600 hover:text-teal-800"
+              }`}
+            >
+              Group rooms
+            </Link>
+            <Link
+              to="/grok/rooms"
+              onClick={() => setAgentsOpen(false)}
+              className="inline-flex min-h-8 min-w-8 items-center justify-center rounded-lg border border-teal-200 bg-white text-sm font-bold text-teal-800 hover:bg-teal-50"
+              title="Manage group rooms"
+              aria-label="Manage group rooms"
+            >
+              +
+            </Link>
+          </div>
+          {rooms.length === 0 ? (
+            <p className="px-1 py-2 text-xs text-teal-900/60">No rooms yet — tap + to create.</p>
+          ) : (
+            <ul className="flex flex-col gap-0.5">
+              {rooms.map((room) => {
+                const id = String(room._id);
+                const active = onRooms && selectedRoomId === id;
+                return (
+                  <li key={id}>
+                    <Link
+                      to={`/grok/rooms/${id}`}
+                      onClick={() => setAgentsOpen(false)}
+                      className={`flex min-h-10 w-full min-w-0 items-center rounded-lg px-2.5 py-1.5 text-left text-sm font-semibold ${
+                        active
+                          ? "bg-teal-600 text-white"
+                          : "text-teal-950 hover:bg-teal-50"
+                      }`}
+                      title={room.title || "Room"}
+                    >
+                      <span className="min-w-0 flex-1 truncate">{room.title || "Room"}</span>
+                    </Link>
+                  </li>
+                );
+              })}
+            </ul>
+          )}
+        </div>
+
         {agents.length === 0 ? (
           <p className="px-2 py-3 text-sm text-teal-900/70">
             No agents yet.{" "}
@@ -350,6 +413,8 @@ export function GrokStylePage() {
     </aside>
   );
 
+  const showOutlet = Boolean(chatId) || onRooms;
+
   return (
     <div className="relative flex h-full min-h-0 w-full flex-1 flex-col lg:flex-row">
       {agentsOpen ? (
@@ -372,7 +437,9 @@ export function GrokStylePage() {
           >
             ☰
           </button>
-          <span className="min-w-0 flex-1 truncate text-sm font-bold">grok-style</span>
+          <span className="min-w-0 flex-1 truncate text-sm font-bold">
+            {onRooms ? "Group rooms" : "grok-style"}
+          </span>
         </div>
 
         {error ? (
@@ -386,7 +453,7 @@ export function GrokStylePage() {
           </div>
         ) : null}
 
-        {chatId ? (
+        {showOutlet ? (
           <div className="min-h-0 flex-1 overflow-hidden">
             <Outlet />
           </div>
@@ -394,15 +461,24 @@ export function GrokStylePage() {
           <div className="flex min-h-0 flex-1 flex-col items-center justify-center gap-3 px-6 text-center">
             <p className="text-lg font-bold tracking-tight text-teal-950">Pick an agent</p>
             <p className="max-w-md text-sm text-teal-900/70">
-              Agents are grouped in folders on the left. Each agent has one ongoing chat.
+              Agents are grouped in folders on the left. Each agent has one ongoing chat. Group rooms
+              are listed at the top of the rail.
             </p>
-            <button
-              type="button"
-              className="inline-flex min-h-11 items-center rounded-xl bg-teal-700 px-4 font-semibold text-white lg:hidden"
-              onClick={() => setAgentsOpen(true)}
-            >
-              Browse agents
-            </button>
+            <div className="flex flex-wrap items-center justify-center gap-2">
+              <button
+                type="button"
+                className="inline-flex min-h-11 items-center rounded-xl bg-teal-700 px-4 font-semibold text-white lg:hidden"
+                onClick={() => setAgentsOpen(true)}
+              >
+                Browse agents
+              </button>
+              <Link
+                to="/grok/rooms"
+                className="inline-flex min-h-11 items-center rounded-xl border border-teal-200 bg-white px-4 font-semibold text-teal-900 hover:bg-teal-50"
+              >
+                Open Group rooms
+              </Link>
+            </div>
           </div>
         )}
       </div>

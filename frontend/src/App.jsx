@@ -232,6 +232,8 @@ export default function App() {
           <Route path="/grok" element={<GrokStyleLayout />}>
             <Route element={<GrokStylePage />}>
               <Route index element={null} />
+              <Route path="rooms" element={<RoomsPage />} />
+              <Route path="rooms/:roomId" element={<RoomDetailPage />} />
               <Route path=":chatId" element={<ChatDetailPage />} />
             </Route>
           </Route>

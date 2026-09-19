@@ -1,11 +1,11 @@
 /**
- * @fileoverview Group rooms list + create — Hermes-style multi-agent channels.
- * Purpose: Create rooms with 2+ agents and open the shared transcript.
- * Downstream: GET/POST /api/rooms; RoomDetailPage.
+ * @fileoverview Group rooms list + create/edit — Hermes-style multi-agent channels.
+ * Purpose: Create rooms with 2+ agents, edit existing rooms, open the shared transcript.
+ * Downstream: GET/POST/PATCH/DELETE /api/rooms; RoomDetailPage.
  */
 
-import { useCallback, useEffect, useState } from "react";
-import { Link, useNavigate } from "react-router-dom";
+import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel, PageGuideBanner } from "../components/FieldLabel.jsx";
@@ -22,13 +22,38 @@ function memberLabel(room) {
   return names.length ? names.join(" · ") : "No members";
 }
 
+/**
+ * @param {object} room
+ * @returns {string[]}
+ */
+function participantIds(room) {
+  return (room.participantAgents || [])
+    .map((a) => (typeof a === "object" ? String(a._id) : String(a)))
+    .filter(Boolean);
+}
+
+/**
+ * @param {object} room
+ * @returns {string}
+ */
+function facilitatorIdOf(room) {
+  const f = room.facilitatorAgent;
+  if (!f) return participantIds(room)[0] || "";
+  return typeof f === "object" ? String(f._id) : String(f);
+}
+
 export function RoomsPage() {
   const navigate = useNavigate();
+  const location = useLocation();
+  const roomsBase = location.pathname.startsWith("/grok") ? "/grok/rooms" : "/rooms";
+
   const [rooms, setRooms] = useState([]);
   const [agents, setAgents] = useState([]);
   const [title, setTitle] = useState("Website Ops");
   const [selected, setSelected] = useState(() => new Set());
   const [facilitatorId, setFacilitatorId] = useState("");
+  /** @type {string} empty = create mode */
+  const [editingId, setEditingId] = useState("");
   const [error, setError] = useState(null);
   const [busy, setBusy] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -72,7 +97,31 @@ export function RoomsPage() {
     }
   }, [selected, facilitatorId]);
 
-  async function createRoom(e) {
+  const formHeading = useMemo(
+    () => (editingId ? "Edit room" : "New room"),
+    [editingId]
+  );
+
+  function resetForm() {
+    setEditingId("");
+    setTitle("Website Ops");
+    setSelected(new Set());
+    setFacilitatorId("");
+  }
+
+  /**
+   * @param {object} room
+   */
+  function startEdit(room) {
+    setEditingId(String(room._id));
+    setTitle(String(room.title || ""));
+    setSelected(new Set(participantIds(room)));
+    setFacilitatorId(facilitatorIdOf(room));
+    setError(null);
+    window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  async function saveRoom(e) {
     e.preventDefault();
     if (selected.size < 2) {
       setError({
@@ -83,16 +132,28 @@ export function RoomsPage() {
     }
     setBusy(true);
     setError(null);
+    const body = {
+      title: title.trim() || "Group room",
+      participantAgentIds: [...selected],
+      facilitatorAgentId: facilitatorId || [...selected][0],
+    };
     try {
-      const data = await api("/api/rooms", {
-        method: "POST",
-        body: JSON.stringify({
-          title: title.trim() || "Group room",
-          participantAgentIds: [...selected],
-          facilitatorAgentId: facilitatorId || [...selected][0],
-        }),
-      });
-      navigate(`/rooms/${data.room._id}`);
+      if (editingId) {
+        const data = await api(`/api/rooms/${editingId}`, {
+          method: "PATCH",
+          body: JSON.stringify(body),
+        });
+        setRooms((prev) =>
+          prev.map((r) => (String(r._id) === String(editingId) ? data.room : r))
+        );
+        resetForm();
+      } else {
+        const data = await api("/api/rooms", {
+          method: "POST",
+          body: JSON.stringify(body),
+        });
+        navigate(`${roomsBase}/${data.room._id}`);
+      }
     } catch (err) {
       setError(err);
     } finally {
@@ -106,6 +167,7 @@ export function RoomsPage() {
     try {
       await api(`/api/rooms/${id}`, { method: "DELETE" });
       setRooms((prev) => prev.filter((r) => String(r._id) !== String(id)));
+      if (String(editingId) === String(id)) resetForm();
     } catch (err) {
       setError(err);
     }
@@ -133,10 +195,10 @@ export function RoomsPage() {
       ) : null}
 
       <form
-        onSubmit={createRoom}
+        onSubmit={saveRoom}
         className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
       >
-        <FieldLabel helpId="rooms.create">New room</FieldLabel>
+        <FieldLabel helpId="rooms.create">{formHeading}</FieldLabel>
         <input
           className="min-h-11 rounded-xl border border-teal-200 px-3 text-sm"
           value={title}
@@ -183,15 +245,33 @@ export function RoomsPage() {
             </select>
           </label>
         ) : null}
-        <ButtonWithHelp helpId="rooms.create">
-          <button
-            type="submit"
-            disabled={busy || selected.size < 2}
-            className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
-          >
-            {busy ? "Creating…" : "Create room"}
-          </button>
-        </ButtonWithHelp>
+        <div className="flex flex-wrap items-center gap-2">
+          <ButtonWithHelp helpId="rooms.create">
+            <button
+              type="submit"
+              disabled={busy || selected.size < 2}
+              className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {busy
+                ? editingId
+                  ? "Saving…"
+                  : "Creating…"
+                : editingId
+                  ? "Save changes"
+                  : "Create room"}
+            </button>
+          </ButtonWithHelp>
+          {editingId ? (
+            <button
+              type="button"
+              className="min-h-11 rounded-xl border border-teal-200 px-4 text-sm font-semibold text-teal-800"
+              onClick={resetForm}
+              disabled={busy}
+            >
+              Cancel
+            </button>
+          ) : null}
+        </div>
       </form>
 
       {loading ? <p className="text-sm text-teal-900/60">Loading rooms…</p> : null}
@@ -200,10 +280,10 @@ export function RoomsPage() {
         {rooms.map((room) => (
           <li
             key={room._id}
-            className="flex items-center gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
+            className="flex flex-wrap items-center gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
           >
             <Link
-              to={`/rooms/${room._id}`}
+              to={`${roomsBase}/${room._id}`}
               className="min-w-0 flex-1 hover:opacity-90"
             >
               <div className="truncate font-semibold text-teal-950">{room.title}</div>
@@ -212,6 +292,13 @@ export function RoomsPage() {
             <button
               type="button"
               className="min-h-10 shrink-0 rounded-xl border border-teal-200 px-3 text-xs font-semibold text-teal-800"
+              onClick={() => startEdit(room)}
+            >
+              Edit
+            </button>
+            <button
+              type="button"
+              className="min-h-10 shrink-0 rounded-xl border border-red-200 px-3 text-xs font-semibold text-red-800"
               onClick={() => void deleteRoom(room._id)}
             >
               Delete
