@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 10:20] One peer reply bubble (no triple WOM spam)
+
+- **Prompt Provided:** `@Content Inspector perfect` produced 3 WOM messages: peer_reply + “Done — reply above” + another “Content Inspector replied: …”.
+- **Architectural Flow:** Cheap peer finish had three writers for the same answer. Keep only the immediate `peer_reply` bubble from finalize; cheap-finish parent task without posting “Done”; chats.js marks parent done without a second assistant summary.
+- **Impacted Files:** agentMessageBus.js, chats.js, PROMPT_LOG
+
 ## [2026-09-19 10:10] Cheap Q&A uses recent task history
 
 - **Prompt Provided:** After CI opened mellow.io, `@Content Inspector what is the last task you did` answered Vughy.com from memory.

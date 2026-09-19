@@ -1616,51 +1616,61 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         const stillWaiting = (fresh.pendingPeerResults || []).some(
           (r) => r.status === "waiting"
         );
+        // Why: finalize already posted peer_reply bubble(s) + maybeWake may have marked done.
+        // Never post a second/third assistant summary that repeats the same peer text.
         if (!stillWaiting && allCheapOk) {
-          const peers = fresh.pendingPeerResults || [];
-          const summary =
-            peers.length === 1
-              ? `${peers[0].toAgentName || "Peer"} replied: ${String(peers[0].resultSummary || "").trim() || "(no reply)"}`
-              : peers
-                  .map((p) => {
-                    const name = p.toAgentName || "peer";
-                    const body = String(p.resultSummary || "").trim() || "(no reply)";
-                    return `${name}: ${body}`;
-                  })
-                  .join("\n\n");
-          const doneAt = new Date();
-          for (const row of peers) {
-            if (!row.consumed) {
-              row.consumed = true;
-              row.consumedAt = doneAt;
+          if (String(fresh.status) === "done") {
+            Object.assign(task, {
+              status: fresh.status,
+              resultSummary: fresh.resultSummary,
+              finishedAt: fresh.finishedAt,
+            });
+          } else {
+            const peers = fresh.pendingPeerResults || [];
+            const summary =
+              peers.length === 1
+                ? `${peers[0].toAgentName || "Peer"} replied: ${String(peers[0].resultSummary || "").trim() || "(no reply)"}`
+                : peers
+                    .map((p) => {
+                      const name = p.toAgentName || "peer";
+                      const body = String(p.resultSummary || "").trim() || "(no reply)";
+                      return `${name}: ${body}`;
+                    })
+                    .join("\n\n");
+            const doneAt = new Date();
+            for (const row of peers) {
+              if (!row.consumed) {
+                row.consumed = true;
+                row.consumedAt = doneAt;
+              }
             }
+            fresh.status = "done";
+            fresh.resultSummary = summary.slice(0, 6000);
+            fresh.finishedAt = doneAt;
+            fresh.events.push({
+              type: "complete",
+              payload: { source: "cheap_peer_fanout", peerCount: peers.length },
+              at: doneAt,
+            });
+            await fresh.save();
+            Object.assign(task, {
+              status: fresh.status,
+              resultSummary: fresh.resultSummary,
+              finishedAt: fresh.finishedAt,
+            });
           }
-          fresh.status = "done";
-          fresh.resultSummary = summary.slice(0, 6000);
-          fresh.finishedAt = doneAt;
-          fresh.events.push({
-            type: "complete",
-            payload: { source: "cheap_peer_fanout", peerCount: peers.length },
-            at: doneAt,
-          });
-          await fresh.save();
-          await Message.create({
-            chat: chat._id,
-            role: "assistant",
-            content: summary.slice(0, 6000),
-            meta: {
-              kind: "result",
-              taskId: fresh._id,
-              cheapPeerFanout: true,
-            },
-          }).catch(() => null);
-          Object.assign(task, {
-            status: fresh.status,
-            resultSummary: fresh.resultSummary,
-            finishedAt: fresh.finishedAt,
-          });
         } else if (!stillWaiting && String(fresh.status) === "waiting_peer") {
           await maybeWakeWaitingPeerParent(String(fresh._id)).catch(() => null);
+          const afterWake = await Task.findById(task._id)
+            .select("status resultSummary finishedAt")
+            .lean();
+          if (afterWake) {
+            Object.assign(task, {
+              status: afterWake.status,
+              resultSummary: afterWake.resultSummary,
+              finishedAt: afterWake.finishedAt,
+            });
+          }
         }
       }
     }

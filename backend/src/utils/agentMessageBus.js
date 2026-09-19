@@ -838,24 +838,8 @@ export async function maybeWakeWaitingPeerParent(parentTaskId) {
       at: now,
     });
     await parent.save();
-    if (parent.chat) {
-      // Why: full peer text was already posted as peer_reply; keep the closing bubble short.
-      const closing =
-        peers.length === 1
-          ? `Done — ${peers[0].toAgentName || "peer"}’s reply is in the thread above.`
-          : `Done — all ${peers.length} peer replies are in the thread above.`;
-      await Message.create({
-        chat: parent.chat,
-        role: "assistant",
-        content: closing,
-        meta: {
-          kind: "result",
-          taskId: parent._id,
-          cheapPeerResume: true,
-          resultSummary: summary.slice(0, 6000),
-        },
-      }).catch(() => null);
-    }
+    // Why: do NOT post a “Done — reply above” bubble here. finalizeOutboundFromChild already
+    // posted each peer_reply into the parent chat; a second (or third) assistant line is noise.
     return { ok: true, woken: false, finishedCheap: true };
   }
 
