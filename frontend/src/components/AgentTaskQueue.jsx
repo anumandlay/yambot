@@ -2,6 +2,7 @@
  * @fileoverview Agent work queue panel for chat pages.
  * Purpose: Show pending goals (FIFO) for the bound agent across all chats; edit or remove pending items.
  * Common chat: group pending/active tasks by dispatched agent.
+ * `emptyFallback`: when true, render an idle panel instead of null (grok mobile popup).
  * Downstream: `GET /api/chats/:id` (`agentQueue`), `PATCH`/`DELETE` `/api/chats/:id/tasks/:taskId`.
  */
 
@@ -16,9 +17,16 @@ import { SectionTitle } from "./FieldLabel.jsx";
  */
 
 /**
- * @param {{ chatId: string, agentQueue: AgentQueue|null|undefined, isCommon?: boolean, onChanged: () => void|Promise<void>, onError: (err: unknown) => void }} props
+ * @param {{ chatId: string, agentQueue: AgentQueue|null|undefined, isCommon?: boolean, onChanged: () => void|Promise<void>, onError: (err: unknown) => void, emptyFallback?: boolean }} props
  */
-export function AgentTaskQueue({ chatId, agentQueue, isCommon = false, onChanged, onError }) {
+export function AgentTaskQueue({
+  chatId,
+  agentQueue,
+  isCommon = false,
+  onChanged,
+  onError,
+  emptyFallback = false,
+}) {
   const pending = agentQueue?.pending || [];
   const active = agentQueue?.active || null;
   const groups = agentQueue?.groups || [];
@@ -34,7 +42,19 @@ export function AgentTaskQueue({ chatId, agentQueue, isCommon = false, onChanged
   }, [active, groups, isCommon, pending.length]);
 
   if (!hasWork) {
-    return null;
+    // Why: grok mobile popup always wants a panel; classic rail stays collapsed when idle.
+    if (!emptyFallback) return null;
+    return (
+      <section
+        className="flex shrink-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
+        aria-label={isCommon ? "Chat work queue" : "Agent work queue"}
+      >
+        <SectionTitle helpId="chat.taskQueue">
+          {isCommon ? "Queues by agent" : "Agent queue"}
+        </SectionTitle>
+        <p className="text-sm text-teal-900/60">No active or pending goals.</p>
+      </section>
+    );
   }
 
   /**

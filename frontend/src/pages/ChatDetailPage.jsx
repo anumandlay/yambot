@@ -4,6 +4,7 @@
  * Mid-run (v2): while the agent is running, Auto injects OPERATOR MESSAGE notes into the live task.
  * Hermes-style Auto: one streamed model turn chooses chat reply vs queue_goal (no separate classify LLM).
  * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
+ * Grok mobile: live screen + task queue collapse into floating bubbles that open bottom-sheet popups.
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -27,6 +28,7 @@ import { PeerStatusBadges } from "../components/PeerStatusBadges.jsx";
 import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
+import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -1136,18 +1138,44 @@ export function ChatDetailPage() {
     </section>
   );
 
+  const queuePanel = (
+    <AgentTaskQueue
+      chatId={chatId}
+      agentQueue={agentQueue}
+      isCommon={isCommon}
+      onChanged={load}
+      onError={setError}
+    />
+  );
+
+  const queuePanelMobile = (
+    <AgentTaskQueue
+      chatId={chatId}
+      agentQueue={agentQueue}
+      isCommon={isCommon}
+      onChanged={load}
+      onError={setError}
+      emptyFallback
+    />
+  );
+
   const agentRail = (
     <div className="flex flex-col gap-2 lg:gap-3">
-      <AgentTaskQueue
-        chatId={chatId}
-        agentQueue={agentQueue}
-        isCommon={isCommon}
-        onChanged={load}
-        onError={setError}
-      />
+      {queuePanel}
       {agentScreenBlock}
     </div>
   );
+
+  /** Why: badge on the mobile queue bubble — pending + active across common groups. */
+  const grokQueueCount = useMemo(() => {
+    if (isCommon && Array.isArray(agentQueue?.groups) && agentQueue.groups.length) {
+      return agentQueue.groups.reduce((n, g) => {
+        const pending = g?.pending?.length || 0;
+        return n + pending + (g?.active ? 1 : 0);
+      }, 0);
+    }
+    return (agentQueue?.pending?.length || 0) + (agentQueue?.active ? 1 : 0);
+  }, [agentQueue, isCommon]);
 
   return (
     <div
@@ -1273,8 +1301,14 @@ export function ChatDetailPage() {
       ) : null}
 
       <div className="grid min-h-0 flex-1 grid-cols-1 gap-2 overflow-hidden lg:grid-cols-[minmax(0,1fr)_minmax(18rem,24rem)] lg:items-stretch lg:gap-5">
-        {/* Why: mobile order puts live screen above, then thread+composer so the input stays at the bottom. */}
-        <aside className="order-1 flex max-h-[28vh] min-h-0 w-full min-w-0 shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain sm:max-h-[32vh] lg:order-2 lg:max-h-full lg:overflow-y-auto">
+        {/* Why: classic mobile keeps live above chat; grok mobile collapses rail into bubbles. */}
+        <aside
+          className={
+            grokMode
+              ? "order-1 hidden min-h-0 w-full min-w-0 shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain lg:order-2 lg:flex lg:max-h-full"
+              : "order-1 flex max-h-[28vh] min-h-0 w-full min-w-0 shrink-0 flex-col gap-2 overflow-y-auto overscroll-contain sm:max-h-[32vh] lg:order-2 lg:max-h-full lg:overflow-y-auto"
+          }
+        >
           {agentRail}
         </aside>
         <div className="order-2 flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:order-1">
@@ -1368,6 +1402,16 @@ export function ChatDetailPage() {
           {composeSection}
         </div>
       </div>
+
+      {grokMode ? (
+        <GrokMobileRailBubbles
+          liveContent={agentScreenBlock}
+          queueContent={queuePanelMobile}
+          liveActive={Boolean(activeRun && activeRun.status !== "waiting_user")}
+          liveWaiting={Boolean(activeRun && activeRun.status === "waiting_user")}
+          queueCount={grokQueueCount}
+        />
+      ) : null}
     </div>
   );
 }

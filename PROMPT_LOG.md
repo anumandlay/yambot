@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 20:00] Grok mobile: live + queue as bubbles
+
+- **Prompt Provided:** On grok-style mobile, put live view and task status in small bubbles; tap opens a popup.
+- **Architectural Flow:** Below `lg`, grok ChatDetailPage hides the right rail. `GrokMobileRailBubbles` shows two floating bubbles (queue + live) above the composer; tap opens a bottom-sheet popup with the same panels. Desktop (`lg+`) keeps the inline rail. AgentTaskQueue gains `emptyFallback` for the idle popup state.
+- **Impacted Files:** GrokMobileRailBubbles.jsx (new), ChatDetailPage.jsx, AgentTaskQueue.jsx, PROMPT_LOG
+
 ## [2026-09-18 19:00] Peer-wait frees computer for next goal
 
 - **Prompt Provided:** WOM peer-wait left github.com pending while browser idle — allow next goal.
