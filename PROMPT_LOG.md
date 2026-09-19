@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:40] History transcripts human-readable only
+
+- **Prompt Provided:** History Show dumps “action type / Action fields” etc — make it readable.
+- **Architectural Flow:** AgentChatHistoryPage filters ops/schema noise (`isHistoryNoiseMessage`) and renders `readableHistoryContent` (thought / finish / ask_user / humanizeGoal). Count shows conversational messages vs total logged.
+- **Impacted Files:** readableChat.js, AgentChatHistoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 13:35] History Show missing latest chat messages
 
 - **Prompt Provided:** `/history/agents/6aab…` showed “741 messages updated …” but Show did not display the latest chat.

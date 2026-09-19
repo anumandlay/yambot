@@ -1,14 +1,18 @@
 /**
  * @fileoverview Full chat history for one agent (current or archived).
- * Purpose: Read-only transcript of every chat thread tied to the agent.
+ * Purpose: Read-only, human-readable transcript (no action-schema / ops dumps).
  * Downstream: GET /api/agents/:id/chat-history (newest messages per thread).
  */
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
+import {
+  isHistoryNoiseMessage,
+  readableHistoryContent,
+} from "../lib/readableChat.js";
 
 /**
  * @param {object} msg
@@ -55,9 +59,24 @@ export function AgentChatHistoryPage() {
 
   useEffect(() => {
     if (!openChatId || loading) return;
-    // Newest messages are at the bottom of the chronological window.
     transcriptEndRef.current?.scrollIntoView({ block: "end" });
   }, [openChatId, loading, chats]);
+
+  /** Precompute readable rows so expand is cheap and counts stay honest. */
+  const chatsView = useMemo(
+    () =>
+      chats.map((chat) => {
+        const readable = (chat.messages || [])
+          .filter((m) => !isHistoryNoiseMessage(m))
+          .map((m) => ({
+            ...m,
+            display: readableHistoryContent(m.content, m.meta),
+          }))
+          .filter((m) => String(m.display || "").trim());
+        return { chat, readable };
+      }),
+    [chats]
+  );
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
@@ -73,7 +92,7 @@ export function AgentChatHistoryPage() {
           <div className="min-w-0">
             <h1 className="text-xl font-bold tracking-tight sm:text-2xl">{agent.name}</h1>
             <p className="text-sm text-teal-900/70">
-              Complete chat history
+              Conversation history
               {agent.archived ? " · archived agent" : ""}
               {agent.skill ? ` · ${agent.skill}` : ""}
             </p>
@@ -97,7 +116,7 @@ export function AgentChatHistoryPage() {
       ) : null}
 
       <ul className="flex flex-col gap-3">
-        {chats.map((chat) => {
+        {chatsView.map(({ chat, readable }) => {
           const id = String(chat._id);
           const open = openChatId === id;
           const total =
@@ -119,7 +138,8 @@ export function AgentChatHistoryPage() {
                     {chat.title || "Chat"}
                   </span>
                   <span className="text-xs text-teal-900/60">
-                    {total} messages
+                    {readable.length} messages
+                    {total > readable.length ? ` · ${total} total logged` : ""}
                     {chat.updatedAt
                       ? ` · updated ${new Date(chat.updatedAt).toLocaleString()}`
                       : ""}
@@ -131,21 +151,10 @@ export function AgentChatHistoryPage() {
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto border-t border-teal-50 bg-[#f7f5fc]/50 px-3 py-3">
                   {chat.truncated ? (
                     <p className="text-[0.7rem] text-teal-800/55">
-                      Showing the latest {(chat.messages || []).length} of {total} messages.
+                      Showing the latest window of this thread.
                     </p>
                   ) : null}
-                  {(chat.messages || []).map((msg) => {
-                    if (msg.meta?.ui === "icon") {
-                      return (
-                        <p
-                          key={msg._id}
-                          className="text-[0.7rem] text-teal-800/45"
-                          title={msg.content}
-                        >
-                          {String(msg.content || "").slice(0, 160)}
-                        </p>
-                      );
-                    }
+                  {readable.map((msg) => {
                     const mine = msg.role === "user";
                     return (
                       <div
@@ -163,7 +172,7 @@ export function AgentChatHistoryPage() {
                             {msgLabel(msg)}
                           </div>
                         ) : null}
-                        <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+                        <div className="whitespace-pre-wrap break-words">{msg.display}</div>
                         {msg.createdAt ? (
                           <div
                             className={`mt-1 text-[0.65rem] ${
@@ -176,8 +185,10 @@ export function AgentChatHistoryPage() {
                       </div>
                     );
                   })}
-                  {!chat.messages?.length ? (
-                    <p className="text-xs text-teal-900/55">No messages in this thread.</p>
+                  {!readable.length ? (
+                    <p className="text-xs text-teal-900/55">
+                      No conversation messages in this window (only run activity was logged).
+                    </p>
                   ) : null}
                   <div ref={open ? transcriptEndRef : null} />
                 </div>
