@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 15:20] Mid-run chat must supersede original goal
+
+- **Prompt Provided:** Why “register a account in crm” felt late / never started after open google.com.
+- **Architectural Flow:** Inject did start CRM (~1s), but the worker still finished the original “open google.com” goal and abandoned signup. Fix: on operator consume, rewrite active GOAL to ACTIVE REQUEST; strengthen OPERATOR CHAT prompt so finish cannot ignore mid-run asks.
+- **Impacted Files:** worker/src/agent.js, PROMPT_LOG
+
 ## [2026-09-19 14:45] Delete agent requires account password
 
 - **Prompt Provided:** On `/agents`, add delete with a confirmation box to enter the password.

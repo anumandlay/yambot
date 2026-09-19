@@ -1736,7 +1736,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
     running = true;
     const taskId = String(task._id);
     const goalRef = task.goalRef ? String(task.goalRef) : "";
-    const goal = String(task.goal || "").trim();
+    /** Why: let — mid-run OPERATOR MESSAGE can supersede the original chat goal. */
+    let goal = String(task.goal || "").trim();
+    const originalGoal = goal;
     const taskMaxMinutes = Number(task.maxDurationMinutes) || 0;
     const taskValueUsd = Number(task.estimatedValueUsd) || 0;
     const runStartedAt = Date.now();
@@ -2112,6 +2114,28 @@ export function createCloudAgent({ api, config, log = console.log }) {
               },
             }).catch(() => {});
           }
+          // Why: inject is not a side note — “register in CRM” while goal is still “open google”
+          // used to get abandoned when the model finished the original goal. Rewrite GOAL so
+          // the latest human request is what finish() must satisfy.
+          const opRows = Array.isArray(drained?.operatorRows) ? drained.operatorRows : [];
+          if (opRows.length) {
+            const latest = String(opRows[opRows.length - 1]?.content || "").trim();
+            if (latest) {
+              const prior = goal && goal !== latest ? goal : originalGoal;
+              goal = [
+                `ACTIVE REQUEST (from human mid-run — complete THIS; call finish only when THIS is done or they cancel it):\n${latest}`,
+                prior && prior !== latest
+                  ? `Earlier goal (lower priority — do not abandon the active request to finish this):\n${prior}`
+                  : "",
+              ]
+                .filter(Boolean)
+                .join("\n\n");
+              await mirror(taskId, "info", {
+                appendMessage: `Priority updated from chat: ${latest.slice(0, 240)}`,
+                payload: { kind: "operator_goal_update", activeRequest: latest.slice(0, 500) },
+              }).catch(() => {});
+            }
+          }
           if (Array.isArray(drained?.softActive) && drained.softActive.length) {
             const names = drained.softActive.map((r) => r.toAgentName || "peer").join(", ");
             const until = drained.softActive
@@ -2328,7 +2352,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers — when the goal says both/at the same time, put ALL peers in ONE message_agent (never ask them one-after-another with wait:true). Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers. After wait:\"soft\", NEVER finish in the same turn — keep working until the soft window ends or a PEER RESULT note arrives. If a goal starts with LATE PEER RESULT, incorporate that answer and finish — do not re-open the peer’s site unless verifying.",
-              "OPERATOR CHAT: The human may send OPERATOR MESSAGE notes while you run — treat them as high-priority guidance for the current goal (do not start an unrelated new goal unless they clearly ask).",
+              "OPERATOR CHAT: OPERATOR MESSAGE notes are high-priority. If the human asks for a new action (open/register/navigate/do X), that becomes the ACTIVE REQUEST — complete it before finish. Never abandon an operator request to finish the earlier goal (e.g. do not leave CRM signup to report “Google is open”).",
               "SESSION CONTEXT is a FIFO summary of about the last 40 minutes for THIS run. It may help with page facts, but if the goal asks you to ask/message a peer or use soft wait, you MUST call message_agent this run — never finish from an old peer reply in chat or memory.",
               "If one remaining piece of the goal stays blocked after several tries (control missing, download unreadable, API denied), call finish with partial results or ask_user — do not loop.",
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
