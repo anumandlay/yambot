@@ -5,14 +5,17 @@
  */
 
 import crypto from "node:crypto";
-import { Agent, toAgentSnapshot } from "../models/Agent.js";
+import { Agent, toAgentSnapshot, formatAgentPrompt } from "../models/Agent.js";
 import { AgentMessage } from "../models/AgentMessage.js";
 import { Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
 import { User } from "../models/User.js";
-import { enqueueTask } from "./enqueueTask.js";
+import { enqueueTask, ensureAgentChat } from "./enqueueTask.js";
 import { emitEvent } from "./eventBus.js";
 import { normalizeEntries } from "./curatedMemory.js";
+import { llmChatCompletion } from "./llmChat.js";
+import { stripModelThinking } from "./llmSanitize.js";
+import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 
 /** Max late-peer resume follow-ups spawned from one finished parent. */
 const MAX_LATE_PEER_RESUMES_PER_PARENT = 3;
@@ -165,6 +168,267 @@ export function expandDirectBrowseContent(content) {
     `Do not message_agent anyone else — you own this task.`,
     `Then call finish with what you saw.`,
   ].join(" ");
+}
+
+/**
+ * True when the peer ask can be answered with a single LLM turn (no browser / computer).
+ * Why: Hermes-style cheap Bot chat — greetings and light Q&A should not claim a Chromium box.
+ * @param {string} mode
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function shouldAnswerPeerCheaply(mode, content) {
+  const c = String(content || "").trim();
+  if (!c) return false;
+  if (isDirectBrowsePeerAsk(c)) return false;
+  if (
+    /\b(open|navigate|go\s+to|visit|click|browse|inspect|scrape|login|fill|submit|screenshot|download|upload)\b/i.test(
+      c
+    )
+  ) {
+    return false;
+  }
+  const m = String(mode || "").toLowerCase();
+  if (m === "question" || m === "event") return true;
+  if (/^(hi|hello|hey|yo)\b/i.test(c)) return true;
+  if (/\bhow are you\b/i.test(c) && c.length <= 160) return true;
+  return false;
+}
+
+/**
+ * One-shot LLM reply as the peer (no Playwright / API agent loop).
+ * @param {{
+ *   userId: string,
+ *   fromAgent: import('mongoose').Document,
+ *   toAgent: import('mongoose').Document,
+ *   content: string,
+ *   mode: string,
+ *   outbound: import('mongoose').Document,
+ *   parentTaskId: string|null,
+ *   parentChatId: string|null,
+ *   conversationKey: string,
+ *   hopDepth: number,
+ *   wait: boolean,
+ *   waitMode: string,
+ *   softWaitMs: number,
+ * }} opts
+ * @returns {Promise<object|null>} sendAgentMessage-shaped result, or null to fall back to full enqueue
+ */
+async function runCheapPeerQuestion(opts) {
+  const {
+    userId,
+    fromAgent,
+    toAgent,
+    content,
+    mode,
+    outbound,
+    parentTaskId,
+    parentChatId,
+    conversationKey,
+    hopDepth,
+    wait,
+    waitMode,
+    softWaitMs,
+  } = opts;
+
+  const owner = await User.findById(userId);
+  if (!owner) return null;
+  const creds = await resolveLlmCredentialsForAgent(owner, toAgent);
+  if (!creds?.apiKey) return null;
+
+  const snapshot = toAgentSnapshot(toAgent, {
+    goal: content,
+    userCuratedEntries: normalizeEntries(owner.curatedMemory?.entries),
+    agentCuratedEntries: normalizeEntries(toAgent.curatedMemory?.entries),
+  });
+  const persona = formatAgentPrompt(snapshot);
+  let reply = "";
+  try {
+    reply = await llmChatCompletion({
+      apiKey: creds.apiKey,
+      baseUrl: creds.llmBaseUrl || "",
+      model: creds.llmModel || "",
+      openAiAccountId: creds.openAiAccountId,
+      temperature: 0.4,
+      maxTokens: 400,
+      timeoutMs: 25_000,
+      messages: [
+        {
+          role: "system",
+          content: [
+            `You are “${toAgent.name}”, answering a short agent-to-agent message from “${fromAgent.name}”.`,
+            "This is a cheap coordination turn — you do NOT control a browser or computer.",
+            "Reply in 1–4 short sentences. Be yourself (persona below). Do not invent browsing results.",
+            "Do not call tools, message other agents, or output JSON/finish tags.",
+            "",
+            persona || "(no extra persona)",
+          ]
+            .filter(Boolean)
+            .join("\n"),
+        },
+        {
+          role: "user",
+          content: `Message from “${fromAgent.name}”:\n${String(content).slice(0, 2000)}`,
+        },
+      ],
+    });
+  } catch (err) {
+    console.warn(
+      "[agentMessageBus] cheap peer question LLM failed:",
+      err?.message || err
+    );
+    return null;
+  }
+
+  const summary =
+    stripModelThinking(reply).trim() ||
+    "I’m here — no detailed reply was generated.";
+
+  const chat = await ensureAgentChat(userId, String(toAgent._id), {
+    agentName: toAgent.name,
+    title: toAgent.name,
+  });
+  const userMsg = await Message.create({
+    chat: chat._id,
+    role: "user",
+    content: `From “${fromAgent.name}”:\n${content}`,
+    meta: {
+      source: "agent_message",
+      agentMessageId: String(outbound._id),
+      parentTaskId,
+      mode,
+      cheapPeerQuestion: true,
+      userFacingGoal: content,
+    },
+  });
+  await Message.create({
+    chat: chat._id,
+    role: "assistant",
+    content: summary,
+    meta: {
+      kind: "peer_cheap_reply",
+      agentMessageId: String(outbound._id),
+      fromAgentId: String(fromAgent._id),
+      cheapPeerQuestion: true,
+    },
+  }).catch(() => null);
+
+  const now = new Date();
+  const child = await Task.create({
+    user: userId,
+    chat: chat._id,
+    message: userMsg._id,
+    goal: `[CHEAP PEER QUESTION from “${fromAgent.name}”]\n${content}`,
+    agent: toAgent._id,
+    agentSnapshot: snapshot,
+    runner: "cloud",
+    status: "done",
+    resultSummary: summary,
+    finishedAt: now,
+    priority: "high",
+    priorityRank: priorityRank("high"),
+    events: [
+      {
+        type: "queued",
+        payload: {
+          source: "agent_message_cheap",
+          agentMessageId: String(outbound._id),
+          parentTaskId,
+          mode,
+        },
+        at: now,
+      },
+      {
+        type: "complete",
+        payload: {
+          source: "agent_message_cheap",
+          summary: summary.slice(0, 500),
+        },
+        at: now,
+      },
+    ],
+  });
+
+  outbound.childTask = child._id;
+  outbound.status = "running";
+  await outbound.save();
+
+  if (parentTaskId && !wait) {
+    const softUntil =
+      waitMode === "soft" ? new Date(Date.now() + softWaitMs) : null;
+    await Task.findByIdAndUpdate(parentTaskId, {
+      $push: {
+        pendingPeerResults: {
+          agentMessageId: String(outbound._id),
+          toAgentId: String(toAgent._id),
+          toAgentName: toAgent.name,
+          mode,
+          contentPreview: content.slice(0, 240),
+          status: "waiting",
+          resultSummary: "",
+          consumed: false,
+          waitMode: waitMode === "soft" ? "soft" : "async",
+          softWaitUntil: softUntil,
+          createdAt: now,
+          completedAt: null,
+        },
+        events: {
+          type: "peer_delegated",
+          payload: {
+            agentMessageId: String(outbound._id),
+            toAgentId: String(toAgent._id),
+            toAgentName: toAgent.name,
+            mode,
+            async: true,
+            cheapPeerQuestion: true,
+            waitMode: waitMode === "soft" ? "soft" : "async",
+            childTaskId: String(child._id),
+          },
+          at: now,
+        },
+      },
+    }).catch(() => null);
+  }
+
+  await emitEvent({
+    userId,
+    type: "agent.message.sent",
+    source: "system",
+    agentId: String(fromAgent._id),
+    taskId: parentTaskId,
+    significance: "medium",
+    summary: `${fromAgent.name} → ${toAgent.name} [${mode}/cheap]: ${content.slice(0, 240)}`,
+    correlationId: conversationKey,
+    payload: {
+      agentMessageId: String(outbound._id),
+      fromAgentId: String(fromAgent._id),
+      toAgentId: String(toAgent._id),
+      toAgentName: toAgent.name,
+      mode,
+      hopDepth,
+      wait,
+      cheapPeerQuestion: true,
+      childTaskId: String(child._id),
+      conversationKey,
+    },
+    dedupeKey: `agent.message.sent:${outbound._id}`,
+  }).catch(() => null);
+
+  const finalized = await finalizeOutboundFromChild(outbound, child, {
+    parentChatId,
+    toAgentName: toAgent.name,
+    fromAgentId: String(fromAgent._id),
+    toAgentId: String(toAgent._id),
+    mode,
+  });
+
+  return {
+    ...finalized,
+    cheapPeerQuestion: true,
+    note: wait
+      ? finalized.note
+      : `Cheap reply from ${toAgent.name} (no computer): ${summary.slice(0, 240)}`,
+  };
 }
 
 /**
@@ -889,6 +1153,26 @@ export async function sendAgentMessage(opts) {
     canRelayFurther,
     parentTaskId
   );
+
+  // Why: greetings / light Q&A skip Chromium — one LLM turn as the peer, then finalize.
+  if (shouldAnswerPeerCheaply(mode, peerContent)) {
+    const cheap = await runCheapPeerQuestion({
+      userId,
+      fromAgent,
+      toAgent,
+      content: peerContent,
+      mode,
+      outbound,
+      parentTaskId,
+      parentChatId,
+      conversationKey,
+      hopDepth,
+      wait,
+      waitMode,
+      softWaitMs,
+    });
+    if (cheap) return cheap;
+  }
 
   let enq;
   try {

@@ -26,7 +26,7 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck } from "../utils/chatAutoTurn.js";
-import { formatPeerAgentsBlock, sendAgentMessage } from "../utils/agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
   buildChatContextPrompt,
@@ -798,6 +798,32 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           wantsReply: true,
         };
         peerAskForced = true;
+      } else if (
+        peerAssignments.length === 1 &&
+        shouldAnswerPeerCheaply("question", peerAssignments[0].content)
+      ) {
+        // Why: “hi how are you” should not start WOM’s computer just to call message_agent.
+        peerFanoutTargets = peerAssignments.slice(0, 1);
+        const only = peerFanoutTargets[0];
+        goalText = [
+          "[PEER FANOUT — already queued]",
+          `Peers were messaged when this goal was queued:`,
+          `1. “${only.agentName}” — ${only.content}`,
+          "Do NOT call message_agent again. Do not browse the web yourself.",
+          "When a PEER RESULT note arrives, summarize for the user and call finish.",
+        ].join("\n");
+        mentionMeta = {
+          matched: true,
+          agentName: only.agentName,
+          peerAgentId: String(only.agentId),
+          peerAgentIds: [String(only.agentId)],
+          peerAssignments: peerFanoutTargets,
+          stripped: true,
+          dispatchSource: "peer_ask_fanout",
+          wantsReply: true,
+          cheapPeerQuestion: true,
+        };
+        peerAskForced = true;
       } else if (peerAssignments.length === 1) {
         const only = peerAssignments[0];
         const peerName = String(only.agentName || "peer").trim() || "peer";
@@ -1527,13 +1553,28 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       ],
     });
 
-    // Why: multi-@ must fan-out immediately with distinct contents — LLM peer_ask only matched one @.
-    if (peerFanoutTargets?.length >= 2) {
+    // Why: multi-@ (and cheap single greetings) fan-out server-side — park waiting_peer first
+    // so finalize can wake; if every peer answered cheaply, finish here without a computer.
+    if (peerFanoutTargets?.length >= 1) {
+      task.status = "waiting_peer";
+      task.events.push({
+        type: "waiting_peer",
+        payload: {
+          reason:
+            peerFanoutTargets.length >= 2 ? "multi_peer_ask_fanout" : "cheap_peer_ask",
+          peers: peerFanoutTargets.map((p) => p.agentName),
+        },
+        at: new Date(),
+      });
+      await task.save();
+
       /** @type {string[]} */
       const fanNotes = [];
+      let allCheapOk = true;
       for (const peer of peerFanoutTargets) {
-        const peerMode =
-          /^(hi|hello|hey|yo)\b/i.test(peer.content) || /\bhow are you\b/i.test(peer.content)
+        const peerMode = shouldAnswerPeerCheaply("question", peer.content)
+          ? "question"
+          : /^(hi|hello|hey|yo)\b/i.test(peer.content) || /\bhow are you\b/i.test(peer.content)
             ? "question"
             : "task";
         const sent = await sendAgentMessage({
@@ -1544,29 +1585,20 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           mode: peerMode,
           wait: false,
           parentTaskId: String(task._id),
-          forbidFurtherHops: true,
+          forbidFurtherHops: peerMode === "task",
         });
         fanNotes.push(
           sent?.ok
-            ? `→ ${peer.agentName}: ${peer.content.slice(0, 120)}`
+            ? `→ ${peer.agentName}${sent.cheapPeerQuestion ? " (instant)" : ""}: ${peer.content.slice(0, 120)}`
             : `✗ ${peer.agentName}: ${sent?.note || "failed"}`
         );
+        if (!sent?.ok || !sent?.cheapPeerQuestion) allCheapOk = false;
       }
-      task.status = "waiting_peer";
-      task.events.push({
-        type: "waiting_peer",
-        payload: {
-          reason: "multi_peer_ask_fanout",
-          peers: peerFanoutTargets.map((p) => p.agentName),
-          notes: fanNotes,
-        },
-        at: new Date(),
-      });
-      await task.save();
+
       await Message.create({
         chat: chat._id,
         role: "system",
-        content: `Fan-out to ${peerFanoutTargets.length} peers in parallel:\n${fanNotes.join("\n")}`,
+        content: `Fan-out to ${peerFanoutTargets.length} peer(s):\n${fanNotes.join("\n")}`,
         meta: {
           kind: "peer_fanout",
           ui: "icon",
@@ -1578,6 +1610,59 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           })),
         },
       }).catch(() => null);
+
+      const fresh = await Task.findById(task._id);
+      if (fresh) {
+        const stillWaiting = (fresh.pendingPeerResults || []).some(
+          (r) => r.status === "waiting"
+        );
+        if (!stillWaiting && allCheapOk) {
+          const peers = fresh.pendingPeerResults || [];
+          const summary =
+            peers.length === 1
+              ? `${peers[0].toAgentName || "Peer"} replied: ${String(peers[0].resultSummary || "").trim() || "(no reply)"}`
+              : peers
+                  .map((p) => {
+                    const name = p.toAgentName || "peer";
+                    const body = String(p.resultSummary || "").trim() || "(no reply)";
+                    return `${name}: ${body}`;
+                  })
+                  .join("\n\n");
+          const doneAt = new Date();
+          for (const row of peers) {
+            if (!row.consumed) {
+              row.consumed = true;
+              row.consumedAt = doneAt;
+            }
+          }
+          fresh.status = "done";
+          fresh.resultSummary = summary.slice(0, 6000);
+          fresh.finishedAt = doneAt;
+          fresh.events.push({
+            type: "complete",
+            payload: { source: "cheap_peer_fanout", peerCount: peers.length },
+            at: doneAt,
+          });
+          await fresh.save();
+          await Message.create({
+            chat: chat._id,
+            role: "assistant",
+            content: summary.slice(0, 6000),
+            meta: {
+              kind: "result",
+              taskId: fresh._id,
+              cheapPeerFanout: true,
+            },
+          }).catch(() => null);
+          Object.assign(task, {
+            status: fresh.status,
+            resultSummary: fresh.resultSummary,
+            finishedAt: fresh.finishedAt,
+          });
+        } else if (!stillWaiting && String(fresh.status) === "waiting_peer") {
+          await maybeWakeWaitingPeerParent(String(fresh._id)).catch(() => null);
+        }
+      }
     }
     const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
     const skillLabel = invokedSkillDoc?.name ? ` with skill /${skillSlashMeta?.slug || invokedSkillDoc.slug}` : "";
@@ -1588,11 +1673,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     const slashPickHint = skillSlashMeta?.pickReason
       ? ` ${skillSlashMeta.pickReason}`
       : "";
-    const queueHint = activeRun
-      ? `Agent is busy (${activeRun.status}) — this goal is pending and will start when the current run finishes.`
-      : snapshot?.mode === "api"
-        ? "Queued for API agent (no live computer — saves VPS RAM)."
-        : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
+    const queueHint =
+      String(task.status) === "done"
+        ? "Peers replied instantly (no computer) — summary below."
+        : String(task.status) === "waiting_peer"
+          ? "Waiting on peer agents — computer free for other goals."
+          : activeRun
+            ? `Agent is busy (${activeRun.status}) — this goal is pending and will start when the current run finishes.`
+            : snapshot?.mode === "api"
+              ? "Queued for API agent (no live computer — saves VPS RAM)."
+              : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const timingLine = formatAutoTimingSummary(autoTiming);
     const agentNote = await Message.create({
       chat: chat._id,
@@ -1607,7 +1697,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         taskId: task._id,
         kind: "queued",
         ui: "icon",
-        status: "pending",
+        status: task.status || "pending",
         intent: "goal",
         intentReason: classification.reason,
         intentConfidence: classification.confidence,
@@ -1616,6 +1706,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         mode: snapshot?.mode || "browser",
         queuedBehindActive: Boolean(activeRun),
         activeTaskId: activeRun?._id || null,
+        cheapPeerFanout: String(task.status) === "done",
         invokedSkillId: invokedSkillDoc?._id || null,
         invokedSkillName: invokedSkillDoc?.name || null,
         skillSlug: skillSlashMeta?.slug || null,
@@ -1634,7 +1725,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       },
     });
 
-    if (snapshot?.mode === "api" && !activeRun) {
+    if (snapshot?.mode === "api" && !activeRun && String(task.status) === "pending") {
       const { kickApiAgent } = await import("../utils/apiAgentRunner.js");
       kickApiAgent(agentDoc._id, req.userId);
     }

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 09:20] Cheap peer question path (no computer)
+
+- **Prompt Provided:** Implement Hermes-style cheap A2A for greetings / light Q&A first.
+- **Architectural Flow:** `shouldAnswerPeerCheaply` + `runCheapPeerQuestion` answer question/event (and short greetings) with one LLM turn — no Playwright claim. Chat fan-out parks `waiting_peer` before send; if all peers reply cheaply, parent finishes immediately with a summary (no WOM computer). Single cheap `@Peer hi…` uses the same path.
+- **Impacted Files:** agentMessageBus.js, chats.js, PROMPT_LOG
+
 ## [2026-09-19 08:55] Shared body for multi-@ peer asks
 
 - **Prompt Provided:** `Send a message to @Market researcher and @Website Inspector hi how are you` — MR got empty default and ran standing work; only WI got the greeting.
