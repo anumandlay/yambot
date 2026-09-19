@@ -2183,8 +2183,33 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
   }
 });
 
+/**
+ * DELETE /api/agents/:id — soft-delete (archive) an agent after account password confirm.
+ * Body: { password: string } — required; verified against the signed-in user's hash.
+ * Why: destructive retire must not be a one-click JWT-only action.
+ */
 agentsRouter.delete("/:id", async (req, res, next) => {
   try {
+    const password = String(req.body?.password || "");
+    if (!password) {
+      res.status(400).json({
+        ok: false,
+        title: "Password required",
+        detail: "Enter your account password to delete this agent.",
+        hint: "This confirms you own the account — not the agent’s saved logins.",
+      });
+      return;
+    }
+    const owner = await User.findById(req.userId).select("passwordHash");
+    if (!owner || !(await owner.verifyPassword(password))) {
+      res.status(401).json({
+        ok: false,
+        title: "Wrong password",
+        detail: "Account password did not match. Agent was not deleted.",
+      });
+      return;
+    }
+
     const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
     if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });

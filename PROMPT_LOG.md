@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 14:45] Delete agent requires account password
+
+- **Prompt Provided:** On `/agents`, add delete with a confirmation box to enter the password.
+- **Architectural Flow:** AgentsPage Delete opens modal for account password. DELETE `/api/agents/:id` requires `{ password }` verified via `User.verifyPassword` before soft-delete (History + Restore unchanged).
+- **Impacted Files:** AgentsPage.jsx, agents.js, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 14:40] Keyword search on History chat + memory pages
 
 - **Prompt Provided:** On chat history / memory pages from `/history`, add a search box for keywords.

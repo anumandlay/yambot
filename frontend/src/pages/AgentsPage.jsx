@@ -1,6 +1,7 @@
 /**
  * @fileoverview Agents list — create, group, copy, open, and delete browser agents.
  * Purpose: Entry point for managing agent profiles with folder-style EntityGroups.
+ * Downstream: DELETE /api/agents/:id requires account password; soft-delete lands on History.
  */
 
 import { useEffect, useMemo, useState } from "react";
@@ -14,6 +15,88 @@ import { GroupAssignSelect, GroupFilterBar } from "../components/GroupFilterBar.
 import { GettingStartedCard } from "../components/GettingStartedCard.jsx";
 import { useSetupStatus } from "../hooks/useSetupStatus.js";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
+
+/**
+ * Password confirmation dialog before soft-deleting an agent.
+ * @param {object} props
+ * @param {object} props.agent
+ * @param {boolean} props.busy
+ * @param {(password: string) => void} props.onConfirm
+ * @param {() => void} props.onCancel
+ */
+function DeleteAgentModal({ agent, busy, onConfirm, onCancel }) {
+  const [password, setPassword] = useState("");
+  const label = agent?.name || agent?._id || "agent";
+
+  /**
+   * @param {import("react").FormEvent} e
+   */
+  function onSubmit(e) {
+    e.preventDefault();
+    if (!password.trim() || busy) return;
+    onConfirm(password);
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-[110] flex items-end justify-center bg-teal-950/45 p-0 sm:items-center sm:p-4"
+      role="presentation"
+      onClick={() => {
+        if (!busy) onCancel();
+      }}
+    >
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="delete-agent-title"
+        className="flex w-full max-w-md flex-col overflow-hidden rounded-t-2xl border border-teal-100 bg-white shadow-xl sm:rounded-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="border-b border-teal-100 px-4 py-3">
+          <h2 id="delete-agent-title" className="text-sm font-bold text-teal-950">
+            Delete agent
+          </h2>
+          <p className="mt-1 text-sm text-teal-900/70">
+            Delete “{label}”? It leaves Agents and moves to History. Chats and memory are kept —
+            you can Restore later. Enter your account password to confirm.
+          </p>
+        </div>
+        <form onSubmit={onSubmit} className="flex flex-col gap-3 px-4 py-4">
+          <label className="flex flex-col gap-1 text-sm">
+            <span className="font-semibold text-teal-950">Account password</span>
+            <input
+              type="password"
+              autoComplete="current-password"
+              autoFocus
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              disabled={busy}
+              className="min-h-11 rounded-xl border border-teal-200 bg-white px-3 text-sm"
+              placeholder="Your YamBot login password"
+            />
+          </label>
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            <button
+              type="button"
+              disabled={busy}
+              onClick={onCancel}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-200 px-4 text-sm font-semibold disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={busy || !password.trim()}
+              className="inline-flex min-h-11 items-center justify-center rounded-xl border border-red-200 bg-red-600 px-4 text-sm font-semibold text-white disabled:opacity-50"
+            >
+              {busy ? "Deleting…" : "Delete agent"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
 
 /**
  * @param {object} props
@@ -167,7 +250,7 @@ function AgentRow({
               onClick={() => onDelete(agent)}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
             >
-              {deletingId === agent._id ? "Archiving…" : "Archive"}
+              {deletingId === agent._id ? "Deleting…" : "Delete"}
             </button>
           </ButtonWithHelp>
         </div>
@@ -184,6 +267,7 @@ export function AgentsPage() {
   const [busy, setBusy] = useState(false);
   const [deletingId, setDeletingId] = useState("");
   const [copyingId, setCopyingId] = useState("");
+  const [deleteTarget, setDeleteTarget] = useState(null);
   const [collapsed, setCollapsed] = useState(() => new Set());
   const navigate = useNavigate();
 
@@ -232,21 +316,28 @@ export function AgentsPage() {
   }
 
   /**
+   * Opens the password confirmation dialog for soft-delete.
    * @param {object} agent
    */
-  async function deleteAgent(agent) {
-    const label = agent.name || agent._id;
-    if (
-      !window.confirm(
-        `Archive agent “${label}”? It will leave Agents and move to History. Chats and tasks are kept — you can Restore later.`
-      )
-    ) {
-      return;
-    }
-    setDeletingId(agent._id);
+  function openDeleteAgent(agent) {
+    setError(null);
+    setDeleteTarget(agent);
+  }
+
+  /**
+   * Soft-deletes after the user typed their account password in the modal.
+   * @param {string} password
+   */
+  async function confirmDeleteAgent(password) {
+    if (!deleteTarget?._id) return;
+    setDeletingId(deleteTarget._id);
     setError(null);
     try {
-      await api(`/api/agents/${agent._id}`, { method: "DELETE" });
+      await api(`/api/agents/${deleteTarget._id}`, {
+        method: "DELETE",
+        body: JSON.stringify({ password }),
+      });
+      setDeleteTarget(null);
       await load();
     } catch (err) {
       setError(err);
@@ -295,7 +386,7 @@ export function AgentsPage() {
     deletingId,
     copyingId,
     onStartChat: startChat,
-    onDelete: deleteAgent,
+    onDelete: openDeleteAgent,
     onCopy: copyAgent,
     onAssignGroup: assignAgentGroup,
   };
@@ -415,6 +506,17 @@ export function AgentsPage() {
           ))}
         </ul>
       )}
+
+      {deleteTarget ? (
+        <DeleteAgentModal
+          agent={deleteTarget}
+          busy={Boolean(deletingId)}
+          onConfirm={(pw) => void confirmDeleteAgent(pw)}
+          onCancel={() => {
+            if (!deletingId) setDeleteTarget(null);
+          }}
+        />
+      ) : null}
     </div>
   );
 }

@@ -537,7 +537,8 @@ export const HELP = {
   "agents.delete": {
     title: "Delete agent",
     body: helpBody(
-      "Permanently removes the agent, its cloud Chromium container, and associated data you don't need elsewhere. Chats may remain but lose the agent link. Confirm carefully."
+      "Retires the agent from Agents (soft delete). You must enter your account password to confirm.",
+      "Chats, tasks, and memory stay available under History — you can Restore later. The cloud box is stopped but its volume is kept."
     ),
   },
   "agents.copy": {
