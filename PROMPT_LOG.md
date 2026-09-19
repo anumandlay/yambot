@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 14:15] Built-in semantic curated memory retrieval
+
+- **Prompt Provided:** Implement built-in semantic memory (not Honcho).
+- **Architectural Flow:** On enqueue / chat / schedule / goals / A2A, `resolveCuratedMemoryForPrompt` embeds the goal (OpenAI-compatible `/embeddings`) and injects top-12 curated USER+MEMORY facts by cosine similarity; keyword fallback when embeddings unsupported; full inject if ≤10 entries. Embeddings stamped on memory add/replace and backfilled at freeze. Frozen into task snapshot as before.
+- **Impacted Files:** llmEmbed.js, semanticMemory.js, curatedMemory.js, curatedMemoryOps.js, enqueueTask.js, chats.js, agentMessageBus.js, scheduler.js, goals.js, workforce.js, apiAgentRunner.js, worker agent.js, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 14:05] Raise curated MEMORY cap to 20,000 chars
 
 - **Prompt Provided:** Raise curated MEMORY cap to 20000.

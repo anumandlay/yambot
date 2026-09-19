@@ -16,6 +16,8 @@ import {
   publicCuratedStore,
   toPersistableEntries,
 } from "./curatedMemory.js";
+import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
+import { embedCuratedContent } from "./semanticMemory.js";
 
 /**
  * @param {string} userId
@@ -40,6 +42,22 @@ export function getAgentCuratedMemoryPublic(agentDoc) {
     entries,
     MEMORY_CHAR_LIMIT,
     agentDoc?.curatedMemory?.updatedAt || null
+  );
+}
+
+/**
+ * Stamp embedding onto the newest / replaced persistable row when possible.
+ * @param {object[]} persistable
+ * @param {string} focusContent
+ * @param {{ apiKey?: string, llmBaseUrl?: string }|null} creds
+ */
+async function stampFocusEmbedding(persistable, focusContent, creds) {
+  const needle = String(focusContent || "").trim();
+  if (!needle || !creds?.apiKey) return persistable;
+  const emb = await embedCuratedContent(needle, creds);
+  if (!Array.isArray(emb) || !emb.length) return persistable;
+  return persistable.map((row) =>
+    row.content === needle ? { ...row, embedding: emb } : row
   );
 }
 
@@ -74,8 +92,14 @@ export async function mutateCuratedMemory(opts) {
       return result;
     }
     const now = new Date();
+    let persistable =
+      result.persistable || toPersistableEntries(result.items || result.entries);
+    if (action === "add" || action === "replace") {
+      const creds = await resolveLlmCredentials(user);
+      persistable = await stampFocusEmbedding(persistable, payload.content, creds);
+    }
     user.curatedMemory = {
-      entries: result.persistable || toPersistableEntries(result.items || result.entries),
+      entries: persistable,
       updatedAt: now,
     };
     await user.save();
@@ -100,8 +124,17 @@ export async function mutateCuratedMemory(opts) {
       return result;
     }
     const now = new Date();
+    let persistable =
+      result.persistable || toPersistableEntries(result.items || result.entries);
+    if (action === "add" || action === "replace") {
+      const owner = await User.findById(opts.userId);
+      const creds = owner
+        ? await resolveLlmCredentialsForAgent(owner, agent)
+        : null;
+      persistable = await stampFocusEmbedding(persistable, payload.content, creds);
+    }
     agent.curatedMemory = {
-      entries: result.persistable || toPersistableEntries(result.items || result.entries),
+      entries: persistable,
       updatedAt: now,
     };
     await agent.save();
@@ -127,7 +160,7 @@ export async function setCuratedMemoryEntries(opts) {
   const target = opts.target === "user" ? "user" : "memory";
   const limit = target === "user" ? USER_CHAR_LIMIT : MEMORY_CHAR_LIMIT;
   const now = new Date();
-  // Why: clearing/replacing from UI — new strings get `at=now`; keep prior `at` when content matches.
+  // Why: clearing/replacing from UI — new strings get `at=now`; keep prior `at`/embedding when content matches.
   const previous =
     target === "user"
       ? normalizeEntryRecords(
@@ -141,11 +174,15 @@ export async function setCuratedMemoryEntries(opts) {
               .lean()
           )?.curatedMemory?.entries
         );
-  const prevByContent = new Map(previous.map((r) => [r.content, r.at]));
-  const records = normalizeEntries(opts.entries).map((content) => ({
-    content,
-    at: prevByContent.get(content) || now,
-  }));
+  const prevByContent = new Map(previous.map((r) => [r.content, r]));
+  const records = normalizeEntries(opts.entries).map((content) => {
+    const prev = prevByContent.get(content);
+    return {
+      content,
+      at: prev?.at || now,
+      embedding: prev?.embedding || null,
+    };
+  });
   const total = charCount(records);
   if (total > limit) {
     return {

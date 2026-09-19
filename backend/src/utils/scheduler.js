@@ -79,7 +79,21 @@ export async function runScheduledAgent(agent, job = null) {
   }
 
   const chat = await ensureScheduleChat(agent, job ? sched : null);
-  const snapshot = toAgentSnapshot(agent, { goal });
+  const owner = await User.findById(agent.user);
+  const { resolveLlmCredentialsForAgent } = await import("./llmCredentials.js");
+  const { resolveCuratedMemoryForPrompt } = await import("./semanticMemory.js");
+  const creds = owner ? await resolveLlmCredentialsForAgent(owner, agent) : null;
+  const curated = await resolveCuratedMemoryForPrompt({
+    userEntries: owner?.curatedMemory?.entries,
+    agentEntries: agent.curatedMemory?.entries,
+    goal,
+    creds,
+  });
+  const snapshot = toAgentSnapshot(agent, {
+    goal,
+    userCuratedEntries: curated.userCuratedEntries,
+    agentCuratedEntries: curated.agentCuratedEntries,
+  });
   const now = new Date();
   const jobLabel = String(sched.name || "").trim();
 

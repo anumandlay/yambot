@@ -69,10 +69,10 @@ export function scanMemoryContent(content) {
 }
 
 /**
- * Normalize raw Mongo / API entries into `{ content, at }` records.
- * Why: legacy stores were plain strings; new writes stamp `at` for History UI.
+ * Normalize raw Mongo / API entries into `{ content, at, embedding? }` records.
+ * Why: legacy stores were plain strings; new writes stamp `at` (+ optional embedding) for History UI / semantic retrieval.
  * @param {unknown[]|undefined|null} entries
- * @returns {{ content: string, at: Date|null }[]}
+ * @returns {{ content: string, at: Date|null, embedding: number[]|null }[]}
  */
 export function normalizeEntryRecords(entries) {
   if (!Array.isArray(entries)) return [];
@@ -82,6 +82,8 @@ export function normalizeEntryRecords(entries) {
     let content = "";
     /** @type {Date|null} */
     let at = null;
+    /** @type {number[]|null} */
+    let embedding = null;
     if (typeof raw === "string") {
       content = raw.trim();
     } else if (raw && typeof raw === "object") {
@@ -90,10 +92,14 @@ export function normalizeEntryRecords(entries) {
         const d = new Date(raw.at);
         at = Number.isNaN(d.getTime()) ? null : d;
       }
+      if (Array.isArray(raw.embedding) && raw.embedding.length) {
+        const vec = raw.embedding.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+        if (vec.length) embedding = vec;
+      }
     }
     if (!content || seen.has(content)) continue;
     seen.add(content);
-    out.push({ content, at });
+    out.push({ content, at, embedding });
   }
   return out;
 }
@@ -157,15 +163,19 @@ export function renderCuratedBlock(target, entries) {
 }
 
 /**
- * Persistable record shape (content + when added/updated).
- * @param {{ content: string, at: Date|null }[]} records
- * @returns {{ content: string, at: Date|null }[]}
+ * Persistable record shape (content + when added/updated + optional embedding).
+ * @param {{ content: string, at: Date|null, embedding?: number[]|null }[]} records
+ * @returns {{ content: string, at: Date|null, embedding?: number[] }[]}
  */
 export function toPersistableEntries(records) {
-  return normalizeEntryRecords(records).map((r) => ({
-    content: r.content,
-    at: r.at || null,
-  }));
+  return normalizeEntryRecords(records).map((r) => {
+    /** @type {{ content: string, at: Date|null, embedding?: number[] }} */
+    const row = { content: r.content, at: r.at || null };
+    if (Array.isArray(r.embedding) && r.embedding.length) {
+      row.embedding = r.embedding;
+    }
+    return row;
+  });
 }
 
 /**

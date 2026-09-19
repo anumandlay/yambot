@@ -317,7 +317,22 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
     }
 
     const runText = buildGoalRunText(goal);
-    const snapshot = toAgentSnapshot(agentDoc, { goal: runText });
+    const { User } = await import("../models/User.js");
+    const { resolveLlmCredentialsForAgent } = await import("../utils/llmCredentials.js");
+    const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+    const owner = await User.findById(req.userId);
+    const creds = owner ? await resolveLlmCredentialsForAgent(owner, agentDoc) : null;
+    const curated = await resolveCuratedMemoryForPrompt({
+      userEntries: owner?.curatedMemory?.entries,
+      agentEntries: agentDoc.curatedMemory?.entries,
+      goal: runText,
+      creds,
+    });
+    const snapshot = toAgentSnapshot(agentDoc, {
+      goal: runText,
+      userCuratedEntries: curated.userCuratedEntries,
+      agentCuratedEntries: curated.agentCuratedEntries,
+    });
     const priority = goal.priority || "normal";
 
     const message = await Message.create({

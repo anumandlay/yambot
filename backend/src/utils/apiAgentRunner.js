@@ -28,9 +28,9 @@ import { unblockDependentTasks } from "./enqueueTask.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js";
-import { normalizeEntries } from "./curatedMemory.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
+import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
 import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, listSoftActivePeerWaits, guardFinishAgainstSoftWaits, expandMessageAgentTargetsForFanOut, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
@@ -215,16 +215,25 @@ async function executeApiTask(task, agent, userId) {
     return;
   }
 
-  const snapshot = task.agentSnapshot?.id
-    ? { ...task.agentSnapshot, mode: "api" }
-    : {
-        ...toAgentSnapshot(agent, {
-          goal: task.goal,
-          userCuratedEntries: normalizeEntries(user?.curatedMemory?.entries),
-          agentCuratedEntries: normalizeEntries(agent.curatedMemory?.entries),
-        }),
-        mode: "api",
-      };
+  let snapshot;
+  if (task.agentSnapshot?.id) {
+    snapshot = { ...task.agentSnapshot, mode: "api" };
+  } else {
+    const curated = await resolveCuratedMemoryForPrompt({
+      userEntries: user?.curatedMemory?.entries,
+      agentEntries: agent.curatedMemory?.entries,
+      goal: task.goal,
+      creds,
+    });
+    snapshot = {
+      ...toAgentSnapshot(agent, {
+        goal: task.goal,
+        userCuratedEntries: curated.userCuratedEntries,
+        agentCuratedEntries: curated.agentCuratedEntries,
+      }),
+      mode: "api",
+    };
+  }
 
   const peerBlock = await formatPeerAgentsBlock(userId, String(agent._id));
 

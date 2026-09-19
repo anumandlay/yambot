@@ -1487,7 +1487,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
       snapshot.chatContext ? String(snapshot.chatContext) : "",
       snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
-      "CURATED MEMORY: Use action type memory { action: add|replace|remove, target: user|memory, content, old_text }. Persist durable facts for the next run; USER/MEMORY blocks above stay frozen until then.",
+      "CURATED MEMORY: Use action type memory { action: add|replace|remove, target: user|memory, content, old_text }. Persist durable facts for the next run; USER/MEMORY blocks above stay frozen until then. At task start YamBot injects the top relevant curated facts for this goal (semantic when embeddings are available).",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
       "There is no step limit — call finish when the goal or success criteria are met.",
     ]

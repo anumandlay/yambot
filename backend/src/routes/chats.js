@@ -1065,14 +1065,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           creds: qaCreds,
         });
         void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
-        const { normalizeEntries } = await import("../utils/curatedMemory.js");
-        const userCuratedEntries = normalizeEntries(userForLlm?.curatedMemory?.entries);
-        const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+        const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+        const curated = await resolveCuratedMemoryForPrompt({
+          userEntries: userForLlm?.curatedMemory?.entries,
+          agentEntries: agentDoc.curatedMemory?.entries,
+          goal: questionText,
+          creds: qaCreds,
+        });
         const qaSnapshot = withChatContext(
           toAgentSnapshot(agentDoc, {
             goal: questionText,
-            userCuratedEntries,
-            agentCuratedEntries,
+            userCuratedEntries: curated.userCuratedEntries,
+            agentCuratedEntries: curated.agentCuratedEntries,
           }),
           chatContextBlock
         );
@@ -1313,14 +1317,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           excludeIds: [String(message._id)],
           creds: qaCreds,
         });
-        const { normalizeEntries } = await import("../utils/curatedMemory.js");
-        const userCuratedEntries = normalizeEntries(userForLlm?.curatedMemory?.entries);
-        const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+        const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+        const curated = await resolveCuratedMemoryForPrompt({
+          userEntries: userForLlm?.curatedMemory?.entries,
+          agentEntries: agentDoc.curatedMemory?.entries,
+          goal: questionText,
+          creds: qaCreds,
+        });
         const qaSnapshot = withChatContext(
           toAgentSnapshot(agentDoc, {
             goal: questionText,
-            userCuratedEntries,
-            agentCuratedEntries,
+            userCuratedEntries: curated.userCuratedEntries,
+            agentCuratedEntries: curated.agentCuratedEntries,
           }),
           chatContextBlock
         );
@@ -1497,11 +1505,22 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       });
     }
 
-    // Why: rebuild snapshot with final goal + this chat’s session context for the worker.
-    snapshot = toAgentSnapshot(agentDoc, { goal: goalText || content });
+    // Why: rebuild snapshot with final goal + semantic curated top-k + chat context for the worker.
     try {
       const userForCtx = await User.findById(req.userId);
       const ctxCreds = await resolveLlmCredentialsForAgent(userForCtx, agentDoc);
+      const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+      const curated = await resolveCuratedMemoryForPrompt({
+        userEntries: userForCtx?.curatedMemory?.entries,
+        agentEntries: agentDoc.curatedMemory?.entries,
+        goal: goalText || content,
+        creds: ctxCreds,
+      });
+      snapshot = toAgentSnapshot(agentDoc, {
+        goal: goalText || content,
+        userCuratedEntries: curated.userCuratedEntries,
+        agentCuratedEntries: curated.agentCuratedEntries,
+      });
       // Why: never delay queue ack / stream end on a summary LLM call.
       const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
         excludeIds: [String(message._id)],
@@ -1511,6 +1530,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       void refreshChatContextIfNeeded(chat, ctxCreds).catch(() => {});
     } catch (err) {
       console.warn("[chats] chat context pack failed:", err?.message || err);
+      snapshot = toAgentSnapshot(agentDoc, { goal: goalText || content });
     }
 
     const task = await Task.create({

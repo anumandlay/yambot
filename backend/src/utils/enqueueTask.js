@@ -9,7 +9,8 @@ import { Chat, Message } from "../models/Chat.js";
 import { Task, priorityRank } from "../models/Task.js";
 import { User } from "../models/User.js";
 import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.js";
-import { normalizeEntries } from "./curatedMemory.js";
+import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
+import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
 
 /**
  * One human chat per agent — find the newest agent chat or create it.
@@ -151,10 +152,18 @@ export async function enqueueTask(opts) {
   const workflowRunId = opts.workflowRunId || opts.meta?.workflowRunId || null;
   const correlationId = String(opts.correlationId || opts.meta?.correlationId || "").trim();
 
-  // Why: freeze account USER.md + agent MEMORY.md at enqueue (Hermes session snapshot).
-  const owner = await User.findById(userId).select("curatedMemory").lean();
-  const userCuratedEntries = normalizeEntries(owner?.curatedMemory?.entries);
-  const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+  // Why: freeze semantic top-k of USER.md + MEMORY.md at enqueue (Hermes-style retrieve, then freeze).
+  const owner = await User.findById(userId);
+  const creds = owner ? await resolveLlmCredentialsForAgent(owner, agentDoc) : null;
+  const curated = await resolveCuratedMemoryForPrompt({
+    userEntries: owner?.curatedMemory?.entries,
+    agentEntries: agentDoc.curatedMemory?.entries,
+    goal: workerGoal,
+    creds,
+    userDoc: owner,
+    agentDoc,
+    persistEmbeddings: Boolean(creds?.apiKey),
+  });
 
   const task = await Task.create({
     user: userId,
@@ -174,8 +183,8 @@ export async function enqueueTask(opts) {
     agent: agentId,
     agentSnapshot: toAgentSnapshot(agentDoc, {
       goal: workerGoal,
-      userCuratedEntries,
-      agentCuratedEntries,
+      userCuratedEntries: curated.userCuratedEntries,
+      agentCuratedEntries: curated.agentCuratedEntries,
     }),
     runner: "cloud",
     status: blockedByDeps > 0 ? "blocked" : "pending",
@@ -191,6 +200,7 @@ export async function enqueueTask(opts) {
           source: opts.source || "enqueue",
           blocked: blockedByDeps > 0,
           userFacingGoal: displayContent,
+          curatedMemory: curated.meta,
           ...(opts.meta && typeof opts.meta === "object" ? opts.meta : {}),
         },
       },

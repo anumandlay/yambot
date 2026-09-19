@@ -940,7 +940,7 @@ export const HELP = {
   "agent.memory": {
     title: "Agent memory notes",
     body: helpBody(
-      "Curated MEMORY (Hermes-style) holds durable agent notes with a 20,000 character cap — frozen into each run. Account USER prefs live under Settings → Memory.",
+      "Curated MEMORY (Hermes-style) holds durable agent notes with a 20,000 character cap. At task start YamBot injects the top facts relevant to the goal (semantic embeddings when your LLM supports /embeddings; otherwise keyword match). Account USER prefs live under Settings → Memory.",
       "Open View memory for curated entries, day-by-day history, and the login vault."
     ),
   },

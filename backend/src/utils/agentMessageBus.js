@@ -12,10 +12,10 @@ import { Task, priorityRank } from "../models/Task.js";
 import { User } from "../models/User.js";
 import { enqueueTask, ensureAgentChat } from "./enqueueTask.js";
 import { emitEvent } from "./eventBus.js";
-import { normalizeEntries } from "./curatedMemory.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
+import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
 
 /** Max late-peer resume follow-ups spawned from one finished parent. */
 const MAX_LATE_PEER_RESUMES_PER_PARENT = 3;
@@ -289,10 +289,16 @@ async function runCheapPeerQuestion(opts) {
   const creds = await resolveLlmCredentialsForAgent(owner, toAgent);
   if (!creds?.apiKey) return null;
 
+  const curated = await resolveCuratedMemoryForPrompt({
+    userEntries: owner.curatedMemory?.entries,
+    agentEntries: toAgent.curatedMemory?.entries,
+    goal: content,
+    creds,
+  });
   const snapshot = toAgentSnapshot(toAgent, {
     goal: content,
-    userCuratedEntries: normalizeEntries(owner.curatedMemory?.entries),
-    agentCuratedEntries: normalizeEntries(toAgent.curatedMemory?.entries),
+    userCuratedEntries: curated.userCuratedEntries,
+    agentCuratedEntries: curated.agentCuratedEntries,
   });
   const persona = formatAgentPrompt(snapshot);
   const recentWork = await loadRecentAgentWorkBlock(userId, String(toAgent._id), 6);
@@ -985,13 +991,18 @@ export async function resumeParentForLatePeer(opts) {
     "Do not re-do work the peer already completed. Do not navigate to the peer’s URL unless needed to verify.",
   ].join("\n");
 
-  const owner = await User.findById(userId).select("curatedMemory").lean();
-  const userCuratedEntries = normalizeEntries(owner?.curatedMemory?.entries);
-  const agentCuratedEntries = normalizeEntries(agentDoc.curatedMemory?.entries);
+  const owner = await User.findById(userId);
+  const creds = owner ? await resolveLlmCredentialsForAgent(owner, agentDoc) : null;
+  const curated = await resolveCuratedMemoryForPrompt({
+    userEntries: owner?.curatedMemory?.entries,
+    agentEntries: agentDoc.curatedMemory?.entries,
+    goal: goalText,
+    creds,
+  });
   const snapshot = toAgentSnapshot(agentDoc, {
     goal: goalText,
-    userCuratedEntries,
-    agentCuratedEntries,
+    userCuratedEntries: curated.userCuratedEntries,
+    agentCuratedEntries: curated.agentCuratedEntries,
   });
 
   // Why: keep the resume on the same chat thread the parent used (incl. common chat).

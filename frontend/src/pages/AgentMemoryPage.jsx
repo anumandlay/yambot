@@ -333,7 +333,8 @@ export function AgentMemoryPage() {
       </div>
 
       <p className="text-sm text-teal-900/70">
-        Curated MEMORY (durable facts, 20,000 char cap) is frozen into each run. Day history and
+        Curated MEMORY (durable facts, 20,000 char cap). Each run injects the top facts
+        relevant to that goal (semantic when your LLM supports embeddings). Day history and
         episodic notes stay separate. Account USER prefs live under Settings → Memory.
       </p>
 
