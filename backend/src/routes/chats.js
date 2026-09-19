@@ -825,32 +825,26 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         };
         peerAskForced = true;
       } else if (peerAssignments.length === 1) {
-        const only = peerAssignments[0];
-        const peerName = String(only.agentName || "peer").trim() || "peer";
-        const ask = only.content;
-        const wantsReply =
-          /\b(reply|respond|answer|wait|get back|report back|take (?:their |his |her |the )?reply|and (?:tell|let) me)\b/i.test(
-            content
-          ) || /\bask\b/i.test(content);
+        // Why: single @Peer browse/task used to queue WOM’s computer first so WOM could call
+        // message_agent — that added ~30s before CI even saw the ask. Fan out at POST like multi-@.
+        peerFanoutTargets = peerAssignments.slice(0, 1);
+        const only = peerFanoutTargets[0];
         goalText = [
-          `You must call message_agent to “${peerName}” (use that exact name) exactly once.`,
-          wantsReply
-            ? `Use wait:true so you receive their finish result before you finish.`
-            : `Prefer wait:true if the user expects an answer back; otherwise wait:false is ok.`,
-          `Send them this message content:`,
-          ask,
-          `Do not message any other agent. Do not browse the web unless “${peerName}” cannot help.`,
-          `When a PEER RESULT note arrives, summarize it for the user and call finish immediately.`,
-          `Do NOT call message_agent again after you already have a peer result.`,
+          "[PEER FANOUT — already queued]",
+          `Peers were messaged when this goal was queued:`,
+          `1. “${only.agentName}” — ${only.content}`,
+          "Do NOT call message_agent again. Do not browse the web yourself.",
+          "When a PEER RESULT note arrives, summarize for the user and call finish.",
         ].join("\n");
         mentionMeta = {
           matched: true,
-          agentName: peerName,
+          agentName: only.agentName,
           peerAgentId: String(only.agentId),
+          peerAgentIds: [String(only.agentId)],
+          peerAssignments: peerFanoutTargets,
           stripped: true,
-          dispatchSource: "peer_ask",
-          wantsReply,
-          peerContentRewritten: true,
+          dispatchSource: "peer_ask_fanout",
+          wantsReply: true,
         };
         peerAskForced = true;
       } else if (mention.matched && mention.agentId && String(mention.agentId) !== boundId) {
