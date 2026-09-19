@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:20] History page + soft-delete agents
+
+- **Prompt Provided:** New History page listing deleted (disabled) and current agents, with link to complete chat history per agent.
+- **Architectural Flow:** DELETE /api/agents/:id now soft-archives (`active=false`, `deletedAt`) and keeps chats/tasks; stops computer without wiping volume. GET /api/agents filters to current only. GET /api/agents/history + GET /:id/chat-history + POST /:id/restore. UI: HistoryPage, AgentChatHistoryPage, nav History; Agents Delete → Archive.
+- **Impacted Files:** Agent.js, agents.js, HistoryPage.jsx, AgentChatHistoryPage.jsx, AgentsPage.jsx, App.jsx, AppSidebar.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 13:15] Enter sends in chat/room composers
 
 - **Prompt Provided:** In all message boxes, Enter should send (not newline).

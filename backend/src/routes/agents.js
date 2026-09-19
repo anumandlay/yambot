@@ -499,7 +499,8 @@ agentsRouter.post("/draft-from-brief", async (req, res, next) => {
 
 agentsRouter.get("/", async (req, res, next) => {
   try {
-    const filter = { user: req.userId };
+    // Why: soft-deleted agents live on History — Agents page only shows current workforce.
+    const filter = { user: req.userId, active: { $ne: false } };
     if (req.query.groupId === "ungrouped") filter.group = null;
     else if (req.query.groupId) filter.group = String(req.query.groupId);
     const agents = await Agent.find(filter)
@@ -628,8 +629,88 @@ agentsRouter.get("/live-wall", async (req, res, next) => {
 });
 
 /**
+ * GET /api/agents/history — current + soft-deleted agents for the History page.
+ * Includes chat/task counts so archived bots still surface their data.
+ */
+agentsRouter.get("/history", async (req, res, next) => {
+  try {
+    const agents = await Agent.find({ user: req.userId })
+      .select(
+        "name skill profile description role mode group avatarMime avatarBase64 active deletedAt createdAt updatedAt computer.online computer.lastSeenAt"
+      )
+      .populate("group", "name")
+      .sort({ deletedAt: -1, updatedAt: -1 })
+      .lean();
+
+    const agentIds = agents.map((a) => a._id);
+    const chats = await Chat.find({
+      user: req.userId,
+      kind: "agent",
+      agent: { $in: agentIds },
+    })
+      .select("_id agent title updatedAt createdAt")
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    /** @type {Map<string, object[]>} */
+    const chatsByAgent = new Map();
+    for (const c of chats) {
+      const aid = String(c.agent);
+      const list = chatsByAgent.get(aid) || [];
+      list.push(c);
+      chatsByAgent.set(aid, list);
+    }
+
+    const taskCounts = await Task.aggregate([
+      { $match: { user: req.userId, agent: { $in: agentIds } } },
+      { $group: { _id: "$agent", total: { $sum: 1 }, done: { $sum: { $cond: [{ $eq: ["$status", "done"] }, 1, 0] } } } },
+    ]);
+    /** @type {Map<string, { total: number, done: number }>} */
+    const tasksByAgent = new Map(
+      taskCounts.map((r) => [String(r._id), { total: r.total, done: r.done }])
+    );
+
+    const rows = agents.map((a) => {
+      const id = String(a._id);
+      const agentChats = chatsByAgent.get(id) || [];
+      const tasks = tasksByAgent.get(id) || { total: 0, done: 0 };
+      const archived = a.active === false || Boolean(a.deletedAt);
+      return {
+        id,
+        name: a.name || "Agent",
+        skill: a.skill || "",
+        role: a.role || "worker",
+        mode: a.mode || "browser",
+        groupName: a.group?.name || "",
+        avatarMime: a.avatarMime || "",
+        avatarBase64: a.avatarBase64 || "",
+        active: a.active !== false,
+        archived,
+        deletedAt: a.deletedAt || null,
+        createdAt: a.createdAt,
+        updatedAt: a.updatedAt,
+        chatCount: agentChats.length,
+        primaryChatId: agentChats[0] ? String(agentChats[0]._id) : null,
+        taskCount: tasks.total,
+        doneTaskCount: tasks.done,
+      };
+    });
+
+    res.json({
+      ok: true,
+      agents: rows,
+      counts: {
+        current: rows.filter((r) => !r.archived).length,
+        archived: rows.filter((r) => r.archived).length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * GET /api/agents/roster — Hermes-style bots directory (slim + live status).
- * Why: one poll for “who exists / busy / needs you” without live-wall JPEGs or full agent docs.
  */
 agentsRouter.get("/roster", async (req, res, next) => {
   try {
@@ -853,6 +934,99 @@ agentsRouter.post("/", async (req, res, next) => {
             : "Cloud computer is stopped for this agent.",
       },
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/agents/:id/chat-history — full chat transcripts for one agent (incl. archived).
+ */
+agentsRouter.get("/:id/chat-history", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("name skill avatarMime avatarBase64 active deletedAt mode role")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    const chats = await Chat.find({
+      user: req.userId,
+      agent: agent._id,
+    })
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const chatIds = chats.map((c) => c._id);
+    const msgLimit = Math.min(Math.max(Number(req.query.messageLimit) || 500, 50), 2000);
+    const messages = chatIds.length
+      ? await Message.find({ chat: { $in: chatIds } })
+          .sort({ _id: 1 })
+          .limit(msgLimit)
+          .lean()
+      : [];
+
+    /** @type {Map<string, object[]>} */
+    const byChat = new Map();
+    for (const m of messages) {
+      const cid = String(m.chat);
+      const list = byChat.get(cid) || [];
+      list.push({
+        _id: m._id,
+        role: m.role,
+        content: m.content,
+        meta: m.meta,
+        createdAt: m.createdAt,
+      });
+      byChat.set(cid, list);
+    }
+
+    res.json({
+      ok: true,
+      agent: {
+        id: String(agent._id),
+        name: agent.name,
+        skill: agent.skill || "",
+        mode: agent.mode || "browser",
+        role: agent.role || "worker",
+        avatarMime: agent.avatarMime || "",
+        avatarBase64: agent.avatarBase64 || "",
+        archived: agent.active === false || Boolean(agent.deletedAt),
+        deletedAt: agent.deletedAt || null,
+      },
+      chats: chats.map((c) => ({
+        _id: c._id,
+        title: c.title,
+        kind: c.kind,
+        updatedAt: c.updatedAt,
+        createdAt: c.createdAt,
+        messages: byChat.get(String(c._id)) || [],
+      })),
+      messageCap: msgLimit,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/restore — undelete a soft-deleted agent.
+ */
+agentsRouter.post("/:id/restore", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    agent.active = true;
+    agent.deletedAt = null;
+    if (agent.lifecycleStatus === "retired" || agent.lifecycleStatus === "retiring") {
+      agent.lifecycleStatus = "active";
+    }
+    await agent.save();
+    res.json({ ok: true, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
   }
@@ -1989,12 +2163,40 @@ agentsRouter.delete("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
     }
+    if (agent.active === false && agent.deletedAt) {
+      res.json({
+        ok: true,
+        alreadyArchived: true,
+        agentId: String(agent._id),
+      });
+      return;
+    }
     const containerName = agent.computer?.containerName || "";
-    // Why: ask manager to stop the box before deleting the Mongo doc.
+    // Why: soft-delete — keep chats/tasks/messages for History; only retire the live agent.
     agent.computer = agent.computer || {};
     agent.computer.desired = "stopped";
     agent.active = false;
+    agent.deletedAt = new Date();
+    if (agent.lifecycleStatus === "active" || agent.lifecycleStatus === "paused") {
+      agent.lifecycleStatus = "retired";
+    }
     await agent.save();
+
+    // Cancel queued work so archived agents do not keep claiming computers.
+    await Task.updateMany(
+      {
+        user: req.userId,
+        agent: agent._id,
+        status: { $in: ["pending", "waiting_peer"] },
+      },
+      {
+        $set: {
+          status: "cancelled",
+          lastError: "Agent archived",
+          finishedAt: new Date(),
+        },
+      }
+    ).catch(() => null);
 
     if (containerName) {
       try {
@@ -2007,33 +2209,21 @@ agentsRouter.delete("/:id", async (req, res, next) => {
           body: JSON.stringify({
             name: containerName,
             agentId: String(agent._id),
-            removeVolume: true,
+            // Why: keep volume so Restore can bring the box back with profile data.
+            removeVolume: false,
           }),
         });
       } catch (err) {
-        // Why: orphan cleanup in the manager loop still removes the box if this fails.
-        console.warn("[agents] stop on delete failed", err?.message || err);
+        console.warn("[agents] stop on archive failed", err?.message || err);
       }
     }
 
-    const agentId = agent._id;
-    const chatIds = await Chat.find({ agent: agentId, user: req.userId }).distinct("_id");
-    await Promise.all([
-      Message.deleteMany({ chat: { $in: chatIds } }),
-      Task.deleteMany({ user: req.userId, $or: [{ agent: agentId }, { chat: { $in: chatIds } }] }),
-      Chat.deleteMany({ _id: { $in: chatIds } }),
-      AgentMessage.deleteMany({
-        user: req.userId,
-        $or: [{ fromAgent: agentId }, { toAgent: agentId }],
-      }),
-    ]);
-
-    await Agent.deleteOne({ _id: agent._id });
     res.json({
       ok: true,
+      archived: true,
+      agentId: String(agent._id),
       stoppedContainer: containerName,
-      removedVolume: Boolean(containerName),
-      deletedChats: chatIds.length,
+      hint: "Agent archived — chats and tasks kept. Open History to view or Restore.",
     });
   } catch (err) {
     next(err);

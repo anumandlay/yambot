@@ -134,6 +134,7 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       <NavItem to="/" helpId="nav.chats" letter="C" label="Chats" end />
       <NavItem to="/rooms" helpId="nav.rooms" letter="Rm" label="Group rooms" />
       <NavItem to="/bots" helpId="nav.bots" letter="Bo" label="Bots roster" />
+      <NavItem to="/history" helpId="nav.history" letter="H" label="History" />
       <NavItem to="/agent-threads" helpId="nav.agentThreads" letter="↔" label="Agent threads" />
       <NavItem to="/agents" helpId="nav.agents" letter="A" label="Agents" />
 

@@ -378,6 +378,11 @@ const agentSchema = new mongoose.Schema(
     },
     active: { type: Boolean, default: true },
     /**
+     * Soft-delete timestamp. When set, agent is hidden from live lists but chats/tasks remain
+     * for the History page. Hard delete is no longer used from the Agents UI.
+     */
+    deletedAt: { type: Date, default: null, index: true },
+    /**
      * Hermes-style MEMORY.md — curated agent notes (env facts, lessons).
      * Why: small durable facts in the prompt; separate from noisy episodic `memory`.
      * Entries joined by `\n§\n`; hard cap 2,200 chars (see curatedMemory.js).

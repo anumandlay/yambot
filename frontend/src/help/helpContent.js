@@ -181,6 +181,12 @@ export const HELP = {
       "Same Agent profiles as the Agents page — roster is discovery + status, not a second kind of bot."
     ),
   },
+  "nav.history": {
+    title: "History",
+    body: helpBody(
+      "Current and archived agents. Deleting an agent from Agents retires it (soft delete) but keeps chats and tasks. Open View chat history for the full transcript, or Restore to bring an archived agent back."
+    ),
+  },
   "rooms.create": {
     title: "Create room",
     body: helpBody(

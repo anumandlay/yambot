@@ -167,7 +167,7 @@ function AgentRow({
               onClick={() => onDelete(agent)}
               className="inline-flex min-h-11 w-full items-center justify-center rounded-xl border border-red-200 bg-red-50 px-3 text-sm font-semibold text-red-700 disabled:opacity-50 sm:w-auto"
             >
-              {deletingId === agent._id ? "Deleting…" : "Delete"}
+              {deletingId === agent._id ? "Archiving…" : "Archive"}
             </button>
           </ButtonWithHelp>
         </div>
@@ -238,7 +238,7 @@ export function AgentsPage() {
     const label = agent.name || agent._id;
     if (
       !window.confirm(
-        `Delete agent “${label}”? Its cloud computer container will be stopped and removed.`
+        `Archive agent “${label}”? It will leave Agents and move to History. Chats and tasks are kept — you can Restore later.`
       )
     ) {
       return;
