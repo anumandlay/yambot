@@ -19,7 +19,7 @@ import { embedOne, embedTexts, embeddingsSupported } from "./llmEmbed.js";
 export const SEMANTIC_FULL_INJECT_BELOW = 10;
 
 /** Max curated entries injected per store after semantic / keyword rank. */
-export const SEMANTIC_TOP_K = 12;
+export const SEMANTIC_TOP_K = 8;
 
 /**
  * Cosine similarity in [0, 1] (clamped); 0 when invalid.
@@ -163,31 +163,48 @@ export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
   }
 
   ranked.sort((a, b) => b.score - a.score);
-  // Why: keep a floor of newest entries so brand-new facts aren't starved by old high scorers.
+  const maxScore = ranked[0]?.score || 0;
+  // Why: don't pad the prompt with near-zero matches just to fill TOP_K.
+  const minKeep =
+    mode === "semantic" ? Math.max(0.22, maxScore * 0.55) : maxScore >= 1 ? 1 : 0;
+
+  // Why: keep a floor of newest entries so brand-new facts aren't starved by old high scorers —
+  // but only if they clear a soft relevance floor (or the store is sparse).
   const newest = [...withEmb]
     .sort((a, b) => {
       const ta = a.at ? new Date(a.at).getTime() : 0;
       const tb = b.at ? new Date(b.at).getTime() : 0;
       return tb - ta;
     })
-    .slice(0, 3);
+    .slice(0, 2);
 
   /** @type {Map<string, typeof withEmb[0]>} */
   const picked = new Map();
   for (const row of ranked.slice(0, SEMANTIC_TOP_K)) {
-    // Drop zero-score keyword noise; keep weak semantic scores (still relative rank).
-    if (mode === "keyword" && row.score < 1 && ranked[0]?.score >= 1) continue;
+    if (row.score < minKeep) continue;
     picked.set(row.record.content, row.record);
   }
   for (const n of newest) {
-    if (picked.size >= SEMANTIC_TOP_K + 3) break;
+    if (picked.size >= SEMANTIC_TOP_K) break;
+    const score =
+      ranked.find((r) => r.record.content === n.content)?.score ??
+      keywordScore(goalText, n.content);
+    // Soft floor: always keep brand-new notes unless totally unrelated on keyword path.
+    if (mode === "keyword" && score < 1 && maxScore >= 2) continue;
+    if (mode === "semantic" && score < minKeep * 0.5 && maxScore >= 0.4) continue;
     picked.set(n.content, n);
   }
 
   let selected = [...picked.values()];
   if (!selected.length) {
-    selected = withEmb.slice(-SEMANTIC_TOP_K);
+    selected = ranked.slice(0, Math.min(4, SEMANTIC_TOP_K)).map((r) => r.record);
   }
+  // Preserve rank order (highest score first) for the prompt.
+  selected.sort((a, b) => {
+    const sa = ranked.find((r) => r.record.content === a.content)?.score || 0;
+    const sb = ranked.find((r) => r.record.content === b.content)?.score || 0;
+    return sb - sa;
+  });
   const fitted = fitByChars(selected, charLimit);
   return {
     contents: fitted.map((r) => r.content),

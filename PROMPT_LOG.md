@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 14:20] Semantic memory live test + tighter top-k
+
+- **Prompt Provided:** Real test of built-in semantic memory.
+- **Architectural Flow:** Unit tests + VPS live test (OpenRouter embeddings). Synthetic 12-fact store for NYSE goal → selects 6 (NYSE/index/CI first; travel/Gmail dropped). Tightened score floor + TOP_K=8. WOM agent curated store still empty (USER prefs inject as “all”).
+- **Impacted Files:** semanticMemory.js, semanticMemory.test.js, _test_semantic_memory_*, PROMPT_LOG
+
 ## [2026-09-19 14:15] Built-in semantic curated memory retrieval
 
 - **Prompt Provided:** Implement built-in semantic memory (not Honcho).
