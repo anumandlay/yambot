@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 22:50] Agent-chat @Peer = message_agent (not dispatch)
+
+- **Prompt Provided:** `@website inspector ask what he did…` in WOM asked Market researcher and started the wrong computer.
+- **Architectural Flow:** Agent-chat `@Peer` had been switching `agentDoc` to the peer (dispatch). That ran Auto as Website Inspector with “ask what he did…”, so WI messaged Market researcher. Fix: keep the bound agent; rewrite the goal to `message_agent` that peer with wait:true when ask/reply language is present; `peerAskForced` skips Hermes so Auto cannot reassign.
+- **Impacted Files:** chats.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-18 20:45] Hide noisy peer-delegate chat text
 
 - **Prompt Provided:** Delegated peer chat showed COMPANY MEMORY + AGENT MESSAGE hop rules — too noisy for the user.

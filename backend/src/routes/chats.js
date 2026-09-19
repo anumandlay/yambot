@@ -527,7 +527,7 @@ chatsRouter.patch("/:id", async (req, res, next) => {
 /**
  * POST /api/chats/:id/messages — user sends a goal; enqueues a Task with agent snapshot.
  * Body: { content, agentId? } — common chat resolves agent via @mention, body, pin, or last used.
- * Agent chats: leading @PeerName delegates the goal to that peer (same thread, their computer).
+ * Agent chats: leading @PeerName asks this agent to message_agent that peer (does not switch agents).
  */
 chatsRouter.post("/:id/messages", async (req, res, next) => {
   try {
@@ -592,6 +592,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let invokedSkillDoc = null;
     let skillSlashMeta = null;
     let routerMeta = null;
+    /** Why: agent-chat @Peer means message_agent that peer — force a computer goal, do not switch agents. */
+    let peerAskForced = false;
 
     if (common) {
       const [userAgents, productionSkills, userDoc] = await Promise.all([
@@ -724,7 +726,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         router: routerMeta,
       };
     } else if (chat.agent) {
-      // Why: @PeerName in an agent chat delegates the goal to that peer (same thread, their computer).
+      // Why: in an agent chat, @Peer is "ask/message that peer" — keep THIS agent as owner.
+      // Switching agentDoc (old delegate-dispatch) made @Website Inspector run as WI, who then
+      // messaged the wrong peer (e.g. Market researcher) and started the wrong computer.
       const userAgents = await Agent.find({ user: req.userId, active: true })
         .select("name skill instructions")
         .lean();
@@ -732,12 +736,6 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let afterMention = content;
       if (mention.matched && mention.agentId) {
         afterMention = mention.strippedContent || "";
-        mentionMeta = {
-          matched: true,
-          agentName: mention.agentName,
-          stripped: mention.strippedContent !== content,
-          dispatchSource: "mention",
-        };
       }
 
       const slash = parseSkillSlash(afterMention);
@@ -768,20 +766,45 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       }
 
       const boundId = String(chat.agent);
-      const dispatchId =
-        mention.matched && mention.agentId ? String(mention.agentId) : boundId;
-      agentDoc = await Agent.findOne({ _id: dispatchId, user: req.userId, active: true });
-      if (!agentDoc && dispatchId !== boundId) {
-        res.status(404).json({
-          ok: false,
-          title: "Agent not found",
-          detail: "That @mentioned agent does not exist or is inactive.",
-        });
-        return;
+      agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
+
+      if (mention.matched && mention.agentId && String(mention.agentId) !== boundId) {
+        const peerName = String(mention.agentName || "peer").trim() || "peer";
+        const ask =
+          String(goalText || afterMention || "").trim() ||
+          "Please help with this request.";
+        const wantsReply =
+          /\b(reply|respond|answer|wait|get back|report back|take (?:their |his |her |the )?reply|and (?:tell|let) me)\b/i.test(
+            content
+          ) || /\bask\b/i.test(content);
+        goalText = [
+          `You must call message_agent to “${peerName}” (use that exact name).`,
+          wantsReply
+            ? `Use wait:true so you receive their finish result before you finish.`
+            : `Prefer wait:true if the user expects an answer back; otherwise wait:false is ok.`,
+          `Send them this message content:`,
+          ask,
+          `Do not message any other agent. Do not browse the web unless “${peerName}” cannot help.`,
+          `After their result arrives, summarize it for the user and call finish.`,
+        ].join("\n");
+        mentionMeta = {
+          matched: true,
+          agentName: peerName,
+          peerAgentId: String(mention.agentId),
+          stripped: mention.strippedContent !== content,
+          dispatchSource: "peer_ask",
+          wantsReply,
+        };
+        peerAskForced = true;
+      } else if (mention.matched) {
+        mentionMeta = {
+          matched: true,
+          agentName: mention.agentName,
+          stripped: mention.strippedContent !== content,
+          dispatchSource: "self",
+        };
       }
-      if (!agentDoc) {
-        agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
-      }
+
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
     }
 
@@ -810,7 +833,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
     // Why: Hermes-style Auto — one model turn (reply vs queue_goal), not a separate classify LLM.
     // Answer/Computer toggles still force paths; slash skills always queue.
-    const forceGoal = Boolean(req.body?.forceGoal) || Boolean(req.body?.asGoal);
+    // Agent-chat @Peer ask forces queue so Auto cannot reassign the wrong peer.
+    const forceGoal =
+      Boolean(req.body?.forceGoal) || Boolean(req.body?.asGoal) || peerAskForced;
     const forceAsk = Boolean(req.body?.forceAsk) || Boolean(req.body?.asQuestion);
     const wantStream = Boolean(req.body?.stream) || String(req.query?.stream || "") === "1";
     const useHermesAuto = !forceGoal && !forceAsk && !invokedSkillDoc;
@@ -898,13 +923,23 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         senderName: resolveHumanDisplayName(owner),
       };
       if (common || mentionMeta?.matched) {
-        Object.assign(messageMeta, {
-          dispatchAgentId: String(agentDoc._id),
-          dispatchAgentName: agentDoc.name,
-          goalText: questionText,
-          mention: mentionMeta,
-          router: routerMeta,
-        });
+        if (mentionMeta?.dispatchSource === "peer_ask") {
+          Object.assign(messageMeta, {
+            peerAsk: true,
+            peerAgentId: mentionMeta.peerAgentId,
+            peerAgentName: mentionMeta.agentName,
+            goalText: questionText,
+            mention: mentionMeta,
+          });
+        } else {
+          Object.assign(messageMeta, {
+            dispatchAgentId: String(agentDoc._id),
+            dispatchAgentName: agentDoc.name,
+            goalText: questionText,
+            mention: mentionMeta,
+            router: routerMeta,
+          });
+        }
       }
 
       const message = await Message.create({
@@ -1313,13 +1348,23 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       intentConfidence: classification.confidence,
     };
     if (common || mentionMeta?.matched) {
-      Object.assign(messageMeta, {
-        dispatchAgentId: snapshot?.id || String(agentDoc._id),
-        dispatchAgentName: snapshot?.name || agentDoc.name,
-        goalText,
-        mention: mentionMeta,
-        router: routerMeta,
-      });
+      if (mentionMeta?.dispatchSource === "peer_ask") {
+        Object.assign(messageMeta, {
+          peerAsk: true,
+          peerAgentId: mentionMeta.peerAgentId,
+          peerAgentName: mentionMeta.agentName,
+          goalText,
+          mention: mentionMeta,
+        });
+      } else {
+        Object.assign(messageMeta, {
+          dispatchAgentId: snapshot?.id || String(agentDoc._id),
+          dispatchAgentName: snapshot?.name || agentDoc.name,
+          goalText,
+          mention: mentionMeta,
+          router: routerMeta,
+        });
+      }
     }
     if (skillSlashMeta) {
       Object.assign(messageMeta, {

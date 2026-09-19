@@ -429,9 +429,10 @@ export function ChatDetailPage() {
   }, [learnPreview, productionSkills, textAfterMention]);
 
   useEffect(() => {
-    if (!mentionPreview?.matched || !mentionPreview.agentId) return;
+    // Why: common-chat picker only — agent-chat @Peer is peer-ask, not dispatch switch.
+    if (!isCommon || !mentionPreview?.matched || !mentionPreview.agentId) return;
     setDispatchAgentId(mentionPreview.agentId);
-  }, [mentionPreview?.agentId, mentionPreview?.matched]);
+  }, [isCommon, mentionPreview?.agentId, mentionPreview?.matched]);
 
   /** Bound agent for agent chats; follow active run / watch picker when @mention delegated. */
   const liveAgentId = (() => {
@@ -835,12 +836,15 @@ export function ChatDetailPage() {
       !isCommon &&
       !message.meta?.invokedSkillName &&
       !message.meta?.dispatchAgentName &&
-      !message.meta?.fromAgentName
+      !message.meta?.fromAgentName &&
+      !message.meta?.peerAgentName
     ) {
       return null;
     }
     const parts = [];
-    if (message.role === "user" && message.meta?.dispatchAgentName) {
+    if (message.role === "user" && message.meta?.peerAgentName) {
+      parts.push(`ask ${message.meta.peerAgentName}`);
+    } else if (message.role === "user" && message.meta?.dispatchAgentName) {
       parts.push(message.meta.dispatchAgentName);
     } else if (message.role === "user" && message.meta?.fromAgentName) {
       parts.push(`via ${message.meta.fromAgentName}`);
@@ -1054,7 +1058,7 @@ export function ChatDetailPage() {
           <>
             {mentionPreview?.matched ? (
               <p className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-950">
-                Delegate → <strong>{mentionPreview.agentName}</strong>
+                Ask <strong>{mentionPreview.agentName}</strong> via message_agent
                 {mentionPreview.strippedContent
                   ? ` · “${mentionPreview.strippedContent.slice(0, 80)}”`
                   : ""}
@@ -1129,7 +1133,7 @@ export function ChatDetailPage() {
               aria-label="Mention an agent"
             >
               <li className="px-3 py-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-800/55">
-                {isCommon ? "Agents — pick one" : "Delegate to agent"}
+                {isCommon ? "Agents — pick one" : "Message a peer agent"}
               </li>
               {mentionSuggestions.map((a, idx) => {
                 const active = idx === mentionHighlight;
@@ -1175,8 +1179,8 @@ export function ChatDetailPage() {
                   : intentMode === "ask"
                     ? "Ask a question (memory only)…"
                     : intentMode === "run"
-                      ? "Type @ to delegate, or describe computer work…"
-                      : "Type @ to delegate, or send a message…"
+                      ? "Type @ to message a peer, or describe computer work…"
+                      : "Type @ to message a peer, or send a message…"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
