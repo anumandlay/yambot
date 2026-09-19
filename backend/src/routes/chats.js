@@ -293,7 +293,7 @@ chatsRouter.get("/", async (req, res, next) => {
   try {
     const limit = parseChatPageLimit(req.query.limit);
     const before = String(req.query.before || "").trim();
-    const filter = { user: req.userId };
+    const filter = { user: req.userId, kind: { $ne: "room" } };
     if (before && mongoose.isValidObjectId(before)) {
       const pivot = await Chat.findOne({ _id: before, user: req.userId })
         .select("updatedAt")

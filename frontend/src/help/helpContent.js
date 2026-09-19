@@ -167,6 +167,19 @@ export const HELP = {
     ),
     learnMore: "howto-chats",
   },
+  "nav.rooms": {
+    title: "Group rooms",
+    body: helpBody(
+      "Shared channels with a fixed set of agents (Hermes-style). Post once; members reply or PASS. @mention plus browse work can delegate to that agent’s worker.",
+      "Use rooms for recurring squads (e.g. Website Ops). One-off DMs still use agent chats or @peer asks."
+    ),
+  },
+  "rooms.create": {
+    title: "Create room",
+    body: helpBody(
+      "Pick at least two agents and a name. The facilitator is who sends delegated browse/work hops when you @mention a member with an open/inspect task."
+    ),
+  },
   "nav.agentThreads": {
     title: "Agent threads",
     body: helpBody(

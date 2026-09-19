@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 12:00] Group rooms MVP (shared agent channels)
+
+- **Prompt Provided:** Develop Hermes-style group rooms as a separate feature on the existing A2A spine.
+- **Architectural Flow:** `Chat.kind=room` + `participantAgents` / `facilitatorAgent`. `/api/rooms` CRUD + post message runs `runRoomTurn`: each member cheap-LLM replies or PASS; `@mention` + browse/work delegates via `sendAgentMessage` (parentChatId = room, bypass managed allow-list). UI: sidebar Group rooms, RoomsPage, RoomDetailPage. Chats list excludes rooms.
+- **Impacted Files:** Chat.js, roomTurn.js, rooms.js, agentMessageBus.js, chats.js, index.js, RoomsPage.jsx, RoomDetailPage.jsx, App.jsx, AppSidebar.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 10:20] One peer reply bubble (no triple WOM spam)
 
 - **Prompt Provided:** `@Content Inspector perfect` produced 3 WOM messages: peer_reply + “Done — reply above” + another “Content Inspector replied: …”.

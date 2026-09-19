@@ -1216,7 +1216,9 @@ export async function sendAgentMessage(opts) {
     return { ok: false, note: "Sending agent missing" };
   }
 
-  const allowIds = managedAllowList(fromAgent);
+  const allowIds = opts.bypassManagedAllowList
+    ? null
+    : managedAllowList(fromAgent);
   const toAgent = await resolvePeerAgent(userId, opts.to, { allowedIds: allowIds });
   if (!toAgent) {
     return {
@@ -1278,8 +1280,8 @@ export async function sendAgentMessage(opts) {
     wait,
   });
 
-  let parentChatId = null;
-  if (parentTaskId) {
+  let parentChatId = opts.parentChatId ? String(opts.parentChatId).trim() || null : null;
+  if (!parentChatId && parentTaskId) {
     const parentTask = await Task.findOne({ _id: parentTaskId, user: userId })
       .select("chat")
       .lean();

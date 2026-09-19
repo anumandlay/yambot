@@ -169,6 +169,7 @@ app.use(
 );
 app.use("/api/groups", authRequired, (await import("./routes/groups.js")).groupsRouter);
 app.use("/api/chats", authRequired, chatsRouter);
+app.use("/api/rooms", authRequired, (await import("./routes/rooms.js")).roomsRouter);
 app.use("/api/goals", authRequired, (await import("./routes/goals.js")).goalsRouter);
 app.use("/api/governance", authRequired, (await import("./routes/governance.js")).governanceRouter);
 app.use("/api/policies", authRequired, (await import("./routes/policies.js")).policiesRouter);

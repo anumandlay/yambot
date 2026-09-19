@@ -1,7 +1,7 @@
 /**
  * @fileoverview Chat + Message models for the YamBot web control plane.
  * Purpose: Persist conversation threads where users enter goals and view results.
- * Downstream: chats routes; Task documents reference a chat + message.
+ * Downstream: chats routes; rooms routes (kind=room); Task documents reference a chat + message.
  */
 
 import mongoose from "mongoose";
@@ -26,7 +26,7 @@ const messageSchema = new mongoose.Schema(
   { timestamps: true }
 );
 
-export const CHAT_KINDS = ["agent", "common"];
+export const CHAT_KINDS = ["agent", "common", "room"];
 
 const chatSchema = new mongoose.Schema(
   {
@@ -40,6 +40,7 @@ const chatSchema = new mongoose.Schema(
     /**
      * agent = thread bound to one worker (existing behavior).
      * common = neutral inbox; each message picks which agent runs the task.
+     * room = Hermes-style group room — fixed participantAgents share one transcript.
      */
     kind: {
       type: String,
@@ -68,6 +69,23 @@ const chatSchema = new mongoose.Schema(
     },
     /** Phase D: LLM/heuristic auto-router when no @mention in common chat. */
     autoRoute: { type: Boolean, default: true },
+    /**
+     * Group room members (kind=room). Ordered; all must belong to the same user.
+     * Why: durable roster so you stop re-typing @A and @B on every fan-out.
+     */
+    participantAgents: {
+      type: [{ type: mongoose.Schema.Types.ObjectId, ref: "Agent" }],
+      default: undefined,
+    },
+    /**
+     * Optional room “host” used as fromAgent when delegating browse/work hops.
+     * Why: sendAgentMessage needs a sender; default to first participant if unset.
+     */
+    facilitatorAgent: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Agent",
+      default: null,
+    },
     /**
      * Compressed earlier turns for this chat only (cleared when the chat is deleted).
      * Why: each LLM call is stateless — we re-inject summary + recent messages every time.
