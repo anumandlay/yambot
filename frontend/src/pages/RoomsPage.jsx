@@ -42,6 +42,21 @@ function facilitatorIdOf(room) {
   return typeof f === "object" ? String(f._id) : String(f);
 }
 
+/**
+ * @param {object} room
+ * @returns {string}
+ */
+function facilitatorName(room) {
+  const f = room.facilitatorAgent;
+  if (f && typeof f === "object" && f.name) return String(f.name);
+  const id = facilitatorIdOf(room);
+  if (!id) return "";
+  const hit = (room.participantAgents || []).find(
+    (a) => typeof a === "object" && String(a._id) === id
+  );
+  return hit?.name ? String(hit.name) : "";
+}
+
 export function RoomsPage() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -287,6 +302,11 @@ export function RoomsPage() {
               className="min-w-0 flex-1 hover:opacity-90"
             >
               <div className="truncate font-semibold text-teal-950">{room.title}</div>
+              {facilitatorName(room) ? (
+                <div className="truncate text-xs text-teal-800/75">
+                  Facilitator: {facilitatorName(room)}
+                </div>
+              ) : null}
               <div className="truncate text-xs text-teal-900/60">{memberLabel(room)}</div>
             </Link>
             <button

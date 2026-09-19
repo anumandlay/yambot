@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:10] Room list facilitator + @mention picker
+
+- **Prompt Provided:** On /rooms list show Facilitator after room name; in room compose, typing @ should list room agents.
+- **Architectural Flow:** RoomsPage shows Facilitator line under title. RoomDetailPage reuses mentionAgent.js suggestions limited to participantAgents (arrow keys / Enter / click).
+- **Impacted Files:** RoomsPage.jsx, RoomDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 13:05] Bots roster (Hermes-style directory)
 
 - **Prompt Provided:** Implement Bots roster — what it is and how useful; then build it.
