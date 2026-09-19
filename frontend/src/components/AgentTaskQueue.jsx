@@ -9,6 +9,7 @@
 import { useMemo, useState } from "react";
 import { api } from "../lib/api.js";
 import { SectionTitle } from "./FieldLabel.jsx";
+import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 /**
  * @typedef {{ _id: string, goal: string, status: string, createdAt?: string, chat?: { _id?: string, title?: string }, agent?: { _id?: string, name?: string } }} QueueTask
@@ -62,7 +63,7 @@ export function AgentTaskQueue({
    */
   function startEdit(task) {
     setEditingId(task._id);
-    setEditText(task.goal || "");
+    setEditText(humanizeGoalOrMessage(task.goal || "", task));
   }
 
   function cancelEdit() {
@@ -169,7 +170,9 @@ export function AgentTaskQueue({
           </div>
         ) : (
           <>
-            <p className="line-clamp-4 whitespace-pre-wrap break-words text-teal-950">{task.goal}</p>
+            <p className="line-clamp-4 whitespace-pre-wrap break-words text-teal-950">
+              {humanizeGoalOrMessage(task.goal, task)}
+            </p>
             <div className="mt-2 flex flex-wrap gap-2">
               <button
                 type="button"
@@ -208,7 +211,9 @@ export function AgentTaskQueue({
               ? "waiting on peers"
               : "running"}
         </div>
-        <p className="line-clamp-3 whitespace-pre-wrap break-words">{task.goal}</p>
+        <p className="line-clamp-3 whitespace-pre-wrap break-words">
+          {humanizeGoalOrMessage(task.goal, task)}
+        </p>
         {!isCommon ? <p className="mt-1 text-xs text-sky-800/80">{taskMetaLabel(task)}</p> : null}
       </div>
     );

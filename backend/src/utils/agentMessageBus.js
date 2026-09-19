@@ -816,6 +816,8 @@ export async function sendAgentMessage(opts) {
       userId,
       agentId: String(toAgent._id),
       goalText,
+      // Why: peer chat shows only the ask — hop rules + company memory stay on Task.goal.
+      displayContent: `From “${fromAgent.name}”:\n${content}`,
       chatTitle: `${mode}: from ${fromAgent.name}`.slice(0, 80),
       source: "agent_message",
       skipCompanyContext: mode === "question" || mode === "event",
@@ -827,6 +829,7 @@ export async function sendAgentMessage(opts) {
         fromAgentId: String(fromAgent._id),
         fromAgentName: fromAgent.name,
         mode,
+        userFacingGoal: content,
       },
     });
   } catch (err) {

@@ -29,6 +29,7 @@ import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
+import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 export function ChatDetailPage() {
   const { chatId } = useParams();
@@ -830,12 +831,19 @@ export function ChatDetailPage() {
    * @returns {string|null}
    */
   function messageAgentLabel(message) {
-    if (!isCommon && !message.meta?.invokedSkillName && !message.meta?.dispatchAgentName) {
+    if (
+      !isCommon &&
+      !message.meta?.invokedSkillName &&
+      !message.meta?.dispatchAgentName &&
+      !message.meta?.fromAgentName
+    ) {
       return null;
     }
     const parts = [];
     if (message.role === "user" && message.meta?.dispatchAgentName) {
       parts.push(message.meta.dispatchAgentName);
+    } else if (message.role === "user" && message.meta?.fromAgentName) {
+      parts.push(`via ${message.meta.fromAgentName}`);
     }
     if (message.meta?.invokedSkillName) {
       parts.push(`/${message.meta.skillSlug || message.meta.invokedSkillName}`);
@@ -1452,7 +1460,9 @@ export function ChatDetailPage() {
                           <SkillPickNotice pick={skillPick} />
                         </div>
                       ) : null}
-                      <div className="whitespace-pre-wrap break-words">{m.content}</div>
+                      <div className="whitespace-pre-wrap break-words">
+                        {humanizeGoalOrMessage(m.content, m.meta)}
+                      </div>
                     </>
                   </article>
                 );

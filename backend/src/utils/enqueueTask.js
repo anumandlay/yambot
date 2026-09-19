@@ -84,13 +84,14 @@ export async function ensureAgentChat(userId, agentId, opts = {}) {
  * @param {string} [opts.campaignRef]
  * @param {string} [opts.ticketRef]
  * @param {boolean} [opts.skipCompanyContext]
+ * @param {string} [opts.displayContent] — chat bubble text (defaults to goal before company framing)
  * @returns {Promise<{ task: import('mongoose').Document, chat: import('mongoose').Document, message: import('mongoose').Document }>}
  */
 export async function enqueueTask(opts) {
   const userId = opts.userId;
   const agentId = opts.agentId;
-  let goalText = String(opts.goalText || "").trim();
-  if (!userId || !agentId || !goalText) {
+  const rawGoal = String(opts.goalText || "").trim();
+  if (!userId || !agentId || !rawGoal) {
     throw Object.assign(new Error("userId, agentId, and goalText required"), { status: 400 });
   }
 
@@ -99,6 +100,10 @@ export async function enqueueTask(opts) {
     throw Object.assign(new Error("Agent missing"), { status: 404 });
   }
 
+  // Why: chat shows the human ask; Task.goal keeps company memory + A2A framing for the worker.
+  const displayContent =
+    String(opts.displayContent || "").trim() || rawGoal;
+  let workerGoal = rawGoal;
   if (!opts.skipCompanyContext) {
     const contextBlock = await buildCompanyContextBlock(userId, {
       agentId,
@@ -106,7 +111,7 @@ export async function enqueueTask(opts) {
       enrollmentId: opts.enrollmentRef || opts.meta?.enrollmentId || null,
       ticketId: opts.ticketRef || opts.meta?.ticketId || null,
     });
-    goalText = prependContextToGoal(goalText, contextBlock);
+    workerGoal = prependContextToGoal(rawGoal, contextBlock);
   }
 
   let chat;
@@ -124,8 +129,12 @@ export async function enqueueTask(opts) {
   const message = await Message.create({
     chat: chat._id,
     role: "user",
-    content: goalText,
-    meta: { ...(opts.meta || {}), source: opts.source || "enqueue" },
+    content: displayContent,
+    meta: {
+      ...(opts.meta || {}),
+      source: opts.source || "enqueue",
+      userFacingGoal: displayContent,
+    },
   });
 
   const priority = opts.priority || "normal";
@@ -151,7 +160,7 @@ export async function enqueueTask(opts) {
     user: userId,
     chat: chat._id,
     message: message._id,
-    goal: goalText,
+    goal: workerGoal,
     goalRef: opts.goalRef || null,
     triggerRef: opts.triggerRef || opts.meta?.triggerId || null,
     entityRef: opts.entityRef || opts.meta?.entityId || null,
@@ -164,7 +173,7 @@ export async function enqueueTask(opts) {
     priorityRank: priorityRank(priority),
     agent: agentId,
     agentSnapshot: toAgentSnapshot(agentDoc, {
-      goal: goalText,
+      goal: workerGoal,
       userCuratedEntries,
       agentCuratedEntries,
     }),
@@ -181,6 +190,7 @@ export async function enqueueTask(opts) {
         payload: {
           source: opts.source || "enqueue",
           blocked: blockedByDeps > 0,
+          userFacingGoal: displayContent,
           ...(opts.meta && typeof opts.meta === "object" ? opts.meta : {}),
         },
       },

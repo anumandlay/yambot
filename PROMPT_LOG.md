@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 20:45] Hide noisy peer-delegate chat text
+
+- **Prompt Provided:** Delegated peer chat showed COMPANY MEMORY + AGENT MESSAGE hop rules — too noisy for the user.
+- **Architectural Flow:** `enqueueTask` now takes `displayContent` for the chat Message while Task.goal keeps company memory + A2A framing for the worker. `message_agent` passes a short “From …:” display. Frontend `humanizeGoalOrMessage` strips the same noise from older bubbles/queue rows.
+- **Impacted Files:** enqueueTask.js, agentMessageBus.js, goalDisplay.js (new), ChatDetailPage.jsx, AgentTaskQueue.jsx, FloatingChatWidget.jsx, PROMPT_LOG
+
 ## [2026-09-18 20:40] Fix mobile chat scroll shake
 
 - **Prompt Provided:** On mobile, scrolling the last chat message upward shakes the thread.
