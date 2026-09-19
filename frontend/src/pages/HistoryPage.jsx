@@ -1,7 +1,7 @@
 /**
- * @fileoverview History — current + archived agents with links to full chat transcripts.
- * Purpose: Soft-deleted agents stay visible here so past chats/tasks remain reachable.
- * Downstream: GET /api/agents/history, POST /api/agents/:id/restore, AgentChatHistoryPage.
+ * @fileoverview History — current + archived agents with links to full chat transcripts and memory.
+ * Purpose: Soft-deleted agents stay visible here so past chats/tasks/memory remain reachable.
+ * Downstream: GET /api/agents/history, POST /api/agents/:id/restore, AgentChatHistoryPage, AgentMemoryPage.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -66,6 +66,12 @@ function HistoryRow({ agent, archived, busy, onRestore }) {
           className="inline-flex min-h-10 items-center rounded-xl bg-teal-700 px-3 text-xs font-semibold text-white"
         >
           View chat history
+        </Link>
+        <Link
+          to={`/history/agents/${agent.id}/memory`}
+          className="inline-flex min-h-10 items-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-950"
+        >
+          View memory
         </Link>
         {!archived && agent.primaryChatId ? (
           <Link

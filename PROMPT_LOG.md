@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:45] History → View memory
+
+- **Prompt Provided:** On `/history`, after View chat history, add View memory for that agent’s full memory.
+- **Architectural Flow:** HistoryRow links to `/history/agents/:id/memory` (same AgentMemoryPage). Route registered before chat-history; back nav shows ← History + Chat history when opened from History.
+- **Impacted Files:** HistoryPage.jsx, App.jsx, AgentMemoryPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-19 13:40] History transcripts human-readable only
 
 - **Prompt Provided:** History Show dumps “action type / Action fields” etc — make it readable.

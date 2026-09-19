@@ -184,7 +184,7 @@ export const HELP = {
   "nav.history": {
     title: "History",
     body: helpBody(
-      "Current and archived agents. Deleting an agent from Agents retires it (soft delete) but keeps chats and tasks. Open View chat history for the full transcript, or Restore to bring an archived agent back."
+      "Current and archived agents. Deleting an agent from Agents retires it (soft delete) but keeps chats, tasks, and memory. Open View chat history for the transcript, View memory for curated notes / day logs / credentials, or Restore to bring an archived agent back."
     ),
   },
   "rooms.create": {

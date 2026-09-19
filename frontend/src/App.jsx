@@ -255,6 +255,7 @@ export default function App() {
           <Route path="/rooms/:roomId" element={<RoomDetailPage />} />
           <Route path="/bots" element={<BotsRosterPage />} />
           <Route path="/history" element={<HistoryPage />} />
+          <Route path="/history/agents/:agentId/memory" element={<AgentMemoryPage />} />
           <Route path="/history/agents/:agentId" element={<AgentChatHistoryPage />} />
           <Route path="/agent-threads" element={<AgentThreadsPage />} />
           <Route path="/agents" element={<AgentsPage />} />

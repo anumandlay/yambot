@@ -5,7 +5,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Link, useParams } from "react-router-dom";
+import { Link, useMatch, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, SectionTitle } from "../components/FieldLabel.jsx";
@@ -66,6 +66,7 @@ function dayMatches(q, day) {
  */
 export function AgentMemoryPage() {
   const { agentId } = useParams();
+  const fromHistory = Boolean(useMatch("/history/agents/:agentId/memory"));
   const [agentName, setAgentName] = useState("");
   const [memory, setMemory] = useState([]);
   const [dayLogs, setDayLogs] = useState([]);
@@ -274,17 +275,25 @@ export function AgentMemoryPage() {
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-wrap items-center gap-2">
         <Link
-          to="/agents"
+          to={fromHistory ? "/history" : "/agents"}
           className="inline-flex min-h-11 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
         >
-          ← Agents
+          {fromHistory ? "← History" : "← Agents"}
         </Link>
-        {agentId ? (
+        {agentId && !fromHistory ? (
           <Link
             to={`/agents/${agentId}`}
             className="inline-flex min-h-11 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
           >
             Edit agent
+          </Link>
+        ) : null}
+        {agentId && fromHistory ? (
+          <Link
+            to={`/history/agents/${agentId}`}
+            className="inline-flex min-h-11 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold"
+          >
+            Chat history
           </Link>
         ) : null}
         <Link
