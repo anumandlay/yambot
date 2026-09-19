@@ -128,7 +128,8 @@ const userSchema = new mongoose.Schema(
      * Entries joined by `\n§\n`; hard cap 1,375 chars (see curatedMemory.js).
      */
     curatedMemory: {
-      entries: { type: [String], default: [] },
+      // Why: Mixed so legacy plain strings and `{ content, at }` coexist during migration.
+      entries: { type: [mongoose.Schema.Types.Mixed], default: [] },
       updatedAt: { type: Date, default: null },
     },
     email: {

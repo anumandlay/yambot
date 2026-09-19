@@ -1,7 +1,7 @@
 /**
  * @fileoverview Hermes-style curated memory (USER + MEMORY) on Mongo.
  * Purpose: Bounded §-delimited entry stores with threat scan, hard char caps,
- * and frozen prompt blocks captured at task enqueue (session start).
+ * per-entry timestamps, and frozen prompt blocks captured at task enqueue.
  * Downstream: User/Agent models, enqueueTask snapshot, worker/API memory tool, Settings + Agent Memory UI.
  */
 
@@ -69,24 +69,46 @@ export function scanMemoryContent(content) {
 }
 
 /**
- * @param {string[]|undefined|null} entries
- * @returns {string[]}
+ * Normalize raw Mongo / API entries into `{ content, at }` records.
+ * Why: legacy stores were plain strings; new writes stamp `at` for History UI.
+ * @param {unknown[]|undefined|null} entries
+ * @returns {{ content: string, at: Date|null }[]}
  */
-export function normalizeEntries(entries) {
+export function normalizeEntryRecords(entries) {
   if (!Array.isArray(entries)) return [];
   const out = [];
   const seen = new Set();
   for (const raw of entries) {
-    const e = String(raw || "").trim();
-    if (!e || seen.has(e)) continue;
-    seen.add(e);
-    out.push(e);
+    let content = "";
+    /** @type {Date|null} */
+    let at = null;
+    if (typeof raw === "string") {
+      content = raw.trim();
+    } else if (raw && typeof raw === "object") {
+      content = String(raw.content || raw.text || "").trim();
+      if (raw.at) {
+        const d = new Date(raw.at);
+        at = Number.isNaN(d.getTime()) ? null : d;
+      }
+    }
+    if (!content || seen.has(content)) continue;
+    seen.add(content);
+    out.push({ content, at });
   }
   return out;
 }
 
 /**
- * @param {string[]|undefined|null} entries
+ * Content-only list for prompts / char caps (Hermes § join).
+ * @param {unknown[]|undefined|null} entries
+ * @returns {string[]}
+ */
+export function normalizeEntries(entries) {
+  return normalizeEntryRecords(entries).map((e) => e.content);
+}
+
+/**
+ * @param {unknown[]|undefined|null} entries
  * @returns {number}
  */
 export function charCount(entries) {
@@ -116,7 +138,7 @@ export function usageLabel(current, limit) {
 /**
  * Frozen system-prompt block (Hermes `_render_block`).
  * @param {"user"|"memory"} target
- * @param {string[]|undefined|null} entries
+ * @param {unknown[]|undefined|null} entries
  * @returns {string}
  */
 export function renderCuratedBlock(target, entries) {
@@ -135,28 +157,61 @@ export function renderCuratedBlock(target, entries) {
 }
 
 /**
- * Public API/UI shape for one store.
- * @param {string[]|undefined|null} entries
- * @param {number} limit
- * @returns {{ entries: string[], charCount: number, charLimit: number, usage: string, entryCount: number }}
+ * Persistable record shape (content + when added/updated).
+ * @param {{ content: string, at: Date|null }[]} records
+ * @returns {{ content: string, at: Date|null }[]}
  */
-export function publicCuratedStore(entries, limit) {
-  const list = normalizeEntries(entries);
+export function toPersistableEntries(records) {
+  return normalizeEntryRecords(records).map((r) => ({
+    content: r.content,
+    at: r.at || null,
+  }));
+}
+
+/**
+ * Public API/UI shape for one store.
+ * @param {unknown[]|undefined|null} entries
+ * @param {number} limit
+ * @param {Date|string|null} [updatedAt]
+ * @returns {{
+ *   entries: string[],
+ *   items: { content: string, at: string|null }[],
+ *   charCount: number,
+ *   charLimit: number,
+ *   usage: string,
+ *   entryCount: number,
+ *   updatedAt: string|null,
+ * }}
+ */
+export function publicCuratedStore(entries, limit, updatedAt = null) {
+  const records = normalizeEntryRecords(entries);
+  const list = records.map((r) => r.content);
   const current = charCount(list);
+  /** @type {Date|null} */
+  let storeUpdated = null;
+  if (updatedAt) {
+    const d = new Date(updatedAt);
+    if (!Number.isNaN(d.getTime())) storeUpdated = d;
+  }
   return {
     entries: list,
+    items: records.map((r) => ({
+      content: r.content,
+      at: r.at ? r.at.toISOString() : null,
+    })),
     charCount: current,
     charLimit: limit,
     usage: usageLabel(current, limit),
     entryCount: list.length,
+    updatedAt: storeUpdated ? storeUpdated.toISOString() : null,
   };
 }
 
 /**
- * @param {string[]|undefined|null} entries
+ * @param {unknown[]|undefined|null} entries
  * @param {string} content
  * @param {number} limit
- * @returns {{ success: boolean, entries?: string[], error?: string, message?: string, usage?: string, entryCount?: number, current_entries?: string[] }}
+ * @returns {object}
  */
 export function addCuratedEntry(entries, content, limit) {
   const text = String(content || "").trim();
@@ -164,19 +219,19 @@ export function addCuratedEntry(entries, content, limit) {
   const scanError = scanMemoryContent(text);
   if (scanError) return { success: false, error: scanError };
 
-  const list = normalizeEntries(entries);
-  if (list.includes(text)) {
+  const list = normalizeEntryRecords(entries);
+  if (list.some((e) => e.content === text)) {
     return successPayload(list, limit, "Entry already exists (no duplicate added).");
   }
 
-  const next = [...list, text];
+  const next = [...list, { content: text, at: new Date() }];
   const newTotal = charCount(next);
   if (newTotal > limit) {
     const current = charCount(list);
     return {
       success: false,
       error: `Memory at ${current.toLocaleString()}/${limit.toLocaleString()} chars. Adding this entry (${text.length} chars) would exceed the limit. Replace or remove existing entries first.`,
-      current_entries: list,
+      current_entries: list.map((e) => e.content),
       usage: usageLabel(current, limit),
     };
   }
@@ -184,11 +239,11 @@ export function addCuratedEntry(entries, content, limit) {
 }
 
 /**
- * @param {string[]|undefined|null} entries
+ * @param {unknown[]|undefined|null} entries
  * @param {string} oldText
  * @param {string} newContent
  * @param {number} limit
- * @returns {{ success: boolean, entries?: string[], error?: string, message?: string, usage?: string, entryCount?: number, matches?: string[] }}
+ * @returns {object}
  */
 export function replaceCuratedEntry(entries, oldText, newContent, limit) {
   const needle = String(oldText || "").trim();
@@ -203,22 +258,22 @@ export function replaceCuratedEntry(entries, oldText, newContent, limit) {
   const scanError = scanMemoryContent(text);
   if (scanError) return { success: false, error: scanError };
 
-  const list = normalizeEntries(entries);
+  const list = normalizeEntryRecords(entries);
   const matches = list
-    .map((e, i) => (e.includes(needle) ? { i, e } : null))
+    .map((e, i) => (e.content.includes(needle) ? { i, e } : null))
     .filter(Boolean);
 
   if (!matches.length) {
     return { success: false, error: `No entry matched '${needle}'.` };
   }
   if (matches.length > 1) {
-    const unique = new Set(matches.map((m) => m.e));
+    const unique = new Set(matches.map((m) => m.e.content));
     if (unique.size > 1) {
       return {
         success: false,
         error: `Multiple entries matched '${needle}'. Be more specific.`,
         matches: matches.map((m) =>
-          m.e.length > 80 ? `${m.e.slice(0, 80)}...` : m.e
+          m.e.content.length > 80 ? `${m.e.content.slice(0, 80)}...` : m.e.content
         ),
       };
     }
@@ -226,7 +281,7 @@ export function replaceCuratedEntry(entries, oldText, newContent, limit) {
 
   const idx = matches[0].i;
   const next = [...list];
-  next[idx] = text;
+  next[idx] = { content: text, at: new Date() };
   const newTotal = charCount(next);
   if (newTotal > limit) {
     return {
@@ -238,31 +293,31 @@ export function replaceCuratedEntry(entries, oldText, newContent, limit) {
 }
 
 /**
- * @param {string[]|undefined|null} entries
+ * @param {unknown[]|undefined|null} entries
  * @param {string} oldText
  * @param {number} limit
- * @returns {{ success: boolean, entries?: string[], error?: string, message?: string, usage?: string, entryCount?: number, matches?: string[] }}
+ * @returns {object}
  */
 export function removeCuratedEntry(entries, oldText, limit) {
   const needle = String(oldText || "").trim();
   if (!needle) return { success: false, error: "old_text cannot be empty." };
 
-  const list = normalizeEntries(entries);
+  const list = normalizeEntryRecords(entries);
   const matches = list
-    .map((e, i) => (e.includes(needle) ? { i, e } : null))
+    .map((e, i) => (e.content.includes(needle) ? { i, e } : null))
     .filter(Boolean);
 
   if (!matches.length) {
     return { success: false, error: `No entry matched '${needle}'.` };
   }
   if (matches.length > 1) {
-    const unique = new Set(matches.map((m) => m.e));
+    const unique = new Set(matches.map((m) => m.e.content));
     if (unique.size > 1) {
       return {
         success: false,
         error: `Multiple entries matched '${needle}'. Be more specific.`,
         matches: matches.map((m) =>
-          m.e.length > 80 ? `${m.e.slice(0, 80)}...` : m.e
+          m.e.content.length > 80 ? `${m.e.content.slice(0, 80)}...` : m.e.content
         ),
       };
     }
@@ -277,8 +332,8 @@ export function removeCuratedEntry(entries, oldText, limit) {
  * @param {"add"|"replace"|"remove"} action
  * @param {"user"|"memory"} target
  * @param {{ content?: string, oldText?: string }} payload
- * @param {string[]|undefined|null} entries
- * @returns {{ success: boolean, target: string, entries?: string[], error?: string, message?: string, usage?: string, entryCount?: number, matches?: string[], current_entries?: string[] }}
+ * @param {unknown[]|undefined|null} entries
+ * @returns {object}
  */
 export function applyCuratedMemoryAction(action, target, payload, entries) {
   if (target !== "user" && target !== "memory") {
@@ -307,15 +362,21 @@ export function applyCuratedMemoryAction(action, target, payload, entries) {
 }
 
 /**
- * @param {string[]} entries
+ * @param {{ content: string, at: Date|null }[]} records
  * @param {number} limit
  * @param {string} message
  */
-function successPayload(entries, limit, message) {
+function successPayload(records, limit, message) {
+  const entries = records.map((r) => r.content);
   const current = charCount(entries);
   return {
     success: true,
     entries,
+    items: records.map((r) => ({
+      content: r.content,
+      at: r.at ? new Date(r.at) : new Date(),
+    })),
+    persistable: toPersistableEntries(records),
     usage: usageLabel(current, limit),
     entryCount: entries.length,
     message,

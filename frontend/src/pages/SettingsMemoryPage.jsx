@@ -13,24 +13,36 @@ import { FieldLabel, SectionTitle } from "../components/FieldLabel.jsx";
  * Settings tab for account-level curated USER memory.
  */
 export function SettingsMemoryPage() {
-  const [entries, setEntries] = useState([]);
+  const [items, setItems] = useState([]);
   const [usage, setUsage] = useState("");
   const [charCount, setCharCount] = useState(0);
   const [charLimit, setCharLimit] = useState(1375);
+  const [updatedAt, setUpdatedAt] = useState(null);
   const [draft, setDraft] = useState("");
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
 
+  /**
+   * @param {object} data
+   */
+  function applyStore(data) {
+    const nextItems = Array.isArray(data.items)
+      ? data.items
+      : (data.entries || []).map((content) => ({ content: String(content), at: null }));
+    setItems(nextItems);
+    setUsage(data.usage || "");
+    setCharCount(Number(data.charCount) || 0);
+    setCharLimit(Number(data.charLimit) || 1375);
+    setUpdatedAt(data.updatedAt || null);
+  }
+
   const load = useCallback(async () => {
     setBusy(true);
     try {
       const data = await api("/api/settings/curated-memory");
-      setEntries(Array.isArray(data.entries) ? data.entries : []);
-      setUsage(data.usage || "");
-      setCharCount(Number(data.charCount) || 0);
-      setCharLimit(Number(data.charLimit) || 1375);
+      applyStore(data);
       setError(null);
     } catch (err) {
       setError(err);
@@ -57,9 +69,7 @@ export function SettingsMemoryPage() {
         method: "POST",
         body: JSON.stringify({ action: "add", content }),
       });
-      setEntries(data.entries || []);
-      setUsage(data.usage || "");
-      setCharCount(Number(data.charCount) || charCount);
+      applyStore(data);
       setDraft("");
       setOkMsg(data.message || "Entry added.");
       setError(null);
@@ -82,8 +92,7 @@ export function SettingsMemoryPage() {
         method: "POST",
         body: JSON.stringify({ action: "remove", oldText: entry.slice(0, 80) }),
       });
-      setEntries(data.entries || []);
-      setUsage(data.usage || "");
+      applyStore(data);
       setOkMsg(data.message || "Entry removed.");
       await load();
     } catch (err) {
@@ -98,9 +107,10 @@ export function SettingsMemoryPage() {
     setSaving(true);
     try {
       await api("/api/settings/curated-memory", { method: "DELETE" });
-      setEntries([]);
+      setItems([]);
       setUsage("0% — 0/1,375 chars");
       setCharCount(0);
+      setUpdatedAt(new Date().toISOString());
       setOkMsg("USER memory cleared.");
     } catch (err) {
       setError(err);
@@ -138,21 +148,35 @@ export function SettingsMemoryPage() {
         <>
           <p className="text-xs font-semibold text-teal-800/80">
             Usage: {usage || `${charCount}/${charLimit}`}
+            {updatedAt ? ` · last changed ${new Date(updatedAt).toLocaleString()}` : ""}
           </p>
           <ul className="space-y-2">
-            {entries.length === 0 ? (
+            {items.length === 0 ? (
               <li className="text-sm text-teal-900/60">No USER entries yet.</li>
             ) : (
-              entries.map((entry) => (
+              items.map((item) => (
                 <li
-                  key={entry}
+                  key={`${item.content.slice(0, 48)}-${item.at || "legacy"}`}
                   className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2 text-sm"
                 >
-                  <span className="whitespace-pre-wrap text-teal-950">{entry}</span>
+                  <div className="min-w-0 flex-1">
+                    {item.at ? (
+                      <div className="text-[0.7rem] font-semibold text-teal-800/60">
+                        Added {new Date(item.at).toLocaleString()}
+                      </div>
+                    ) : (
+                      <div className="text-[0.7rem] font-semibold text-teal-800/45">
+                        Added (before timestamps)
+                      </div>
+                    )}
+                    <span className="mt-0.5 block whitespace-pre-wrap text-teal-950">
+                      {item.content}
+                    </span>
+                  </div>
                   <button
                     type="button"
                     disabled={saving}
-                    onClick={() => onRemove(entry)}
+                    onClick={() => onRemove(item.content)}
                     className="min-h-9 shrink-0 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-800"
                   >
                     Remove
@@ -182,7 +206,7 @@ export function SettingsMemoryPage() {
               </button>
               <button
                 type="button"
-                disabled={saving || entries.length === 0}
+                disabled={saving || items.length === 0}
                 onClick={onClear}
                 className="min-h-11 rounded-xl border border-rose-200 bg-white px-4 text-sm font-semibold text-rose-800 disabled:opacity-50"
               >
@@ -195,3 +219,4 @@ export function SettingsMemoryPage() {
     </div>
   );
 }
+

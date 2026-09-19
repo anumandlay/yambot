@@ -389,7 +389,8 @@ const agentSchema = new mongoose.Schema(
      * Frozen into task snapshot at enqueue; mid-run writes update Mongo only.
      */
     curatedMemory: {
-      entries: { type: [String], default: [] },
+      // Why: Mixed so legacy plain strings and `{ content, at }` coexist during migration.
+      entries: { type: [mongoose.Schema.Types.Mixed], default: [] },
       updatedAt: { type: Date, default: null },
     },
     /**

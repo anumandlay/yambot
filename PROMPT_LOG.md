@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:50] Memory entries show date/time added
+
+- **Prompt Provided:** Show date and time when new memory is added to an agent.
+- **Architectural Flow:** Curated MEMORY/USER entries now persist `{ content, at }` (legacy strings still load). API returns `items[]` + `updatedAt`. Agent Memory + Settings Memory UI show Added timestamps; day logs/credentials also show their `at`.
+- **Impacted Files:** curatedMemory.js, curatedMemoryOps.js, Agent.js, User.js, AgentMemoryPage.jsx, SettingsMemoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 13:45] History → View memory
 
 - **Prompt Provided:** On `/history`, after View chat history, add View memory for that agent’s full memory.

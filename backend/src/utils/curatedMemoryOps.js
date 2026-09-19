@@ -12,7 +12,9 @@ import {
   applyCuratedMemoryAction,
   charCount,
   normalizeEntries,
+  normalizeEntryRecords,
   publicCuratedStore,
+  toPersistableEntries,
 } from "./curatedMemory.js";
 
 /**
@@ -21,7 +23,11 @@ import {
  */
 export async function getUserCuratedMemory(userId) {
   const user = await User.findById(userId).select("curatedMemory").lean();
-  return publicCuratedStore(user?.curatedMemory?.entries, USER_CHAR_LIMIT);
+  return publicCuratedStore(
+    user?.curatedMemory?.entries,
+    USER_CHAR_LIMIT,
+    user?.curatedMemory?.updatedAt || null
+  );
 }
 
 /**
@@ -30,7 +36,11 @@ export async function getUserCuratedMemory(userId) {
  */
 export function getAgentCuratedMemoryPublic(agentDoc) {
   const entries = agentDoc?.curatedMemory?.entries;
-  return publicCuratedStore(entries, MEMORY_CHAR_LIMIT);
+  return publicCuratedStore(
+    entries,
+    MEMORY_CHAR_LIMIT,
+    agentDoc?.curatedMemory?.updatedAt || null
+  );
 }
 
 /**
@@ -58,17 +68,21 @@ export async function mutateCuratedMemory(opts) {
     if (!user) {
       return { success: false, target, error: "User not found." };
     }
-    const current = normalizeEntries(user.curatedMemory?.entries);
+    const current = user.curatedMemory?.entries;
     const result = applyCuratedMemoryAction(action, "user", payload, current);
-    if (!result.success || !Array.isArray(result.entries)) {
+    if (!result.success || !Array.isArray(result.persistable || result.entries)) {
       return result;
     }
+    const now = new Date();
     user.curatedMemory = {
-      entries: result.entries,
-      updatedAt: new Date(),
+      entries: result.persistable || toPersistableEntries(result.items || result.entries),
+      updatedAt: now,
     };
     await user.save();
-    return result;
+    return {
+      ...result,
+      ...publicCuratedStore(user.curatedMemory.entries, USER_CHAR_LIMIT, now),
+    };
   }
 
   if (target === "memory") {
@@ -80,17 +94,21 @@ export async function mutateCuratedMemory(opts) {
     if (!agent) {
       return { success: false, target, error: "Agent not found." };
     }
-    const current = normalizeEntries(agent.curatedMemory?.entries);
+    const current = agent.curatedMemory?.entries;
     const result = applyCuratedMemoryAction(action, "memory", payload, current);
-    if (!result.success || !Array.isArray(result.entries)) {
+    if (!result.success || !Array.isArray(result.persistable || result.entries)) {
       return result;
     }
+    const now = new Date();
     agent.curatedMemory = {
-      entries: result.entries,
-      updatedAt: new Date(),
+      entries: result.persistable || toPersistableEntries(result.items || result.entries),
+      updatedAt: now,
     };
     await agent.save();
-    return result;
+    return {
+      ...result,
+      ...publicCuratedStore(agent.curatedMemory.entries, MEMORY_CHAR_LIMIT, now),
+    };
   }
 
   return {
@@ -102,14 +120,33 @@ export async function mutateCuratedMemory(opts) {
 
 /**
  * Replace entire store (operator clear / set from UI).
- * @param {{ userId: string, target: "user"|"memory", agentId?: string, entries: string[] }} opts
+ * @param {{ userId: string, target: "user"|"memory", agentId?: string, entries: unknown[] }} opts
  * @returns {Promise<object>}
  */
 export async function setCuratedMemoryEntries(opts) {
   const target = opts.target === "user" ? "user" : "memory";
   const limit = target === "user" ? USER_CHAR_LIMIT : MEMORY_CHAR_LIMIT;
-  const entries = normalizeEntries(opts.entries);
-  const total = charCount(entries);
+  const now = new Date();
+  // Why: clearing/replacing from UI — new strings get `at=now`; keep prior `at` when content matches.
+  const previous =
+    target === "user"
+      ? normalizeEntryRecords(
+          (await User.findById(opts.userId).select("curatedMemory.entries").lean())?.curatedMemory
+            ?.entries
+        )
+      : normalizeEntryRecords(
+          (
+            await Agent.findOne({ _id: opts.agentId, user: opts.userId })
+              .select("curatedMemory.entries")
+              .lean()
+          )?.curatedMemory?.entries
+        );
+  const prevByContent = new Map(previous.map((r) => [r.content, r.at]));
+  const records = normalizeEntries(opts.entries).map((content) => ({
+    content,
+    at: prevByContent.get(content) || now,
+  }));
+  const total = charCount(records);
   if (total > limit) {
     return {
       success: false,
@@ -118,17 +155,27 @@ export async function setCuratedMemoryEntries(opts) {
     };
   }
 
+  const persistable = toPersistableEntries(records);
+
   if (target === "user") {
     const user = await User.findById(opts.userId);
     if (!user) return { success: false, target, error: "User not found." };
-    user.curatedMemory = { entries, updatedAt: new Date() };
+    user.curatedMemory = { entries: persistable, updatedAt: now };
     await user.save();
-    return { success: true, target, ...publicCuratedStore(entries, limit) };
+    return {
+      success: true,
+      target,
+      ...publicCuratedStore(persistable, limit, now),
+    };
   }
 
   const agent = await Agent.findOne({ _id: opts.agentId, user: opts.userId });
   if (!agent) return { success: false, target, error: "Agent not found." };
-  agent.curatedMemory = { entries, updatedAt: new Date() };
+  agent.curatedMemory = { entries: persistable, updatedAt: now };
   await agent.save();
-  return { success: true, target, ...publicCuratedStore(entries, limit) };
+  return {
+    success: true,
+    target,
+    ...publicCuratedStore(persistable, limit, now),
+  };
 }

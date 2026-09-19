@@ -72,7 +72,10 @@ export function AgentMemoryPage() {
   const [dayLogs, setDayLogs] = useState([]);
   const [credentials, setCredentials] = useState([]);
   const [curatedEntries, setCuratedEntries] = useState([]);
+  /** @type {[{ content: string, at: string|null }[], Function]} */
+  const [curatedItems, setCuratedItems] = useState([]);
   const [curatedUsage, setCuratedUsage] = useState("");
+  const [curatedUpdatedAt, setCuratedUpdatedAt] = useState(null);
   const [curatedDraft, setCuratedDraft] = useState("");
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState({});
@@ -93,8 +96,16 @@ export function AgentMemoryPage() {
       setMemory(data.memory || []);
       setDayLogs(data.dayLogs || []);
       setCredentials(data.credentials || []);
-      setCuratedEntries(data.curatedMemory?.entries || []);
+      const items = Array.isArray(data.curatedMemory?.items)
+        ? data.curatedMemory.items
+        : (data.curatedMemory?.entries || []).map((content) => ({
+            content: String(content),
+            at: null,
+          }));
+      setCuratedItems(items);
+      setCuratedEntries(items.map((i) => i.content));
       setCuratedUsage(data.curatedMemory?.usage || "");
+      setCuratedUpdatedAt(data.curatedMemory?.updatedAt || null);
       setError(null);
     } catch (err) {
       setError(err);
@@ -224,7 +235,13 @@ export function AgentMemoryPage() {
         body: JSON.stringify({ action: "add", content: curatedDraft.trim() }),
       });
       setCuratedEntries(data.entries || []);
+      setCuratedItems(
+        Array.isArray(data.items)
+          ? data.items
+          : (data.entries || []).map((content) => ({ content: String(content), at: null }))
+      );
       setCuratedUsage(data.usage || "");
+      setCuratedUpdatedAt(data.updatedAt || new Date().toISOString());
       setCuratedDraft("");
       setOkMsg(data.message || "Curated memory entry added.");
       setError(null);
@@ -247,7 +264,13 @@ export function AgentMemoryPage() {
         body: JSON.stringify({ action: "remove", oldText: entry.slice(0, 80) }),
       });
       setCuratedEntries(data.entries || []);
+      setCuratedItems(
+        Array.isArray(data.items)
+          ? data.items
+          : (data.entries || []).map((content) => ({ content: String(content), at: null }))
+      );
       setCuratedUsage(data.usage || "");
+      setCuratedUpdatedAt(data.updatedAt || new Date().toISOString());
       setOkMsg(data.message || "Entry removed.");
     } catch (err) {
       setError(err);
@@ -262,7 +285,9 @@ export function AgentMemoryPage() {
     try {
       await api(`/api/agents/${agentId}/curated-memory`, { method: "DELETE" });
       setCuratedEntries([]);
+      setCuratedItems([]);
       setCuratedUsage("0% — 0/2,200 chars");
+      setCuratedUpdatedAt(new Date().toISOString());
       setOkMsg("Curated MEMORY cleared.");
     } catch (err) {
       setError(err);
@@ -335,21 +360,35 @@ export function AgentMemoryPage() {
             <p className="mb-2 text-xs text-teal-900/65">
               Agent notes / env lessons. Agents can also write via the memory tool. Usage:{" "}
               {curatedUsage || "—"}
+              {curatedUpdatedAt ? ` · last changed ${fmtWhen(curatedUpdatedAt)}` : ""}
             </p>
             <ul className="mb-3 space-y-2">
-              {curatedEntries.length === 0 ? (
+              {curatedItems.length === 0 ? (
                 <li className="text-sm text-teal-900/60">No curated entries yet.</li>
               ) : (
-                curatedEntries.map((entry) => (
+                curatedItems.map((item) => (
                   <li
-                    key={entry}
+                    key={`${item.content.slice(0, 48)}-${item.at || "legacy"}`}
                     className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2 text-sm"
                   >
-                    <span className="whitespace-pre-wrap text-teal-950">{entry}</span>
+                    <div className="min-w-0 flex-1">
+                      {item.at ? (
+                        <div className="text-[0.7rem] font-semibold text-teal-800/60">
+                          Added {fmtWhen(item.at)}
+                        </div>
+                      ) : (
+                        <div className="text-[0.7rem] font-semibold text-teal-800/45">
+                          Added (before timestamps)
+                        </div>
+                      )}
+                      <span className="mt-0.5 block whitespace-pre-wrap text-teal-950">
+                        {item.content}
+                      </span>
+                    </div>
                     <button
                       type="button"
                       disabled={curatedBusy}
-                      onClick={() => onRemoveCurated(entry)}
+                      onClick={() => onRemoveCurated(item.content)}
                       className="min-h-9 shrink-0 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-800"
                     >
                       Remove
@@ -411,6 +450,11 @@ export function AgentMemoryPage() {
                         <span className="ml-2 font-normal text-teal-800/70">{c.siteHost}</span>
                       ) : null}
                     </div>
+                    {c.at ? (
+                      <div className="mt-0.5 text-[0.7rem] text-teal-800/55">
+                        Saved {fmtWhen(c.at)}
+                      </div>
+                    ) : null}
                     <div className="mt-1 space-y-0.5 font-mono text-xs text-teal-900/85">
                       {c.username ? <div>username: {c.username}</div> : null}
                       {c.email ? <div>email: {c.email}</div> : null}
@@ -556,7 +600,14 @@ export function AgentMemoryPage() {
                         }
                       >
                         <div>
-                          <div className="text-sm font-bold text-teal-950">{d.day}</div>
+                          <div className="flex flex-wrap items-baseline gap-2">
+                            <div className="text-sm font-bold text-teal-950">{d.day}</div>
+                            {d.at ? (
+                              <span className="text-[0.7rem] text-teal-800/55">
+                                updated {fmtWhen(d.at)}
+                              </span>
+                            ) : null}
+                          </div>
                           <div className="mt-1 whitespace-pre-wrap text-sm text-teal-900/85">
                             {d.summary || "(no summary)"}
                           </div>
