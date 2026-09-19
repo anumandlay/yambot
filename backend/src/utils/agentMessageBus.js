@@ -1357,6 +1357,7 @@ export function goalRequiresFreshPeerAsk(goal) {
   // Why: late-resume, post-peer wake, and inbound peer tasks are not "ask a peer" parents.
   if (/^\[?\s*LATE PEER RESULT/i.test(g)) return false;
   if (/^\[?\s*PEER RESULTS READY/i.test(g)) return false;
+  if (/^\[?\s*PEER FANOUT/i.test(g)) return false;
   if (/^\[?\s*AGENT MESSAGE from/i.test(g)) return false;
   if (/\bsoft\s*wait\b/i.test(g)) return true;
   if (/\bmessage_agent\b/i.test(g)) return true;

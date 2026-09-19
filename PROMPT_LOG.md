@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 23:40] Multi-@ peer_ask fan-out (CI + WI)
+
+- **Prompt Provided:** In WOM: `tell @Content Inspector to open github.com and @Website Inspector to open example.com` — only WI got a garbled relay ask.
+- **Architectural Flow:** `resolveAgentMention` matched one @ (longest name), stripped it, and peer_ask forced a single message_agent. Fix: `resolveAllAgentMentions` + `parsePeerAskAssignments` split per-peer instructions; 2+ peers → server-side `sendAgentMessage` fan-out (wait:false) and parent `waiting_peer`; resume/finish when all PEER RESULTs arrive.
+- **Impacted Files:** mentionAgent.js, chats.js, agentMessageBus.js, PROMPT_LOG
+
 ## [2026-09-18 23:30] Fix WOM↔WI peer_ask ping-pong loop
 
 - **Prompt Provided:** Same `@Website Inspector ask what he did…` in Website Operations Manager — diagnose what happened.

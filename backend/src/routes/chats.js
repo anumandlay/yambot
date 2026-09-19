@@ -11,7 +11,11 @@ import { Task } from "../models/Task.js";
 import { Skill } from "../models/Skill.js";
 import { User } from "../models/User.js";
 import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
-import { resolveAgentMention } from "../utils/mentionAgent.js";
+import {
+  resolveAgentMention,
+  parsePeerAskAssignments,
+  rewritePeerAskContent,
+} from "../utils/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../utils/skillSlash.js";
 import { createLearnedSkillDraft } from "../utils/skillLearn.js";
 import { routeCommonChat } from "../utils/chatRouter.js";
@@ -22,7 +26,7 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck } from "../utils/chatAutoTurn.js";
-import { formatPeerAgentsBlock } from "../utils/agentMessageBus.js";
+import { formatPeerAgentsBlock, sendAgentMessage } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
   buildChatContextPrompt,
@@ -33,34 +37,6 @@ import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 
 export const chatsRouter = Router();
-
-/**
- * Rewrite ambiguous peer_ask text so the peer reports *their* work instead of
- * interpreting “ask what he did” as a relay instruction (which causes ping-pong).
- * @param {string} ask — stripped user text after @Peer
- * @param {string} peerName
- * @returns {string}
- */
-function rewritePeerAskContent(ask, peerName) {
-  const raw = String(ask || "").trim();
-  const name = String(peerName || "peer").trim() || "peer";
-  // “ask what he/she/they did …” → ask the peer about their own recent work.
-  if (
-    /\b(?:ask\s+)?what\s+(?:he|she|they|it)\s+(?:did|has\s+done|have\s+done)\b/i.test(raw) ||
-    /\bask\s+(?:him|her|them)\s+what\s+(?:he|she|they)\s+did\b/i.test(raw) ||
-    /\btake\s+(?:a\s+)?reply\s+from\s+(?:him|her|them)\b/i.test(raw)
-  ) {
-    return [
-      `Report what work YOU (“${name}”) completed recently:`,
-      `sites or tasks handled, key findings, blockers, and current status.`,
-      `Answer from your own activity only — do not message another agent.`,
-      `Reply with a concise structured summary.`,
-    ].join(" ");
-  }
-  // Drop a leading “ask …” wrapper aimed at the bound agent, not the peer.
-  const cleaned = raw.replace(/^(?:please\s+)?ask\s+/i, "").trim();
-  return cleaned || raw || "Please help with this request.";
-}
 
 /**
  * @param {object} chat
@@ -622,6 +598,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let routerMeta = null;
     /** Why: agent-chat @Peer means message_agent that peer — force a computer goal, do not switch agents. */
     let peerAskForced = false;
+    /** @type {{ agentId: string, agentName: string, content: string }[]|null} */
+    let peerFanoutTargets = null;
 
     if (common) {
       const [userAgents, productionSkills, userDoc] = await Promise.all([
@@ -757,9 +735,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       // Why: in an agent chat, @Peer is "ask/message that peer" — keep THIS agent as owner.
       // Switching agentDoc (old delegate-dispatch) made @Website Inspector run as WI, who then
       // messaged the wrong peer (e.g. Market researcher) and started the wrong computer.
+      // Multi-@: parse every @Peer with its own instruction and fan-out server-side.
       const userAgents = await Agent.find({ user: req.userId, active: true })
         .select("name skill instructions")
         .lean();
+      const boundId = String(chat.agent);
+      const peerAssignments = parsePeerAskAssignments(content, userAgents, boundId);
       const mention = resolveAgentMention(content, userAgents);
       let afterMention = content;
       if (mention.matched && mention.agentId) {
@@ -793,10 +774,61 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         goalText = afterMention;
       }
 
-      const boundId = String(chat.agent);
       agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
 
-      if (mention.matched && mention.agentId && String(mention.agentId) !== boundId) {
+      if (peerAssignments.length >= 2) {
+        peerFanoutTargets = peerAssignments.slice(0, 5);
+        const lines = peerFanoutTargets.map(
+          (p, i) => `${i + 1}. “${p.agentName}” — ${p.content}`
+        );
+        goalText = [
+          "[PEER FANOUT — already queued]",
+          "Peers were messaged in parallel when this goal was queued:",
+          ...lines,
+          "Do NOT call message_agent again. Do not browse the web yourself.",
+          "When PEER RESULT notes arrive for all peers, summarize for the user and call finish.",
+        ].join("\n");
+        mentionMeta = {
+          matched: true,
+          agentName: peerFanoutTargets.map((p) => p.agentName).join(", "),
+          peerAgentIds: peerFanoutTargets.map((p) => p.agentId),
+          peerAssignments: peerFanoutTargets,
+          stripped: true,
+          dispatchSource: "peer_ask_fanout",
+          wantsReply: true,
+        };
+        peerAskForced = true;
+      } else if (peerAssignments.length === 1) {
+        const only = peerAssignments[0];
+        const peerName = String(only.agentName || "peer").trim() || "peer";
+        const ask = only.content;
+        const wantsReply =
+          /\b(reply|respond|answer|wait|get back|report back|take (?:their |his |her |the )?reply|and (?:tell|let) me)\b/i.test(
+            content
+          ) || /\bask\b/i.test(content);
+        goalText = [
+          `You must call message_agent to “${peerName}” (use that exact name) exactly once.`,
+          wantsReply
+            ? `Use wait:true so you receive their finish result before you finish.`
+            : `Prefer wait:true if the user expects an answer back; otherwise wait:false is ok.`,
+          `Send them this message content:`,
+          ask,
+          `Do not message any other agent. Do not browse the web unless “${peerName}” cannot help.`,
+          `When a PEER RESULT note arrives, summarize it for the user and call finish immediately.`,
+          `Do NOT call message_agent again after you already have a peer result.`,
+        ].join("\n");
+        mentionMeta = {
+          matched: true,
+          agentName: peerName,
+          peerAgentId: String(only.agentId),
+          stripped: true,
+          dispatchSource: "peer_ask",
+          wantsReply,
+          peerContentRewritten: true,
+        };
+        peerAskForced = true;
+      } else if (mention.matched && mention.agentId && String(mention.agentId) !== boundId) {
+        // Fallback: single resolve when parsePeerAskAssignments missed (loose token match).
         const peerName = String(mention.agentName || "peer").trim() || "peer";
         const askRaw =
           String(goalText || afterMention || "").trim() ||
@@ -954,11 +986,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         senderName: resolveHumanDisplayName(owner),
       };
       if (common || mentionMeta?.matched) {
-        if (mentionMeta?.dispatchSource === "peer_ask") {
+      if (mentionMeta?.dispatchSource === "peer_ask" || mentionMeta?.dispatchSource === "peer_ask_fanout") {
           Object.assign(messageMeta, {
             peerAsk: true,
-            peerAgentId: mentionMeta.peerAgentId,
+            peerAgentId: mentionMeta.peerAgentId || null,
+            peerAgentIds: mentionMeta.peerAgentIds || null,
             peerAgentName: mentionMeta.agentName,
+            peerAssignments: mentionMeta.peerAssignments || null,
             goalText: questionText,
             mention: mentionMeta,
           });
@@ -1379,11 +1413,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       intentConfidence: classification.confidence,
     };
     if (common || mentionMeta?.matched) {
-      if (mentionMeta?.dispatchSource === "peer_ask") {
+      if (mentionMeta?.dispatchSource === "peer_ask" || mentionMeta?.dispatchSource === "peer_ask_fanout") {
         Object.assign(messageMeta, {
           peerAsk: true,
-          peerAgentId: mentionMeta.peerAgentId,
+          peerAgentId: mentionMeta.peerAgentId || null,
+          peerAgentIds: mentionMeta.peerAgentIds || null,
           peerAgentName: mentionMeta.agentName,
+          peerAssignments: mentionMeta.peerAssignments || null,
           goalText,
           mention: mentionMeta,
         });
@@ -1483,11 +1519,61 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             invokedSkillName: invokedSkillDoc?.name || null,
             skillSlug: skillSlashMeta?.slug || null,
             hermesTiming: autoTiming || null,
+            peerFanout: peerFanoutTargets
+              ? peerFanoutTargets.map((p) => ({ to: p.agentName, content: p.content }))
+              : null,
           },
         },
       ],
     });
 
+    // Why: multi-@ must fan-out immediately with distinct contents — LLM peer_ask only matched one @.
+    if (peerFanoutTargets?.length >= 2) {
+      /** @type {string[]} */
+      const fanNotes = [];
+      for (const peer of peerFanoutTargets) {
+        const sent = await sendAgentMessage({
+          userId: String(req.userId),
+          fromAgentId: String(agentDoc._id),
+          to: peer.agentName,
+          content: peer.content,
+          mode: "task",
+          wait: false,
+          parentTaskId: String(task._id),
+        });
+        fanNotes.push(
+          sent?.ok
+            ? `→ ${peer.agentName}: ${peer.content.slice(0, 120)}`
+            : `✗ ${peer.agentName}: ${sent?.note || "failed"}`
+        );
+      }
+      task.status = "waiting_peer";
+      task.events.push({
+        type: "waiting_peer",
+        payload: {
+          reason: "multi_peer_ask_fanout",
+          peers: peerFanoutTargets.map((p) => p.agentName),
+          notes: fanNotes,
+        },
+        at: new Date(),
+      });
+      await task.save();
+      await Message.create({
+        chat: chat._id,
+        role: "system",
+        content: `Fan-out to ${peerFanoutTargets.length} peers in parallel:\n${fanNotes.join("\n")}`,
+        meta: {
+          kind: "peer_fanout",
+          ui: "icon",
+          taskId: task._id,
+          peers: peerFanoutTargets.map((p) => ({
+            agentId: p.agentId,
+            agentName: p.agentName,
+            content: p.content,
+          })),
+        },
+      }).catch(() => null);
+    }
     const agentLabel = snapshot?.name ? ` as “${snapshot.name}”` : "";
     const skillLabel = invokedSkillDoc?.name ? ` with skill /${skillSlashMeta?.slug || invokedSkillDoc.slug}` : "";
     const routeLabel =
