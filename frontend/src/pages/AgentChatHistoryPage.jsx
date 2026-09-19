@@ -27,6 +27,21 @@ function msgLabel(msg) {
   return msg.role || "Message";
 }
 
+/**
+ * @param {string} q
+ * @param {string} hay
+ * @returns {boolean}
+ */
+function textMatches(q, hay) {
+  const query = String(q || "").trim().toLowerCase();
+  if (!query) return true;
+  const h = String(hay || "").toLowerCase();
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((tok) => h.includes(tok));
+}
+
 export function AgentChatHistoryPage() {
   const { agentId } = useParams();
   const [agent, setAgent] = useState(null);
@@ -34,6 +49,7 @@ export function AgentChatHistoryPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openChatId, setOpenChatId] = useState("");
+  const [search, setSearch] = useState("");
   /** Scroll the open transcript to the latest bubble after load/expand. */
   const transcriptEndRef = useRef(null);
 
@@ -60,7 +76,7 @@ export function AgentChatHistoryPage() {
   useEffect(() => {
     if (!openChatId || loading) return;
     transcriptEndRef.current?.scrollIntoView({ block: "end" });
-  }, [openChatId, loading, chats]);
+  }, [openChatId, loading, chats, search]);
 
   /** Precompute readable rows so expand is cheap and counts stay honest. */
   const chatsView = useMemo(
@@ -77,6 +93,32 @@ export function AgentChatHistoryPage() {
       }),
     [chats]
   );
+
+  const filteredView = useMemo(() => {
+    const q = search.trim();
+    if (!q) return chatsView.map(({ chat, readable }) => ({ chat, readable, filtered: readable }));
+    return chatsView
+      .map(({ chat, readable }) => {
+        const titleHit = textMatches(q, chat.title || "Chat");
+        const filtered = readable.filter(
+          (m) =>
+            titleHit ||
+            textMatches(q, m.display) ||
+            textMatches(q, msgLabel(m))
+        );
+        const chatMatches = titleHit || filtered.length > 0;
+        return chatMatches ? { chat, readable, filtered } : null;
+      })
+      .filter(Boolean);
+  }, [chatsView, search]);
+
+  useEffect(() => {
+    if (!search.trim()) return;
+    // Why: when searching, auto-expand the first matching thread so hits are visible.
+    if (filteredView[0]?.chat?._id) {
+      setOpenChatId(String(filteredView[0].chat._id));
+    }
+  }, [search, filteredView]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
@@ -100,6 +142,17 @@ export function AgentChatHistoryPage() {
         </div>
       ) : null}
 
+      {!loading && chats.length > 0 ? (
+        <input
+          type="search"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search messages by keyword…"
+          className="min-h-11 w-full rounded-xl border border-teal-200 bg-white px-3 text-sm"
+          aria-label="Search chat history"
+        />
+      ) : null}
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -115,10 +168,15 @@ export function AgentChatHistoryPage() {
         <p className="text-sm text-teal-900/60">No chats on record for this agent.</p>
       ) : null}
 
+      {!loading && chats.length > 0 && !filteredView.length ? (
+        <p className="text-sm text-teal-900/60">No messages match “{search.trim()}”.</p>
+      ) : null}
+
       <ul className="flex flex-col gap-3">
-        {chatsView.map(({ chat, readable }) => {
+        {filteredView.map(({ chat, readable, filtered }) => {
           const id = String(chat._id);
           const open = openChatId === id;
+          const shown = search.trim() ? filtered : readable;
           const total =
             typeof chat.messageCount === "number"
               ? chat.messageCount
@@ -138,8 +196,10 @@ export function AgentChatHistoryPage() {
                     {chat.title || "Chat"}
                   </span>
                   <span className="text-xs text-teal-900/60">
-                    {readable.length} messages
-                    {total > readable.length ? ` · ${total} total logged` : ""}
+                    {search.trim()
+                      ? `${shown.length} match${shown.length === 1 ? "" : "es"}`
+                      : `${readable.length} messages`}
+                    {!search.trim() && total > readable.length ? ` · ${total} total logged` : ""}
                     {chat.updatedAt
                       ? ` · updated ${new Date(chat.updatedAt).toLocaleString()}`
                       : ""}
@@ -149,12 +209,12 @@ export function AgentChatHistoryPage() {
               </button>
               {open ? (
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto border-t border-teal-50 bg-[#f7f5fc]/50 px-3 py-3">
-                  {chat.truncated ? (
+                  {chat.truncated && !search.trim() ? (
                     <p className="text-[0.7rem] text-teal-800/55">
                       Showing the latest window of this thread.
                     </p>
                   ) : null}
-                  {readable.map((msg) => {
+                  {shown.map((msg) => {
                     const mine = msg.role === "user";
                     return (
                       <div
@@ -185,9 +245,11 @@ export function AgentChatHistoryPage() {
                       </div>
                     );
                   })}
-                  {!readable.length ? (
+                  {!shown.length ? (
                     <p className="text-xs text-teal-900/55">
-                      No conversation messages in this window (only run activity was logged).
+                      {search.trim()
+                        ? "No messages in this thread match the search."
+                        : "No conversation messages in this window (only run activity was logged)."}
                     </p>
                   ) : null}
                   <div ref={open ? transcriptEndRef : null} />

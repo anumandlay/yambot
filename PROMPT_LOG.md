@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 14:40] Keyword search on History chat + memory pages
+
+- **Prompt Provided:** On chat history / memory pages from `/history`, add a search box for keywords.
+- **Architectural Flow:** AgentChatHistoryPage filters threads/messages client-side; AgentMemoryPage top search filters curated, logins, day history, and short notes.
+- **Impacted Files:** AgentChatHistoryPage.jsx, AgentMemoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 14:30] Memory pull chip in chat
 
 - **Prompt Provided:** Small bubble to click and see ranking / what memory was pulled.

@@ -41,24 +41,45 @@ function fmtWhen(d) {
 
 /**
  * @param {string} q
+ * @param {string} hay
+ * @returns {boolean}
+ */
+function textMatches(q, hay) {
+  const query = String(q || "").trim().toLowerCase();
+  if (!query) return true;
+  const h = String(hay || "").toLowerCase();
+  return query
+    .split(/\s+/)
+    .filter(Boolean)
+    .every((tok) => h.includes(tok));
+}
+
+/**
+ * @param {string} q
  * @param {object} day
  * @returns {boolean}
  */
 function dayMatches(q, day) {
-  if (!q) return true;
+  if (!String(q || "").trim()) return true;
   const hay = [
     day.day,
     day.summary,
     day.detail,
     ...(Array.isArray(day.keywords) ? day.keywords : []),
-  ]
-    .join(" ")
-    .toLowerCase();
-  return q
-    .toLowerCase()
-    .split(/\s+/)
-    .filter(Boolean)
-    .every((tok) => hay.includes(tok));
+  ].join(" ");
+  return textMatches(q, hay);
+}
+
+/**
+ * @param {string} q
+ * @param {object} cred
+ * @returns {boolean}
+ */
+function credMatches(q, cred) {
+  return textMatches(
+    q,
+    [cred.label, cred.siteHost, cred.username, cred.email, cred.notes].join(" ")
+  );
 }
 
 /**
@@ -121,6 +142,23 @@ export function AgentMemoryPage() {
   const filteredDays = useMemo(
     () => dayLogs.filter((d) => dayMatches(filter, d)),
     [dayLogs, filter]
+  );
+  const filteredCurated = useMemo(
+    () => curatedItems.filter((item) => textMatches(filter, item.content)),
+    [curatedItems, filter]
+  );
+  const filteredCreds = useMemo(
+    () => credentials.filter((c) => credMatches(filter, c)),
+    [credentials, filter]
+  );
+  const filteredNotes = useMemo(
+    () =>
+      memory.filter(
+        (m) =>
+          textMatches(filter, m.content) ||
+          textMatches(filter, KIND_LABEL[m.kind] || m.kind || "")
+      ),
+    [memory, filter]
   );
 
   /**
@@ -338,6 +376,17 @@ export function AgentMemoryPage() {
         episodic notes stay separate. Account USER prefs live under Settings → Memory.
       </p>
 
+      {!busy ? (
+        <input
+          type="search"
+          value={filter}
+          onChange={(e) => setFilter(e.target.value)}
+          placeholder="Search memory by keyword…"
+          className="min-h-11 w-full rounded-xl border border-teal-200 bg-white px-3 text-sm"
+          aria-label="Search agent memory"
+        />
+      ) : null}
+
       {error ? (
         <ErrorAlert
           title={error.title}
@@ -364,10 +413,14 @@ export function AgentMemoryPage() {
               {curatedUpdatedAt ? ` · last changed ${fmtWhen(curatedUpdatedAt)}` : ""}
             </p>
             <ul className="mb-3 space-y-2">
-              {curatedItems.length === 0 ? (
-                <li className="text-sm text-teal-900/60">No curated entries yet.</li>
+              {filteredCurated.length === 0 ? (
+                <li className="text-sm text-teal-900/60">
+                  {curatedItems.length === 0
+                    ? "No curated entries yet."
+                    : "No curated entries match this search."}
+                </li>
               ) : (
-                curatedItems.map((item) => (
+                filteredCurated.map((item) => (
                   <li
                     key={`${item.content.slice(0, 48)}-${item.at || "legacy"}`}
                     className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2 text-sm"
@@ -437,10 +490,14 @@ export function AgentMemoryPage() {
               store new passwords.
             </p>
             <ul className="mb-4 space-y-2">
-              {credentials.length === 0 ? (
-                <li className="text-sm text-teal-900/60">No logins saved yet.</li>
+              {filteredCreds.length === 0 ? (
+                <li className="text-sm text-teal-900/60">
+                  {credentials.length === 0
+                    ? "No logins saved yet."
+                    : "No logins match this search."}
+                </li>
               ) : (
-                credentials.map((c) => (
+                filteredCreds.map((c) => (
                   <li
                     key={c.id || `${c.label}-${c.siteHost}`}
                     className="rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2 text-sm"
@@ -571,20 +628,14 @@ export function AgentMemoryPage() {
                 Clear history
               </button>
             </div>
-            <label className="mb-3 flex flex-col gap-1 text-sm">
-              <FieldLabel helpId="agent.memory.filter">Filter by keywords</FieldLabel>
-              <input
-                className="min-h-11 rounded-xl border border-teal-100 px-3"
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="e.g. travel gmail india"
-              />
-            </label>
+            <p className="mb-3 text-xs text-teal-900/55">
+              Filtered by the search box above when you type a keyword.
+            </p>
             {filteredDays.length === 0 ? (
               <p className="text-sm text-teal-900/60">
                 {dayLogs.length === 0
                   ? "No day history yet — it fills in when runs complete."
-                  : "No days match this filter."}
+                  : "No days match this search."}
               </p>
             ) : (
               <ul className="space-y-3">
@@ -638,11 +689,15 @@ export function AgentMemoryPage() {
             <SectionTitle helpId="agent.memory.notes" className="mb-2">
               Short notes
             </SectionTitle>
-            {memory.length === 0 ? (
-              <p className="text-sm text-teal-900/60">No short notes yet.</p>
+            {filteredNotes.length === 0 ? (
+              <p className="text-sm text-teal-900/60">
+                {memory.length === 0
+                  ? "No short notes yet."
+                  : "No short notes match this search."}
+              </p>
             ) : (
               <ul className="space-y-2">
-                {memory.map((m) => (
+                {filteredNotes.map((m) => (
                   <li
                     key={m.id || `${m.at}-${m.content?.slice(0, 24)}`}
                     className="rounded-xl border border-teal-50 bg-white px-3 py-2 text-sm"
