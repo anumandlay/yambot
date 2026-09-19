@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:25] Instant single-@ peer fan-out (no WOM computer relay)
+
+- **Prompt Provided:** `tell @Content Inspector to open https://www.nyse.com/index` — ~36s before CI saw the ask.
+- **Architectural Flow:** Single browse @peer used to queue WOM’s Chromium run first so WOM could call message_agent (worker poll + LLM). Now any single parsed peer assignment uses the same server-side `peerFanoutTargets` path as multi-@ / cheap greetings — `sendAgentMessage` at POST, parent parks `waiting_peer`, cheap-finish when peer replies.
+- **Impacted Files:** chats.js, PROMPT_LOG
+
 ## [2026-09-19 13:20] History page + soft-delete agents
 
 - **Prompt Provided:** New History page listing deleted (disabled) and current agents, with link to complete chat history per agent.

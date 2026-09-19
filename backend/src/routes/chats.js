@@ -1561,7 +1561,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         type: "waiting_peer",
         payload: {
           reason:
-            peerFanoutTargets.length >= 2 ? "multi_peer_ask_fanout" : "cheap_peer_ask",
+            peerFanoutTargets.length >= 2
+              ? "multi_peer_ask_fanout"
+              : "single_peer_ask_fanout",
           peers: peerFanoutTargets.map((p) => p.agentName),
         },
         at: new Date(),
