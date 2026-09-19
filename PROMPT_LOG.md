@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:35] History Show missing latest chat messages
+
+- **Prompt Provided:** `/history/agents/6aab…` showed “741 messages updated …” but Show did not display the latest chat.
+- **Architectural Flow:** `GET /:id/chat-history` used a global oldest-first `Message.find($in).limit(N)`, so older threads consumed the budget and the newest thread (opened by `updatedAt`) looked empty/stale. Now loads newest-first **per chat**, returns true `messageCount` + `truncated`; UI scrolls to latest.
+- **Impacted Files:** agents.js, AgentChatHistoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 13:25] Instant single-@ peer fan-out (no WOM computer relay)
 
 - **Prompt Provided:** `tell @Content Inspector to open https://www.nyse.com/index` — ~36s before CI saw the ask.

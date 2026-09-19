@@ -1,10 +1,10 @@
 /**
  * @fileoverview Full chat history for one agent (current or archived).
  * Purpose: Read-only transcript of every chat thread tied to the agent.
- * Downstream: GET /api/agents/:id/chat-history.
+ * Downstream: GET /api/agents/:id/chat-history (newest messages per thread).
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
@@ -30,6 +30,8 @@ export function AgentChatHistoryPage() {
   const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [openChatId, setOpenChatId] = useState("");
+  /** Scroll the open transcript to the latest bubble after load/expand. */
+  const transcriptEndRef = useRef(null);
 
   const load = useCallback(async () => {
     if (!agentId) return;
@@ -50,6 +52,12 @@ export function AgentChatHistoryPage() {
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    if (!openChatId || loading) return;
+    // Newest messages are at the bottom of the chronological window.
+    transcriptEndRef.current?.scrollIntoView({ block: "end" });
+  }, [openChatId, loading, chats]);
 
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
@@ -92,6 +100,10 @@ export function AgentChatHistoryPage() {
         {chats.map((chat) => {
           const id = String(chat._id);
           const open = openChatId === id;
+          const total =
+            typeof chat.messageCount === "number"
+              ? chat.messageCount
+              : (chat.messages || []).length;
           return (
             <li
               key={id}
@@ -107,7 +119,7 @@ export function AgentChatHistoryPage() {
                     {chat.title || "Chat"}
                   </span>
                   <span className="text-xs text-teal-900/60">
-                    {(chat.messages || []).length} messages
+                    {total} messages
                     {chat.updatedAt
                       ? ` · updated ${new Date(chat.updatedAt).toLocaleString()}`
                       : ""}
@@ -117,6 +129,11 @@ export function AgentChatHistoryPage() {
               </button>
               {open ? (
                 <div className="max-h-[28rem] space-y-2 overflow-y-auto border-t border-teal-50 bg-[#f7f5fc]/50 px-3 py-3">
+                  {chat.truncated ? (
+                    <p className="text-[0.7rem] text-teal-800/55">
+                      Showing the latest {(chat.messages || []).length} of {total} messages.
+                    </p>
+                  ) : null}
                   {(chat.messages || []).map((msg) => {
                     if (msg.meta?.ui === "icon") {
                       return (
@@ -162,6 +179,7 @@ export function AgentChatHistoryPage() {
                   {!chat.messages?.length ? (
                     <p className="text-xs text-teal-900/55">No messages in this thread.</p>
                   ) : null}
+                  <div ref={open ? transcriptEndRef : null} />
                 </div>
               ) : null}
             </li>

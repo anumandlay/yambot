@@ -941,6 +941,10 @@ agentsRouter.post("/", async (req, res, next) => {
 
 /**
  * GET /api/agents/:id/chat-history — full chat transcripts for one agent (incl. archived).
+ *
+ * Why per-chat newest-first: a global oldest-first `Message.find($in).limit(N)`
+ * starved recently updated threads (Show opened the newest chat by updatedAt
+ * but its messages were empty/truncated because older threads ate the budget).
  */
 agentsRouter.get("/:id/chat-history", async (req, res, next) => {
   try {
@@ -959,27 +963,41 @@ agentsRouter.get("/:id/chat-history", async (req, res, next) => {
       .lean();
 
     const chatIds = chats.map((c) => c._id);
-    const msgLimit = Math.min(Math.max(Number(req.query.messageLimit) || 500, 50), 2000);
-    const messages = chatIds.length
-      ? await Message.find({ chat: { $in: chatIds } })
-          .sort({ _id: 1 })
-          .limit(msgLimit)
-          .lean()
-      : [];
+    /** Per-chat cap (not a global pool across all threads). */
+    const perChatLimit = Math.min(Math.max(Number(req.query.messageLimit) || 800, 50), 2000);
 
-    /** @type {Map<string, object[]>} */
+    /** @type {Map<string, { messages: object[], messageCount: number, truncated: boolean }>} */
     const byChat = new Map();
-    for (const m of messages) {
-      const cid = String(m.chat);
-      const list = byChat.get(cid) || [];
-      list.push({
-        _id: m._id,
-        role: m.role,
-        content: m.content,
-        meta: m.meta,
-        createdAt: m.createdAt,
-      });
-      byChat.set(cid, list);
+    if (chatIds.length) {
+      const counts = await Message.aggregate([
+        { $match: { chat: { $in: chatIds } } },
+        { $group: { _id: "$chat", n: { $sum: 1 } } },
+      ]);
+      /** @type {Map<string, number>} */
+      const countById = new Map(counts.map((r) => [String(r._id), r.n]));
+
+      await Promise.all(
+        chatIds.map(async (cid) => {
+          const total = countById.get(String(cid)) || 0;
+          const newestFirst = await Message.find({ chat: cid })
+            .sort({ _id: -1 })
+            .limit(perChatLimit)
+            .lean();
+          // Chronological for the UI (oldest → newest within the loaded window).
+          const chronological = [...newestFirst].reverse().map((m) => ({
+            _id: m._id,
+            role: m.role,
+            content: m.content,
+            meta: m.meta,
+            createdAt: m.createdAt,
+          }));
+          byChat.set(String(cid), {
+            messages: chronological,
+            messageCount: total,
+            truncated: total > chronological.length,
+          });
+        })
+      );
     }
 
     res.json({
@@ -995,15 +1013,24 @@ agentsRouter.get("/:id/chat-history", async (req, res, next) => {
         archived: agent.active === false || Boolean(agent.deletedAt),
         deletedAt: agent.deletedAt || null,
       },
-      chats: chats.map((c) => ({
-        _id: c._id,
-        title: c.title,
-        kind: c.kind,
-        updatedAt: c.updatedAt,
-        createdAt: c.createdAt,
-        messages: byChat.get(String(c._id)) || [],
-      })),
-      messageCap: msgLimit,
+      chats: chats.map((c) => {
+        const packed = byChat.get(String(c._id)) || {
+          messages: [],
+          messageCount: 0,
+          truncated: false,
+        };
+        return {
+          _id: c._id,
+          title: c.title,
+          kind: c.kind,
+          updatedAt: c.updatedAt,
+          createdAt: c.createdAt,
+          messages: packed.messages,
+          messageCount: packed.messageCount,
+          truncated: packed.truncated,
+        };
+      }),
+      messageCap: perChatLimit,
     });
   } catch (err) {
     next(err);
