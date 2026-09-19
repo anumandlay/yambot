@@ -649,8 +649,8 @@ export const HELP = {
   "agent.schedule.enabled": {
     title: "Scheduled runs",
     body: helpBody(
-      "When enabled, the server enqueues the Scheduled goal text on the chosen interval without you opening chat.",
-      "Creates/uses a chat titled 'Schedule · {agent name}'. Skips a tick if a task is already pending or running for this agent."
+      "Each agent can have multiple cron jobs (different goals and frequencies). Enable a job and the server enqueues that goal on its interval.",
+      "Runs land in the agent’s chat. A tick is skipped if a task is already pending or running for this agent."
     ),
   },
   "agent.schedule.goal": {
