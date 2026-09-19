@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 00:15] Block peer re-delegate on open-URL fan-out
+
+- **Prompt Provided:** Live check of multi-@ fan-out — CI/WI swapped work instead of opening URLs themselves.
+- **Architectural Flow:** Fan-out queued correctly, but hop-1 peers still message_agent’d each other. Fix: `forbidFurtherHops` / direct-browse detection sets hop depth to max so relays hard-fail; expand “open X.com” into explicit DIY browse instructions; chat fan-out always passes `forbidFurtherHops: true`.
+- **Impacted Files:** agentMessageBus.js, chats.js, PROMPT_LOG
+
 ## [2026-09-18 23:40] Multi-@ peer_ask fan-out (CI + WI)
 
 - **Prompt Provided:** In WOM: `tell @Content Inspector to open github.com and @Website Inspector to open example.com` — only WI got a garbled relay ask.

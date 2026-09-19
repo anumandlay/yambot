@@ -1540,6 +1540,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           mode: "task",
           wait: false,
           parentTaskId: String(task._id),
+          forbidFurtherHops: true,
         });
         fanNotes.push(
           sent?.ok

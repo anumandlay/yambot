@@ -103,11 +103,11 @@ function buildChildGoal(mode, fromName, content, hopDepth, canRelayFurther, pare
   ].join(" ");
   const depthNote = canRelayFurther
     ? `You may message_agent a *different* peer for help (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}), but prefer finishing yourself.`
-    : `Do NOT call message_agent again — depth limit (${MAX_AGENT_MESSAGE_HOP_DEPTH}) reached. Finish with your own result.`;
+    : `Do NOT call message_agent — do this work yourself (browser/tools), then finish. Relaying to another peer is blocked for this task.`;
 
   /** @type {Record<string, string>} */
   const intros = {
-    task: `Complete the following work for “${fromName}”.`,
+    task: `Complete the following work for “${fromName}” yourself.`,
     question: `Answer the following question for “${fromName}” (knowledge / light tools; finish with a clear answer).`,
     approval: `APPROVAL REQUEST from “${fromName}”. Review the request. Call finish with success:true to approve, or success:false to reject, and explain briefly in the summary.`,
     handoff: `HANDOFF from “${fromName}”. You now own this work — continue until done, then finish with a status summary.`,
@@ -128,6 +128,43 @@ function buildChildGoal(mode, fromName, content, hopDepth, canRelayFurther, pare
   ]
     .filter(Boolean)
     .join("\n");
+}
+
+/**
+ * True when the peer ask is a direct browse/open job the assignee must do themselves.
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function isDirectBrowsePeerAsk(content) {
+  const c = String(content || "");
+  return (
+    /\b(open|go\s+to|navigate\s+to|visit|load)\b/i.test(c) &&
+    /\b[\w.-]+\.[a-z]{2,}\b/i.test(c)
+  );
+}
+
+/**
+ * Expand “open github.com” into an explicit do-it-yourself browse instruction.
+ * @param {string} content
+ * @returns {string}
+ */
+export function expandDirectBrowseContent(content) {
+  const raw = String(content || "").trim();
+  if (!isDirectBrowsePeerAsk(raw)) return raw;
+  const m = raw.match(
+    /\b(?:open|go\s+to|navigate\s+to|visit|load)\s+((?:https?:\/\/)?[\w.-]+\.[a-z]{2,}(?:\/\S*)?)/i
+  );
+  let url = m?.[1] ? String(m[1]).replace(/[.,;:!?)]+$/g, "") : "";
+  if (url && !/^https?:\/\//i.test(url)) url = `https://${url}`;
+  if (!url) {
+    return `${raw} — do this in YOUR browser yourself. Do not message_agent anyone else. Then finish.`;
+  }
+  return [
+    `Open ${url} in YOUR browser yourself.`,
+    `Confirm the page loaded (title + brief visible content).`,
+    `Do not message_agent anyone else — you own this task.`,
+    `Then call finish with what you saw.`,
+  ].join(" ");
 }
 
 /**
@@ -791,16 +828,24 @@ export async function sendAgentMessage(opts) {
     };
   }
 
-  const conversationKey = `am-${crypto.randomBytes(8).toString("hex")}`;
-  const hopDepth = parentDepth + 1;
+  // Why: fan-out / “open URL” peer asks must not re-delegate (CI↔WI swap). Mark hop at max so relays hard-fail.
+  const forbidFurtherHops =
+    Boolean(opts.forbidFurtherHops) ||
+    (mode === "task" && isDirectBrowsePeerAsk(content));
+  const hopDepth = forbidFurtherHops
+    ? MAX_AGENT_MESSAGE_HOP_DEPTH
+    : parentDepth + 1;
   const canRelayFurther = hopDepth < MAX_AGENT_MESSAGE_HOP_DEPTH;
+  const peerContent = forbidFurtherHops ? expandDirectBrowseContent(content) : content;
+
+  const conversationKey = `am-${crypto.randomBytes(8).toString("hex")}`;
 
   const outbound = await AgentMessage.create({
     user: userId,
     fromAgent: fromAgent._id,
     toAgent: toAgent._id,
     type: mode,
-    content,
+    content: peerContent,
     status: "queued",
     parentTask: parentTaskId,
     conversationKey,
@@ -820,7 +865,7 @@ export async function sendAgentMessage(opts) {
     await Message.create({
       chat: parentChatId,
       role: "system",
-      content: `→ ${toAgent.name} [${mode}] (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}): ${content.slice(0, 500)}${content.length > 500 ? "…" : ""}`,
+      content: `→ ${toAgent.name} [${mode}] (hop ${hopDepth}/${MAX_AGENT_MESSAGE_HOP_DEPTH}): ${peerContent.slice(0, 500)}${peerContent.length > 500 ? "…" : ""}`,
       meta: {
         kind: "agent_message_out",
         ui: "icon",
@@ -831,6 +876,7 @@ export async function sendAgentMessage(opts) {
         mode,
         hopDepth,
         conversationKey,
+        forbidFurtherHops,
       },
     }).catch(() => null);
   }
@@ -838,7 +884,7 @@ export async function sendAgentMessage(opts) {
   const goalText = buildChildGoal(
     mode,
     fromAgent.name,
-    content,
+    peerContent,
     hopDepth,
     canRelayFurther,
     parentTaskId
@@ -851,7 +897,7 @@ export async function sendAgentMessage(opts) {
       agentId: String(toAgent._id),
       goalText,
       // Why: peer chat shows only the ask — hop rules + company memory stay on Task.goal.
-      displayContent: `From “${fromAgent.name}”:\n${content}`,
+      displayContent: `From “${fromAgent.name}”:\n${peerContent}`,
       chatTitle: `${mode}: from ${fromAgent.name}`.slice(0, 80),
       source: "agent_message",
       skipCompanyContext: mode === "question" || mode === "event",
@@ -863,7 +909,8 @@ export async function sendAgentMessage(opts) {
         fromAgentId: String(fromAgent._id),
         fromAgentName: fromAgent.name,
         mode,
-        userFacingGoal: content,
+        userFacingGoal: peerContent,
+        forbidFurtherHops,
       },
     });
   } catch (err) {
@@ -904,7 +951,7 @@ export async function sendAgentMessage(opts) {
           toAgentId: String(toAgent._id),
           toAgentName: toAgent.name,
           mode,
-          contentPreview: content.slice(0, 240),
+          contentPreview: peerContent.slice(0, 240),
           status: "waiting",
           resultSummary: "",
           consumed: false,
@@ -938,7 +985,7 @@ export async function sendAgentMessage(opts) {
     agentId: String(fromAgent._id),
     taskId: parentTaskId,
     significance: mode === "approval" || mode === "handoff" ? "high" : "medium",
-    summary: `${fromAgent.name} → ${toAgent.name} [${mode}]: ${content.slice(0, 240)}`,
+    summary: `${fromAgent.name} → ${toAgent.name} [${mode}]: ${peerContent.slice(0, 240)}`,
     correlationId: conversationKey,
     payload: {
       agentMessageId: String(outbound._id),
