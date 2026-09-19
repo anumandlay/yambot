@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 08:55] Shared body for multi-@ peer asks
+
+- **Prompt Provided:** `Send a message to @Market researcher and @Website Inspector hi how are you` — MR got empty default and ran standing work; only WI got the greeting.
+- **Architectural Flow:** `parsePeerAskAssignments` now detects shared asks: when middle @ chunks are empty, fill all peers from text after the last @ (or cleaned preamble like “Say hi to”). Distinct per-peer instructions (`open A` / `open B`) unchanged. Fan-out uses `question` mode for greetings so peers do not fall into standing task workflows.
+- **Impacted Files:** mentionAgent.js, chats.js, PROMPT_LOG
+
 ## [2026-09-19 00:15] Block peer re-delegate on open-URL fan-out
 
 - **Prompt Provided:** Live check of multi-@ fan-out — CI/WI swapped work instead of opening URLs themselves.

@@ -1532,12 +1532,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       /** @type {string[]} */
       const fanNotes = [];
       for (const peer of peerFanoutTargets) {
+        const peerMode =
+          /^(hi|hello|hey|yo)\b/i.test(peer.content) || /\bhow are you\b/i.test(peer.content)
+            ? "question"
+            : "task";
         const sent = await sendAgentMessage({
           userId: String(req.userId),
           fromAgentId: String(agentDoc._id),
           to: peer.agentName,
           content: peer.content,
-          mode: "task",
+          mode: peerMode,
           wait: false,
           parentTaskId: String(task._id),
           forbidFurtherHops: true,

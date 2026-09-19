@@ -46,6 +46,33 @@ export function cleanPeerInstruction(chunk) {
 }
 
 /**
+ * Shared body for multi-@ when peers share one greeting/ask (not per-peer “open X / open Y”).
+ * Prefers text after the last @; falls back to a cleaned preamble (“Say hi to …” → “hi”).
+ * @param {string} preamble — text before the first peer @
+ * @param {string} afterLast — text after the last peer @
+ * @returns {string}
+ */
+export function extractSharedPeerAsk(preamble, afterLast) {
+  const after = cleanPeerInstruction(afterLast);
+  if (after) return after;
+
+  let pre = String(preamble || "").trim();
+  // Drop “send a message to / message / tell / ask / ping …” wrappers aimed at naming peers.
+  pre = pre
+    .replace(
+      /^(?:please\s+)?(?:send\s+(?:a\s+)?(?:message|msg)\s+to|send\s+(?:a\s+)?(?:message|msg)|message|tell|ask|ping)\s+/i,
+      ""
+    )
+    .replace(/^(?:please\s+)?(?:say|send)\s+/i, "")
+    .replace(/\s+to\s*$/i, "")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  // Bare leftovers like “a message” are not a peer body.
+  if (!pre || /^(?:a\s+)?(?:message|msg)$/i.test(pre)) return "";
+  return cleanPeerInstruction(pre) || pre;
+}
+
+/**
  * Rewrite ambiguous peer_ask text so the peer reports *their* work instead of
  * interpreting “ask what he did” as a relay instruction (which causes ping-pong).
  * @param {string} ask
@@ -123,8 +150,13 @@ export function resolveAllAgentMentions(content, agents) {
 
 /**
  * Split a multi-@ message into per-peer instructions (excludes the bound agent).
- * Example: `tell @A to open github.com and @B to open example.com`
- * → [{ A, "open github.com" }, { B, "open example.com" }]
+ *
+ * Distinct (keep per-peer chunks):
+ *   `tell @A to open github.com and @B to open example.com`
+ *
+ * Shared body (same ask for every peer) when middle chunks are empty:
+ *   `Send a message to @A and @B hi how are you` → both get “hi how are you”
+ *   `Say hi to @A and @B` → both get “hi”
  *
  * @param {string} content
  * @param {AgentRef[]} agents
@@ -138,15 +170,36 @@ export function parsePeerAskAssignments(content, agents, boundAgentId) {
   const peers = mentions.filter((m) => m.agentId !== bound);
   if (!peers.length) return [];
 
-  return peers.map((m) => {
-    const next = mentions.find((x) => x.start > m.start);
-    const chunkEnd = next ? next.start : raw.length;
-    let chunk = cleanPeerInstruction(raw.slice(m.end, chunkEnd));
-    if (!chunk) chunk = "Please help with this request.";
+  /** @type {{ agentId: string, agentName: string, chunk: string }[]} */
+  const draft = peers.map((m, i) => {
+    const nextPeer = peers[i + 1];
+    const chunkEnd = nextPeer ? nextPeer.start : raw.length;
     return {
       agentId: m.agentId,
       agentName: m.agentName,
-      content: rewritePeerAskContent(chunk, m.agentName),
+      chunk: cleanPeerInstruction(raw.slice(m.end, chunkEnd)),
+    };
+  });
+
+  const nonEmpty = draft.filter((d) => d.chunk).length;
+  const preamble = raw.slice(0, peers[0].start);
+  const afterLast = raw.slice(peers[peers.length - 1].end);
+  const shared = extractSharedPeerAsk(preamble, afterLast);
+
+  // Why: “@A and @B hi…” leaves empty middle chunks; fill empties (or all if none distinct) from shared.
+  const useShared =
+    peers.length >= 2 && shared && (nonEmpty < peers.length || nonEmpty === 0);
+
+  return draft.map((d) => {
+    let body = d.chunk;
+    if (useShared && !body) body = shared;
+    if (useShared && nonEmpty === 0) body = shared;
+    // Why: last peer already had the shared trailing text as its chunk — keep it; others get shared.
+    if (!body) body = shared || "Please help with this request.";
+    return {
+      agentId: d.agentId,
+      agentName: d.agentName,
+      content: rewritePeerAskContent(body, d.agentName),
     };
   });
 }
