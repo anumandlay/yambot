@@ -174,6 +174,13 @@ export const HELP = {
       "Use rooms for recurring squads (e.g. Website Ops). One-off DMs still use agent chats or @peer asks."
     ),
   },
+  "nav.bots": {
+    title: "Bots roster",
+    body: helpBody(
+      "Company directory of your agents: who they are, idle/working/needs-you status, and shortcuts to open chat, ask, or add them to a group room.",
+      "Same Agent profiles as the Agents page — roster is discovery + status, not a second kind of bot."
+    ),
+  },
   "rooms.create": {
     title: "Create room",
     body: helpBody(

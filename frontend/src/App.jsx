@@ -54,6 +54,7 @@ import { AgentMemoryPage } from "./pages/AgentMemoryPage.jsx";
 import { AgentThreadsPage } from "./pages/AgentThreadsPage.jsx";
 import { RoomsPage } from "./pages/RoomsPage.jsx";
 import { RoomDetailPage } from "./pages/RoomDetailPage.jsx";
+import { BotsRosterPage } from "./pages/BotsRosterPage.jsx";
 import { GrokStyleLayout, GrokStylePage } from "./pages/GrokStylePage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
@@ -234,6 +235,7 @@ export default function App() {
               <Route index element={null} />
               <Route path="rooms" element={<RoomsPage />} />
               <Route path="rooms/:roomId" element={<RoomDetailPage />} />
+              <Route path="bots" element={<BotsRosterPage />} />
               <Route path=":chatId" element={<ChatDetailPage />} />
             </Route>
           </Route>
@@ -249,6 +251,7 @@ export default function App() {
           <Route path="/" element={<ChatsPage />} />
           <Route path="/rooms" element={<RoomsPage />} />
           <Route path="/rooms/:roomId" element={<RoomDetailPage />} />
+          <Route path="/bots" element={<BotsRosterPage />} />
           <Route path="/agent-threads" element={<AgentThreadsPage />} />
           <Route path="/agents" element={<AgentsPage />} />
           <Route path="/agents/new" element={<AgentEditPage />} />

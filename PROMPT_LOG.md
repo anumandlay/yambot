@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 13:05] Bots roster (Hermes-style directory)
+
+- **Prompt Provided:** Implement Bots roster — what it is and how useful; then build it.
+- **Architectural Flow:** `GET /api/agents/roster` returns slim agent rows + live status (needs_you / working / online / idle). New BotsRosterPage with Open chat, Ask, Add to room (picker → PATCH room members). Nav `/bots` + grok `/grok/bots`. Reuses Agent model — discovery surface, not a second runtime.
+- **Impacted Files:** agents.js, BotsRosterPage.jsx, App.jsx, AppSidebar.jsx, helpContent.js, GrokStylePage.jsx, PROMPT_LOG
+
 ## [2026-09-19 12:50] Rooms in grok rail + edit existing rooms
 
 - **Prompt Provided:** Put /rooms in grok-style left menu; add Edit for created groups.

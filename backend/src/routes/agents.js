@@ -628,6 +628,133 @@ agentsRouter.get("/live-wall", async (req, res, next) => {
 });
 
 /**
+ * GET /api/agents/roster — Hermes-style bots directory (slim + live status).
+ * Why: one poll for “who exists / busy / needs you” without live-wall JPEGs or full agent docs.
+ */
+agentsRouter.get("/roster", async (req, res, next) => {
+  try {
+    const agents = await Agent.find({
+      user: req.userId,
+      active: { $ne: false },
+    })
+      .select(
+        "name skill profile description role mode group avatarMime avatarBase64 computer managedAgents updatedAt createdAt"
+      )
+      .populate("group", "name")
+      .sort({ name: 1 })
+      .lean();
+
+    const agentIds = agents.map((a) => a._id);
+    const chats = await Chat.find({
+      user: req.userId,
+      kind: "agent",
+      agent: { $in: agentIds },
+    })
+      .select("_id agent updatedAt")
+      .lean();
+
+    /** @type {Map<string, { chatId: string }>} */
+    const chatByAgent = new Map();
+    for (const c of chats) {
+      const aid = String(c.agent);
+      const prev = chatByAgent.get(aid);
+      if (!prev || new Date(c.updatedAt) > new Date(prev.updatedAt || 0)) {
+        chatByAgent.set(aid, { chatId: String(c._id), updatedAt: c.updatedAt });
+      }
+    }
+
+    const liveTasks = await Task.find({
+      user: req.userId,
+      agent: { $in: agentIds },
+      status: { $in: ["pending", "running", "waiting_user", "waiting_peer"] },
+    })
+      .select("agent status goal updatedAt")
+      .sort({ updatedAt: -1 })
+      .lean();
+
+    const rank = { running: 4, waiting_user: 3, waiting_peer: 2, pending: 1 };
+    /** @type {Map<string, { status: string, goal: string }>} */
+    const liveByAgent = new Map();
+    for (const t of liveTasks) {
+      const aid = String(t.agent);
+      const prev = liveByAgent.get(aid);
+      const nextRank = rank[t.status] || 0;
+      if (!prev || nextRank > (rank[prev.status] || 0)) {
+        liveByAgent.set(aid, {
+          status: t.status,
+          goal: String(t.goal || "").slice(0, 120),
+        });
+      }
+    }
+
+    const now = Date.now();
+    const bots = agents.map((a) => {
+      const id = String(a._id);
+      const live = liveByAgent.get(id) || null;
+      const needsAttention =
+        Boolean(a.computer?.needsAttention) || live?.status === "waiting_user";
+      const working =
+        live?.status === "running" ||
+        live?.status === "pending" ||
+        live?.status === "waiting_peer";
+      const online = Boolean(
+        a.computer?.lastSeenAt &&
+          now - new Date(a.computer.lastSeenAt).getTime() < 45_000
+      );
+      let status = "idle";
+      if (needsAttention) status = "needs_you";
+      else if (working) status = "working";
+      else if (a.mode !== "api" && online) status = "online";
+
+      return {
+        id,
+        name: a.name || "Agent",
+        skill: a.skill || "",
+        profile: a.profile || "",
+        description: String(a.description || "").slice(0, 280),
+        role: a.role || "worker",
+        mode: a.mode || "browser",
+        groupId: a.group?._id ? String(a.group._id) : a.group ? String(a.group) : "",
+        groupName: a.group?.name || "",
+        avatarMime: a.avatarMime || "",
+        avatarBase64: a.avatarBase64 || "",
+        chatId: chatByAgent.get(id)?.chatId || null,
+        status,
+        liveStatus: live?.status || null,
+        liveGoal: live?.goal || "",
+        needsAttention,
+        working,
+        online: a.mode === "api" ? false : online,
+        attentionReason: needsAttention
+          ? String(a.computer?.attentionReason || live?.goal || "Needs you").slice(0, 200)
+          : "",
+        managedCount: Array.isArray(a.managedAgents) ? a.managedAgents.length : 0,
+      };
+    });
+
+    bots.sort((x, y) => {
+      const order = { needs_you: 0, working: 1, online: 2, idle: 3 };
+      const dx = order[x.status] ?? 9;
+      const dy = order[y.status] ?? 9;
+      if (dx !== dy) return dx - dy;
+      return String(x.name).localeCompare(String(y.name));
+    });
+
+    res.json({
+      ok: true,
+      bots,
+      counts: {
+        total: bots.length,
+        needsYou: bots.filter((b) => b.status === "needs_you").length,
+        working: bots.filter((b) => b.status === "working").length,
+      },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/agents — creates agent and requests a cloud computer by default.
  */
 agentsRouter.post("/", async (req, res, next) => {

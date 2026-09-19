@@ -72,6 +72,7 @@ export function GrokStylePage() {
   const navigate = useNavigate();
   /** Why: rooms routes sit under /grok/rooms; treat that path as an active middle pane. */
   const onRooms = location.pathname.startsWith("/grok/rooms");
+  const onBots = location.pathname.startsWith("/grok/bots");
   const [agents, setAgents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [chats, setChats] = useState([]);
@@ -327,6 +328,17 @@ export function GrokStylePage() {
               +
             </Link>
           </div>
+          <Link
+            to="/grok/bots"
+            onClick={() => setAgentsOpen(false)}
+            className={`mb-2 flex min-h-9 w-full items-center rounded-lg px-2.5 text-left text-xs font-bold ${
+              onBots
+                ? "bg-teal-600 text-white"
+                : "text-teal-800 hover:bg-teal-50"
+            }`}
+          >
+            Bots roster
+          </Link>
           {rooms.length === 0 ? (
             <p className="px-1 py-2 text-xs text-teal-900/60">No rooms yet — tap + to create.</p>
           ) : (
@@ -413,7 +425,7 @@ export function GrokStylePage() {
     </aside>
   );
 
-  const showOutlet = Boolean(chatId) || onRooms;
+  const showOutlet = Boolean(chatId) || onRooms || onBots;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-1 flex-col lg:flex-row">
