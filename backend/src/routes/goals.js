@@ -319,7 +319,9 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
     const runText = buildGoalRunText(goal);
     const { User } = await import("../models/User.js");
     const { resolveLlmCredentialsForAgent } = await import("../utils/llmCredentials.js");
-    const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+    const { resolveCuratedMemoryForPrompt, postCuratedPullMessage } = await import(
+      "../utils/semanticMemory.js"
+    );
     const owner = await User.findById(req.userId);
     const creds = owner ? await resolveLlmCredentialsForAgent(owner, agentDoc) : null;
     const curated = await resolveCuratedMemoryForPrompt({
@@ -362,6 +364,7 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
             goalTitle: goal.title,
             priority,
             agentId: String(agentDoc._id),
+            curatedMemory: curated.meta,
           },
         },
       ],
@@ -372,6 +375,11 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
       role: "system",
       content: `Goal “${goal.title}” queued (${priority} priority) on cloud computer.`,
       meta: { taskId: task._id, goalId: goal._id, status: "pending" },
+    });
+    await postCuratedPullMessage({
+      chatId: chat._id,
+      taskId: task._id,
+      curatedMeta: curated.meta,
     });
 
     await writeAudit({

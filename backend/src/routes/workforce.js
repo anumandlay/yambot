@@ -178,7 +178,9 @@ workforceRouter.post("/run-goal/:goalId", async (req, res, next) => {
 
     const { User } = await import("../models/User.js");
     const { resolveLlmCredentialsForAgent } = await import("../utils/llmCredentials.js");
-    const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+    const { resolveCuratedMemoryForPrompt, postCuratedPullMessage } = await import(
+      "../utils/semanticMemory.js"
+    );
     const owner = await User.findById(req.userId);
     const creds = owner ? await resolveLlmCredentialsForAgent(owner, agentDoc) : null;
     const curated = await resolveCuratedMemoryForPrompt({
@@ -204,7 +206,17 @@ workforceRouter.post("/run-goal/:goalId", async (req, res, next) => {
       }),
       runner: "cloud",
       status: "pending",
-      events: [{ type: "queued", payload: { goalId: String(goal._id), delegated: true } }],
+      events: [
+        {
+          type: "queued",
+          payload: { goalId: String(goal._id), delegated: true, curatedMemory: curated.meta },
+        },
+      ],
+    });
+    await postCuratedPullMessage({
+      chatId: chat._id,
+      taskId: task._id,
+      curatedMeta: curated.meta,
     });
 
     res.status(201).json({ ok: true, task, chatId: chat._id });

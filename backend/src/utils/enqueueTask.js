@@ -10,7 +10,7 @@ import { Task, priorityRank } from "../models/Task.js";
 import { User } from "../models/User.js";
 import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
-import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
+import { postCuratedPullMessage, resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
 
 /**
  * One human chat per agent — find the newest agent chat or create it.
@@ -230,6 +230,11 @@ export async function enqueueTask(opts) {
       triggerId: opts.triggerRef || opts.meta?.triggerId || null,
       mode: isApi ? "api" : "browser",
     },
+  });
+  await postCuratedPullMessage({
+    chatId: chat._id,
+    taskId: task._id,
+    curatedMeta: curated.meta,
   });
 
   chat.updatedAt = new Date();

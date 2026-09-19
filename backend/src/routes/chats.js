@@ -1506,6 +1506,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     }
 
     // Why: rebuild snapshot with final goal + semantic curated top-k + chat context for the worker.
+    /** @type {object|null} */
+    let curatedMeta = null;
     try {
       const userForCtx = await User.findById(req.userId);
       const ctxCreds = await resolveLlmCredentialsForAgent(userForCtx, agentDoc);
@@ -1516,6 +1518,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         goal: goalText || content,
         creds: ctxCreds,
       });
+      curatedMeta = curated.meta;
       snapshot = toAgentSnapshot(agentDoc, {
         goal: goalText || content,
         userCuratedEntries: curated.userCuratedEntries,
@@ -1562,6 +1565,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             peerFanout: peerFanoutTargets
               ? peerFanoutTargets.map((p) => ({ to: p.agentName, content: p.content }))
               : null,
+            curatedMemory: curatedMeta,
           },
         },
       ],
@@ -1747,9 +1751,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           : null,
         runner: "cloud",
         hermesAuto: Boolean(autoTiming),
+        curatedMemory: curatedMeta,
         hermesTiming: autoTiming || undefined,
       },
     });
+    if (curatedMeta) {
+      const { postCuratedPullMessage } = await import("../utils/semanticMemory.js");
+      await postCuratedPullMessage({
+        chatId: chat._id,
+        taskId: task._id,
+        curatedMeta,
+      });
+    }
 
     if (snapshot?.mode === "api" && !activeRun && String(task.status) === "pending") {
       const { kickApiAgent } = await import("../utils/apiAgentRunner.js");

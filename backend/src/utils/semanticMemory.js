@@ -122,7 +122,7 @@ export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
   );
   const total = withEmb.length;
   if (!total) {
-    return { contents: [], records: [], mode: "all", selected: 0, total: 0 };
+    return { contents: [], scores: [], records: [], mode: "all", selected: 0, total: 0 };
   }
 
   const goalText = String(goal || "").trim();
@@ -131,6 +131,7 @@ export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
     const fitted = fitByChars(withEmb, charLimit);
     return {
       contents: fitted.map((r) => r.content),
+      scores: fitted.map(() => 0),
       records: fitted,
       mode: "all",
       selected: fitted.length,
@@ -206,8 +207,12 @@ export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
     return sb - sa;
   });
   const fitted = fitByChars(selected, charLimit);
+  const scores = fitted.map(
+    (r) => ranked.find((row) => row.record.content === r.content)?.score || 0
+  );
   return {
     contents: fitted.map((r) => r.content),
+    scores,
     records: fitted,
     mode,
     selected: fitted.length,
@@ -273,14 +278,91 @@ export async function resolveCuratedMemoryForPrompt(opts) {
         mode: userSel.mode,
         selected: userSel.selected,
         total: userSel.total,
+        pulled: userSel.contents.map((content, i) => ({
+          rank: i + 1,
+          score: Number(userSel.scores?.[i] || 0),
+          content,
+        })),
       },
       agent: {
         mode: agentSel.mode,
         selected: agentSel.selected,
         total: agentSel.total,
+        pulled: agentSel.contents.map((content, i) => ({
+          rank: i + 1,
+          score: Number(agentSel.scores?.[i] || 0),
+          content,
+        })),
       },
     },
   };
+}
+
+/**
+ * One-line + detail body for the chat Memory bubble.
+ * @param {object} meta — resolveCuratedMemoryForPrompt().meta
+ * @returns {string}
+ */
+export function formatCuratedPullMessageContent(meta) {
+  const agent = meta?.agent || {};
+  const user = meta?.user || {};
+  const lines = [
+    `Memory pull · agent ${agent.mode || "?"} ${agent.selected || 0}/${agent.total || 0}` +
+      (user.total
+        ? ` · user ${user.mode || "?"} ${user.selected || 0}/${user.total || 0}`
+        : ""),
+  ];
+  if (Array.isArray(agent.pulled) && agent.pulled.length) {
+    lines.push("", "Agent MEMORY (ranked):");
+    for (const row of agent.pulled) {
+      const sc =
+        typeof row.score === "number" && row.score > 0
+          ? ` [${row.score.toFixed(2)}]`
+          : "";
+      lines.push(`${row.rank}. ${row.content}${sc}`);
+    }
+  } else {
+    lines.push("", "Agent MEMORY: (none pulled)");
+  }
+  if (Array.isArray(user.pulled) && user.pulled.length) {
+    lines.push("", "USER prefs (ranked):");
+    for (const row of user.pulled) {
+      const sc =
+        typeof row.score === "number" && row.score > 0
+          ? ` [${row.score.toFixed(2)}]`
+          : "";
+      lines.push(`${row.rank}. ${row.content}${sc}`);
+    }
+  }
+  return lines.join("\n");
+}
+
+/**
+ * Post a clickable Memory chip into the chat thread.
+ * @param {{ chatId: string|object, taskId?: string|object|null, curatedMeta: object }} opts
+ * @returns {Promise<object|null>}
+ */
+export async function postCuratedPullMessage(opts) {
+  const chatId = opts.chatId;
+  const meta = opts.curatedMeta;
+  if (!chatId || !meta) return null;
+  const { Message } = await import("../models/Chat.js");
+  const agentSelected = Number(meta?.agent?.selected || 0);
+  const userSelected = Number(meta?.user?.selected || 0);
+  if (agentSelected + userSelected === 0 && !Number(meta?.agent?.total || 0) && !Number(meta?.user?.total || 0)) {
+    // Still post so empty stores are visible during testing.
+  }
+  return Message.create({
+    chat: chatId,
+    role: "system",
+    content: formatCuratedPullMessageContent(meta),
+    meta: {
+      kind: "curated_pull",
+      ui: "icon",
+      taskId: opts.taskId || null,
+      curatedMemory: meta,
+    },
+  });
 }
 
 /**

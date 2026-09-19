@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 14:30] Memory pull chip in chat
+
+- **Prompt Provided:** Small bubble to click and see ranking / what memory was pulled.
+- **Architectural Flow:** After each enqueue, post `curated_pull` system message (ui icon). Chat ops row shows **M Memory** chip; popup lists ranked agent/USER facts with scores. Meta includes `pulled[]` from `resolveCuratedMemoryForPrompt`.
+- **Impacted Files:** semanticMemory.js, enqueueTask.js, chats.js, goals.js, workforce.js, scheduler.js, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-19 14:20] Semantic memory live test + tighter top-k
 
 - **Prompt Provided:** Real test of built-in semantic memory.
