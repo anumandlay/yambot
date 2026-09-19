@@ -626,6 +626,28 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
   }
 
   if (ctx.parentChatId) {
+    // Why: ui:icon chips hide the reply until WOM resumes a computer — post a full bubble now.
+    await Message.create({
+      chat: ctx.parentChatId,
+      role: "agent",
+      content: success
+        ? `${toAgentName} replied:\n${summary}`
+        : `${toAgentName} failed:\n${summary}`,
+      meta: {
+        kind: "peer_reply",
+        agentMessageId: String(outbound._id),
+        fromAgentId: toAgentId,
+        fromAgentName: toAgentName,
+        toAgentId: fromAgentId,
+        parentTaskId,
+        childTaskId: String(outbound.childTask),
+        success,
+        hopDepth,
+        mode,
+        conversationKey,
+        late: resultPayload.late,
+      },
+    }).catch(() => null);
     await Message.create({
       chat: ctx.parentChatId,
       role: "system",
@@ -711,10 +733,11 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
 }
 
 /**
- * If parent is parked in waiting_peer and no peers remain waiting, re-queue it as pending
- * so the worker can claim it (computer was free for other goals meanwhile).
+ * If parent is parked in waiting_peer and no peers remain waiting, either:
+ * - cheap-finish when this was only a peer_ask / fan-out (no computer needed to summarize), or
+ * - re-queue as pending so the worker can claim it.
  * @param {string} parentTaskId
- * @returns {Promise<{ ok: boolean, reason?: string, woken?: boolean }>}
+ * @returns {Promise<{ ok: boolean, reason?: string, woken?: boolean, finishedCheap?: boolean }>}
  */
 export async function maybeWakeWaitingPeerParent(parentTaskId) {
   const id = String(parentTaskId || "").trim();
@@ -726,6 +749,53 @@ export async function maybeWakeWaitingPeerParent(parentTaskId) {
   }
   const stillWaiting = (parent.pendingPeerResults || []).some((r) => r.status === "waiting");
   if (stillWaiting) return { ok: true, woken: false, reason: "peers_still_waiting" };
+
+  // Why: peer_ask / fan-out parents only need to surface peer replies — restarting Chromium
+  // for “call finish with a summary” added minutes after the “replied” badge already appeared.
+  if (parentCanCheapFinishAfterPeers(parent)) {
+    const now = new Date();
+    const peers = parent.pendingPeerResults || [];
+    const summary = formatPeerResultsForUser(peers);
+    for (const row of peers) {
+      if (!row.consumed) {
+        row.consumed = true;
+        row.consumedAt = now;
+      }
+    }
+    parent.status = "done";
+    parent.resultSummary = summary.slice(0, 6000);
+    parent.lastError = "";
+    parent.finishedAt = now;
+    parent.events.push({
+      type: "complete",
+      payload: {
+        source: "cheap_peer_resume",
+        peerCount: peers.length,
+        reason: "skip_computer_after_peer_ask",
+      },
+      at: now,
+    });
+    await parent.save();
+    if (parent.chat) {
+      // Why: full peer text was already posted as peer_reply; keep the closing bubble short.
+      const closing =
+        peers.length === 1
+          ? `Done — ${peers[0].toAgentName || "peer"}’s reply is in the thread above.`
+          : `Done — all ${peers.length} peer replies are in the thread above.`;
+      await Message.create({
+        chat: parent.chat,
+        role: "assistant",
+        content: closing,
+        meta: {
+          kind: "result",
+          taskId: parent._id,
+          cheapPeerResume: true,
+          resultSummary: summary.slice(0, 6000),
+        },
+      }).catch(() => null);
+    }
+    return { ok: true, woken: false, finishedCheap: true };
+  }
 
   // Why: original peer_ask goal still says “You must call message_agent” — without a rewrite,
   // the model re-asks the peer forever after each resume.
@@ -759,6 +829,51 @@ export async function maybeWakeWaitingPeerParent(parentTaskId) {
   });
   await parent.save();
   return { ok: true, woken: true };
+}
+
+/**
+ * True when waking the parent only to parrot peer results (no further browser work).
+ * @param {import('mongoose').Document} parent
+ * @returns {boolean}
+ */
+function parentCanCheapFinishAfterPeers(parent) {
+  const goal = String(parent.goal || "");
+  if (/\[PEER FANOUT/i.test(goal)) return true;
+  if (/\[PEER RESULTS READY/i.test(goal)) return true;
+  if (
+    /\bYou must call message_agent\b/i.test(goal) &&
+    /\bexactly once\b/i.test(goal)
+  ) {
+    return true;
+  }
+  const queued = (parent.events || []).find((e) => e.type === "queued");
+  const src = String(queued?.payload?.dispatchSource || "");
+  if (src === "peer_ask" || src === "peer_ask_fanout") return true;
+  return false;
+}
+
+/**
+ * @param {object[]} peers
+ * @returns {string}
+ */
+function formatPeerResultsForUser(peers) {
+  const list = Array.isArray(peers) ? peers : [];
+  if (!list.length) return "Peers finished (no result text).";
+  if (list.length === 1) {
+    const p = list[0];
+    const name = p.toAgentName || "Peer";
+    const body = String(p.resultSummary || "").trim() || "(no reply)";
+    if (p.status === "error") return `${name} failed:\n${body}`;
+    return `${name} replied:\n${body}`;
+  }
+  return list
+    .map((p) => {
+      const name = p.toAgentName || "peer";
+      const body = String(p.resultSummary || "").trim() || "(no reply)";
+      const tag = p.status === "error" ? "failed" : "replied";
+      return `${name} ${tag}:\n${body}`;
+    })
+    .join("\n\n");
 }
 
 /**

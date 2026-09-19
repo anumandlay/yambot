@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 09:50] Faster peer reply in WOM chat thread
+
+- **Prompt Provided:** After Content Inspector opened web.whatsapp.com, WOM showed “replied” badge long before the reply appeared in the chat thread.
+- **Architectural Flow:** Badge came from `pendingPeerResults` immediately, but the thread waited for WOM’s computer to resume and finish. Fix: on peer finalize, post a full `peer_reply` agent bubble into the parent chat right away; for peer_ask/fan-out parents, cheap-finish without Chromium (short “Done — reply above”) instead of waking a computer just to summarize.
+- **Impacted Files:** agentMessageBus.js, PROMPT_LOG
+
 ## [2026-09-19 09:20] Cheap peer question path (no computer)
 
 - **Prompt Provided:** Implement Hermes-style cheap A2A for greetings / light Q&A first.
