@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 09:55] Skip late-resume after cheap peer finish
+
+- **Prompt Provided:** `tell @Content Inspector to open https://www.hello.com/` — what went wrong?
+- **Architectural Flow:** CI succeeded and cheap peer resume correctly posted the reply + Done. Then `resumeParentForLatePeer` saw parent `done` and wrongly spawned a second computer run (“LATE PEER RESULT”). Fix: if `maybeWakeWaitingPeerParent` returned `finishedCheap`, skip late resume.
+- **Impacted Files:** agentMessageBus.js, PROMPT_LOG
+
 ## [2026-09-19 09:50] Faster peer reply in WOM chat thread
 
 - **Prompt Provided:** After Content Inspector opened web.whatsapp.com, WOM showed “replied” badge long before the reply appeared in the chat thread.

@@ -694,19 +694,24 @@ async function finalizeOutboundFromChild(outbound, child, ctx) {
 
   // Why: v6 — if A already finished before B’s answer arrived, spawn a short resume run on A.
   // Also wake parked waiting_peer parents when the last peer finishes.
+  // Why: cheap peer_ask finish marks parent done in maybeWake — must NOT treat that as “late”.
   let lateResume = null;
   if (parentTaskId) {
     const peerWake = await maybeWakeWaitingPeerParent(parentTaskId).catch(() => null);
-    lateResume = await resumeParentForLatePeer({
-      parentTaskId,
-      userId: String(outbound.user),
-      toAgentName,
-      summary,
-      success,
-      agentMessageId: String(outbound._id),
-      mode,
-      fromAgentId,
-    }).catch((err) => ({ ok: false, reason: err?.message || String(err) }));
+    if (!peerWake?.finishedCheap) {
+      lateResume = await resumeParentForLatePeer({
+        parentTaskId,
+        userId: String(outbound.user),
+        toAgentName,
+        summary,
+        success,
+        agentMessageId: String(outbound._id),
+        mode,
+        fromAgentId,
+      }).catch((err) => ({ ok: false, reason: err?.message || String(err) }));
+    } else {
+      lateResume = { ok: true, skipped: true, reason: "cheap_peer_resume" };
+    }
     if (peerWake?.woken) {
       lateResume = { ...(lateResume || {}), wokenWaitingPeer: true };
     }
