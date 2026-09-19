@@ -1,5 +1,5 @@
 /**
- * @fileoverview @mention parsing for common-chat agent dispatch.
+ * @fileoverview @mention parsing for agent dispatch (common chat + agent-chat delegate).
  * Purpose: Resolve `@Agent Name goal text` to a worker without manual picker every time.
  * Downstream: `POST /api/chats/:id/messages` dispatch resolution.
  */

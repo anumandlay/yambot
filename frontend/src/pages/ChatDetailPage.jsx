@@ -308,15 +308,23 @@ export function ChatDetailPage() {
   const activeRun = agentQueue?.active || null;
   const activeRuns = agentQueue?.actives || (activeRun ? [activeRun] : []);
 
+  const mentionAgents = useMemo(() => {
+    if (!agents?.length) return [];
+    if (isCommon) return agents;
+    const selfId = String(chat?.agent?._id || chat?.agent || "");
+    if (!selfId) return agents;
+    // Why: @ in an agent chat is for delegating to someone else — hide self from the list.
+    return agents.filter((a) => String(a._id) !== selfId);
+  }, [agents, chat?.agent, isCommon]);
+
   const mentionPreview = useMemo(() => {
-    if (!isCommon || !input.trim().startsWith("@")) return null;
-    return resolveAgentMention(input, agents);
-  }, [agents, input, isCommon]);
+    if (!input.trim().startsWith("@")) return null;
+    return resolveAgentMention(input, mentionAgents);
+  }, [input, mentionAgents]);
 
   const mentionSuggestions = useMemo(() => {
-    if (!isCommon) return [];
-    return listMentionSuggestions(input, agents);
-  }, [agents, input, isCommon]);
+    return listMentionSuggestions(input, mentionAgents);
+  }, [input, mentionAgents]);
 
   useEffect(() => {
     setMentionHighlight(0);
@@ -341,7 +349,7 @@ export function ChatDetailPage() {
    * @param {React.KeyboardEvent<HTMLTextAreaElement>} e
    */
   function onComposeKeyDown(e) {
-    if (!isCommon || !mentionSuggestions.length) return;
+    if (!mentionSuggestions.length) return;
     if (e.key === "ArrowDown") {
       e.preventDefault();
       setMentionHighlight((i) => (i + 1) % mentionSuggestions.length);
@@ -382,35 +390,37 @@ export function ChatDetailPage() {
   }, [learnPreview, productionSkills, textAfterMention]);
 
   useEffect(() => {
-    if (!isCommon || !mentionPreview?.matched || !mentionPreview.agentId) return;
+    if (!mentionPreview?.matched || !mentionPreview.agentId) return;
     setDispatchAgentId(mentionPreview.agentId);
-  }, [isCommon, mentionPreview?.agentId, mentionPreview?.matched]);
+  }, [mentionPreview?.agentId, mentionPreview?.matched]);
 
-  /** Bound agent for agent chats; watch picker for common chat when multiple workers run. */
-  const liveAgentId = isCommon
-    ? watchAgentId ||
-      activeRun?.agent?._id ||
-      activeRun?.agent ||
-      dispatchAgentId ||
-      null
-    : chat?.agent?._id || chat?.agent || null;
+  /** Bound agent for agent chats; follow active run / watch picker when @mention delegated. */
+  const liveAgentId = (() => {
+    if (watchAgentId) return watchAgentId;
+    const fromRun = activeRun?.agent?._id || activeRun?.agent;
+    if (fromRun) return fromRun;
+    if (isCommon) return dispatchAgentId || null;
+    return chat?.agent?._id || chat?.agent || null;
+  })();
 
   const liveAgentMode = useMemo(() => {
-    const fromChat = chat?.agent?.mode;
-    if (!isCommon && fromChat) return fromChat === "api" ? "api" : "browser";
     const row = agents.find((a) => String(a._id) === String(liveAgentId));
-    return row?.mode === "api" ? "api" : "browser";
-  }, [agents, chat?.agent?.mode, isCommon, liveAgentId]);
+    if (row?.mode) return row.mode === "api" ? "api" : "browser";
+    const fromChat = chat?.agent?.mode;
+    if (!isCommon && fromChat && String(liveAgentId) === String(chat?.agent?._id || chat?.agent)) {
+      return fromChat === "api" ? "api" : "browser";
+    }
+    return "browser";
+  }, [agents, chat?.agent, isCommon, liveAgentId]);
 
   const watchedRun = useMemo(() => {
-    if (!isCommon) return activeRun;
     if (!watchAgentId) return activeRun;
     return (
       activeRuns.find(
         (t) => String(t.agent?._id || t.agent) === String(watchAgentId)
       ) || activeRun
     );
-  }, [activeRun, activeRuns, isCommon, watchAgentId]);
+  }, [activeRun, activeRuns, watchAgentId]);
 
   const isOpsTriggerChat = Boolean(chat?.title?.startsWith("Trigger ·"));
 
@@ -456,7 +466,7 @@ export function ChatDetailPage() {
   }, [chatId, isCommon, isOpsTriggerChat, liveAgentId]);
 
   useEffect(() => {
-    if (!isCommon || !activeRuns.length) return;
+    if (!activeRuns.length) return;
     const currentWatch = watchAgentId;
     const stillValid = activeRuns.some(
       (t) => String(t.agent?._id || t.agent) === String(currentWatch)
@@ -465,13 +475,13 @@ export function ChatDetailPage() {
       const next = activeRuns[0]?.agent?._id || activeRuns[0]?.agent;
       if (next) setWatchAgentId(String(next));
     }
-  }, [activeRuns, isCommon, watchAgentId]);
+  }, [activeRuns, watchAgentId]);
 
-  const liveAgentName = isCommon
-    ? agents.find((a) => String(a._id) === String(liveAgentId))?.name ||
-      watchedRun?.agent?.name ||
-      null
-    : chat?.agent?.name || null;
+  const liveAgentName =
+    agents.find((a) => String(a._id) === String(liveAgentId))?.name ||
+    watchedRun?.agent?.name ||
+    chat?.agent?.name ||
+    null;
 
   /** Task doc with full events (active run from queue may omit events until merged). */
   const snapshotTask = useMemo(() => {
@@ -565,11 +575,11 @@ export function ChatDetailPage() {
       return;
     }
 
-    const mention = isCommon ? resolveAgentMention(content, agents) : null;
+    const mention = resolveAgentMention(content, mentionAgents);
     const afterMention = mention?.matched ? mention.strippedContent.trim() : content;
     const slash = parseSkillSlash(afterMention);
     const goalAfterMention = slash ? slash.goal : afterMention;
-    if (isCommon && !goalAfterMention && !slash) {
+    if (mention?.matched && !goalAfterMention && !slash) {
       sendInFlightRef.current = false;
       setError({
         title: "Add a goal",
@@ -621,7 +631,7 @@ export function ChatDetailPage() {
    * @param {{ confirmRoute?: boolean, agentId?: string, forceAsk?: boolean, forceGoal?: boolean }} [opts]
    */
   async function postGoalMessage(content, opts = {}) {
-    const mention = isCommon ? resolveAgentMention(content, agents) : null;
+    const mention = resolveAgentMention(content, mentionAgents);
     const body = { content };
     if (opts.forceAsk || intentMode === "ask") body.forceAsk = true;
     if (opts.forceGoal || intentMode === "run") body.forceGoal = true;
@@ -782,9 +792,11 @@ export function ChatDetailPage() {
    * @returns {string|null}
    */
   function messageAgentLabel(message) {
-    if (!isCommon && !message.meta?.invokedSkillName) return null;
+    if (!isCommon && !message.meta?.invokedSkillName && !message.meta?.dispatchAgentName) {
+      return null;
+    }
     const parts = [];
-    if (isCommon && message.role === "user" && message.meta?.dispatchAgentName) {
+    if (message.role === "user" && message.meta?.dispatchAgentName) {
       parts.push(message.meta.dispatchAgentName);
     }
     if (message.meta?.invokedSkillName) {
@@ -897,7 +909,7 @@ export function ChatDetailPage() {
         </p>
       ) : null}
 
-      {isCommon && activeRuns.length > 1 ? (
+      {activeRuns.length > 1 ? (
         <label className="mb-1 flex shrink-0 flex-col gap-1 text-xs">
           <span className="font-semibold text-violet-900">Watch agent</span>
           <select
@@ -992,7 +1004,18 @@ export function ChatDetailPage() {
               </p>
             ) : null}
           </>
-        ) : null}
+        ) : (
+          <>
+            {mentionPreview?.matched ? (
+              <p className="rounded-xl border border-violet-100 bg-violet-50 px-3 py-2 text-xs text-violet-950">
+                Delegate → <strong>{mentionPreview.agentName}</strong>
+                {mentionPreview.strippedContent
+                  ? ` · “${mentionPreview.strippedContent.slice(0, 80)}”`
+                  : ""}
+              </p>
+            ) : null}
+          </>
+        )}
         {pendingRoute ? (
           <div className="flex flex-col gap-2 rounded-xl border border-amber-200 bg-amber-50 p-3 text-sm text-amber-950">
             <p>
@@ -1053,14 +1076,14 @@ export function ChatDetailPage() {
           </div>
         ) : null}
         <div className="relative">
-          {isCommon && mentionSuggestions.length ? (
+          {mentionSuggestions.length ? (
             <ul
               className="absolute bottom-full left-0 z-30 mb-1 max-h-56 w-full overflow-y-auto rounded-2xl border border-violet-200 bg-white py-1 shadow-lg"
               role="listbox"
               aria-label="Mention an agent"
             >
               <li className="px-3 py-1.5 text-[0.65rem] font-bold uppercase tracking-wide text-violet-800/55">
-                Agents — pick one
+                {isCommon ? "Agents — pick one" : "Delegate to agent"}
               </li>
               {mentionSuggestions.map((a, idx) => {
                 const active = idx === mentionHighlight;
@@ -1106,8 +1129,8 @@ export function ChatDetailPage() {
                   : intentMode === "ask"
                     ? "Ask a question (memory only)…"
                     : intentMode === "run"
-                      ? "Describe what to do on the computer…"
-                      : "Ask a question or send a goal…"
+                      ? "Type @ to delegate, or describe computer work…"
+                      : "Type @ to delegate, or send a message…"
             }
             value={input}
             onChange={(e) => setInput(e.target.value)}
@@ -1168,14 +1191,14 @@ export function ChatDetailPage() {
 
   /** Why: badge on the mobile queue bubble — pending + active across common groups. */
   const grokQueueCount = useMemo(() => {
-    if (isCommon && Array.isArray(agentQueue?.groups) && agentQueue.groups.length) {
+    if (Array.isArray(agentQueue?.groups) && agentQueue.groups.length) {
       return agentQueue.groups.reduce((n, g) => {
-        const pending = g?.pending?.length || 0;
-        return n + pending + (g?.active ? 1 : 0);
+        const pendingN = g?.pending?.length || 0;
+        return n + pendingN + (g?.active ? 1 : 0);
       }, 0);
     }
     return (agentQueue?.pending?.length || 0) + (agentQueue?.active ? 1 : 0);
-  }, [agentQueue, isCommon]);
+  }, [agentQueue]);
 
   return (
     <div

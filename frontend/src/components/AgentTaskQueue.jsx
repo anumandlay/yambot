@@ -35,11 +35,11 @@ export function AgentTaskQueue({
   const [busyId, setBusyId] = useState(null);
 
   const hasWork = useMemo(() => {
-    if (isCommon && groups.length) {
+    if (groups.length) {
       return groups.some((g) => g.pending?.length || g.active);
     }
     return Boolean(pending.length || active);
-  }, [active, groups, isCommon, pending.length]);
+  }, [active, groups, pending.length]);
 
   if (!hasWork) {
     // Why: grok mobile popup always wants a panel; classic rail stays collapsed when idle.
@@ -50,7 +50,7 @@ export function AgentTaskQueue({
         aria-label={isCommon ? "Chat work queue" : "Agent work queue"}
       >
         <SectionTitle helpId="chat.taskQueue">
-          {isCommon ? "Queues by agent" : "Agent queue"}
+          {isCommon || groups.length ? "Queues by agent" : "Agent queue"}
         </SectionTitle>
         <p className="text-sm text-teal-900/60">No active or pending goals.</p>
       </section>
@@ -112,7 +112,7 @@ export function AgentTaskQueue({
    * @param {QueueTask} task
    */
   function taskMetaLabel(task) {
-    if (isCommon) {
+    if (isCommon || groups.length) {
       return task.agent?.name ? `Agent: ${task.agent.name}` : "Agent pending";
     }
     const title = task.chat?.title;
@@ -239,11 +239,11 @@ export function AgentTaskQueue({
   return (
     <section
       className="flex shrink-0 flex-col gap-2 rounded-2xl border border-teal-100 bg-white p-3 shadow-sm"
-      aria-label={isCommon ? "Chat work queue" : "Agent work queue"}
+      aria-label={isCommon || groups.length ? "Chat work queue" : "Agent work queue"}
     >
       <div className="flex items-center justify-between gap-2">
         <SectionTitle helpId="chat.taskQueue">
-          {isCommon ? "Queues by agent" : "Agent queue"}
+          {isCommon || groups.length ? "Queues by agent" : "Agent queue"}
         </SectionTitle>
         {pending.length ? (
           <span className="rounded-full bg-teal-50 px-2 py-0.5 text-xs font-semibold text-teal-800">
@@ -252,7 +252,7 @@ export function AgentTaskQueue({
         ) : null}
       </div>
 
-      {isCommon && groups.length ? (
+      {groups.length ? (
         <div className="flex max-h-64 flex-col gap-3 overflow-y-auto">
           {groups.map((group) => renderCommonGroup(group))}
         </div>

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-18 20:10] @mention delegate in every agent chat
+
+- **Prompt Provided:** In every agent chat, typing `@` should list other agents so the user can pick one to delegate a task.
+- **Architectural Flow:** Chat compose shows the @ agent dropdown in agent chats (excluding the bound agent). Server resolves `@Peer …` on agent-bound threads and runs the goal as that peer while keeping messages on the current chat. Agent-chat queue merges peer-delegated tasks and groups by agent; live screen follows the active run’s agent.
+- **Impacted Files:** chats.js, mentionAgent.js (fe+be), ChatDetailPage.jsx, AgentTaskQueue.jsx, PROMPT_LOG
+
 ## [2026-09-18 20:00] Grok mobile: live + queue as bubbles
 
 - **Prompt Provided:** On grok-style mobile, put live view and task status in small bubbles; tap opens a popup.

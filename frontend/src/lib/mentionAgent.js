@@ -1,5 +1,5 @@
 /**
- * @fileoverview Client-side @mention preview for common chat compose box.
+ * @fileoverview Client-side @mention preview for chat compose (common + agent delegate).
  * Purpose: Mirror server dispatch rules so the picker updates as the user types.
  * Downstream: ChatDetailPage agent picker + send validation.
  */

@@ -66,13 +66,14 @@ function shouldAutoRenameChatTitle(title, accountName = "") {
 async function loadAgentQueue(userId, agentRef) {
   const agentId = agentRef?._id || agentRef;
   if (!agentId) {
-    return { pending: [], active: null };
+    return { pending: [], active: null, actives: [] };
   }
   const [pending, active] = await Promise.all([
     Task.find({ user: userId, agent: agentId, status: "pending" })
       .sort({ createdAt: 1 })
       .select("goal status createdAt chat message agent")
       .populate("chat", "title kind")
+      .populate("agent", "name")
       .lean(),
     Task.findOne({
       user: userId,
@@ -82,9 +83,85 @@ async function loadAgentQueue(userId, agentRef) {
       .sort({ claimedAt: -1, updatedAt: -1 })
       .select("goal status createdAt chat message resultSummary events agent pendingPeerResults")
       .populate("chat", "title kind")
+      .populate("agent", "name")
       .lean(),
   ]);
-  return { pending, active };
+  return { pending, active, actives: active ? [active] : [] };
+}
+
+/**
+ * Agent-chat queue: bound agent's work plus @mention-delegated tasks posted in this thread.
+ * Why: user can @OtherAgent from WOM's chat — those tasks stay on this chat but run as the peer.
+ * @param {import("mongoose").Types.ObjectId | string} userId
+ * @param {import("mongoose").Types.ObjectId | string | null | undefined} agentRef
+ * @param {import("mongoose").Types.ObjectId | string} chatId
+ */
+async function loadAgentChatQueue(userId, agentRef, chatId) {
+  const agentId = agentRef?._id || agentRef;
+  const base = await loadAgentQueue(userId, agentId);
+  if (!chatId || !agentId) return base;
+
+  const [extraPending, extraActives] = await Promise.all([
+    Task.find({
+      user: userId,
+      chat: chatId,
+      agent: { $ne: agentId },
+      status: "pending",
+    })
+      .sort({ createdAt: 1 })
+      .select("goal status createdAt chat message agent")
+      .populate("chat", "title kind")
+      .populate("agent", "name")
+      .lean(),
+    Task.find({
+      user: userId,
+      chat: chatId,
+      agent: { $ne: agentId },
+      status: { $in: ["running", "waiting_user", "waiting_peer"] },
+    })
+      .sort({ updatedAt: -1 })
+      .select("goal status createdAt chat message resultSummary events agent pendingPeerResults")
+      .populate("chat", "title kind")
+      .populate("agent", "name")
+      .lean(),
+  ]);
+
+  if (!extraPending.length && !extraActives.length) return base;
+
+  const pending = [...base.pending, ...extraPending].sort(
+    (a, b) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  );
+  const actives = [...(base.actives || []), ...extraActives];
+  // Why: prefer a run that belongs to this thread when watching live from this chat.
+  const threadActive =
+    actives.find((t) => String(t.chat?._id || t.chat) === String(chatId)) || actives[0] || null;
+
+  const groupsMap = new Map();
+  /**
+   * @param {object} task
+   * @param {"pending"|"active"} bucket
+   */
+  function addToGroup(task, bucket) {
+    const agentRefRow = task.agent;
+    const id = String(agentRefRow?._id || agentRefRow || "unknown");
+    if (!groupsMap.has(id)) {
+      groupsMap.set(id, { agent: agentRefRow || null, pending: [], active: null });
+    }
+    const group = groupsMap.get(id);
+    if (bucket === "pending") group.pending.push(task);
+    else if (!group.active) group.active = task;
+  }
+  for (const task of pending) addToGroup(task, "pending");
+  for (const task of actives) addToGroup(task, "active");
+
+  return {
+    pending,
+    active: threadActive,
+    actives,
+    groups: [...groupsMap.values()].sort((a, b) =>
+      String(a.agent?.name || "").localeCompare(String(b.agent?.name || ""))
+    ),
+  };
 }
 
 /**
@@ -377,7 +454,7 @@ chatsRouter.get("/:id", async (req, res, next) => {
         }),
       common
         ? loadChatScopedQueue(req.userId, chat._id)
-        : loadAgentQueue(req.userId, chat.agent),
+        : loadAgentChatQueue(req.userId, chat.agent, chat._id),
     ]);
     res.json({
       ok: true,
@@ -450,6 +527,7 @@ chatsRouter.patch("/:id", async (req, res, next) => {
 /**
  * POST /api/chats/:id/messages — user sends a goal; enqueues a Task with agent snapshot.
  * Body: { content, agentId? } — common chat resolves agent via @mention, body, pin, or last used.
+ * Agent chats: leading @PeerName delegates the goal to that peer (same thread, their computer).
  */
 chatsRouter.post("/:id/messages", async (req, res, next) => {
   try {
@@ -646,8 +724,23 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         router: routerMeta,
       };
     } else if (chat.agent) {
-      goalText = content;
-      const slash = parseSkillSlash(goalText);
+      // Why: @PeerName in an agent chat delegates the goal to that peer (same thread, their computer).
+      const userAgents = await Agent.find({ user: req.userId, active: true })
+        .select("name skill instructions")
+        .lean();
+      const mention = resolveAgentMention(content, userAgents);
+      let afterMention = content;
+      if (mention.matched && mention.agentId) {
+        afterMention = mention.strippedContent || "";
+        mentionMeta = {
+          matched: true,
+          agentName: mention.agentName,
+          stripped: mention.strippedContent !== content,
+          dispatchSource: "mention",
+        };
+      }
+
+      const slash = parseSkillSlash(afterMention);
       if (slash) {
         const productionSkills = await Skill.find({ user: req.userId, status: "production" })
           .select("name slug triggers description agent")
@@ -670,8 +763,25 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           pickSource: "slash",
           pickReason: `You typed /${slash.slug} in the goal (explicit slash invoke).`,
         };
+      } else {
+        goalText = afterMention;
       }
-      agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
+
+      const boundId = String(chat.agent);
+      const dispatchId =
+        mention.matched && mention.agentId ? String(mention.agentId) : boundId;
+      agentDoc = await Agent.findOne({ _id: dispatchId, user: req.userId, active: true });
+      if (!agentDoc && dispatchId !== boundId) {
+        res.status(404).json({
+          ok: false,
+          title: "Agent not found",
+          detail: "That @mentioned agent does not exist or is inactive.",
+        });
+        return;
+      }
+      if (!agentDoc) {
+        agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
+      }
       if (agentDoc) snapshot = toAgentSnapshot(agentDoc);
     }
 
@@ -787,7 +897,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         intentReason: "hermes_auto_turn",
         senderName: resolveHumanDisplayName(owner),
       };
-      if (common) {
+      if (common || mentionMeta?.matched) {
         Object.assign(messageMeta, {
           dispatchAgentId: String(agentDoc._id),
           dispatchAgentName: agentDoc.name,
@@ -1202,7 +1312,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       intentReason: classification.reason,
       intentConfidence: classification.confidence,
     };
-    if (common) {
+    if (common || mentionMeta?.matched) {
       Object.assign(messageMeta, {
         dispatchAgentId: snapshot?.id || String(agentDoc._id),
         dispatchAgentName: snapshot?.name || agentDoc.name,
