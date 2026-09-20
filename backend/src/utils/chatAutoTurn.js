@@ -656,6 +656,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- greetings, thanks, status from memory",
     "- explanations, code examples, planning advice",
     "- questions that do not require opening a site or peers",
+    "- hypothetical / policy questions (what if…, what would you do if…, if I don’t give details…) — answer from memory; do NOT queue the computer",
     "",
     "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing or peers.",
   ];

@@ -140,6 +140,21 @@ export function classifyMessageIntent(text, opts = {}) {
     return { intent: "question", confidence: 0.9, reason: "short_vague", text: cleaned };
   }
 
+  // Hypothetical / policy questions — answer from memory (e.g. dummy-data prefs), don't start the computer.
+  // Why: "what if I tell you to register…" used to match action_verbs and boot Chromium.
+  if (
+    /\b(what if|what would( you)?( do)?( if)?|suppose (that )?i|assuming (that )?i|how would you( handle| respond| react)?|what happens if|what do you do (if|when)|if i (don'?t|do not|told|tell|ask|said|say)\b)/i.test(
+      lower
+    )
+  ) {
+    return {
+      intent: "question",
+      confidence: 0.93,
+      reason: "hypothetical_or_policy",
+      text: cleaned,
+    };
+  }
+
   // Strong goal signals — always use the computer.
   if (/https?:\/\//i.test(cleaned) || /\b[\w-]+\.(com|io|net|org|co|ai|app)\b/i.test(cleaned)) {
     return { intent: "goal", confidence: 0.92, reason: "has_url_or_domain", text: cleaned };

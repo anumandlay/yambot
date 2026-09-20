@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-20 00:50] Hypothetical questions must not start the computer
+
+- **Prompt Provided:** “what if i dont give you any details and tell you to register an account in crm” started the computer though it was a question.
+- **Architectural Flow:** Heuristic matched `register` → `action_verbs` → `heuristic_queue_goal` before the model ran. Added `hypothetical_or_policy` classify (what if / what would / if I don’t…) as question; Auto prompt says answer those from memory.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-20 00:35] Stop agent self-intro on every Auto reply
 
 - **Prompt Provided:** Check General agent recent chat — wrong with agent name on every reply.
