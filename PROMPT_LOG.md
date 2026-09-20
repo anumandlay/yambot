@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-20 01:30] Ops chips actually smaller (beat global button font)
+
+- **Prompt Provided:** Icons are not smaller.
+- **Architectural Flow:** Global `button { font-size: 1rem }` overrode Tailwind text utilities. Added `.yb-ops-chip` (20px / 0.625rem) so run-status icons visibly shrink.
+- **Impacted Files:** index.css, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-20 01:25] Memory popup clarity + smaller ops icons
 
 - **Prompt Provided:** Memory popup said nothing injected after CRM register; shrink ops icons ~80% of prior size.

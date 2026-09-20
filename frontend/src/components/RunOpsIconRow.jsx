@@ -185,7 +185,7 @@ function OpsIconPopup({ message, label, icon, onClose }) {
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-teal-100 px-4 py-3">
           <span
-            className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-xs text-teal-900"
+            className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-[0.625rem] text-teal-900"
             aria-hidden="true"
           >
             {icon}
@@ -413,8 +413,8 @@ export function RunOpsIconRow({ messages }) {
               title={`${label} — tap for details`}
               aria-label={`${label}: ${tip}`}
               onClick={() => setOpenMsg(m)}
-              className={`inline-flex h-7 min-h-7 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-[0.65rem] leading-none text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
-                chipLabel ? "gap-0.5 px-1.5 font-semibold" : "min-w-7 px-1.5"
+              className={`yb-ops-chip inline-flex cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
+                chipLabel ? "yb-ops-chip--label font-semibold" : ""
               }`}
             >
               <span aria-hidden="true">{icon}</span>
