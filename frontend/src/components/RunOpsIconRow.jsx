@@ -85,10 +85,10 @@ export function opsIconMeta(message) {
     return { icon: "S", label: "Skill" };
   }
   if (kind === "llm_request" || /^→ Sent to LLM/i.test(content)) {
-    return { icon: "↑", label: "LLM out" };
+    return { icon: "↑", label: "LLM" };
   }
   if (kind === "llm_response" || /^← Received from LLM|^← LLM error/i.test(content)) {
-    return { icon: "↓", label: "LLM in" };
+    return { icon: "↓", label: "LLM reply" };
   }
   if (kind === "step" || /^Step \d/i.test(content)) {
     return { icon: "▸", label: "Step" };
@@ -208,7 +208,7 @@ function OpsIconPopup({ message, label, icon, onClose }) {
           {curated ? (
             <CuratedPullDetails curated={curated} />
           ) : (
-            <pre className="whitespace-pre-wrap break-words font-sans text-sm leading-relaxed text-teal-950">
+            <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-teal-950">
               {body}
             </pre>
           )}
@@ -304,6 +304,11 @@ export function RunOpsIconRow({ messages }) {
           const { icon, label } = opsIconMeta(m);
           const tip = String(m.content || label).slice(0, 120);
           const memoryChip = m.meta?.kind === "curated_pull";
+          const llmChip =
+            m.meta?.kind === "llm_request" ||
+            m.meta?.kind === "llm_response" ||
+            /^→ Sent to LLM|^← Received from LLM|^← LLM error/i.test(String(m.content || ""));
+          const chipLabel = memoryChip ? "Memory" : llmChip ? (m.meta?.kind === "llm_response" ? "LLM↓" : "LLM") : null;
           return (
             <button
               key={m._id || `${label}-${tip.slice(0, 12)}`}
@@ -312,11 +317,11 @@ export function RunOpsIconRow({ messages }) {
               aria-label={`${label}: ${tip}`}
               onClick={() => setOpenMsg(m)}
               className={`inline-flex h-9 min-h-9 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-xs text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
-                memoryChip ? "gap-1 px-2.5 font-semibold" : "min-w-9 px-2"
+                chipLabel ? "gap-1 px-2.5 font-semibold" : "min-w-9 px-2"
               }`}
             >
               <span aria-hidden="true">{icon}</span>
-              {memoryChip ? <span>Memory</span> : null}
+              {chipLabel ? <span>{chipLabel}</span> : null}
             </button>
           );
         })}

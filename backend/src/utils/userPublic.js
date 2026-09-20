@@ -16,7 +16,11 @@ export function resolveHumanDisplayName(user) {
   const entries = user?.curatedMemory?.entries;
   if (Array.isArray(entries)) {
     for (const raw of entries) {
-      const text = String(raw || "");
+      // Why: curated entries are `{ content, at, embedding? }` objects — String(obj) is useless.
+      const text =
+        typeof raw === "string"
+          ? raw
+          : String(raw?.content || raw?.text || "");
       const m =
         text.match(/^\s*i\s*['’]?m\s+([^,.\n]+)/i) ||
         text.match(/^\s*i\s+am\s+([^,.\n]+)/i);
@@ -28,8 +32,16 @@ export function resolveHumanDisplayName(user) {
     }
   }
   const account = String(user?.name || "").trim();
-  if (account) return account;
+  // Why: signup stubs like “test” / “user” are worse than email or curated “I am …”.
+  if (account && !/^(test|user|admin|demo)$/i.test(account)) return account;
   const email = String(user?.email || "").trim();
+  if (email) {
+    const local = email.split("@")[0]?.trim();
+    if (local && !/^(test|user|admin|demo)$/i.test(local)) {
+      return local.replace(/\b\w/g, (c) => c.toUpperCase());
+    }
+  }
+  if (account) return account;
   if (email) return email;
   return "You";
 }

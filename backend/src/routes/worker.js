@@ -406,12 +406,36 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
     task.claimedAt = new Date();
 
     /** Event types that must not dump full text into the chat thread. */
-    const skipChatMessage =
-      type === "llm_request" ||
-      type === "llm_response" ||
-      type === "ask_user"; // assistant bubble is enough; no duplicate "Cloud agent asks"
+    const skipChatMessage = type === "ask_user"; // assistant bubble is enough; no duplicate "Cloud agent asks"
 
-    if (type === "skill_selected") {
+    if (type === "llm_request" || type === "llm_response") {
+      // Why: compact LLM chip (like Memory) — click shows the prompt/reply without flooding the thread.
+      const isReq = type === "llm_request";
+      const model = String(payload.model || "").trim();
+      const step = payload.step != null ? ` · step ${payload.step}` : "";
+      const body = String(payload.text || payload.error || "").trim();
+      const header = isReq
+        ? `→ Sent to LLM${model ? ` (${model})` : ""}${step}`
+        : payload.error
+          ? `← LLM error${model ? ` (${model})` : ""}${step}`
+          : `← Received from LLM${model ? ` (${model})` : ""}${step}`;
+      await Message.create({
+        chat: task.chat,
+        role: "system",
+        content: body ? `${header}\n\n${body}` : header,
+        meta: {
+          taskId: task._id,
+          kind: type,
+          type,
+          ui: "icon",
+          payload: {
+            ...payload,
+            // Why: keep payload lean in Mongo — full text already in content for the popup.
+            text: undefined,
+          },
+        },
+      });
+    } else if (type === "skill_selected") {
       const pick = payload && typeof payload === "object" ? payload : {};
       const lines =
         pick.source === "none"

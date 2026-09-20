@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 22:25] LLM chip + sender name + agent memory target
+
+- **Prompt Provided:** Small bubble for what is sent to the LLM; sender shows as “test”; agent “remember” saved to USER memory instead of agent MEMORY.
+- **Architectural Flow:** Mirror llm_request/response into icon chat chips (click = full prompt/reply). Fix `resolveHumanDisplayName` to read curated `{content}` objects (and skip stub names). Worker memory action + prompts force target `memory` for “remember …” unless clearly account-wide identity.
+- **Impacted Files:** worker.js, agent.js, actions.js, RunOpsIconRow.jsx, userPublic.js, PROMPT_LOG
+
 ## [2026-09-19 15:20] Mid-run chat must supersede original goal
 
 - **Prompt Provided:** Why “register a account in crm” felt late / never started after open google.com.

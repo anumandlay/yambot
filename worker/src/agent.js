@@ -1487,7 +1487,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
       snapshot.chatContext ? String(snapshot.chatContext) : "",
       snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
-      "CURATED MEMORY: Use action type memory { action: add|replace|remove, target: user|memory, content, old_text }. Persist durable facts for the next run; USER/MEMORY blocks above stay frozen until then. At task start YamBot injects the top relevant curated facts for this goal (semantic when embeddings are available).",
+      "CURATED MEMORY: Use action type memory { action: add|replace|remove, target: user|memory, content, old_text }. DEFAULT target is memory (THIS agent's MEMORY.md). When the human tells you to remember something in this chat/goal, ALWAYS use target memory — never user. Use target user ONLY for account-wide human identity/prefs that apply to every agent (e.g. “my name is…”, “I live in…”, tone for all agents), or when they explicitly say user/account memory. Writes apply next run; frozen prompt blocks do not change mid-run. At task start YamBot injects the top relevant curated facts for this goal (semantic when embeddings are available).",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
       "There is no step limit — call finish when the goal or success criteria are met.",
     ]
@@ -1775,8 +1775,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           roles: formatted.roles,
           truncated: formatted.truncated,
           chars: formatted.text.length,
+          // Why: chat LLM chip popup shows this; keep under formatLlmMessagesForChat cap.
+          text: formatted.text,
         },
-        // Why: keep LLM I/O on task.events only — chat shows a tiny icon via other status msgs, not the full dump.
       }).catch((err) => log(`[${config.workerName}] llm_request mirror failed:`, err?.message || err));
 
       try {
@@ -1797,6 +1798,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             usage: result.usage || null,
             truncated: replyTruncated,
             chars: reply.length,
+            text: reply,
           },
         }).catch((err) => log(`[${config.workerName}] llm_response mirror failed:`, err?.message || err));
         return result;
@@ -1808,6 +1810,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             step: traceStep ?? null,
             model,
             error: detail.slice(0, 500),
+            text: detail.slice(0, 500),
           },
         }).catch(() => {});
         throw err;
@@ -3727,17 +3730,35 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       case "memory": {
         try {
+          const content = String(action.content || action.text || "");
+          let target = String(action.target || "memory").toLowerCase() === "user" ? "user" : "memory";
+          // Why: “remember X” in an agent chat must land in agent MEMORY, not USER prefs.
+          // Only keep target user for clear account-wide identity / explicit user-memory asks.
+          const goalBlob = `${goal || ""}\n${content}`;
+          const asksRemember = /\bremember\b|\bmemor(y|ise|ize)\b|\bsave (this |it )?(to |in )?memory\b/i.test(
+            goalBlob
+          );
+          const explicitUserStore =
+            /\b(user|account|global)\s+memory\b|\bremember (this )?for (all agents|every agent|my account)\b/i.test(
+              goalBlob
+            );
+          const isAccountIdentity =
+            /^\s*i\s*(am|'m)\b/i.test(content) ||
+            /\b(my name is|i live|i stay|i am from)\b/i.test(content);
+          if (asksRemember && target === "user" && !explicitUserStore && !isAccountIdentity) {
+            target = "memory";
+          }
           const result = await api("/api/worker/tools/memory", {
             method: "POST",
             body: JSON.stringify({
               agentId: config.agentId || agentSnapshot?.id,
               action: action.action || "add",
-              target: action.target || "memory",
-              content: action.content || action.text || "",
+              target,
+              content,
               oldText: action.old_text || action.oldText || "",
             }),
           });
-          const note = `${result.message || "Memory updated."} (${result.usage || ""}; ${result.entryCount ?? "?"} entries)`;
+          const note = `${result.message || "Memory updated."} (${result.usage || ""}; ${result.entryCount ?? "?"} entries · ${target})`;
           notes.push(note);
           return { ok: true, memory: result, summary: note };
         } catch (err) {
