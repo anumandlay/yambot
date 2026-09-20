@@ -6,7 +6,7 @@
 
 import { Router } from "express";
 import { User } from "../models/User.js";
-import { signToken } from "../middleware/auth.js";
+import { authRequired, signToken } from "../middleware/auth.js";
 import { toUserPublic } from "../utils/userPublic.js";
 import { isSuperAdmin } from "../utils/superAdmin.js";
 
@@ -148,7 +148,7 @@ authRouter.get("/me", async (req, res, next) => {
       res.status(401).json({ ok: false, title: "Unauthorized", detail: "Invalid token" });
       return;
     }
-    // Why: curatedMemory feeds displayName (“I am …”) for chat speaker labels.
+    // Why: account name is the chat display name; curatedMemory only as stub fallback.
     const user = await User.findById(payload.sub).select(
       "name email role walletBalanceCents createdAt curatedMemory"
     );
@@ -166,6 +166,42 @@ authRouter.get("/me", async (req, res, next) => {
           (Math.max(0, Number(user.walletBalanceCents) || 0) / 100).toFixed(2)
         ),
       },
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * PUT /api/auth/profile — update account display name (used on chat bubbles everywhere).
+ * Body: { name: string }
+ * Why: operators set their real name once; curated “I am …” is not the UI label source.
+ */
+authRouter.put("/profile", authRequired, async (req, res, next) => {
+  try {
+    const name = String(req.body?.name || "").trim();
+    if (name.length < 1 || name.length > 80) {
+      res.status(400).json({
+        ok: false,
+        title: "Invalid name",
+        detail: "Enter a display name between 1 and 80 characters.",
+      });
+      return;
+    }
+    const user = await User.findById(req.userId).select(
+      "name email role walletBalanceCents createdAt curatedMemory"
+    );
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    user.name = name;
+    await user.save();
+    const pub = toUserPublic(user);
+    res.json({
+      ok: true,
+      user: { ...pub, isSuperAdmin: isSuperAdmin(user) },
+      message: `Display name set to “${pub.displayName}”.`,
     });
   } catch (err) {
     next(err);

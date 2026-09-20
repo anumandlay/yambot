@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 22:50] Account name is the display name everywhere
+
+- **Prompt Provided:** Use the user account name everywhere instead of curated “I am yamunesh”.
+- **Architectural Flow:** `resolveHumanDisplayName` prefers `user.name` (curated “I am …” only if name is a stub). Settings → Memory has Display name editor via PUT `/api/auth/profile`.
+- **Impacted Files:** userPublic.js, auth.js, SettingsMemoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-19 22:30] Auto-save curated MEMORY after successful runs
 
 - **Prompt Provided:** Also store curated memory after agent runs (not only day logs / short notes).

@@ -7,12 +7,25 @@
 export const USER_ROLES = ["user", "superadmin"];
 
 /**
- * Human-facing name for chat bubbles (not the chat thread title).
- * Why: operators often put “I am …” in curated memory while the signup name stays a stub like “test”.
+ * True for signup placeholders that should not appear on chat bubbles.
+ * @param {string} name
+ * @returns {boolean}
+ */
+function isStubAccountName(name) {
+  return /^(test|user|admin|demo)$/i.test(String(name || "").trim());
+}
+
+/**
+ * Human-facing name for chat bubbles and UI (not the chat thread title).
+ * Why: account `name` is the source of truth everywhere. Curated “I am …” is only a
+ * fallback when the signup name is still a stub like “test”.
  * @param {import('../models/User.js').User | object | null | undefined} user
  * @returns {string}
  */
 export function resolveHumanDisplayName(user) {
+  const account = String(user?.name || "").trim();
+  if (account && !isStubAccountName(account)) return account;
+
   const entries = user?.curatedMemory?.entries;
   if (Array.isArray(entries)) {
     for (const raw of entries) {
@@ -25,24 +38,21 @@ export function resolveHumanDisplayName(user) {
         text.match(/^\s*i\s*['’]?m\s+([^,.\n]+)/i) ||
         text.match(/^\s*i\s+am\s+([^,.\n]+)/i);
       const fromMemory = String(m?.[1] || "").trim();
-      if (fromMemory) {
-        // Why: title-case a single token so “yamunesh” reads as a proper name on bubbles.
+      if (fromMemory && fromMemory.split(/\s+/).length <= 4) {
         return fromMemory.replace(/\b\w/g, (c) => c.toUpperCase());
       }
     }
   }
-  const account = String(user?.name || "").trim();
-  // Why: signup stubs like “test” / “user” are worse than email or curated “I am …”.
-  if (account && !/^(test|user|admin|demo)$/i.test(account)) return account;
+
+  if (account) return account;
   const email = String(user?.email || "").trim();
   if (email) {
     const local = email.split("@")[0]?.trim();
-    if (local && !/^(test|user|admin|demo)$/i.test(local)) {
+    if (local && !isStubAccountName(local)) {
       return local.replace(/\b\w/g, (c) => c.toUpperCase());
     }
+    return email;
   }
-  if (account) return account;
-  if (email) return email;
   return "You";
 }
 

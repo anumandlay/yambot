@@ -1,18 +1,21 @@
 /**
  * @fileoverview Account USER.md curated memory — Hermes-style prefs/identity.
- * Purpose: Let operators view, add, remove, and clear the shared user profile store.
- * Downstream: GET/POST/PUT/DELETE `/api/settings/curated-memory`.
+ * Purpose: Let operators set display name + view/add/clear the shared user profile store.
+ * Downstream: PUT `/api/auth/profile`; GET/POST/PUT/DELETE `/api/settings/curated-memory`.
  */
 
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api.js";
+import { useAuth } from "../context/AuthContext.jsx";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { FieldLabel, SectionTitle } from "../components/FieldLabel.jsx";
 
 /**
- * Settings tab for account-level curated USER memory.
+ * Settings tab for account name + curated USER memory.
  */
 export function SettingsMemoryPage() {
+  const { user, refresh } = useAuth();
+  const [displayName, setDisplayName] = useState("");
   const [items, setItems] = useState([]);
   const [usage, setUsage] = useState("");
   const [charCount, setCharCount] = useState(0);
@@ -23,6 +26,11 @@ export function SettingsMemoryPage() {
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [savingName, setSavingName] = useState(false);
+
+  useEffect(() => {
+    setDisplayName(String(user?.name || user?.displayName || "").trim());
+  }, [user?.name, user?.displayName]);
 
   /**
    * @param {object} data
@@ -54,6 +62,30 @@ export function SettingsMemoryPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  /**
+   * @param {import("react").FormEvent} e
+   */
+  async function onSaveName(e) {
+    e.preventDefault();
+    const name = displayName.trim();
+    if (!name) return;
+    setSavingName(true);
+    setOkMsg("");
+    try {
+      const data = await api("/api/auth/profile", {
+        method: "PUT",
+        body: JSON.stringify({ name }),
+      });
+      await refresh();
+      setOkMsg(data.message || "Display name saved.");
+      setError(null);
+    } catch (err) {
+      setError(err);
+    } finally {
+      setSavingName(false);
+    }
+  }
 
   /**
    * @param {import("react").FormEvent} e
@@ -121,11 +153,39 @@ export function SettingsMemoryPage() {
 
   return (
     <div className="flex flex-col gap-4">
+      <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+        <SectionTitle className="mb-1">Display name</SectionTitle>
+        <p className="mb-3 text-sm text-teal-900/70">
+          Shown on chat bubbles and everywhere as you — not taken from “I am …” in memory.
+        </p>
+        <form onSubmit={onSaveName} className="flex flex-col gap-2 sm:flex-row sm:items-end">
+          <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
+            <FieldLabel htmlFor="account-display-name">Your name</FieldLabel>
+            <input
+              id="account-display-name"
+              value={displayName}
+              onChange={(e) => setDisplayName(e.target.value)}
+              className="min-h-11 rounded-xl border border-teal-200 bg-white px-3 text-sm"
+              placeholder="e.g. Yamunesh"
+              maxLength={80}
+              autoComplete="name"
+            />
+          </label>
+          <button
+            type="submit"
+            disabled={savingName || !displayName.trim()}
+            className="min-h-11 rounded-xl bg-teal-700 px-4 text-sm font-semibold text-white disabled:opacity-50"
+          >
+            {savingName ? "Saving…" : "Save name"}
+          </button>
+        </form>
+      </section>
+
       <SectionTitle>Account memory (USER)</SectionTitle>
       <p className="text-sm text-teal-900/70">
-        Stable facts about you — name, prefs, tone — shared by every agent. Cap{" "}
-        {charLimit.toLocaleString()} chars. Injected frozen at the start of each run; mid-run agent
-        writes appear on the next task.
+        Stable facts about you — prefs, tone, location — shared by every agent. Cap{" "}
+        {charLimit.toLocaleString()} chars. Your display name above is separate from these facts.
+        Injected frozen at the start of each run; mid-run agent writes appear on the next task.
       </p>
 
       {error ? (
@@ -219,4 +279,3 @@ export function SettingsMemoryPage() {
     </div>
   );
 }
-
