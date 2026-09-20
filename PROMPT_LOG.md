@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-20 01:45] History page Curated memory link
+
+- **Prompt Provided:** On /history put curated memory alongside view chat history and view memory.
+- **Architectural Flow:** HistoryRow gains “Curated memory” → `/history/agents/:id/memory#curated`. AgentMemoryPage curated section has `id="curated"` and scrolls after load.
+- **Impacted Files:** HistoryPage.jsx, AgentMemoryPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-20 01:35] Ops chips forced to ~16px
 
 - **Prompt Provided:** Icons are still not smaller.

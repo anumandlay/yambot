@@ -139,6 +139,15 @@ export function AgentMemoryPage() {
     load();
   }, [load]);
 
+  // Why: History "Curated memory" links with #curated; section mounts after load finishes.
+  useEffect(() => {
+    if (busy) return;
+    if (typeof window === "undefined") return;
+    if (window.location.hash !== "#curated") return;
+    const el = document.getElementById("curated");
+    if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [busy]);
+
   const filteredDays = useMemo(
     () => dayLogs.filter((d) => dayMatches(filter, d)),
     [dayLogs, filter]
@@ -405,7 +414,10 @@ export function AgentMemoryPage() {
         <p className="text-sm text-teal-900/70">Loading memory…</p>
       ) : (
         <>
-          <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+          <section
+            id="curated"
+            className="scroll-mt-4 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm"
+          >
             <SectionTitle className="mb-2">Curated MEMORY</SectionTitle>
             <p className="mb-2 text-xs text-teal-900/65">
               Agent notes / env lessons. Agents can also write via the memory tool. Usage:{" "}

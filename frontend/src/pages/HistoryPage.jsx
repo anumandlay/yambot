@@ -1,5 +1,5 @@
 /**
- * @fileoverview History — current + archived agents with links to full chat transcripts and memory.
+ * @fileoverview History — current + archived agents with links to chats, episodic memory, and curated MEMORY.
  * Purpose: Soft-deleted agents stay visible here so past chats/tasks/memory remain reachable.
  * Downstream: GET /api/agents/history, POST /api/agents/:id/restore, AgentChatHistoryPage, AgentMemoryPage.
  */
@@ -72,6 +72,12 @@ function HistoryRow({ agent, archived, busy, onRestore }) {
           className="inline-flex min-h-10 items-center rounded-xl border border-violet-200 bg-violet-50 px-3 text-xs font-semibold text-violet-950"
         >
           View memory
+        </Link>
+        <Link
+          to={`/history/agents/${agent.id}/memory#curated`}
+          className="inline-flex min-h-10 items-center rounded-xl border border-sky-200 bg-sky-50 px-3 text-xs font-semibold text-sky-950"
+        >
+          Curated memory
         </Link>
         {!archived && agent.primaryChatId ? (
           <Link
