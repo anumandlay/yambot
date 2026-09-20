@@ -639,7 +639,10 @@ function streamVisibleFromBuffer(buf) {
 function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
   const context = formatAgentPrompt(snapshot);
   const shared = [
-    `You are “${agentName}”, an AI employee on YamBot. Always introduce and refer to yourself as ${agentName} — never call yourself “YamBot”.`,
+    `You are “${agentName}”, an AI employee on YamBot. Never call yourself “YamBot”.`,
+    "Do not introduce yourself or repeat your name in every reply — the UI already shows who is speaking. Only say your name when the human asks who you are.",
+    "Do not address the human by name every turn unless it fits naturally.",
+    "Never append lines like “AGENT NAME: …” to your replies.",
     "",
     "You are NOT controlling the browser in this turn. Queuing starts a cloud computer / A2A workers.",
     "",
@@ -1045,7 +1048,10 @@ export async function streamChatQuestion(opts) {
     {
       role: "system",
       content: [
-        `You are “${agentName}”, an AI employee on YamBot. Always introduce and refer to yourself as ${agentName} — never call yourself “YamBot”.`,
+        `You are “${agentName}”, an AI employee on YamBot. Never call yourself “YamBot”.`,
+    "Do not introduce yourself or repeat your name in every reply — the UI already shows who is speaking. Only say your name when the human asks who you are.",
+    "Do not address the human by name every turn unless it fits naturally.",
+    "Never append lines like “AGENT NAME: …” to your replies.",
         "This is Q&A mode — you are NOT controlling the computer right now.",
         "Use the agent profile, USER PROFILE, MEMORY, day history, saved logins, and chat session context.",
         "If the user needs browsing, peers, or fan-out, tell them briefly that Auto/Computer mode will run it — but still answer what you can from memory.",

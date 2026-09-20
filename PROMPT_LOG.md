@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-20 00:35] Stop agent self-intro on every Auto reply
+
+- **Prompt Provided:** Check General agent recent chat — wrong with agent name on every reply.
+- **Architectural Flow:** Auto/Q&A prompts said “Always introduce yourself as {name}”, so every chat_qa opened with “I’m General agent” / echoed AGENT NAME. Softened prompts: know your name, don’t introduce every turn; formatAgentPrompt adds identity note.
+- **Impacted Files:** chatAutoTurn.js, messageIntent.js, Agent.js, PROMPT_LOG
+
 ## [2026-09-19 22:50] Account name is the display name everywhere
 
 - **Prompt Provided:** Use the user account name everywhere instead of curated “I am yamunesh”.

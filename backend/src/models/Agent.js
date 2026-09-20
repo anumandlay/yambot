@@ -703,6 +703,7 @@ export function formatAgentPrompt(snapshot) {
   const auto = snapshot.autonomy || {};
   return [
     `AGENT NAME: ${snapshot.name}`,
+    "IDENTITY: You know this name. Do not open replies with “I’m …” or echo “AGENT NAME:” — the chat UI already labels you.",
     isApi
       ? "MODE: API-only — you have NO browser / live computer. Do not navigate or click. Use http_request, email, entities, tickets, and other integration actions only."
       : "MODE: Browser + APIs — you control a Chromium computer and may also call HTTP/integrations.",
