@@ -40,6 +40,7 @@ export const OPS_ICON_KINDS = new Set([
   "info",
   "event",
   "curated_pull",
+  "curated_save",
 ]);
 
 /**
@@ -133,6 +134,9 @@ export function opsIconMeta(message) {
   if (kind === "curated_pull" || /^Memory pull/i.test(content)) {
     return { icon: "M", label: "Memory" };
   }
+  if (kind === "curated_save" || /^Memory saved/i.test(content)) {
+    return { icon: "M+", label: "Saved" };
+  }
   if (/^Thinking/i.test(content)) return { icon: "…", label: "Thinking" };
   if (/^Opening /i.test(content)) return { icon: "↗", label: "Navigate" };
   return { icon: "•", label: "Status" };
@@ -150,6 +154,7 @@ export function opsIconMeta(message) {
 function OpsIconPopup({ message, label, icon, onClose }) {
   const titleId = useId();
   const curated = message?.meta?.kind === "curated_pull" ? message.meta?.curatedMemory : null;
+  const saved = message?.meta?.kind === "curated_save" ? message.meta?.curatedSave : null;
   const body = String(message?.content || "").trim() || label;
 
   useEffect(() => {
@@ -207,6 +212,21 @@ function OpsIconPopup({ message, label, icon, onClose }) {
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           {curated ? (
             <CuratedPullDetails curated={curated} />
+          ) : saved ? (
+            <div className="flex flex-col gap-3 text-sm text-teal-950">
+              <p className="text-xs text-teal-800/70">
+                Durable facts written to this agent’s MEMORY after the run (
+                {saved.count || (saved.facts || []).length}).
+              </p>
+              <PulledList
+                title="Saved to agent MEMORY"
+                rows={(saved.facts || []).map((content, i) => ({
+                  rank: i + 1,
+                  content,
+                }))}
+                empty="No facts saved."
+              />
+            </div>
           ) : (
             <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-teal-950">
               {body}
@@ -304,11 +324,21 @@ export function RunOpsIconRow({ messages }) {
           const { icon, label } = opsIconMeta(m);
           const tip = String(m.content || label).slice(0, 120);
           const memoryChip = m.meta?.kind === "curated_pull";
+          const savedChip =
+            m.meta?.kind === "curated_save" || /^Memory saved/i.test(String(m.content || ""));
           const llmChip =
             m.meta?.kind === "llm_request" ||
             m.meta?.kind === "llm_response" ||
             /^→ Sent to LLM|^← Received from LLM|^← LLM error/i.test(String(m.content || ""));
-          const chipLabel = memoryChip ? "Memory" : llmChip ? (m.meta?.kind === "llm_response" ? "LLM↓" : "LLM") : null;
+          const chipLabel = memoryChip
+            ? "Memory"
+            : savedChip
+              ? "Saved"
+              : llmChip
+                ? m.meta?.kind === "llm_response"
+                  ? "LLM↓"
+                  : "LLM"
+                : null;
           return (
             <button
               key={m._id || `${label}-${tip.slice(0, 12)}`}

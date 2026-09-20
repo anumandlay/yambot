@@ -665,6 +665,22 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
           keywords,
           sourceTask: task._id,
         });
+        // Why: day logs are episodic; also distill durable facts into curated agent MEMORY for next-run top-k.
+        if (success && summary) {
+          const { persistCuratedMemoryFromRun } = await import("../utils/curatedMemoryExtract.js");
+          await persistCuratedMemoryFromRun({
+            userId: req.userId,
+            agentId: String(agentDoc._id),
+            chatId: task.chat ? String(task.chat) : null,
+            taskId: String(task._id),
+            goal: String(task.goal || ""),
+            summary,
+            trajectoryDigest: trajDigest,
+            success: true,
+          }).catch((err) =>
+            console.warn("[worker] curated memory extract failed", err?.message || err)
+          );
+        }
       }
     }
 

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-19 22:30] Auto-save curated MEMORY after successful runs
+
+- **Prompt Provided:** Also store curated memory after agent runs (not only day logs / short notes).
+- **Architectural Flow:** On successful task complete (browser + API agents), `persistCuratedMemoryFromRun` LLM-extracts ≤5 durable facts into agent curated MEMORY (heuristic fallback), dedupes, posts **Saved** chip in chat.
+- **Impacted Files:** curatedMemoryExtract.js, worker.js, apiAgentRunner.js, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-19 22:25] LLM chip + sender name + agent memory target
 
 - **Prompt Provided:** Small bubble for what is sent to the LLM; sender shows as “test”; agent “remember” saved to USER memory instead of agent MEMORY.

@@ -1,0 +1,236 @@
+/**
+ * @fileoverview Post-run curated MEMORY extraction for agents.
+ * Purpose: After a successful task, distill durable facts into agent MEMORY (Hermes-style),
+ * not just day logs / short notes — so “CRM = vughy.com” style knowledge persists for top-k pull.
+ * Downstream: worker task complete, apiAgentRunner; mutateCuratedMemory; chat Memory chip.
+ */
+
+import { Agent } from "../models/Agent.js";
+import { Message } from "../models/Chat.js";
+import { llmChatCompletion } from "./llmChat.js";
+import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
+import { mutateCuratedMemory } from "./curatedMemoryOps.js";
+import { normalizeEntries } from "./curatedMemory.js";
+
+const MAX_FACTS = 5;
+const MAX_FACT_CHARS = 320;
+
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
+function heuristicFacts(text) {
+  const raw = String(text || "");
+  /** @type {string[]} */
+  const out = [];
+  const remembered = raw.match(/Remembered:\s*(.+)/i);
+  if (remembered?.[1]) out.push(remembered[1].trim().slice(0, MAX_FACT_CHARS));
+  const means = raw.match(/\b([A-Za-z][\w\s-]{0,40})\s+means\s+(\S.+)/i);
+  if (means) out.push(`${means[1].trim()} means ${means[2].trim()}`.slice(0, MAX_FACT_CHARS));
+  return out.filter(Boolean);
+}
+
+/**
+ * @param {string} content
+ * @returns {string[]}
+ */
+function parseFactsJson(content) {
+  const raw = String(content || "").trim();
+  if (!raw) return [];
+  let parsed = null;
+  try {
+    const fence = raw.match(/```(?:json)?\s*([\s\S]*?)```/i);
+    const candidate = fence ? fence[1].trim() : raw;
+    const brace = candidate.match(/\{[\s\S]*\}/);
+    parsed = JSON.parse(brace ? brace[0] : candidate);
+  } catch {
+    return [];
+  }
+  const list = Array.isArray(parsed?.facts)
+    ? parsed.facts
+    : Array.isArray(parsed)
+      ? parsed
+      : [];
+  return list
+    .map((f) => String(f || "").trim().replace(/\s+/g, " "))
+    .filter((f) => f.length >= 8 && f.length <= MAX_FACT_CHARS)
+    .slice(0, MAX_FACTS);
+}
+
+/**
+ * Ask the account LLM for durable agent facts from this run (empty ok).
+ * @param {{
+ *   userId: string,
+ *   agentId: string,
+ *   goal: string,
+ *   summary: string,
+ *   trajectoryDigest?: string,
+ * }} opts
+ * @returns {Promise<string[]>}
+ */
+async function llmExtractFacts(opts) {
+  const creds = await resolveLlmCredentialsForAgent(opts.userId, opts.agentId);
+  if (!creds?.apiKey) return [];
+
+  const prompt = [
+    "Extract durable facts worth saving in THIS agent's long-term MEMORY for future runs.",
+    "Return ONLY JSON: {\"facts\":[\"...\"]}",
+    "Rules:",
+    "- 0 to 5 short facts (≤320 chars each).",
+    "- Prefer stable mappings, site URLs, login paths, preferences the human taught, successful signup patterns.",
+    "- Skip one-off navigation (“opened Google”), ephemeral UI, passwords/secrets, and chatter.",
+    "- If nothing durable, return {\"facts\":[]}.",
+    "",
+    `GOAL:\n${String(opts.goal || "").slice(0, 800)}`,
+    "",
+    `RESULT:\n${String(opts.summary || "").slice(0, 1200)}`,
+    opts.trajectoryDigest
+      ? `\nTRAJECTORY (last steps):\n${String(opts.trajectoryDigest).slice(0, 1200)}`
+      : "",
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  try {
+    const content = await llmChatCompletion({
+      apiKey: creds.apiKey,
+      baseUrl: creds.baseUrl,
+      model: creds.model,
+      messages: [
+        {
+          role: "system",
+          content: "You extract durable agent memory facts. Reply with JSON only.",
+        },
+        { role: "user", content: prompt },
+      ],
+      temperature: 0,
+      maxTokens: 400,
+      timeoutMs: 18_000,
+      openAiAccountId: creds.openAiAccountId,
+    });
+    return parseFactsJson(content);
+  } catch (err) {
+    console.warn("[curatedMemoryExtract] LLM extract failed:", err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * @param {string[]} facts
+ * @param {string[]} existing
+ * @returns {string[]}
+ */
+function dedupeFacts(facts, existing) {
+  const have = new Set(
+    (existing || []).map((e) => String(e || "").trim().toLowerCase()).filter(Boolean)
+  );
+  /** @type {string[]} */
+  const out = [];
+  for (const f of facts) {
+    const key = f.toLowerCase();
+    if (!key || have.has(key)) continue;
+    // Why: near-duplicates (“CRM means vughy.com.” vs “… vughy.com”) — skip if already contained.
+    let overlap = false;
+    for (const h of have) {
+      if (h.includes(key) || key.includes(h)) {
+        overlap = true;
+        break;
+      }
+    }
+    if (overlap) continue;
+    have.add(key);
+    out.push(f);
+  }
+  return out;
+}
+
+/**
+ * Persist durable facts from a finished run into agent curated MEMORY.
+ * Best-effort — never throws to the complete handler.
+ * @param {{
+ *   userId: string,
+ *   agentId: string,
+ *   chatId?: string|null,
+ *   taskId?: string|null,
+ *   goal: string,
+ *   summary: string,
+ *   trajectoryDigest?: string,
+ *   success?: boolean,
+ * }} opts
+ * @returns {Promise<{ ok: boolean, saved: string[], skipped?: string }>}
+ */
+export async function persistCuratedMemoryFromRun(opts) {
+  const userId = String(opts.userId || "").trim();
+  const agentId = String(opts.agentId || "").trim();
+  const summary = String(opts.summary || "").trim();
+  if (!userId || !agentId || !summary) {
+    return { ok: false, saved: [], skipped: "missing" };
+  }
+  // Why: failed runs still get day logs / avoid notes — curated MEMORY stays for durable wins.
+  if (opts.success === false) {
+    return { ok: true, saved: [], skipped: "failed_run" };
+  }
+
+  try {
+    const agent = await Agent.findOne({ _id: agentId, user: userId })
+      .select("curatedMemory")
+      .lean();
+    if (!agent) return { ok: false, saved: [], skipped: "agent_missing" };
+
+    let facts = await llmExtractFacts({
+      userId,
+      agentId,
+      goal: opts.goal,
+      summary,
+      trajectoryDigest: opts.trajectoryDigest,
+    });
+    if (!facts.length) {
+      facts = heuristicFacts(`${opts.goal}\n${summary}`);
+    }
+    facts = dedupeFacts(facts, normalizeEntries(agent.curatedMemory?.entries));
+    if (!facts.length) {
+      return { ok: true, saved: [], skipped: "none" };
+    }
+
+    /** @type {string[]} */
+    const saved = [];
+    for (const content of facts) {
+      const result = await mutateCuratedMemory({
+        userId,
+        agentId,
+        action: "add",
+        target: "memory",
+        content,
+      });
+      if (result?.success) saved.push(content);
+    }
+
+    if (saved.length && opts.chatId) {
+      const lines = [
+        `Memory saved · ${saved.length} agent fact${saved.length === 1 ? "" : "s"}`,
+        "",
+        ...saved.map((f, i) => `${i + 1}. ${f}`),
+      ];
+      await Message.create({
+        chat: opts.chatId,
+        role: "system",
+        content: lines.join("\n"),
+        meta: {
+          kind: "curated_save",
+          ui: "icon",
+          taskId: opts.taskId || null,
+          curatedSave: {
+            target: "memory",
+            count: saved.length,
+            facts: saved,
+          },
+        },
+      }).catch(() => null);
+    }
+
+    return { ok: true, saved };
+  } catch (err) {
+    console.warn("[curatedMemoryExtract] persist failed:", err?.message || err);
+    return { ok: false, saved: [], skipped: "error" };
+  }
+}

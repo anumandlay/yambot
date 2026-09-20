@@ -960,6 +960,21 @@ async function finalizeApiTask(task, userId, result) {
         keywords: extractMemoryKeywords(`${task.goal}\n${summary}\n${error}\n${trajDigest}`),
         sourceTask: task._id,
       });
+      if (success && summary) {
+        const { persistCuratedMemoryFromRun } = await import("./curatedMemoryExtract.js");
+        await persistCuratedMemoryFromRun({
+          userId,
+          agentId: String(agentDoc._id),
+          chatId: task.chat ? String(task.chat) : null,
+          taskId: String(task._id),
+          goal: String(task.goal || ""),
+          summary,
+          trajectoryDigest: trajDigest,
+          success: true,
+        }).catch((err) =>
+          console.warn("[apiAgentRunner] curated memory extract failed", err?.message || err)
+        );
+      }
     }
   }
 }
