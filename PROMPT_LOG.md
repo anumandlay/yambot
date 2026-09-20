@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-20 01:35] Ops chips forced to ~16px
+
+- **Prompt Provided:** Icons are still not smaller.
+- **Architectural Flow:** Exclude `.yb-ops-chip` from global `button { font-size: 1rem }`; force 1rem height / 0.55rem type with `!important` so UA padding and cascade cannot reinflate chips.
+- **Impacted Files:** index.css, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-20 01:30] Ops chips actually smaller (beat global button font)
 
 - **Prompt Provided:** Icons are not smaller.

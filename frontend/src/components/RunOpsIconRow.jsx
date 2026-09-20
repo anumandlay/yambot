@@ -413,12 +413,14 @@ export function RunOpsIconRow({ messages }) {
               title={`${label} — tap for details`}
               aria-label={`${label}: ${tip}`}
               onClick={() => setOpenMsg(m)}
-              className={`yb-ops-chip inline-flex cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
+              className={`yb-ops-chip inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
                 chipLabel ? "yb-ops-chip--label font-semibold" : ""
               }`}
             >
-              <span aria-hidden="true">{icon}</span>
-              {chipLabel ? <span>{chipLabel}</span> : null}
+              <span aria-hidden="true" className="leading-none">
+                {icon}
+              </span>
+              {chipLabel ? <span className="leading-none">{chipLabel}</span> : null}
             </button>
           );
         })}
