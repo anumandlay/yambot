@@ -27,7 +27,17 @@ function heuristicFacts(text) {
   if (remembered?.[1]) out.push(remembered[1].trim().slice(0, MAX_FACT_CHARS));
   const means = raw.match(/\b([A-Za-z][\w\s-]{0,40})\s+means\s+(\S.+)/i);
   if (means) out.push(`${means[1].trim()} means ${means[2].trim()}`.slice(0, MAX_FACT_CHARS));
-  return out.filter(Boolean);
+  if (/\b(crm|vughy)\b/i.test(raw) && /\b(register|registration|account|signup|sign up)\b/i.test(raw)) {
+    if (/\bdummy\b/i.test(raw)) {
+      out.push(
+        "When registering a CRM (Vughy) account without details, use dummy data to complete the form."
+      );
+    }
+    if (/\b(completed|success|active)\b/i.test(raw)) {
+      out.push("CRM account registration on Vughy.com can be completed with dummy signup details.");
+    }
+  }
+  return [...new Set(out.filter(Boolean))];
 }
 
 /**

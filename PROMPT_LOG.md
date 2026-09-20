@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-20 01:25] Memory popup clarity + smaller ops icons
+
+- **Prompt Provided:** Memory popup said nothing injected after CRM register; shrink ops icons ~80% of prior size.
+- **Architectural Flow:** Curated pull meta had USER facts but empty agent MEMORY (store empty) — popup looked empty. Always show agent+USER sections with injected count; parse body fallback. Icons h-9→h-7. Stronger post-run CRM/dummy heuristics for agent MEMORY save.
+- **Impacted Files:** RunOpsIconRow.jsx, curatedMemoryExtract.js, PROMPT_LOG
+
 ## [2026-09-20 00:50] Hypothetical questions must not start the computer
 
 - **Prompt Provided:** “what if i dont give you any details and tell you to register an account in crm” started the computer though it was a question.

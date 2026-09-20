@@ -185,7 +185,7 @@ function OpsIconPopup({ message, label, icon, onClose }) {
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-teal-100 px-4 py-3">
           <span
-            className="inline-flex h-9 min-w-9 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-sm text-teal-900"
+            className="inline-flex h-7 min-w-7 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-xs text-teal-900"
             aria-hidden="true"
           >
             {icon}
@@ -211,7 +211,7 @@ function OpsIconPopup({ message, label, icon, onClose }) {
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
           {curated ? (
-            <CuratedPullDetails curated={curated} />
+            <CuratedPullDetails curated={curated} fallbackContent={body} />
           ) : saved ? (
             <div className="flex flex-col gap-3 text-sm text-teal-950">
               <p className="text-xs text-teal-800/70">
@@ -241,30 +241,97 @@ function OpsIconPopup({ message, label, icon, onClose }) {
 
 /**
  * Ranked memory facts pulled into this run's prompt.
- * @param {{ curated: object }} props
+ * Why: agent MEMORY and USER prefs are separate — an empty agent store must not look like
+ * “nothing injected” when USER facts were actually included.
+ * @param {{ curated: object, fallbackContent?: string }} props
  */
-function CuratedPullDetails({ curated }) {
+function CuratedPullDetails({ curated, fallbackContent = "" }) {
   const agent = curated?.agent || {};
   const user = curated?.user || {};
+  let agentRows = Array.isArray(agent.pulled) ? agent.pulled : [];
+  let userRows = Array.isArray(user.pulled) ? user.pulled : [];
+
+  // Why: older / truncated clients may lack meta.pulled — recover from the message body.
+  if (!agentRows.length && !userRows.length && fallbackContent) {
+    const parsed = parsePulledFromContent(fallbackContent);
+    agentRows = parsed.agent;
+    userRows = parsed.user;
+  }
+
+  const agentTotal = Number(agent.total) || agentRows.length;
+  const userTotal = Number(user.total) || userRows.length;
+  const injected = agentRows.length + userRows.length;
+
   return (
     <div className="flex flex-col gap-4 text-sm text-teal-950">
       <p className="text-xs text-teal-800/70">
-        Facts injected into this run (ranked). Mode{" "}
-        <span className="font-semibold">{agent.mode || "—"}</span> · agent{" "}
-        {agent.selected || 0}/{agent.total || 0}
-        {user.total ? (
+        {injected > 0 ? (
+          <>
+            <span className="font-semibold text-teal-950">
+              {injected} fact{injected === 1 ? "" : "s"} injected
+            </span>
+            {" · "}
+          </>
+        ) : (
+          <span className="font-semibold text-amber-900">Nothing matched this goal · </span>
+        )}
+        agent {agent.mode || "—"} {agentRows.length}/{agentTotal}
+        {userTotal || userRows.length ? (
           <>
             {" "}
-            · user {user.mode || "—"} {user.selected || 0}/{user.total || 0}
+            · user {user.mode || "—"} {userRows.length}/{userTotal || userRows.length}
           </>
         ) : null}
       </p>
-      <PulledList title="Agent MEMORY" rows={agent.pulled} empty="None pulled for this goal." />
-      {user.total ? (
-        <PulledList title="USER prefs" rows={user.pulled} empty="None pulled." />
-      ) : null}
+      <PulledList
+        title="Agent MEMORY"
+        rows={agentRows}
+        empty={
+          agentTotal === 0
+            ? "This agent has no curated MEMORY yet — facts appear here after remember / post-run save."
+            : "None of this agent’s MEMORY matched this goal."
+        }
+      />
+      <PulledList
+        title="USER prefs"
+        rows={userRows}
+        empty={
+          userTotal === 0
+            ? "No account USER prefs on file (Settings → Memory)."
+            : "No USER prefs matched this goal."
+        }
+      />
     </div>
   );
+}
+
+/**
+ * Recover ranked lists from the curated_pull message body when meta.pulled is missing.
+ * @param {string} content
+ * @returns {{ agent: object[], user: object[] }}
+ */
+function parsePulledFromContent(content) {
+  /** @type {object[]} */
+  const agent = [];
+  /** @type {object[]} */
+  const user = [];
+  let section = /** @type {null|"agent"|"user"} */ (null);
+  for (const line of String(content || "").split(/\n/)) {
+    if (/^Agent MEMORY/i.test(line)) {
+      section = "agent";
+      continue;
+    }
+    if (/^USER prefs/i.test(line)) {
+      section = "user";
+      continue;
+    }
+    const m = line.match(/^\s*(\d+)\.\s+(.+)$/);
+    if (!m || !section) continue;
+    const row = { rank: Number(m[1]), content: m[2].replace(/\s*\[\d+\.\d+\]\s*$/, "").trim() };
+    if (section === "agent") agent.push(row);
+    else user.push(row);
+  }
+  return { agent, user };
 }
 
 /**
@@ -316,7 +383,7 @@ export function RunOpsIconRow({ messages }) {
   return (
     <>
       <div
-        className="flex flex-wrap items-center gap-1.5 self-start px-0.5 py-0.5"
+        className="flex flex-wrap items-center gap-1 self-start px-0.5 py-0.5"
         role="group"
         aria-label="Run status"
       >
@@ -346,8 +413,8 @@ export function RunOpsIconRow({ messages }) {
               title={`${label} — tap for details`}
               aria-label={`${label}: ${tip}`}
               onClick={() => setOpenMsg(m)}
-              className={`inline-flex h-9 min-h-9 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-xs text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
-                chipLabel ? "gap-1 px-2.5 font-semibold" : "min-w-9 px-2"
+              className={`inline-flex h-7 min-h-7 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-[0.65rem] leading-none text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
+                chipLabel ? "gap-0.5 px-1.5 font-semibold" : "min-w-7 px-1.5"
               }`}
             >
               <span aria-hidden="true">{icon}</span>
