@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 12:55] Strip Auto planning dumps from queue acks
+
+- **Prompt Provided:** Chat showed LLM thinking (“Should we be rude?… We can say On it…”) before the real status sentence.
+- **Architectural Flow:** Model was streaming/saving deliberation as the ack. Detect `looksLikeAutoDeliberation`, extract quoted/final status via `extractQuotedOrFinalAck`, fall back to `defaultQueueAck`. Hold stream until protocol header or non-planning text; prompt forbids planning notes in chat.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-21 11:35] Skills page: Learned badge, workflow key, demote
 
 - **Prompt Provided:** Skills left one-by-one — #4 Skills page clarity.

@@ -270,15 +270,70 @@ export function sanitizeAutoReplyContent(text) {
     return "";
   }
   if (isPromptPlaceholder(s)) return "";
+  // Why: models often dump planning notes then the real ack in quotes — keep only the ack.
+  if (looksLikeAutoDeliberation(s)) {
+    const extracted = extractQuotedOrFinalAck(s);
+    return extracted;
+  }
   // Why: models append meta like: "On it." Short one sentence. Rude but okay.
   s = s
     .replace(/^["'“”]+|["'“”]+$/g, "")
     .replace(
-      /\s*(Short one sentence|Rude but okay|optional short status|one short sentence)[^.]*\.?\s*$/gi,
+      /\s*(Short one sentence|Rude but okay|optional short status|one short sentence|That's (neutral|fine)\.?)[^.]*\.?\s*$/gi,
       ""
     )
     .trim();
+  if (looksLikeAutoDeliberation(s)) return extractQuotedOrFinalAck(s);
   return s;
+}
+
+/**
+ * True when the model wrote planning notes instead of the user-facing sentence.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeAutoDeliberation(text) {
+  const s = String(text || "").trim();
+  if (s.length < 48) return false;
+  const hit =
+    /should we be rude|user profile empty|meta commentary|we can say|that's (neutral|fine)|one short real status|optional short|output format|could be ["'“]|the ack is|do not invent tone|authoritative from USER/i.test(
+      s
+    );
+  if (!hit) return false;
+  // Planning dumps are multi-clause / multi-sentence.
+  return s.split(/[.!?\n]/).filter((p) => p.trim().length > 8).length >= 2 || s.includes('"');
+}
+
+/**
+ * Pull the intended user-facing ack/reply out of a planning dump.
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractQuotedOrFinalAck(text) {
+  const s = String(text || "").trim();
+  if (!s) return "";
+  const quotes = [...s.matchAll(/["“]([^"”]{8,160})["”]/g)].map((m) => String(m[1] || "").trim());
+  const good = quotes.filter(
+    (q) =>
+      !/meta|profile|should we|we can say|output format|one short real status/i.test(q) &&
+      !isPromptPlaceholder(q)
+  );
+  if (good.length) return good[good.length - 1];
+  const lines = s
+    .split(/\n+/)
+    .map((l) => l.replace(/^ack:\s*/i, "").replace(/^["'“”]+|["'“”]+$/g, "").trim())
+    .filter(Boolean);
+  for (let i = lines.length - 1; i >= 0; i -= 1) {
+    const line = lines[i];
+    if (
+      /^(on it|checking|starting|opening|looking|working|got it|okay|ok)\b/i.test(line) &&
+      line.length <= 160 &&
+      !looksLikeAutoDeliberation(line)
+    ) {
+      return line;
+    }
+  }
+  return "";
 }
 
 /**
@@ -363,6 +418,10 @@ export function ensureAutoTurnResult(result, ctx = {}) {
       };
     }
     if (!ack) ack = defaultQueueAck(goal, agentName);
+    // Why: never show planning dumps as the queue ack bubble.
+    if (looksLikeAutoDeliberation(ack) || !ack) {
+      ack = defaultQueueAck(goal, agentName);
+    }
     return {
       action: "queue_goal",
       content: ack,
@@ -679,6 +738,9 @@ function streamVisibleFromBuffer(buf) {
     if (head === "REPLY" || head === "ANSWER") {
       return { visible: "", mode: "pending" };
     }
+    // Why: wait longer — models often stream planning notes before QUEUE_GOAL/REPLY.
+    if (buf.length < 80) return { visible: "", mode: "pending" };
+    if (looksLikeAutoDeliberation(buf)) return { visible: "", mode: "pending" };
     if (buf.length >= 12) return { visible: buf, mode: "reply" };
     return { visible: "", mode: "pending" };
   }
@@ -690,6 +752,8 @@ function streamVisibleFromBuffer(buf) {
   if (first === "REPLY" || first === "ANSWER") {
     return { visible: rest, mode: "reply" };
   }
+  // Freeform without protocol header — hide planning dumps; stream only clean short replies.
+  if (looksLikeAutoDeliberation(buf)) return { visible: "", mode: "pending" };
   return { visible: buf, mode: "reply" };
 }
 
@@ -759,6 +823,8 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "QUEUE_GOAL",
     "goal: Log into Vughy admin, open Trial expiring list for India, then if more than 1 accounts exist message general agent hi; otherwise do not message.",
     "ack: On it — checking the list now.",
+    "",
+    "CRITICAL: Output ONLY the protocol lines above. Never write planning notes, tone debates, or “we can say …” — those must not appear in chat.",
     "",
     context || "(no extra agent context)",
     thread ? `\n\n${thread}` : "",
