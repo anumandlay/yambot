@@ -4,6 +4,10 @@
  * the X pointer over web content, so we paint a CUA-style gradient arrow overlay in the page
  * that noVNC always shows. (cua-driver’s native compositor overlay is often unavailable on
  * headless Xvfb containers — Hermes even auto-disables it there.)
+ *
+ * Why not innerHTML SVG: many sites enable Trusted Types / CSP which throw on innerHTML and
+ * silently killed the previous ✕/SVG overlay — Zoom looked cursor-less.
+ *
  * Coordinate spaces must not be mixed:
  * - viewport CSS: Playwright page.mouse + attached vision screenshot (origin = content top-left)
  * - screen/desktop: AT-SPI frames + xdotool (origin = X root)
@@ -14,6 +18,25 @@ import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 
 const execFileAsync = promisify(execFile);
+
+/** Overlay size in CSS px — large enough to spot on Zoom / Live Wall. */
+const ARROW_SIZE = 56;
+
+/**
+ * Compact CUA-like arrow (no SVG filters — those break under some CSPs).
+ * Tip is at (2,2) in the viewBox; positioned at the click hotspot.
+ */
+const CUA_ARROW_SVG = [
+  `<svg xmlns="http://www.w3.org/2000/svg" width="${ARROW_SIZE}" height="${ARROW_SIZE}" viewBox="0 0 48 48">`,
+  `<defs><linearGradient id="g" x1="4" y1="2" x2="36" y2="40" gradientUnits="userSpaceOnUse">`,
+  `<stop stop-color="#8B5CFF"/><stop offset=".5" stop-color="#3B82F6"/><stop offset="1" stop-color="#22D3A6"/>`,
+  `</linearGradient></defs>`,
+  `<path d="M3 2 L3 38 L13.5 28.5 L22 44 L28 41 L19.5 25.5 L33 25.5 Z"`,
+  ` fill="url(#g)" stroke="#fff" stroke-width="2.5" stroke-linejoin="round"/>`,
+  `</svg>`,
+].join("");
+
+const CUA_ARROW_DATA_URI = `data:image/svg+xml,${encodeURIComponent(CUA_ARROW_SVG)}`;
 
 /**
  * @param {string[]} args
@@ -137,100 +160,124 @@ async function getMouseLocation() {
 }
 
 /**
- * CUA-like gradient arrow SVG (hotspot = tip at top-left). White outline + soft bloom
- * so it stays readable on light and dark pages — inspired by cua.default arrow silhouette.
+ * Ensures the arrow overlay node exists (CSP-safe: no innerHTML).
+ * @param {import('playwright').Page} page
+ * @returns {Promise<boolean>}
  */
-const CUA_ARROW_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
-  <defs>
-    <linearGradient id="ybCuaArrow" x1="6" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#7C5CFF"/>
-      <stop offset="0.55" stop-color="#4F8CFF"/>
-      <stop offset="1" stop-color="#2EE6A6"/>
-    </linearGradient>
-    <filter id="ybCuaBloom" x="-40%" y="-40%" width="180%" height="180%">
-      <feGaussianBlur stdDeviation="1.4" result="b"/>
-      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
-    </filter>
-  </defs>
-  <path filter="url(#ybCuaBloom)" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"
-    d="M4 3 L4 28 L12.2 21.2 L18.8 33.2 L23.2 31 L16.6 19.2 L26.5 19.2 Z" fill="url(#ybCuaArrow)"/>
-</svg>`;
+async function ensureArrowOverlay(page) {
+  try {
+    return await page.evaluate(
+      ({ id, uri, size }) => {
+        let el = document.getElementById(id);
+        if (!el) {
+          el = document.createElement("div");
+          el.id = id;
+          el.setAttribute("aria-hidden", "true");
+          el.setAttribute("data-yambot-cua-cursor", "1");
+          document.documentElement.appendChild(el);
+        }
+        el.style.position = "fixed";
+        el.style.zIndex = "2147483647";
+        el.style.pointerEvents = "none";
+        el.style.width = `${size}px`;
+        el.style.height = `${size}px`;
+        el.style.margin = "0";
+        el.style.padding = "0";
+        el.style.border = "0";
+        el.style.display = "block";
+        el.style.opacity = "1";
+        el.style.backgroundImage = `url("${uri}")`;
+        el.style.backgroundRepeat = "no-repeat";
+        el.style.backgroundSize = "contain";
+        el.style.backgroundPosition = "0 0";
+        el.style.filter = "drop-shadow(0 2px 4px rgba(0,0,0,.55))";
+        el.style.transition = "none";
+        return true;
+      },
+      { id: "__yambot_cua_cursor", uri: CUA_ARROW_DATA_URI, size: ARROW_SIZE }
+    );
+  } catch {
+    return false;
+  }
+}
 
 /**
- * Glides a CUA-style arrow overlay inside the page (visible on noVNC even when Chrome hides X pointer).
- * Hotspot is the arrow tip (top-left), matching OS / cua-driver pointer semantics.
+ * Places the arrow tip at a viewport point (no animation).
+ * @param {import('playwright').Page} page
+ * @param {number} x
+ * @param {number} y
+ */
+async function placeArrowOverlay(page, x, y) {
+  try {
+    await page.evaluate(
+      ({ id, x, y }) => {
+        const el = document.getElementById(id);
+        if (!el) return false;
+        el.style.left = `${Math.round(x)}px`;
+        el.style.top = `${Math.round(y)}px`;
+        el.style.display = "block";
+        el.style.opacity = "1";
+        return true;
+      },
+      { id: "__yambot_cua_cursor", x, y }
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Glides a CUA-style arrow overlay (Node-driven steps — reliable + visible on noVNC).
+ * Hotspot is the arrow tip (top-left).
  * @param {import('playwright').Page} page
  * @param {number} x
  * @param {number} y
  * @param {{ fromX?: number, fromY?: number, steps?: number, stepMs?: number }} [opts]
  */
 async function glidePageOverlay(page, x, y, opts = {}) {
-  if (!page || page.isClosed()) return { ok: false };
+  if (!page || page.isClosed()) return { ok: false, error: "page_closed" };
   const tx = Math.round(Number(x) || 0);
   const ty = Math.round(Number(y) || 0);
-  const steps = Math.max(1, Math.min(20, Number(opts.steps) || 12));
-  const stepMs = Math.max(12, Math.min(60, Number(opts.stepMs) || 22));
-  try {
-    await page.evaluate(
-      ({ tx, ty, steps, stepMs, fromX, fromY, svg }) => {
-        const ID = "__yambot_cua_cursor";
-        let el = document.getElementById(ID);
-        if (!el) {
-          el = document.createElement("div");
-          el.id = ID;
-          el.setAttribute("aria-hidden", "true");
-          el.innerHTML = svg;
-          el.style.cssText = [
-            "position:fixed",
-            "z-index:2147483647",
-            "pointer-events:none",
-            "width:36px",
-            "height:36px",
-            "left:0",
-            "top:0",
-            "display:block",
-            "filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))",
-            "transition:none",
-          ].join(";");
-          document.documentElement.appendChild(el);
-        } else if (!el.querySelector("svg")) {
-          el.innerHTML = svg;
-        }
-        const startX =
-          Number.isFinite(fromX) ? fromX : Number.parseFloat(el.style.left) || tx;
-        const startY =
-          Number.isFinite(fromY) ? fromY : Number.parseFloat(el.style.top) || ty;
-        el.style.display = "block";
-        return new Promise((resolve) => {
-          let i = 0;
-          const tick = () => {
-            i += 1;
-            const t = i / steps;
-            el.style.left = `${Math.round(startX + (tx - startX) * t)}px`;
-            el.style.top = `${Math.round(startY + (ty - startY) * t)}px`;
-            if (i >= steps) {
-              resolve(true);
-              return;
-            }
-            setTimeout(tick, stepMs);
-          };
-          tick();
-        });
-      },
-      {
-        tx,
-        ty,
-        steps,
-        stepMs,
-        fromX: opts.fromX,
-        fromY: opts.fromY,
-        svg: CUA_ARROW_SVG,
-      }
-    );
-    return { ok: true };
-  } catch {
-    return { ok: false };
+  const steps = Math.max(4, Math.min(24, Number(opts.steps) || 14));
+  const stepMs = Math.max(18, Math.min(70, Number(opts.stepMs) || 28));
+
+  const ready = await ensureArrowOverlay(page);
+  if (!ready) return { ok: false, error: "overlay_inject_failed" };
+
+  let fromX = Number(opts.fromX);
+  let fromY = Number(opts.fromY);
+  if (!Number.isFinite(fromX) || !Number.isFinite(fromY)) {
+    try {
+      const cur = await page.evaluate((id) => {
+        const el = document.getElementById(id);
+        if (!el || el.style.display === "none") return null;
+        return {
+          x: Number.parseFloat(el.style.left),
+          y: Number.parseFloat(el.style.top),
+        };
+      }, "__yambot_cua_cursor");
+      fromX = Number.isFinite(cur?.x) ? cur.x : Math.max(0, tx - 120);
+      fromY = Number.isFinite(cur?.y) ? cur.y : Math.max(0, ty - 80);
+    } catch {
+      fromX = Math.max(0, tx - 120);
+      fromY = Math.max(0, ty - 80);
+    }
   }
+
+  for (let i = 1; i <= steps; i += 1) {
+    const t = i / steps;
+    // Ease-out so the tip settles visibly on the target.
+    const e = 1 - (1 - t) * (1 - t);
+    const ix = Math.round(fromX + (tx - fromX) * e);
+    const iy = Math.round(fromY + (ty - fromY) * e);
+    const placed = await placeArrowOverlay(page, ix, iy);
+    if (!placed) return { ok: false, error: "overlay_place_failed" };
+    if (i < steps) await new Promise((r) => setTimeout(r, stepMs));
+  }
+  // Hold so Zoom / Take control viewers can actually see the arrow on target.
+  await new Promise((r) => setTimeout(r, 420));
+  return { ok: true };
 }
 
 /**
@@ -243,10 +290,9 @@ async function glidePageOverlay(page, x, y, opts = {}) {
 export async function moveXCursorVisible(screenX, screenY, opts = {}) {
   const tx = Math.round(Number(screenX) || 0);
   const ty = Math.round(Number(screenY) || 0);
-  const steps = Math.max(1, Math.min(24, Number(opts.steps) || 12));
+  const steps = Math.max(1, Math.min(24, Number(opts.steps) || 14));
   const stepMs = Math.max(8, Math.min(80, Number(opts.stepMs) || 22));
 
-  // Why: bare Xvfb sometimes has no cursor glyph until left_ptr is set again.
   await execFileAsync("xsetroot", ["-cursor_name", "left_ptr"], {
     timeout: 2000,
     env: { ...process.env, DISPLAY: process.env.DISPLAY || ":99" },
@@ -270,8 +316,7 @@ export async function moveXCursorVisible(screenX, screenY, opts = {}) {
       await new Promise((r) => setTimeout(r, stepMs));
     }
   }
-  // Hold on target so Take control viewers can see the pointer before the click.
-  await new Promise((r) => setTimeout(r, 80));
+  await new Promise((r) => setTimeout(r, 60));
   return { ok: true, screenX: tx, screenY: ty };
 }
 
@@ -281,18 +326,24 @@ export async function moveXCursorVisible(screenX, screenY, opts = {}) {
  * @param {number} x - viewport CSS x
  * @param {number} y - viewport CSS y
  * @param {{ delayMs?: number, steps?: number }} [opts]
- * @returns {Promise<{ ok: boolean, x: number, y: number, screenX?: number, screenY?: number, cursorMoved: boolean, overlayMoved?: boolean }>}
+ * @returns {Promise<{ ok: boolean, x: number, y: number, screenX?: number, screenY?: number, cursorMoved: boolean, overlayMoved?: boolean, overlayError?: string }>}
  */
 export async function clickWithVisibleCursor(page, x, y, opts = {}) {
   const vx = Number(x);
   const vy = Number(y);
   const mapped = await viewportToScreen(page, vx, vy);
-  const overlay = await glidePageOverlay(page, vx, vy, { steps: opts.steps });
-  const moved = await moveXCursorVisible(mapped.screenX, mapped.screenY, {
-    steps: opts.steps,
-  });
+  // Run page arrow + OS pointer together so Zoom shows motion immediately.
+  const [overlay, moved] = await Promise.all([
+    glidePageOverlay(page, vx, vy, { steps: opts.steps }),
+    moveXCursorVisible(mapped.screenX, mapped.screenY, { steps: opts.steps }),
+  ]);
+  // Brief settle after both motions land.
+  await new Promise((r) => setTimeout(r, 120));
   const delayMs = Math.max(0, Number(opts.delayMs) ?? 40);
   await page.mouse.click(vx, vy, { delay: delayMs });
+  // Keep arrow visible briefly after the click.
+  await placeArrowOverlay(page, vx, vy).catch(() => false);
+  await new Promise((r) => setTimeout(r, 280));
   return {
     ok: true,
     x: vx,
@@ -301,6 +352,7 @@ export async function clickWithVisibleCursor(page, x, y, opts = {}) {
     screenY: moved.screenY,
     cursorMoved: moved.ok || overlay.ok,
     overlayMoved: overlay.ok,
+    overlayError: overlay.ok ? undefined : overlay.error,
   };
 }
 
@@ -314,11 +366,12 @@ export async function clickWithVisibleCursor(page, x, y, opts = {}) {
 export async function showCursorAtViewport(page, x, y, opts = {}) {
   const vx = Number(x);
   const vy = Number(y);
-  const overlay = await glidePageOverlay(page, vx, vy, { steps: opts.steps });
   const mapped = await viewportToScreen(page, vx, vy);
-  const moved = await moveXCursorVisible(mapped.screenX, mapped.screenY, {
-    steps: opts.steps,
-  });
+  const [overlay, moved] = await Promise.all([
+    glidePageOverlay(page, vx, vy, { steps: opts.steps }),
+    moveXCursorVisible(mapped.screenX, mapped.screenY, { steps: opts.steps }),
+  ]);
+  await new Promise((r) => setTimeout(r, 200));
   return {
     ok: moved.ok || overlay.ok,
     x: vx,
@@ -327,5 +380,6 @@ export async function showCursorAtViewport(page, x, y, opts = {}) {
     screenY: moved.screenY,
     cursorMoved: moved.ok || overlay.ok,
     overlayMoved: overlay.ok,
+    overlayError: overlay.ok ? undefined : overlay.error,
   };
 }

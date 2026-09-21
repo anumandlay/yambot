@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 15:45] Make CUA arrow actually visible (CSP-safe + longer hold)
+
+- **Prompt Provided:** Cannot see live CUA-style gradient arrow.
+- **Architectural Flow:** Prior overlay used innerHTML SVG which Trusted Types/CSP silently blocked. Switch to CSS `background-image` data-URI (no innerHTML), Node-driven glide steps, larger 56px arrow, hold on target before/after click so Zoom shows it.
+- **Impacted Files:** xCursor.js, PROMPT_LOG
+
 ## [2026-09-21 15:40] CUA cursor: gradient arrow overlay (not ✕)
 
 - **Prompt Provided:** Why use X as the moving cursor when CUA has a beautiful arrow?
