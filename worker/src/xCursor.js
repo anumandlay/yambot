@@ -1,8 +1,10 @@
 /**
  * @fileoverview Visible cursor for CUA mode on the live noVNC screen.
  * Purpose: Playwright CDP clicks do not move the OS cursor; xdotool does. Chrome often hides
- * the X pointer over web content, so we also paint a fixed ✕ overlay in the page that noVNC
- * always shows. Coordinate spaces must not be mixed:
+ * the X pointer over web content, so we paint a CUA-style gradient arrow overlay in the page
+ * that noVNC always shows. (cua-driver’s native compositor overlay is often unavailable on
+ * headless Xvfb containers — Hermes even auto-disables it there.)
+ * Coordinate spaces must not be mixed:
  * - viewport CSS: Playwright page.mouse + attached vision screenshot (origin = content top-left)
  * - screen/desktop: AT-SPI frames + xdotool (origin = X root)
  * Downstream: agent.js click / click_at / type / type_at / computer_use when CUA is active.
@@ -135,7 +137,28 @@ async function getMouseLocation() {
 }
 
 /**
- * Glides a bright ✕ overlay inside the page (always visible on noVNC even when Chrome hides X pointer).
+ * CUA-like gradient arrow SVG (hotspot = tip at top-left). White outline + soft bloom
+ * so it stays readable on light and dark pages — inspired by cua.default arrow silhouette.
+ */
+const CUA_ARROW_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="36" height="36" viewBox="0 0 36 36" fill="none">
+  <defs>
+    <linearGradient id="ybCuaArrow" x1="6" y1="2" x2="28" y2="30" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#7C5CFF"/>
+      <stop offset="0.55" stop-color="#4F8CFF"/>
+      <stop offset="1" stop-color="#2EE6A6"/>
+    </linearGradient>
+    <filter id="ybCuaBloom" x="-40%" y="-40%" width="180%" height="180%">
+      <feGaussianBlur stdDeviation="1.4" result="b"/>
+      <feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge>
+    </filter>
+  </defs>
+  <path filter="url(#ybCuaBloom)" stroke="#fff" stroke-width="2.2" stroke-linejoin="round"
+    d="M4 3 L4 28 L12.2 21.2 L18.8 33.2 L23.2 31 L16.6 19.2 L26.5 19.2 Z" fill="url(#ybCuaArrow)"/>
+</svg>`;
+
+/**
+ * Glides a CUA-style arrow overlay inside the page (visible on noVNC even when Chrome hides X pointer).
+ * Hotspot is the arrow tip (top-left), matching OS / cua-driver pointer semantics.
  * @param {import('playwright').Page} page
  * @param {number} x
  * @param {number} y
@@ -149,30 +172,29 @@ async function glidePageOverlay(page, x, y, opts = {}) {
   const stepMs = Math.max(12, Math.min(60, Number(opts.stepMs) || 22));
   try {
     await page.evaluate(
-      ({ tx, ty, steps, stepMs, fromX, fromY }) => {
+      ({ tx, ty, steps, stepMs, fromX, fromY, svg }) => {
         const ID = "__yambot_cua_cursor";
         let el = document.getElementById(ID);
         if (!el) {
           el = document.createElement("div");
           el.id = ID;
           el.setAttribute("aria-hidden", "true");
-          el.textContent = "✕";
+          el.innerHTML = svg;
           el.style.cssText = [
             "position:fixed",
             "z-index:2147483647",
             "pointer-events:none",
-            "width:32px",
-            "height:32px",
-            "margin-left:-16px",
-            "margin-top:-16px",
-            "font:800 28px/32px ui-monospace,monospace",
-            "color:#e11",
-            "text-shadow:0 0 2px #fff,0 0 6px #000,1px 1px 0 #fff",
+            "width:36px",
+            "height:36px",
             "left:0",
             "top:0",
             "display:block",
+            "filter:drop-shadow(0 1px 2px rgba(0,0,0,.45))",
+            "transition:none",
           ].join(";");
           document.documentElement.appendChild(el);
+        } else if (!el.querySelector("svg")) {
+          el.innerHTML = svg;
         }
         const startX =
           Number.isFinite(fromX) ? fromX : Number.parseFloat(el.style.left) || tx;
@@ -202,6 +224,7 @@ async function glidePageOverlay(page, x, y, opts = {}) {
         stepMs,
         fromX: opts.fromX,
         fromY: opts.fromY,
+        svg: CUA_ARROW_SVG,
       }
     );
     return { ok: true };
@@ -253,7 +276,7 @@ export async function moveXCursorVisible(screenX, screenY, opts = {}) {
 }
 
 /**
- * Moves the visible OS cursor + page ✕ overlay to a viewport point, then Playwright-clicks.
+ * Moves the visible OS cursor + CUA-style arrow overlay to a viewport point, then Playwright-clicks.
  * @param {import('playwright').Page} page
  * @param {number} x - viewport CSS x
  * @param {number} y - viewport CSS y

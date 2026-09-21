@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 15:40] CUA cursor: gradient arrow overlay (not ✕)
+
+- **Prompt Provided:** Why use X as the moving cursor when CUA has a beautiful arrow?
+- **Architectural Flow:** The ✕ was a temporary visibility hack. Swap the page overlay for a cua.default-inspired gradient arrow (tip hotspot). cua-driver’s native compositor overlay stays unreliable on Xvfb containers, so YamBot keeps a page-level arrow for Zoom/Take control.
+- **Impacted Files:** xCursor.js, computerUse.js, PROMPT_LOG
+
 ## [2026-09-21 15:30] Fix Zoom “no connection” — x11vnc crash + supervisor
 
 - **Prompt Provided:** Clicking Zoom shows “no connection”.
