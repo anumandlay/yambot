@@ -1,11 +1,11 @@
 /**
  * @fileoverview Skills dashboard — Teach skill drafts, manual library, training requests.
  * Purpose: Show skills you authored plus built-in system skill templates (login, shopping, …).
- * Auto Suggested:* drafts from old task runs are purged on load.
+ * Auto Suggested:* drafts from old task runs are purged on load; run-learned skills show workflow key.
  * Downstream: `/api/skills`, LiveScreen Teach skill, SkillEditPage.
  */
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
@@ -21,6 +21,14 @@ function formatCreated(value) {
   return text ? `Created ${text}` : "";
 }
 
+/**
+ * @param {object} skill
+ * @returns {boolean}
+ */
+function isLearnedSkill(skill) {
+  return Boolean(skill?.learnedFromRun || skill?.workflowKey || skill?.sourceTask);
+}
+
 export function SkillsPage() {
   const navigate = useNavigate();
   const [skills, setSkills] = useState([]);
@@ -30,7 +38,8 @@ export function SkillsPage() {
   const [okMsg, setOkMsg] = useState("");
   const [skillName, setSkillName] = useState("");
   const [showAllTraining, setShowAllTraining] = useState(false);
-  const [deletingId, setDeletingId] = useState("");
+  const [showDeprecated, setShowDeprecated] = useState(false);
+  const [busyId, setBusyId] = useState("");
   const [expandedSystemId, setExpandedSystemId] = useState("");
 
   const load = useCallback(async () => {
@@ -44,6 +53,16 @@ export function SkillsPage() {
   useEffect(() => {
     load().catch((err) => setError(err));
   }, [load]);
+
+  const { activeSkills, deprecatedSkills } = useMemo(() => {
+    const active = [];
+    const deprecated = [];
+    for (const s of skills) {
+      if (s.status === "deprecated") deprecated.push(s);
+      else active.push(s);
+    }
+    return { activeSkills: active, deprecatedSkills: deprecated };
+  }, [skills]);
 
   async function createSkill(e) {
     e.preventDefault();
@@ -78,6 +97,34 @@ export function SkillsPage() {
 
   /**
    * @param {object} skill
+   * @param {"draft"|"production"|"deprecated"} status
+   */
+  async function setSkillStatus(skill, status) {
+    setBusyId(skill._id);
+    setError(null);
+    setOkMsg("");
+    try {
+      await api(`/api/skills/${skill._id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      const label =
+        status === "deprecated"
+          ? "Demoted to deprecated"
+          : status === "production"
+            ? "Promoted to production"
+            : "Moved to draft";
+      setOkMsg(`${label}: “${skill.name}”.`);
+      await load();
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusyId("");
+    }
+  }
+
+  /**
+   * @param {object} skill
    */
   async function deleteSkill(skill) {
     const label = skill.name || skill.slug || "this skill";
@@ -88,7 +135,7 @@ export function SkillsPage() {
     ) {
       return;
     }
-    setDeletingId(skill._id);
+    setBusyId(skill._id);
     setError(null);
     setOkMsg("");
     try {
@@ -98,8 +145,127 @@ export function SkillsPage() {
     } catch (err) {
       setError(err);
     } finally {
-      setDeletingId("");
+      setBusyId("");
     }
+  }
+
+  /**
+   * @param {object} s
+   * @param {{ showRestore?: boolean }} [opts]
+   */
+  function renderSkillRow(s, opts = {}) {
+    const learned = isLearnedSkill(s);
+    const sourceGoal = s.sourceTask?.goal ? String(s.sourceTask.goal).slice(0, 100) : "";
+    const agentName = s.agent?.name || "";
+    return (
+      <li
+        key={s._id}
+        className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm"
+      >
+        <div className="min-w-0 flex-1">
+          <div className="font-semibold text-teal-950">
+            {s.name}
+            {s.slug ? (
+              <span className="ml-2 font-mono text-xs font-normal text-violet-800">/{s.slug}</span>
+            ) : null}
+            {learned ? (
+              <span className="ml-2 rounded-md bg-sky-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-sky-900">
+                Learned
+              </span>
+            ) : null}
+            {s.status === "production" ? (
+              <span className="ml-2 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-emerald-900">
+                Live
+              </span>
+            ) : null}
+            {s.status === "deprecated" ? (
+              <span className="ml-2 rounded-md bg-stone-200 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-stone-700">
+                Deprecated
+              </span>
+            ) : null}
+          </div>
+          <div className="mt-0.5 text-teal-900/70">
+            <span className={s.status === "production" ? "font-semibold text-emerald-700" : ""}>
+              {s.status}
+            </span>
+            {" · "}
+            {s.steps?.length || 0} steps
+            {s.triggers?.length ? ` · ${s.triggers.length} trigger(s)` : ""}
+            {s.stats?.runs ? ` · used ${s.stats.runs}×` : ""}
+            {agentName ? ` · ${agentName}` : ""}
+          </div>
+          {s.workflowKey ? (
+            <div className="mt-0.5 break-all font-mono text-[0.7rem] text-teal-900/45">
+              workflow: {s.workflowKey}
+            </div>
+          ) : null}
+          {sourceGoal ? (
+            <div className="mt-0.5 text-xs text-teal-900/55">
+              From run: {sourceGoal}
+              {sourceGoal.length >= 100 ? "…" : ""}
+            </div>
+          ) : learned ? (
+            <div className="mt-0.5 text-xs text-teal-900/55">Learned from a successful browser run</div>
+          ) : null}
+          {formatCreated(s.createdAt) ? (
+            <time
+              className="mt-0.5 block text-xs text-teal-900/45"
+              dateTime={s.createdAt ? new Date(s.createdAt).toISOString() : undefined}
+            >
+              {formatCreated(s.createdAt)}
+            </time>
+          ) : null}
+        </div>
+        <div className="flex shrink-0 flex-wrap gap-2">
+          <Link
+            to={`/skills/${s._id}`}
+            className="inline-flex min-h-9 items-center rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-800"
+          >
+            Edit
+          </Link>
+          {s.status === "production" ? (
+            <button
+              type="button"
+              disabled={Boolean(busyId)}
+              onClick={() => setSkillStatus(s, "deprecated")}
+              className="inline-flex min-h-9 items-center rounded-lg border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-900 disabled:opacity-50"
+            >
+              {busyId === s._id ? "…" : "Demote"}
+            </button>
+          ) : null}
+          {s.status === "draft" ? (
+            <button
+              type="button"
+              disabled={Boolean(busyId)}
+              onClick={() => setSkillStatus(s, "production")}
+              className="inline-flex min-h-9 items-center rounded-lg border border-emerald-200 bg-emerald-50 px-3 text-xs font-semibold text-emerald-900 disabled:opacity-50"
+            >
+              {busyId === s._id ? "…" : "Promote"}
+            </button>
+          ) : null}
+          {opts.showRestore || s.status === "deprecated" ? (
+            <button
+              type="button"
+              disabled={Boolean(busyId)}
+              onClick={() => setSkillStatus(s, "draft")}
+              className="inline-flex min-h-9 items-center rounded-lg border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800 disabled:opacity-50"
+            >
+              {busyId === s._id ? "…" : "Restore"}
+            </button>
+          ) : null}
+          <ButtonWithHelp helpId="skills.delete">
+            <button
+              type="button"
+              disabled={Boolean(busyId)}
+              onClick={() => deleteSkill(s)}
+              className="inline-flex min-h-9 items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 disabled:opacity-50"
+            >
+              {busyId === s._id ? "Deleting…" : "Delete"}
+            </button>
+          </ButtonWithHelp>
+        </div>
+      </li>
+    );
   }
 
   return (
@@ -108,10 +274,9 @@ export function SkillsPage() {
         <div>
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Skills</h1>
           <p className="text-sm text-teal-900/70">
-            Skills come from <strong>Teach skill</strong> on the live screen, or{" "}
-            <strong>New skill</strong> / <strong>Generate with AI</strong> / <strong>/learn</strong>.
-            Old auto-suggested drafts are removed. Promote a draft to <strong>production</strong> when
-            ready.
+            Skills come from <strong>Teach skill</strong>, <strong>New skill</strong>, or automatic{" "}
+            <strong>Learned</strong> skills after successful runs. Promote drafts to{" "}
+            <strong>production</strong> when ready; demote junk so it stops matching.
           </p>
         </div>
         <Link
@@ -153,7 +318,7 @@ export function SkillsPage() {
               >
                 <button
                   type="button"
-                  className="flex w-full min-h-11 items-start justify-between gap-2 text-left"
+                  className="flex min-h-11 w-full items-start justify-between gap-2 text-left"
                   onClick={() => setExpandedSystemId(open ? "" : s.id)}
                   aria-expanded={open}
                 >
@@ -246,7 +411,7 @@ export function SkillsPage() {
                 {r.task?.chat?._id ? (
                   <Link
                     to={`/chats/${r.task.chat._id}`}
-                    className="min-h-9 inline-flex items-center rounded-lg border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800"
+                    className="inline-flex min-h-9 items-center rounded-lg border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-800"
                   >
                     Open chat
                   </Link>
@@ -288,7 +453,8 @@ export function SkillsPage() {
           Skill library
         </SectionTitle>
         <p className="text-xs text-teal-900/50">
-          Your skills — Teach skill saves a draft automatically; set status to production when ready.
+          <span className="font-semibold text-sky-900">Learned</span> = from a successful run (Skill+).
+          Demote stops matching without deleting.
         </p>
         <form onSubmit={createSkill} className="flex gap-2 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
           <label className="flex min-w-0 flex-1 flex-col gap-1 text-sm">
@@ -307,60 +473,32 @@ export function SkillsPage() {
           </ButtonWithHelp>
         </form>
         <ul className="flex flex-col gap-2">
-          {skills.map((s) => (
-            <li
-              key={s._id}
-              className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-100 bg-white p-3 text-sm"
-            >
-              <div className="min-w-0">
-                <div className="font-semibold">
-                  {s.name}
-                  {s.slug ? (
-                    <span className="ml-2 font-mono text-xs font-normal text-violet-800">/{s.slug}</span>
-                  ) : null}
-                </div>
-                <div className="text-teal-900/70">
-                  <span className={s.status === "production" ? "font-semibold text-emerald-700" : ""}>
-                    {s.status}
-                  </span>
-                  {" · "}
-                  {s.steps?.length || 0} steps
-                  {s.triggers?.length ? ` · ${s.triggers.length} trigger(s)` : ""}
-                  {s.stats?.runs ? ` · used ${s.stats.runs}×` : ""}
-                </div>
-                {formatCreated(s.createdAt) ? (
-                  <time
-                    className="mt-0.5 block text-xs text-teal-900/45"
-                    dateTime={s.createdAt ? new Date(s.createdAt).toISOString() : undefined}
-                  >
-                    {formatCreated(s.createdAt)}
-                  </time>
-                ) : null}
-              </div>
-              <div className="flex shrink-0 flex-wrap gap-2">
-                <Link
-                  to={`/skills/${s._id}`}
-                  className="min-h-9 inline-flex items-center rounded-lg border border-teal-200 bg-teal-50 px-3 text-xs font-semibold text-teal-800"
-                >
-                  Edit
-                </Link>
-                <ButtonWithHelp helpId="skills.delete">
-                  <button
-                    type="button"
-                    disabled={Boolean(deletingId)}
-                    onClick={() => deleteSkill(s)}
-                    className="min-h-9 inline-flex items-center rounded-lg border border-red-200 bg-red-50 px-3 text-xs font-semibold text-red-700 disabled:opacity-50"
-                  >
-                    {deletingId === s._id ? "Deleting…" : "Delete"}
-                  </button>
-                </ButtonWithHelp>
-              </div>
-            </li>
-          ))}
-          {!skills.length ? (
-            <p className="text-sm text-teal-900/60">No skills yet. Use New skill or Generate with AI.</p>
+          {activeSkills.map((s) => renderSkillRow(s))}
+          {!activeSkills.length ? (
+            <p className="text-sm text-teal-900/60">No skills yet. Use New skill or run a successful workflow.</p>
           ) : null}
         </ul>
+
+        {deprecatedSkills.length ? (
+          <div className="mt-2 rounded-xl border border-stone-200 bg-stone-50/60 p-3">
+            <button
+              type="button"
+              className="flex min-h-9 w-full items-center justify-between text-left text-sm font-semibold text-stone-800"
+              onClick={() => setShowDeprecated((v) => !v)}
+              aria-expanded={showDeprecated}
+            >
+              <span>Deprecated ({deprecatedSkills.length})</span>
+              <span className="text-xs font-semibold text-stone-600">
+                {showDeprecated ? "Hide" : "Show"}
+              </span>
+            </button>
+            {showDeprecated ? (
+              <ul className="mt-2 flex flex-col gap-2">
+                {deprecatedSkills.map((s) => renderSkillRow(s, { showRestore: true }))}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
       </section>
     </div>
   );
