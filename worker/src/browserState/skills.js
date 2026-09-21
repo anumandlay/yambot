@@ -187,58 +187,126 @@ export function normalizeSkillSteps(steps) {
 }
 
 /**
- * Matches production skills against goal + URL using triggers and name/description keywords.
+ * Significant tokens for skill match (mirrors backend skillWorkflowLearn).
+ * @param {string} text
+ * @returns {string[]}
+ */
+function skillMatchTokens(text) {
+  const stop = new Set(
+    "a an the and or for to of in on at by with from into over again also just please can you me my we our your this that those these is are was were be been being do does did doing have has had will would should could may might must not no yes ok hey hi hello thanks thank navigate filter extract report total details safe worker instructions concrete open click type page list check log login sign password goal ack".split(
+      " "
+    )
+  );
+  return String(text || "")
+    .toLowerCase()
+    .replace(/https?:\/\/[^\s]+/gi, " ")
+    .replace(/[^a-z0-9.\s-]+/g, " ")
+    .split(/[\s._|/-]+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 4 && !stop.has(t) && !/^\d+$/.test(t));
+}
+
+/**
+ * @param {string} pat
+ * @returns {boolean}
+ */
+function isDomainTrigger(pat) {
+  const raw = String(pat || "").replace(/\\\./g, ".");
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(raw);
+}
+
+/**
+ * Matches production skills against goal + URL using triggers, workflowKey overlap, and name tokens.
+ * Why: domain-only hits are too broad (every Vughy visit); require content signal or key overlap.
  * @param {object[]} skills
  * @param {string} goal
  * @param {string} [url]
- * @returns {{ skill: object, matchedTriggers: string[], score: number }|null}
+ * @returns {{ skill: object, matchedTriggers: string[], score: number, reason: string }|null}
  */
 export function detectDbSkillMatch(skills, goal, url = "") {
   const blob = `${goal} ${url}`;
   const blobLower = blob.toLowerCase();
+  const goalTokens = new Set(skillMatchTokens(goal));
   let best = null;
   let bestScore = 0;
   let bestTriggers = [];
+  let bestReason = "";
+
   for (const skill of skills || []) {
     const triggers = skill.triggers || [];
     const matchedTriggers = [];
     let score = 0;
+    let domainHit = false;
+    let contentTriggerHits = 0;
+
     for (const trigger of triggers) {
       const pat = String(trigger || "").trim();
       if (!pat) continue;
+      let hit = false;
       try {
-        if (new RegExp(pat, "i").test(blob)) {
-          matchedTriggers.push(pat);
-          score += pat.includes(" ") ? 2 : 1;
-        }
+        hit = new RegExp(pat, "i").test(blob);
       } catch {
-        if (blobLower.includes(pat.toLowerCase())) {
-          matchedTriggers.push(pat);
-          score += 1;
-        }
+        hit = blobLower.includes(pat.toLowerCase());
+      }
+      if (!hit) continue;
+      if (isDomainTrigger(pat)) {
+        domainHit = true;
+        score += 0.4;
+        continue;
+      }
+      matchedTriggers.push(pat);
+      contentTriggerHits += 1;
+      score += pat.includes(" ") ? 2.5 : 1.5;
+    }
+
+    const keyParts = String(skill.workflowKey || "")
+      .toLowerCase()
+      .split(/[|.-]+/)
+      .filter((t) => t.length >= 4);
+    let keyOverlap = 0;
+    for (const t of keyParts) {
+      if (goalTokens.has(t) || blobLower.includes(t)) keyOverlap += 1;
+    }
+    if (keyOverlap) score += keyOverlap * 1.25;
+    if (keyParts.length >= 2 && keyOverlap / keyParts.length >= 0.4) score += 2;
+
+    const hay = skillMatchTokens(
+      `${skill.name || ""} ${skill.description || ""} ${skill.slug || ""}`
+    ).slice(0, 12);
+    let nameHits = 0;
+    for (const tok of hay) {
+      if (goalTokens.has(tok) || blobLower.includes(tok)) {
+        nameHits += 1;
+        score += 0.7;
       }
     }
-    // Why: skills learned without rich triggers still match via name/description tokens.
-    const hay = `${skill.name || ""} ${skill.description || ""} ${skill.slug || ""}`
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]+/g, " ");
-    const nameTokens = hay
-      .split(/[\s-]+/)
-      .filter((t) => t.length >= 4)
-      .slice(0, 12);
-    for (const tok of nameTokens) {
-      if (blobLower.includes(tok)) score += 0.6;
-    }
+
+    const contentSignal = contentTriggerHits > 0 || keyOverlap >= 2 || nameHits >= 2;
+    if (!contentSignal) continue;
+    if (score < 2) continue;
+
     if (score > bestScore) {
       bestScore = score;
       best = skill;
       bestTriggers = matchedTriggers;
+      const bits = [];
+      if (matchedTriggers.length) {
+        bits.push(`triggers ${matchedTriggers.map((t) => `"${t}"`).join(", ")}`);
+      }
+      if (keyOverlap >= 2) bits.push(`workflow overlap ${keyOverlap}`);
+      if (nameHits >= 2) bits.push(`name tokens ${nameHits}`);
+      if (domainHit) bits.push("same domain");
+      bestReason = bits.join(" · ") || `score ${score.toFixed(1)}`;
     }
   }
-  // Require a real signal: at least one trigger hit, or strong name overlap (≥1.2).
-  if (!best || bestScore < 1) return null;
-  if (!bestTriggers.length && bestScore < 1.2) return null;
-  return { skill: best, matchedTriggers: bestTriggers, score: bestScore };
+
+  if (!best) return null;
+  return {
+    skill: best,
+    matchedTriggers: bestTriggers,
+    score: bestScore,
+    reason: bestReason,
+  };
 }
 
 /**
@@ -261,6 +329,9 @@ export function formatDbSkillBlock(skill) {
   const lines = [`ACTIVE SKILL (learned): ${skill.name}`];
   if (skill.slug) lines.push(`Invoke: /${skill.slug}`);
   if (skill.description) lines.push(String(skill.description));
+  lines.push(
+    "Follow Suggested flow when the same controls are visible; skip steps that do not apply; do not switch sites unless the goal says so."
+  );
   if (skill.playbookMd) {
     lines.push(parsePlaybookSections(skill.playbookMd));
   }

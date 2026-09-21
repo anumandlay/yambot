@@ -1688,7 +1688,7 @@ workerRouter.get("/skills", async (req, res, next) => {
       filter.$or = [{ agent: agentId }, { agent: null }];
     }
     const skills = await Skill.find(filter)
-      .select("name description triggers slug status agent executionMode")
+      .select("name description triggers slug status agent executionMode workflowKey")
       .sort({ updatedAt: -1 })
       .limit(30)
       .lean();
@@ -1709,7 +1709,7 @@ workerRouter.get("/skills/:skillId", async (req, res, next) => {
       status: "production",
     })
       .select(
-        "name description triggers steps verificationRules status agent executionMode enforceVerification slug playbookMd"
+        "name description triggers steps verificationRules status agent executionMode enforceVerification slug playbookMd workflowKey"
       )
       .lean();
     if (!skill) {

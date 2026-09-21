@@ -15,6 +15,13 @@ const STOP = new Set(
   )
 );
 
+/** Too generic to be useful triggers / title tokens (cause false matches). */
+const GENERIC_SKILL_TOKENS = new Set(
+  "navigate filter extract report total details safe worker instructions concrete open click type page list check again log login sign password goal ack optional short status sentence thats".split(
+    " "
+  )
+);
+
 /**
  * @param {string} text
  * @returns {string[]}
@@ -26,7 +33,13 @@ export function extractSignificantTokens(text) {
     .replace(/[^a-z0-9.\s-]+/g, " ")
     .split(/[\s._-]+/)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 4 && !STOP.has(t) && !/^\d+$/.test(t));
+    .filter(
+      (t) =>
+        t.length >= 4 &&
+        !STOP.has(t) &&
+        !GENERIC_SKILL_TOKENS.has(t) &&
+        !/^\d+$/.test(t)
+    );
 }
 
 /**
@@ -56,6 +69,41 @@ export function buildWorkflowKey(goal, domain = "") {
 }
 
 /**
+ * Goals that are Auto placeholders / meta, not real workflows.
+ * @param {string} goal
+ * @returns {boolean}
+ */
+export function isPlaceholderSkillGoal(goal) {
+  const g = String(goal || "").trim();
+  if (!g) return true;
+  if (/<[^>\n]{2,80}>/.test(g)) return true;
+  if (/\bconcrete worker instructions\b/i.test(g)) return true;
+  if (/\bworker instructions\b/i.test(g) && g.length < 80) return true;
+  if (/\bthat'?s safe\b/i.test(g) && g.length < 120) return true;
+  if (/^(goal|ack)\s*:/i.test(g)) return true;
+  if (/\boptional short (status )?sentence\b/i.test(g)) return true;
+  if (/^\.{2,}\s*$/.test(g) || g === "...") return true;
+  if (/^log in,\s*navigate,\s*filter/i.test(g)) return true;
+  return false;
+}
+
+/**
+ * Prefer the human-facing goal over Auto/worker rewrites for learning.
+ * @param {object} task
+ * @returns {string}
+ */
+export function resolveGoalForSkillLearn(task) {
+  const events = Array.isArray(task?.events) ? task.events : [];
+  for (let i = events.length - 1; i >= 0; i -= 1) {
+    const uf = String(events[i]?.payload?.userFacingGoal || "").trim();
+    if (uf.length >= 18 && !isPlaceholderSkillGoal(uf)) return uf;
+  }
+  const metaGoal = String(task?.meta?.userFacingGoal || "").trim();
+  if (metaGoal.length >= 18 && !isPlaceholderSkillGoal(metaGoal)) return metaGoal;
+  return String(task?.goal || "").trim();
+}
+
+/**
  * Short human title for the skill.
  * @param {string} goal
  * @returns {string}
@@ -64,7 +112,10 @@ export function skillTitleFromGoal(goal) {
   let g = String(goal || "")
     .replace(/\s+/g, " ")
     .trim();
+  const pin = g.search(/\bACTIVE USER MESSAGE\b/i);
+  if (pin > 24) g = g.slice(0, pin).trim();
   g = g.replace(/\bagain\b/gi, "").replace(/\s+/g, " ").trim();
+  g = g.replace(/\.\s*that'?s safe\.?\s*$/i, ".").trim();
   if (g.length > 90) g = `${g.slice(0, 87)}…`;
   return g || "Learned workflow";
 }
@@ -79,18 +130,16 @@ export function buildTriggersFromGoal(goal, domain = "") {
   const out = [];
   const d = String(domain || extractDomainFromText(goal) || "").trim();
   if (d) out.push(d.replace(/\./g, "\\."));
-  const tokens = extractSignificantTokens(goal);
-  // Prefer 2-grams from original order for phrases like "trial expiring"
   const words = String(goal || "")
     .toLowerCase()
     .replace(/[^a-z0-9\s-]+/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length >= 4 && !STOP.has(w));
+    .filter((w) => w.length >= 4 && !STOP.has(w) && !GENERIC_SKILL_TOKENS.has(w));
   for (let i = 0; i < words.length - 1 && out.length < 8; i += 1) {
     const bigram = `${words[i]} ${words[i + 1]}`;
     if (bigram.length >= 8) out.push(bigram.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
   }
-  for (const t of tokens) {
+  for (const t of extractSignificantTokens(goal)) {
     if (out.length >= 10) break;
     if (!out.some((x) => x.toLowerCase() === t)) out.push(t);
   }
@@ -163,9 +212,11 @@ export function extractDurableStepsFromTask(task) {
 export function shouldLearnSkillFromGoal(goal) {
   const g = String(goal || "").trim();
   if (g.length < 18) return false;
+  if (isPlaceholderSkillGoal(g)) return false;
   if (/^(hi|hello|hey|thanks|thank you|ok|okay)\b/i.test(g)) return false;
   if (/^\s*remember\b/i.test(g) && g.length < 100) return false;
   if (/^open\s+\S+\s*$/i.test(g)) return false;
+  if (extractSignificantTokens(g).length < 1) return false;
   return true;
 }
 
@@ -183,7 +234,7 @@ export function shouldLearnSkillFromGoal(goal) {
 export async function learnSkillFromSuccessfulRun(opts) {
   const { userId, task, success } = opts;
   if (!success || !userId || !task) return null;
-  const goal = String(task.goal || "").trim();
+  const goal = resolveGoalForSkillLearn(task);
   if (!shouldLearnSkillFromGoal(goal)) return null;
 
   const durable = extractDurableStepsFromTask(task);
@@ -194,10 +245,15 @@ export async function learnSkillFromSuccessfulRun(opts) {
   if (!workflowKey) return null;
 
   const triggers = buildTriggersFromGoal(goal, domain);
+  const contentTriggers = triggers.filter((t) => !String(t).includes("\\."));
+  if (contentTriggers.length < 1 && extractSignificantTokens(goal).length < 2) {
+    return null;
+  }
+
   const name = skillTitleFromGoal(goal);
   const playbookMd = [
     "# When to use",
-    goal,
+    goal.slice(0, 500),
     domain ? `\nDomain: ${domain}` : "",
     "",
     "## Procedure",
@@ -206,6 +262,7 @@ export async function learnSkillFromSuccessfulRun(opts) {
     "## Pitfalls",
     "- Prefer named controls (role + name) over ephemeral refs like e12.",
     "- Re-login if the session expired.",
+    "- Follow Suggested flow when the same UI is visible; skip steps that do not apply.",
     "",
     "## Verification",
     opts.summary
@@ -225,7 +282,6 @@ export async function learnSkillFromSuccessfulRun(opts) {
     });
   }
   if (!skill && agentId) {
-    // Fallback: same agent + overlapping trigger bigram.
     const bigrams = triggers.filter((t) => t.includes(" "));
     if (bigrams.length) {
       skill = await Skill.findOne({

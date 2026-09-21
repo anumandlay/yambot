@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 10:25] Skill match: no domain-only; skip placeholder learns
+
+- **Prompt Provided:** Continue skills — tighten match so similar goals activate Skill chip; stop junk learns.
+- **Architectural Flow:** Live skills were named from Auto placeholders (“concrete worker instructions”) and matched on `vughy.com` alone. Learn prefers `userFacingGoal`, rejects placeholders/generic tokens; match requires content triggers or workflowKey/name overlap (domain alone insufficient). Catalog returns `workflowKey`; Skill chip reason shows overlap detail; ACTIVE SKILL prompt tells agent to follow Suggested flow.
+- **Impacted Files:** skillWorkflowLearn.js, worker skills.js, worker agent.js, worker.js routes, PROMPT_LOG
+
 ## [2026-09-21 10:10] USER memory delete must drop chat summary zombies
 
 - **Prompt Provided:** Settings → Memory deleted “be rude with me” but agents still used the old rude USER profile.

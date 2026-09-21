@@ -1937,14 +1937,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
             };
           }
           const triggers = triggerMatch?.matchedTriggers || [];
+          const detail = String(triggerMatch?.reason || "").trim();
           return {
             source: "trigger",
             skillId: String(activeDbSkill._id || activeDbSkill.id || ""),
             skillName: activeDbSkill.name,
             slug: activeDbSkill.slug || "",
             matchedTriggers: triggers,
-            reason:
-              triggers.length > 0
+            score: triggerMatch?.score || 0,
+            reason: detail
+              ? `Matched learned skill (${detail}).`
+              : triggers.length > 0
                 ? `Trigger pattern matched in your goal${pageUrl ? " or page URL" : ""}: ${triggers.map((t) => `"${t}"`).join(", ")}.`
                 : "Trigger pattern matched in your goal or page URL.",
           };
