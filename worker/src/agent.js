@@ -1139,6 +1139,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         summary: finalSummary,
         error: finalError,
         trajectory,
+        siteDomain: siteDomain || undefined,
         llmUsage: llmUsage ? snapshotLlmUsage(llmUsage) : undefined,
         activeSkillId: skillForRun?._id || skillForRun?.id || null,
         skillVerificationNotes,

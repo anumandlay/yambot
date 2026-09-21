@@ -187,7 +187,7 @@ export function normalizeSkillSteps(steps) {
 }
 
 /**
- * Matches production skills against goal + URL; returns matched trigger patterns.
+ * Matches production skills against goal + URL using triggers and name/description keywords.
  * @param {object[]} skills
  * @param {string} goal
  * @param {string} [url]
@@ -195,30 +195,49 @@ export function normalizeSkillSteps(steps) {
  */
 export function detectDbSkillMatch(skills, goal, url = "") {
   const blob = `${goal} ${url}`;
+  const blobLower = blob.toLowerCase();
   let best = null;
   let bestScore = 0;
   let bestTriggers = [];
   for (const skill of skills || []) {
     const triggers = skill.triggers || [];
-    if (!triggers.length) continue;
     const matchedTriggers = [];
+    let score = 0;
     for (const trigger of triggers) {
       const pat = String(trigger || "").trim();
       if (!pat) continue;
       try {
-        if (new RegExp(pat, "i").test(blob)) matchedTriggers.push(pat);
+        if (new RegExp(pat, "i").test(blob)) {
+          matchedTriggers.push(pat);
+          score += pat.includes(" ") ? 2 : 1;
+        }
       } catch {
-        if (blob.toLowerCase().includes(pat.toLowerCase())) matchedTriggers.push(pat);
+        if (blobLower.includes(pat.toLowerCase())) {
+          matchedTriggers.push(pat);
+          score += 1;
+        }
       }
     }
-    const score = matchedTriggers.length;
+    // Why: skills learned without rich triggers still match via name/description tokens.
+    const hay = `${skill.name || ""} ${skill.description || ""} ${skill.slug || ""}`
+      .toLowerCase()
+      .replace(/[^a-z0-9\s-]+/g, " ");
+    const nameTokens = hay
+      .split(/[\s-]+/)
+      .filter((t) => t.length >= 4)
+      .slice(0, 12);
+    for (const tok of nameTokens) {
+      if (blobLower.includes(tok)) score += 0.6;
+    }
     if (score > bestScore) {
       bestScore = score;
       best = skill;
       bestTriggers = matchedTriggers;
     }
   }
-  if (!best || bestScore <= 0) return null;
+  // Require a real signal: at least one trigger hit, or strong name overlap (≥1.2).
+  if (!best || bestScore < 1) return null;
+  if (!bestTriggers.length && bestScore < 1.2) return null;
   return { skill: best, matchedTriggers: bestTriggers, score: bestScore };
 }
 

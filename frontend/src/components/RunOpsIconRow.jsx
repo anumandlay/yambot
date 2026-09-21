@@ -42,6 +42,7 @@ export const OPS_ICON_KINDS = new Set([
   "curated_pull",
   "curated_save",
   "site_memory_pull",
+  "skill_learned",
 ]);
 
 /**
@@ -141,6 +142,9 @@ export function opsIconMeta(message) {
   if (kind === "site_memory_pull" || /^Site memory/i.test(content)) {
     return { icon: "🌐", label: "Site" };
   }
+  if (kind === "skill_learned" || /^Skill (learned|updated)/i.test(content)) {
+    return { icon: "S+", label: "Skill+" };
+  }
   if (/^Thinking/i.test(content)) return { icon: "…", label: "Thinking" };
   if (/^Opening /i.test(content)) return { icon: "↗", label: "Navigate" };
   return { icon: "•", label: "Status" };
@@ -160,6 +164,8 @@ function OpsIconPopup({ message, label, icon, onClose }) {
   const curated = message?.meta?.kind === "curated_pull" ? message.meta?.curatedMemory : null;
   const saved = message?.meta?.kind === "curated_save" ? message.meta?.curatedSave : null;
   const siteMem = message?.meta?.kind === "site_memory_pull" ? message.meta?.siteMemory : null;
+  const skillLearned =
+    message?.meta?.kind === "skill_learned" ? message.meta?.skillLearned : null;
   const body = String(message?.content || "").trim() || label;
 
   useEffect(() => {
@@ -234,6 +240,8 @@ function OpsIconPopup({ message, label, icon, onClose }) {
             </div>
           ) : siteMem ? (
             <SiteMemoryPullDetails site={siteMem} fallbackContent={body} />
+          ) : skillLearned ? (
+            <SkillLearnedDetails learned={skillLearned} fallbackContent={body} />
           ) : (
             <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-teal-950">
               {body}
@@ -378,6 +386,49 @@ function SiteMemoryPullDetails({ site, fallbackContent = "" }) {
 }
 
 /**
+ * Skill learned/updated from a successful run.
+ * @param {{ learned: object, fallbackContent?: string }} props
+ */
+function SkillLearnedDetails({ learned, fallbackContent = "" }) {
+  const steps = Array.isArray(learned?.steps) ? learned.steps : [];
+  const triggers = Array.isArray(learned?.triggers) ? learned.triggers : [];
+  return (
+    <div className="flex flex-col gap-4 text-sm text-teal-950">
+      <p className="text-xs text-teal-800/70">
+        <span className="font-semibold text-teal-950">
+          {learned?.created ? "New production skill" : "Skill updated"}
+        </span>
+        {learned?.name ? ` · ${learned.name}` : ""}
+        {learned?.slug ? ` · /${learned.slug}` : ""}
+      </p>
+      <p className="rounded-lg border border-teal-50 bg-teal-50/50 px-2.5 py-1.5 text-[0.7rem] leading-snug text-teal-800/75">
+        Saved as a reusable workflow (named clicks/URLs, not ephemeral element ids). Next similar
+        goals can match this skill and inject the procedure. Also listed under Skills.
+      </p>
+      {triggers.length ? (
+        <div>
+          <h3 className="mb-1 text-xs font-bold uppercase tracking-wide text-teal-800/70">
+            Triggers
+          </h3>
+          <p className="text-xs text-teal-900/80">{triggers.join(" · ")}</p>
+        </div>
+      ) : null}
+      {steps.length ? (
+        <ol className="list-decimal space-y-1 pl-4 text-sm">
+          {steps.map((s, i) => (
+            <li key={`${i}-${String(s).slice(0, 24)}`}>{s}</li>
+          ))}
+        </ol>
+      ) : (
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs text-teal-950">
+          {fallbackContent}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
  * Recover ranked lists from the curated_pull message body when meta.pulled is missing.
  * @param {string} content
  * @returns {{ agent: object[], user: object[] }}
@@ -467,6 +518,9 @@ export function RunOpsIconRow({ messages }) {
             m.meta?.kind === "curated_save" || /^Memory saved/i.test(String(m.content || ""));
           const siteChip =
             m.meta?.kind === "site_memory_pull" || /^Site memory/i.test(String(m.content || ""));
+          const skillPlusChip =
+            m.meta?.kind === "skill_learned" ||
+            /^Skill (learned|updated)/i.test(String(m.content || ""));
           const llmChip =
             m.meta?.kind === "llm_request" ||
             m.meta?.kind === "llm_response" ||
@@ -477,11 +531,13 @@ export function RunOpsIconRow({ messages }) {
               ? "Saved"
               : siteChip
                 ? "Site"
-                : llmChip
-                  ? m.meta?.kind === "llm_response"
-                    ? "LLM↓"
-                    : "LLM"
-                  : null;
+                : skillPlusChip
+                  ? "Skill+"
+                  : llmChip
+                    ? m.meta?.kind === "llm_response"
+                      ? "LLM↓"
+                      : "LLM"
+                    : null;
           return (
             <button
               key={m._id || `${label}-${tip.slice(0, 12)}`}

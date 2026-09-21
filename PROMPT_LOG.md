@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 09:40] Learn production skills from successful runs (all workflows)
+
+- **Prompt Provided:** Implement Hermes-style skills for all workflows (not only trial expiry).
+- **Architectural Flow:** On successful multi-step complete, `learnSkillFromSuccessfulRun` upserts one production Skill per agent+workflowKey (durable named steps + triggers, no Suggested: flood). Stronger `detectDbSkillMatch` (triggers + name tokens). Chat **Skill+** chip; next similar goals can activate via existing Skill chip.
+- **Impacted Files:** skillWorkflowLearn.js, Skill.js, worker.js, worker agent.js, skills.js (worker), RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-21 09:15] Conditional peer-message goals must not block finish
 
 - **Prompt Provided:** Live check of “check trial expiring… if >1 under 15 days say hi to general agent”.

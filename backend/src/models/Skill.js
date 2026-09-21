@@ -64,6 +64,11 @@ const skillSchema = new mongoose.Schema(
       default: null,
       index: true,
     },
+    /**
+     * Stable fingerprint for upserting learned skills (agent workflow), not one draft per task.
+     * Format: `domain|sorted-significant-tokens`
+     */
+    workflowKey: { type: String, default: "", trim: true, index: true },
     stats: {
       runs: { type: Number, default: 0 },
       successes: { type: Number, default: 0 },
@@ -74,5 +79,9 @@ const skillSchema = new mongoose.Schema(
 );
 
 skillSchema.index({ user: 1, slug: 1 }, { unique: true, partialFilterExpression: { slug: { $type: "string", $ne: "" } } });
+skillSchema.index(
+  { user: 1, agent: 1, workflowKey: 1 },
+  { partialFilterExpression: { workflowKey: { $type: "string", $ne: "" } } }
+);
 
 export const Skill = mongoose.model("Skill", skillSchema);

@@ -873,8 +873,22 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
         await task.save();
       }
     }
-    // Why: skills are intentional only — Teach skill, New skill / import, or explicit /learn.
-    // Auto-drafts after every successful multi-step run flooded Suggested workflows.
+    // Why: Hermes-style — successful multi-step runs upsert a production skill (named steps +
+    // triggers) so the next similar goal matches. One workflowKey per agent, not Suggested:* flood.
+    if (success) {
+      try {
+        const { learnSkillFromSuccessfulRun } = await import("../utils/skillWorkflowLearn.js");
+        await learnSkillFromSuccessfulRun({
+          userId: req.userId,
+          task,
+          success: true,
+          summary,
+          siteDomain: String(req.body?.siteDomain || "").trim(),
+        });
+      } catch (learnErr) {
+        console.warn("[worker] skill learn failed:", learnErr?.message || learnErr);
+      }
+    }
 
     await writeAudit({
       userId: req.userId,
