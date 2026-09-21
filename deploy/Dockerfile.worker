@@ -19,6 +19,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluxbox \
     xterm \
     xdotool \
+    x11-xserver-utils \
     libxi6 \
     at-spi2-core \
     dbus-x11 \

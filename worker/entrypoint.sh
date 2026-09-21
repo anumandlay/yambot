@@ -32,6 +32,11 @@ echo "[desktop] starting fluxbox"
 fluxbox >/tmp/fluxbox.log 2>&1 &
 sleep 0.3
 
+# Why: CUA mode glides the real X pointer; ensure a visible cursor theme on bare Xvfb.
+if command -v xsetroot >/dev/null 2>&1; then
+  xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
+fi
+
 echo "[desktop] starting x11vnc on :${VNC_PORT}"
 x11vnc -display "${DISPLAY}" -forever -shared -rfbport "${VNC_PORT}" -localhost -nopw \
   -xkb -repeat -cursor most -o /tmp/x11vnc.log >/tmp/x11vnc.out 2>&1 &

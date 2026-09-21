@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 13:50] CUA: force coordinate preference + visible X cursor
+
+- **Prompt Provided:** Force CUA to prefer click_at/type_at and show the X cursor moving on the live screen.
+- **Architectural Flow:** Stronger CUA prompt; when CUA active, click/type/click_at/type_at resolve a point then `xdotool` glides the OS cursor before Playwright click (`xCursor.js`). entrypoint sets left_ptr cursor; Dockerfile adds x11-xserver-utils.
+- **Impacted Files:** xCursor.js, computerUse.js, actions.js, agent.js, entrypoint.sh, Dockerfile.worker, PROMPT_LOG
+
 ## [2026-09-21 13:42] CUA mode: honor “using cua” in original chat bubble
 
 - **Prompt Provided:** User sent “Check india trial-expiring list on Vughy again using cua” but saw no CUA / no live mouse.

@@ -157,9 +157,11 @@ export function buildActionSchemaForPrompt(maxActions, opts = {}) {
   const cuaExtra = opts.cuaMode
     ? `
 
-CUA / COMPUTER-USE (active): Prefer click_at / type_at from the viewport screenshot when DOM refs are unreliable.
-Example: {"thought":"sign-in by pixels","actions":[{"type":"click_at","x":640,"y":420}]}
-Example: {"thought":"email field","actions":[{"type":"type_at","x":500,"y":300,"text":"user@example.com"}]}
+CUA / COMPUTER-USE (active — REQUIRED behavior):
+- Default to click_at / type_at from the viewport screenshot so the live X cursor moves.
+- Example: {"thought":"sign-in by pixels","actions":[{"type":"click_at","x":640,"y":420}]}
+- Example: {"thought":"email field","actions":[{"type":"type_at","x":500,"y":300,"text":"user@example.com"}]}
+- DOM click/type with ref is a last resort only; prefer coordinates whenever the control is visible in the screenshot.
 `
     : "";
   const header = `

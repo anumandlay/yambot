@@ -36,6 +36,7 @@ import {
   textRequestsCua,
   CUA_ACTIVATE_AFTER_FAILS,
 } from "./computerUse.js";
+import { clickWithVisibleCursor } from "./xCursor.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
@@ -2660,6 +2661,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               agentSnapshot,
               notes,
               history,
+              cuaActive: computerUse.isActive(),
             });
           }
 
@@ -2746,6 +2748,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   agentSnapshot,
                   notes,
                   history,
+                  cuaActive: computerUse.isActive(),
                 });
                 await waitForSemantic(page, observeInPage, waitForConditionInPage, {
                   timeoutMs: stepTiming.recoverySettleMs,
@@ -3028,7 +3031,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @param {object} ctx
    */
   async function executeAction(action, ctx) {
-    const { settings, obs, taskId, agentSnapshot, notes } = ctx;
+    const { settings, obs, taskId, agentSnapshot, notes, cuaActive } = ctx;
     switch (action.type) {
       case "navigate": {
         if (!/^https?:\/\//i.test(action.url || "")) {
@@ -3871,6 +3874,31 @@ export function createCloudAgent({ api, config, log = console.log }) {
       case "type": {
         const runType = async () => {
           const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+          // Why: CUA — resolve point, glide OS cursor, then type so the live screen shows motion.
+          if (cuaActive && !inChildFrame) {
+            const meta = await frame.evaluate(executeInPage, {
+              ...enriched,
+              type: "resolve_point",
+            });
+            const hit = await clickWithVisibleCursor(page, meta.x, meta.y, { delayMs: 30 });
+            await page.keyboard.press("Control+a");
+            await sleep(40);
+            await page.keyboard.type(String(action.text ?? ""), {
+              delay: action.human_type === true ? 12 : 0,
+            });
+            if (action.submit) await page.keyboard.press("Enter");
+            return {
+              ok: true,
+              typed: true,
+              name: meta.name,
+              x: meta.x,
+              y: meta.y,
+              computerUse: true,
+              cursorMoved: hit.cursorMoved,
+              screenX: hit.screenX,
+              screenY: hit.screenY,
+            };
+          }
           // Why: Phase 1 speed — set value via DOM (instant). Optional human_type for anti-bot sites.
           if (action.human_type === true && !inChildFrame) {
             const meta = await frame.evaluate(executeInPage, { ...enriched, type: "resolve_point" });
@@ -3939,6 +3967,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
           ...enriched,
           type: "resolve_point",
         });
+        if (cuaActive) {
+          const hit = await clickWithVisibleCursor(page, point.x, point.y, { delayMs: 40 });
+          return {
+            ok: true,
+            clicked: point.name,
+            x: point.x,
+            y: point.y,
+            computerUse: true,
+            cursorMoved: hit.cursorMoved,
+            screenX: hit.screenX,
+            screenY: hit.screenY,
+          };
+        }
         await page.mouse.click(point.x, point.y, { delay: 0 });
         return { ok: true, clicked: point.name, x: point.x, y: point.y };
       }
@@ -3947,6 +3988,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const y = Number(action.y);
         if (!Number.isFinite(x) || !Number.isFinite(y)) {
           return { ok: false, error: "click_at requires numeric x and y (viewport CSS pixels)" };
+        }
+        if (cuaActive) {
+          const hit = await clickWithVisibleCursor(page, x, y, { delayMs: 40 });
+          return {
+            ok: true,
+            clicked_at: { x, y },
+            computerUse: true,
+            cursorMoved: hit.cursorMoved,
+            screenX: hit.screenX,
+            screenY: hit.screenY,
+          };
         }
         await page.mouse.click(x, y, { delay: 40 });
         return { ok: true, clicked_at: { x, y }, computerUse: true };
@@ -3958,6 +4010,23 @@ export function createCloudAgent({ api, config, log = console.log }) {
           return { ok: false, error: "type_at requires numeric x and y (viewport CSS pixels)" };
         }
         const text = String(action.text ?? "");
+        if (cuaActive) {
+          const hit = await clickWithVisibleCursor(page, x, y, { delayMs: 30 });
+          await page.keyboard.press("Control+a");
+          await sleep(40);
+          await page.keyboard.type(text, { delay: action.human_type === true ? 12 : 0 });
+          if (action.submit) await page.keyboard.press("Enter");
+          return {
+            ok: true,
+            typed_at: { x, y },
+            textLength: text.length,
+            submit: Boolean(action.submit),
+            computerUse: true,
+            cursorMoved: hit.cursorMoved,
+            screenX: hit.screenX,
+            screenY: hit.screenY,
+          };
+        }
         await page.mouse.click(x, y, { delay: 30 });
         await page.keyboard.press("Control+a");
         await sleep(40);
@@ -3992,6 +4061,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const result = await frame.evaluate(executeInPage, enriched);
         // Why: custom select returns a click point — finish with a real mouse click too.
         if (action.type === "select" && result?.custom && result.x != null && result.y != null) {
+          if (cuaActive) {
+            const hit = await clickWithVisibleCursor(page, result.x, result.y, { delayMs: 30 });
+            return { ...result, computerUse: true, cursorMoved: hit.cursorMoved };
+          }
           await page.mouse.click(result.x, result.y, { delay: 0 });
         }
         return result;

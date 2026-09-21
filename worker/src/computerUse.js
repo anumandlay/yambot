@@ -124,9 +124,9 @@ export function createComputerUseController(initialMode) {
       if (!active) return "";
       return [
         "COMPUTER USE (CUA) MODE — active for this website session:",
-        "- Prefer screenshot-grounded actions: click_at {x,y} (viewport CSS pixels) and type_at {x,y,text}.",
-        "- DOM refs (click/type with ref) are still allowed when clearly correct, but if refs keep failing use click_at from the viewport screenshot.",
-        "- Origin is top-left of the viewport; do not invent coordinates — read them from the attached screenshot layout.",
+        "- REQUIRED: Prefer click_at {x,y} and type_at {x,y,text} from the viewport screenshot. The live screen shows a real X cursor moving to those points.",
+        "- Use DOM click/type with ref ONLY when coordinates are impossible (e.g. off-screen list). When you do use refs, the runtime still moves the visible cursor.",
+        "- Origin is top-left of the viewport; estimate x,y from the attached screenshot layout — do not invent random coordinates.",
         "- Keep working in the same browser tab; do not ask for a different desktop/engine.",
         activatedReason === "fallback_after_fails"
           ? `- Activated after ${CUA_ACTIVATE_AFTER_FAILS} failed Playwright locator attempts.`
