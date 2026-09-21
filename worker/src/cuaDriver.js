@@ -1,16 +1,14 @@
 /**
- * @fileoverview Best-effort cua-driver bootstrap on the live Playwright desktop.
- * Purpose: Install path detection + lazy `cua-driver serve` when CUA mode activates.
- * Downstream: computerUse.js activate(); entrypoint may also warm the binary.
- *
- * Why website agents: drive the same Xvfb DISPLAY as Chrome (not a separate XFCE box).
- * Action clicks still go through Playwright page.mouse so the CDP session stays coherent;
- * the driver is ready for desktop-state / future MCP tooling.
+ * @fileoverview cua-driver binary resolve, serve bootstrap, and CLI `call` fallback.
+ * Purpose: Shared entry for MCP session + Hermes-style tool invocations on the live Xvfb box.
+ * Downstream: cuaMcpSession.js, computerUse.js activate().
  */
 
 import { spawn, execFile } from "node:child_process";
 import { promisify } from "node:util";
 import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const execFileAsync = promisify(execFile);
 
@@ -45,7 +43,7 @@ export function resolveCuaDriverBin() {
  * @param {{ timeoutMs?: number }} [opts]
  * @returns {Promise<{ ok: boolean, stdout: string, stderr: string, code: number|null }>}
  */
-async function runDriver(bin, args, opts = {}) {
+export async function runDriver(bin, args, opts = {}) {
   const timeoutMs = Math.max(2000, Number(opts.timeoutMs) || 15000);
   try {
     const { stdout, stderr } = await execFileAsync(bin, args, {
@@ -53,8 +51,9 @@ async function runDriver(bin, args, opts = {}) {
       env: {
         ...process.env,
         DISPLAY: process.env.DISPLAY || ":99",
+        CUA_DRIVER_RS_TELEMETRY_ENABLED: "0",
       },
-      maxBuffer: 4 * 1024 * 1024,
+      maxBuffer: 8 * 1024 * 1024,
     });
     return {
       ok: true,
@@ -73,7 +72,83 @@ async function runDriver(bin, args, opts = {}) {
 }
 
 /**
- * Starts `cua-driver serve` once per worker process (lazy).
+ * Hermes CLI fallback: `cua-driver call <tool> '<json-args>'`.
+ * @param {string} toolName
+ * @param {object} [args]
+ * @param {{ timeoutMs?: number }} [opts]
+ * @returns {Promise<import('./cuaMcpSession.js').CuaToolResult>}
+ */
+export async function runCuaDriverCall(toolName, args = {}, opts = {}) {
+  const bin = resolveCuaDriverBin();
+  if (!bin) {
+    return { ok: false, isError: true, error: "cua-driver binary not found", via: "cli" };
+  }
+  const timeoutMs = Math.max(5000, Number(opts.timeoutMs) || 30000);
+  const jsonArgs = JSON.stringify(args || {});
+  // Prefer writing args to a temp file when large (screenshots); small payloads inline.
+  let runArgs = ["call", toolName, jsonArgs];
+  let tmpFile = "";
+  if (jsonArgs.length > 8000) {
+    tmpFile = path.join(os.tmpdir(), `yambot-cua-${Date.now()}.json`);
+    fs.writeFileSync(tmpFile, jsonArgs, "utf8");
+    runArgs = ["call", toolName, `--args-file=${tmpFile}`];
+  }
+  const res = await runDriver(bin, runArgs, { timeoutMs });
+  if (tmpFile) {
+    try {
+      fs.unlinkSync(tmpFile);
+    } catch {
+      /* ignore */
+    }
+  }
+  const blob = `${res.stdout}\n${res.stderr}`;
+  if (/daemon is not running/i.test(blob)) {
+    return {
+      ok: false,
+      isError: true,
+      error: "cua-driver CLI needs machine daemon; use MCP transport instead",
+      via: "cli",
+    };
+  }
+  const start = Math.min(
+    ...[blob.indexOf("{"), blob.indexOf("[")].filter((i) => i >= 0),
+    Number.POSITIVE_INFINITY
+  );
+  if (!Number.isFinite(start) || start < 0) {
+    return {
+      ok: false,
+      isError: true,
+      error: res.stderr || res.stdout || "cua-driver call returned no JSON",
+      via: "cli",
+    };
+  }
+  try {
+    const parsed = JSON.parse(blob.slice(start));
+    const isError = parsed?.isError === true || parsed?.is_error === true || !res.ok;
+    /** @type {string[]} */
+    const images = [];
+    if (parsed?.screenshot_png_b64) images.push(String(parsed.screenshot_png_b64));
+    return {
+      ok: !isError,
+      isError,
+      data: parsed?.tree_markdown || parsed?.message || null,
+      structuredContent: parsed,
+      images,
+      raw: parsed,
+      via: "cli",
+    };
+  } catch (err) {
+    return {
+      ok: false,
+      isError: true,
+      error: String(err?.message || err),
+      via: "cli",
+    };
+  }
+}
+
+/**
+ * Starts `cua-driver serve` once per worker process (lazy) — helps CLI fallback.
  * @returns {Promise<{ ok: boolean, bin?: string, version?: string, serve?: boolean, error?: string }>}
  */
 export async function ensureCuaDriverReady() {
@@ -95,7 +170,6 @@ export async function ensureCuaDriverReady() {
       return { ok: false, bin, error: ver.stderr || "cua-driver --version failed" };
     }
 
-    // Why: serve owns the Linux runtime; keep one long-lived process for this box.
     if (!serveProc || serveProc.killed || serveProc.exitCode != null) {
       serveProc = spawn(bin, ["serve"], {
         env: {
@@ -103,14 +177,12 @@ export async function ensureCuaDriverReady() {
           DISPLAY: process.env.DISPLAY || ":99",
           CUA_DRIVER_PERMISSION_MODE:
             process.env.CUA_DRIVER_PERMISSION_MODE || "standard",
+          CUA_DRIVER_RS_TELEMETRY_ENABLED: "0",
         },
         stdio: ["ignore", "ignore", "ignore"],
         detached: false,
       });
-      serveProc.on("error", () => {
-        /* doctor / status will report */
-      });
-      // Brief settle so the first call is less likely to race a cold start.
+      serveProc.on("error", () => {});
       await new Promise((r) => setTimeout(r, 800));
     }
 

@@ -56,21 +56,29 @@ export const ACTION_TYPES = [
   "memory",
   "investigate",
   "request_training",
+  "computer_use",
   "finish",
 ];
 
 /** Field docs + locator/business rules appended after the batch header. */
 const ACTION_FIELDS_AND_RULES = `
 "type" for action.type:
-"<one of: navigate|click|click_at|type|type_at|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|message_agent|memory|investigate|request_training|finish>"
+"<one of: navigate|click|click_at|type|type_at|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|message_agent|memory|investigate|request_training|computer_use|finish>"
 
 Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
 - click: { "type":"click", "ref":"e12", "role":"button", "name":"Sign in", "css":"#login", "xpath":"//button[@id='login']" }
-- click_at: { "type":"click_at", "x": 420, "y": 310 } — viewport CSS pixels (CUA / screenshot-grounded); origin top-left
+- click_at: { "type":"click_at", "x": 420, "y": 310 } — viewport CSS pixels fallback; prefer computer_use when CUA is active
 - type: { "type":"type", "ref":"e5", "text":"...", "submit": false, "role":"textbox", "name":"Email", "css":"input[name=email]", "xpath":"//input[@name='email']" }
   Instant fill (not keystroke-by-keystroke). Also works on contenteditable compose bodies. For multi-field forms, batch several type actions + one click submit — do not use fill_form.
-- type_at: { "type":"type_at", "x": 420, "y": 310, "text":"...", "submit": false } — click viewport point then type (CUA)
+- type_at: { "type":"type_at", "x": 420, "y": 310, "text":"...", "submit": false } — click viewport point then type (CUA fallback)
+- computer_use: Hermes-parity cua-driver actions (REQUIRED when CUA mode is on). Discriminator "action":
+  { "type":"computer_use", "action":"capture", "mode":"som" } — refresh SOM/AX (usually auto-injected each turn)
+  { "type":"computer_use", "action":"click", "element": 12 } — preferred (element index from CUA CAPTURE)
+  { "type":"computer_use", "action":"click", "x": 420, "y": 310 } — coordinate fallback
+  { "type":"computer_use", "action":"type", "text":"..." } — type into focused field
+  { "type":"computer_use", "action":"key", "keys":"Enter|Tab|Escape|..." }
+  { "type":"computer_use", "action":"scroll", "direction":"down|up", "amount": 3 }
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
   Optional "query" turns this into a searchable dropdown (same as choose_searchable).
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
@@ -157,11 +165,17 @@ export function buildActionSchemaForPrompt(maxActions, opts = {}) {
   const cuaExtra = opts.cuaMode
     ? `
 
-CUA / COMPUTER-USE (active — REQUIRED behavior):
-- Default to click_at / type_at from the viewport screenshot so the live X cursor moves.
-- Example: {"thought":"sign-in by pixels","actions":[{"type":"click_at","x":640,"y":420}]}
-- Example: {"thought":"email field","actions":[{"type":"type_at","x":500,"y":300,"text":"user@example.com"}]}
-- DOM click/type with ref is a last resort only; prefer coordinates whenever the control is visible in the screenshot.
+CUA / COMPUTER-USE (active — Hermes-parity via cua-driver MCP — REQUIRED):
+- Each turn includes CUA CAPTURE with numbered elements. Prefer element clicks.
+- Example: {"thought":"sign-in","actions":[{"type":"computer_use","action":"click","element":14}]}
+- Example: {"thought":"email","actions":[
+    {"type":"computer_use","action":"click","element":5},
+    {"type":"computer_use","action":"type","text":"user@example.com"},
+    {"type":"computer_use","action":"key","keys":"Tab"}
+  ]}
+- Coords allowed: {"type":"computer_use","action":"click","x":640,"y":420}
+- click_at / type_at / DOM refs are fallback only when computer_use fails.
+- navigate / open_tab / finish / ask_user / extract / CRM tools stay on the normal YamBot path.
 `
     : "";
   const header = `
@@ -408,6 +422,7 @@ export const LIGHT_SETTLE_TYPES = new Set([
   "type",
   "type_at",
   "click_at",
+  "computer_use",
   "fill_form",
   "select",
   "choose_searchable",

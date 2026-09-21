@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 14:30] Hermes-parity CUA inside YamBot (MCP + SOM)
+
+- **Prompt Provided:** When CUA is on, keep YamBot Playwright as orchestrator but drive Chrome through cua-driver MCP like Hermes (SOM/AX capture, element click/type/key) plus visible X-cursor glide; normal goals stay Playwright-primary.
+- **Architectural Flow:** New worker modules `cuaMcpSession` (stdio JSON-RPC + CLI fallback), `cuaCapture` (sticky Chrome + SOM), `cuaActions` (click/type/key/scroll + xCursor). `computerUse.activate` starts MCP and resolves window. Agent injects CUA CAPTURE each CUA turn; `computer_use` action routes via MCP with Playwright fallback. Navigate/tabs/CRM/finish stay Playwright.
+- **Impacted Files:** worker cuaMcpSession.js, cuaDriver.js, cuaCapture.js, cuaActions.js, computerUse.js, actions.js, agent.js, helpContent.js, PROMPT_LOG
+
 ## [2026-09-21 13:50] CUA: force coordinate preference + visible X cursor
 
 - **Prompt Provided:** Force CUA to prefer click_at/type_at and show the X cursor moving on the live screen.

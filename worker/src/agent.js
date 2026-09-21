@@ -1775,13 +1775,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const result = await computerUse.activate(reason);
       const driverBit = result.driver?.ok
         ? `cua-driver ready (${result.driver.version || "ok"})`
-        : `cua-driver optional (${result.driver?.error || "unavailable"} — using Playwright coordinate mode)`;
+        : `cua-driver optional (${result.driver?.error || "unavailable"} — Playwright fallback)`;
+      const mcpBit = result.driver?.mcp
+        ? `MCP session up${result.driver.target ? ` · Chrome pid=${result.driver.target.pid}` : ""}`
+        : `MCP unavailable (${result.driver?.mcpError || result.driver?.targetError || "cli fallback"})`;
       const msg =
         reason === "fallback_after_fails"
-          ? `CUA activated after ${CUA_ACTIVATE_AFTER_FAILS} failed locator attempts — ${driverBit}.`
+          ? `CUA activated after ${CUA_ACTIVATE_AFTER_FAILS} failed locator attempts — ${driverBit}; ${mcpBit}.`
           : reason === "explicit"
-            ? `CUA mode (requested in chat) — ${driverBit}.`
-            : `CUA activated (${reason}) — ${driverBit}.`;
+            ? `CUA mode (requested in chat) — ${driverBit}; ${mcpBit}.`
+            : `CUA activated (${reason}) — ${driverBit}; ${mcpBit}.`;
       notes.push(msg);
       await mirror(taskId, "info", {
         appendMessage: msg,
@@ -1789,6 +1792,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           kind: "computer_use_activated",
           reason: result.reason,
           driverOk: Boolean(result.driver?.ok),
+          mcpOk: Boolean(result.driver?.mcp),
           state: computerUse.getState(),
         },
       }).catch(() => {});
@@ -2344,6 +2348,22 @@ export function createCloudAgent({ api, config, log = console.log }) {
           (cuaActive ||
             (visionAllowed && shouldAttachVision({ step, result: prevResult })));
 
+        /** @type {string} */
+        let cuaCaptureBlock = "";
+        /** @type {string} */
+        let cuaShotB64 = "";
+        if (cuaActive && computerUse.getCaptureApi()) {
+          try {
+            const cap = await computerUse.getCaptureApi().capture({ mode: "som" });
+            computerUse.setLastCapture(cap);
+            cuaCaptureBlock = computerUse.getCaptureApi().formatForPrompt(cap);
+            if (cap?.ok && cap.screenshotB64) cuaShotB64 = cap.screenshotB64;
+          } catch (err) {
+            cuaCaptureBlock = `CUA CAPTURE FAILED: ${err?.message || err}`;
+            log(`[${config.workerName}] cua capture failed:`, err?.message || err);
+          }
+        }
+
         const snapshotText = formatObservation(obs, pageState, stateDiff, goal, {
           plan: goalPlan,
           progress: goalProgress,
@@ -2354,6 +2374,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const userTextParts = [
           `GOAL:\n${goal}`,
           cuaActive ? computerUse.promptBlock() : "",
+          cuaCaptureBlock,
           goalIncludesLoginCredentials(goal)
             ? "LOGIN: User supplied credentials in GOAL — proceed with login; do not call ask_user for confirmation."
             : "",
@@ -2409,7 +2430,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let visionAttached = false;
         if (wantVision) {
           try {
-            const b64 = await captureViewportBase64(page);
+            const b64 = cuaShotB64 || (await captureViewportBase64(page));
             if (b64) {
               userContent = buildVisionUserContent(userTextParts, b64);
               visionAttached = true;
@@ -2458,9 +2479,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
               skillProgressBlock,
               siteHintsBlock,
               visionAttached
-                ? "A viewport screenshot is attached — correlate refs with visible UI."
+                ? cuaActive
+                  ? "A CUA / viewport screenshot is attached — prefer computer_use click by element index from CUA CAPTURE."
+                  : "A viewport screenshot is attached — correlate refs with visible UI."
                 : computerUse.isActive()
-                  ? "CUA mode is on but screenshot capture failed — use click_at carefully or fall back to DOM refs."
+                  ? "CUA mode is on but screenshot capture failed — use computer_use with coords or fall back to DOM refs."
                   : visionAllowed
                     ? "A screenshot may attach after failed verification steps."
                     : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
@@ -2662,6 +2685,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               notes,
               history,
               cuaActive: computerUse.isActive(),
+              computerUse,
             });
           }
 
@@ -2749,6 +2773,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
                   notes,
                   history,
                   cuaActive: computerUse.isActive(),
+                  computerUse,
                 });
                 await waitForSemantic(page, observeInPage, waitForConditionInPage, {
                   timeoutMs: stepTiming.recoverySettleMs,
@@ -2990,6 +3015,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     } finally {
       currentActiveDbSkill = null;
       running = false;
+      await computerUse.shutdown().catch(() => {});
     }
   }
 
@@ -3031,7 +3057,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
    * @param {object} ctx
    */
   async function executeAction(action, ctx) {
-    const { settings, obs, taskId, agentSnapshot, notes, cuaActive } = ctx;
+    const { settings, obs, taskId, agentSnapshot, notes, cuaActive, computerUse: cuaCtrl } = ctx;
     switch (action.type) {
       case "navigate": {
         if (!/^https?:\/\//i.test(action.url || "")) {
@@ -4068,6 +4094,151 @@ export function createCloudAgent({ api, config, log = console.log }) {
           await page.mouse.click(result.x, result.y, { delay: 0 });
         }
         return result;
+      }
+      case "computer_use": {
+        // Why: Hermes-parity — cua-driver MCP when available; Playwright + xCursor fallback.
+        const sub = String(action.action || action.cua_action || "click")
+          .trim()
+          .toLowerCase();
+        const actionsApi = cuaCtrl?.getActionsApi?.() || null;
+        const captureApi = cuaCtrl?.getCaptureApi?.() || null;
+
+        if (sub === "capture" || sub === "get_window_state") {
+          if (!captureApi) {
+            return { ok: false, error: "CUA capture not ready (MCP/driver unavailable)", computerUse: true };
+          }
+          const cap = await captureApi.capture({ mode: action.mode || "som" });
+          cuaCtrl?.setLastCapture?.(cap);
+          return {
+            ok: Boolean(cap?.ok),
+            action: "capture",
+            elements: cap?.elements?.length || 0,
+            via: cap?.via,
+            error: cap?.ok ? undefined : cap?.error,
+            computerUse: true,
+            summary: captureApi.formatForPrompt(cap).slice(0, 2000),
+          };
+        }
+
+        /**
+         * Playwright coordinate fallback when MCP click/type fails.
+         * @param {string} kind
+         */
+        async function pwFallback(kind) {
+          if (kind === "click") {
+            let x = Number(action.x);
+            let y = Number(action.y);
+            const elIdx = action.element ?? action.element_index;
+            if ((!Number.isFinite(x) || !Number.isFinite(y)) && elIdx != null && captureApi) {
+              const el = captureApi.getElement(Number(elIdx));
+              const f = el?.frame;
+              if (f && f.x != null && f.y != null) {
+                x = Number(f.x) + Number(f.w || 0) / 2;
+                y = Number(f.y) + Number(f.h || 0) / 2;
+              }
+            }
+            if (!Number.isFinite(x) || !Number.isFinite(y)) {
+              return { ok: false, error: "computer_use fallback click needs x/y or element frame", computerUse: true };
+            }
+            const hit = await clickWithVisibleCursor(page, x, y, { delayMs: 40 });
+            return {
+              ok: true,
+              action: "click",
+              fallback: "playwright",
+              x,
+              y,
+              computerUse: true,
+              cursorMoved: hit.cursorMoved,
+              screenX: hit.screenX,
+              screenY: hit.screenY,
+            };
+          }
+          if (kind === "type") {
+            const text = String(action.text ?? "");
+            await page.keyboard.type(text, { delay: action.human_type === true ? 12 : 0 });
+            if (action.submit) await page.keyboard.press("Enter");
+            return {
+              ok: true,
+              action: "type",
+              fallback: "playwright",
+              textLength: text.length,
+              computerUse: true,
+            };
+          }
+          if (kind === "key") {
+            const keys = String(action.keys || action.key || "Enter");
+            await page.keyboard.press(keys);
+            return { ok: true, action: "key", keys, fallback: "playwright", computerUse: true };
+          }
+          if (kind === "scroll") {
+            const dir = String(action.direction || "down").toLowerCase();
+            const amount = Math.max(100, Number(action.amount) || 600);
+            await page.mouse.wheel(0, dir === "up" ? -amount : amount);
+            return { ok: true, action: "scroll", fallback: "playwright", computerUse: true };
+          }
+          return { ok: false, error: `unknown computer_use action: ${kind}`, computerUse: true };
+        }
+
+        if (!actionsApi) {
+          return pwFallback(sub);
+        }
+
+        try {
+          if (sub === "click") {
+            const r = await actionsApi.click({
+              element: action.element ?? action.element_index,
+              x: action.x,
+              y: action.y,
+              button: action.button,
+              page,
+            });
+            if (!r.ok) {
+              const fb = await pwFallback("click");
+              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
+            }
+            return r;
+          }
+          if (sub === "type" || sub === "type_text") {
+            const r = await actionsApi.typeText({ text: String(action.text ?? ""), page });
+            if (!r.ok) {
+              const fb = await pwFallback("type");
+              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
+            }
+            if (action.submit) {
+              await actionsApi.key({ keys: "Enter" }).catch(() => page.keyboard.press("Enter"));
+            }
+            return r;
+          }
+          if (sub === "key" || sub === "keypress" || sub === "press_key") {
+            const r = await actionsApi.key({
+              keys: String(action.keys || action.key || ""),
+            });
+            if (!r.ok) {
+              const fb = await pwFallback("key");
+              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
+            }
+            return r;
+          }
+          if (sub === "scroll") {
+            const r = await actionsApi.scroll({
+              direction: action.direction,
+              amount: action.amount,
+              element: action.element ?? action.element_index,
+              x: action.x,
+              y: action.y,
+            });
+            if (!r.ok) {
+              const fb = await pwFallback("scroll");
+              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
+            }
+            return r;
+          }
+          return { ok: false, error: `unknown computer_use action: ${sub}`, computerUse: true };
+        } catch (err) {
+          const fb = await pwFallback(sub).catch(() => null);
+          if (fb) return { ...fb, mcpError: String(err?.message || err) };
+          return { ok: false, error: String(err?.message || err), computerUse: true };
+        }
       }
       default:
         throw new Error(`Unhandled action: ${action.type}`);

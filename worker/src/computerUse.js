@@ -1,13 +1,14 @@
 /**
- * @fileoverview Per-run computer-use (CUA) mode controller for website agents.
- * Purpose: Start in CUA when the task asks for it, or activate after N failed
- * Playwright locator attempts; expose prompt blocks for screenshot/coordinate control.
- * Downstream: agent.js runTask loop; cuaDriver.js for optional host-driver bootstrap.
- *
- * Why: Same live Chrome session — CUA is a control strategy, not an XFCE container swap.
+ * @fileoverview Per-run computer-use (CUA) mode — Hermes-parity via cua-driver MCP.
+ * Purpose: Activate on “using cua” or after N Playwright failures; expose MCP capture/actions
+ * and prompt contract (SOM → element click) while keeping YamBot as the orchestrator.
+ * Downstream: agent.js runTask; cuaMcpSession / cuaCapture / cuaActions; xCursor for visible demo.
  */
 
 import { ensureCuaDriverReady } from "./cuaDriver.js";
+import { createCuaMcpSession } from "./cuaMcpSession.js";
+import { createCuaCapture } from "./cuaCapture.js";
+import { createCuaActions } from "./cuaActions.js";
 
 /** Failures (after recovery) before auto-activating CUA. */
 export const CUA_ACTIVATE_AFTER_FAILS = 2;
@@ -39,15 +40,6 @@ export function textRequestsCua(text) {
 /**
  * Creates a mutable controller for one task run.
  * @param {string} [initialMode]
- * @returns {{
- *   isActive: () => boolean,
- *   getMode: () => string,
- *   getState: () => object,
- *   noteRecoverableFailure: () => { activated: boolean, fails: number, reason?: string },
- *   noteSuccess: () => void,
- *   activate: (reason?: string) => Promise<{ activated: boolean, driver?: object, reason: string }>,
- *   promptBlock: () => string,
- * }}
  */
 export function createComputerUseController(initialMode) {
   const configured = normalizeComputerUseMode(initialMode);
@@ -56,6 +48,14 @@ export function createComputerUseController(initialMode) {
   let activatedReason = active ? "explicit" : "";
   /** @type {object|null} */
   let lastDriver = null;
+  /** @type {import('./cuaMcpSession.js').CuaMcpSession|null} */
+  let mcpSession = null;
+  /** @type {ReturnType<typeof createCuaCapture>|null} */
+  let captureApi = null;
+  /** @type {ReturnType<typeof createCuaActions>|null} */
+  let actionsApi = null;
+  /** @type {import('./cuaCapture.js').CuaCaptureResult|null} */
+  let lastCapture = null;
 
   return {
     isActive() {
@@ -71,12 +71,23 @@ export function createComputerUseController(initialMode) {
         consecutiveFails,
         activatedReason,
         driverOk: Boolean(lastDriver?.ok),
+        mcpOk: Boolean(mcpSession?.started),
+        sticky: captureApi?.getSticky?.() || null,
       };
     },
-    /**
-     * Call after a recoverable locator action fails recovery.
-     * @returns {{ activated: boolean, fails: number, reason?: string }}
-     */
+    getCaptureApi() {
+      return captureApi;
+    },
+    getActionsApi() {
+      return actionsApi;
+    },
+    getLastCapture() {
+      return lastCapture;
+    },
+    setLastCapture(cap) {
+      lastCapture = cap;
+    },
+
     noteRecoverableFailure() {
       if (active || configured === "playwright") {
         return { activated: false, fails: consecutiveFails };
@@ -96,10 +107,10 @@ export function createComputerUseController(initialMode) {
     noteSuccess() {
       consecutiveFails = 0;
     },
+
     /**
-     * Activates CUA and best-effort starts cua-driver on this display.
+     * Activates CUA: ensure driver, open MCP, resolve Chrome window.
      * @param {string} [reason]
-     * @returns {Promise<{ activated: boolean, driver?: object, reason: string }>}
      */
     async activate(reason = "manual") {
       const wasActive = active;
@@ -110,24 +121,63 @@ export function createComputerUseController(initialMode) {
       } catch (err) {
         lastDriver = { ok: false, error: String(err?.message || err) };
       }
+
+      try {
+        if (!mcpSession) mcpSession = createCuaMcpSession();
+        const started = await mcpSession.start();
+        if (started.ok) {
+          captureApi = createCuaCapture(mcpSession);
+          actionsApi = createCuaActions(mcpSession, captureApi);
+          const resolved = await captureApi.resolveTarget();
+          lastDriver = {
+            ...lastDriver,
+            ok: Boolean(lastDriver?.ok) || started.ok,
+            mcp: true,
+            tools: started.tools,
+            target: resolved.ok ? resolved.sticky : null,
+            targetError: resolved.ok ? undefined : resolved.error,
+          };
+        } else {
+          lastDriver = {
+            ...lastDriver,
+            mcp: false,
+            mcpError: started.error,
+          };
+        }
+      } catch (err) {
+        lastDriver = {
+          ...lastDriver,
+          mcp: false,
+          mcpError: String(err?.message || err),
+        };
+      }
+
       return {
         activated: !wasActive,
         driver: lastDriver,
         reason: activatedReason,
       };
     },
-    /**
-     * Extra system/user guidance while CUA is active.
-     * @returns {string}
-     */
+
+    async shutdown() {
+      if (mcpSession) {
+        await mcpSession.stop().catch(() => {});
+        mcpSession = null;
+      }
+      captureApi = null;
+      actionsApi = null;
+      lastCapture = null;
+    },
+
     promptBlock() {
       if (!active) return "";
       return [
-        "COMPUTER USE (CUA) MODE — active for this website session:",
-        "- REQUIRED: Prefer click_at {x,y} and type_at {x,y,text} from the viewport screenshot. The live screen shows a real X cursor moving to those points.",
-        "- Use DOM click/type with ref ONLY when coordinates are impossible (e.g. off-screen list). When you do use refs, the runtime still moves the visible cursor.",
-        "- Origin is top-left of the viewport; estimate x,y from the attached screenshot layout — do not invent random coordinates.",
-        "- Keep working in the same browser tab; do not ask for a different desktop/engine.",
+        "COMPUTER USE (CUA) MODE — Hermes-parity via cua-driver MCP:",
+        "- REQUIRED loop: read CUA CAPTURE elements, then computer_use { action:\"click\", element:N } (preferred) or x/y.",
+        "- Also: computer_use { action:\"type\", text:\"...\" }, { action:\"key\", keys:\"Enter\" }, { action:\"scroll\", direction:\"down\" }, { action:\"capture\", mode:\"som\" }.",
+        "- Do NOT use DOM click/type refs while CUA is active unless computer_use failed — prefer element indices from the capture list.",
+        "- navigate / open_tab / finish / ask_user / extract / CRM tools still use the normal YamBot path.",
+        "- The live screen shows an X cursor glide after clicks (YamBot demo overlay).",
         activatedReason === "fallback_after_fails"
           ? `- Activated after ${CUA_ACTIVATE_AFTER_FAILS} failed Playwright locator attempts.`
           : "- Activated because the human asked for CUA (e.g. “using cua”).",

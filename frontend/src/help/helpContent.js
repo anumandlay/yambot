@@ -663,7 +663,7 @@ export const HELP = {
     title: "Desktop engine",
     body: helpBody(
       "Agents always use Playwright Chromium on a virtual display (~3 GB). Full XFCE desktops are not offered for website agents.",
-      "Say “using cua” in chat (e.g. “login to this site using cua”) to start screenshot/coordinate computer-use on the same box. After 2 failed locator attempts, CUA also activates automatically. Browser profile (cookies) persists across restarts of the same agent box."
+      "Say “using cua” in chat (e.g. “login to this site using cua”) to drive the live Chrome via cua-driver MCP (SOM/element clicks + visible X cursor). After 2 failed locator attempts, CUA also activates automatically. Without “using cua”, goals stay Playwright-primary. Browser profile (cookies) persists across restarts of the same agent box."
     ),
   },
   "agent.clearBrowserData": {
