@@ -281,6 +281,15 @@ export class CuaMcpSession {
         );
         return normalizeMcpToolResult(result, "mcp");
       } catch (err) {
+        // Why: get_window_state CLI fallback is huge/slow and often blocks when AT-SPI is down.
+        if (/^get_window_state$/i.test(name)) {
+          return {
+            ok: false,
+            isError: true,
+            error: String(err?.message || err),
+            via: "mcp",
+          };
+        }
         const cli = await runCuaDriverCall(name, payload, { timeoutMs });
         if (cli.ok) return { ...cli, via: "cli" };
         return {

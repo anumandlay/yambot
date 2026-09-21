@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 14:55] Unstick CUA capture hang (AT-SPI / get_window_state)
+
+- **Prompt Provided:** Live “Check india trial-expiring… using cua” stuck after site memory with no LLM turn.
+- **Architectural Flow:** cua-driver MCP `get_window_state` SOM hung (AT-SPI missing); capture retried forever and CLI fallback also blocked. Cap retries, skip CLI for get_window_state, 35s hard timeout in agent loop, fall back to Playwright vision.
+- **Impacted Files:** cuaCapture.js, cuaMcpSession.js, agent.js, PROMPT_LOG
+
 ## [2026-09-21 14:45] Fix CUA MCP hang on start_session CLI fallback
 
 - **Prompt Provided:** Hermes-parity CUA MCP smoke hung after NDJSON fix.

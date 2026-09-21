@@ -141,11 +141,12 @@ export function createCuaCapture(session) {
 
     /**
      * Captures sticky window (or re-resolves) with AX elements + screenshot.
-     * @param {{ mode?: "som"|"ax"|"vision" }} [opts]
+     * @param {{ mode?: "som"|"ax"|"vision", _retried?: boolean }} [opts]
      * @returns {Promise<CuaCaptureResult>}
      */
     async capture(opts = {}) {
       const mode = opts.mode || "som";
+      const retried = Boolean(opts._retried);
       if (!sticky) {
         const resolved = await this.resolveTarget();
         if (!resolved.ok) return { ok: false, error: resolved.error };
@@ -153,6 +154,8 @@ export function createCuaCapture(session) {
 
       const includeTree = mode !== "vision";
       const includeShot = mode !== "ax";
+      // Why: AT-SPI is often missing in agent boxes — long SOM captures hang; keep tight budgets.
+      const timeoutMs = mode === "vision" ? 20000 : 25000;
       const gws = await session.callTool(
         "get_window_state",
         {
@@ -160,20 +163,30 @@ export function createCuaCapture(session) {
           window_id: sticky.windowId,
           include_accessibility_tree: includeTree,
           include_screenshot: includeShot,
-          max_elements: 800,
-          max_depth: 25,
+          max_elements: mode === "som" ? 400 : 800,
+          max_depth: mode === "som" ? 18 : 25,
         },
-        45000
+        timeoutMs
       );
 
       if (!gws.ok) {
-        // Target may have died — clear and retry once.
-        sticky = null;
-        const resolved = await this.resolveTarget();
-        if (!resolved.ok) {
-          return { ok: false, error: gws.error || resolved.error || "get_window_state failed" };
+        if (!retried) {
+          // One re-resolve + lighter vision capture, then give up (no infinite recursion).
+          sticky = null;
+          const resolved = await this.resolveTarget();
+          if (!resolved.ok) {
+            return { ok: false, error: gws.error || resolved.error || "get_window_state failed" };
+          }
+          if (mode !== "vision") {
+            return this.capture({ mode: "vision", _retried: true });
+          }
+          return this.capture({ mode, _retried: true });
         }
-        return this.capture(opts);
+        return {
+          ok: false,
+          error: gws.error || "get_window_state failed",
+          via: gws.via,
+        };
       }
 
       const sc = gws.structuredContent || {};

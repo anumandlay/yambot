@@ -2354,10 +2354,19 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let cuaShotB64 = "";
         if (cuaActive && computerUse.getCaptureApi()) {
           try {
-            const cap = await computerUse.getCaptureApi().capture({ mode: "som" });
+            const capturePromise = computerUse.getCaptureApi().capture({ mode: "som" });
+            const cap = await Promise.race([
+              capturePromise,
+              new Promise((_, reject) =>
+                setTimeout(() => reject(new Error("CUA capture hard-timeout 35s")), 35000)
+              ),
+            ]);
             computerUse.setLastCapture(cap);
             cuaCaptureBlock = computerUse.getCaptureApi().formatForPrompt(cap);
             if (cap?.ok && cap.screenshotB64) cuaShotB64 = cap.screenshotB64;
+            if (!cap?.ok) {
+              log(`[${config.workerName}] cua capture soft-fail:`, cap?.error || "unknown");
+            }
           } catch (err) {
             cuaCaptureBlock = `CUA CAPTURE FAILED: ${err?.message || err}`;
             log(`[${config.workerName}] cua capture failed:`, err?.message || err);
