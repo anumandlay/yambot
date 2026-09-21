@@ -35,6 +35,7 @@ export { computeGoalProgress, formatProgressBlock } from "./progress.js";
 export {
   createGoalPlan,
   defaultPlan,
+  planFromSkill,
   formatPlanBlock,
   getCurrentSubgoalTitle,
   updatePlanFromObservation,

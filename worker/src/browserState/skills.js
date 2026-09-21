@@ -162,7 +162,12 @@ export function computeSkillProgress(skill, history, obs) {
  */
 export function formatSkillProgressBlock(progress) {
   if (!progress) return "";
-  return `SKILL PROGRESS: step ${progress.current}/${progress.total} — ${progress.label}`;
+  return (
+    `SKILL PROGRESS: step ${progress.current}/${progress.total} — do this next: ${progress.label}` +
+    (progress.doneCount
+      ? ` (${progress.doneCount} skill step(s) already reflected in history)`
+      : "")
+  );
 }
 
 /**
@@ -408,24 +413,28 @@ export function detectDbSkill(skills, goal, url = "") {
  */
 export function formatDbSkillBlock(skill) {
   if (!skill) return "";
-  const lines = [`ACTIVE SKILL (learned): ${skill.name}`];
+  const steps = normalizeSkillSteps(skill.steps);
+  const lines = [
+    `ACTIVE SKILL (learned): ${skill.name}`,
+    "SKILL STEERING (mandatory when controls match):",
+    "- Execute Suggested flow in order — do not invent a different path for the same site/workflow.",
+    "- Each turn: prefer the current Suggested flow step (see SKILL PROGRESS) as your primary actions.",
+    "- Skip a step only if that control is absent or already done; then continue with the next step.",
+    "- Do not switch sites unless the goal says so.",
+  ];
   if (skill.slug) lines.push(`Invoke: /${skill.slug}`);
   if (skill.description) lines.push(String(skill.description));
-  lines.push(
-    "Follow Suggested flow when the same controls are visible; skip steps that do not apply; do not switch sites unless the goal says so."
-  );
-  if (skill.playbookMd) {
-    lines.push(parsePlaybookSections(skill.playbookMd));
-  }
-  if (skill.executionMode === "replay") {
-    lines.push("Execution: deterministic replay of stored demo actions before the agent loop.");
-  }
-  const steps = normalizeSkillSteps(skill.steps);
   if (steps.length) {
     lines.push("Suggested flow:");
     for (let i = 0; i < steps.length; i += 1) {
       lines.push(`  ${i + 1}. ${steps[i]}`);
     }
+  }
+  if (skill.executionMode === "replay") {
+    lines.push("Execution: deterministic replay of stored demo actions before the agent loop.");
+  }
+  if (skill.playbookMd) {
+    lines.push(parsePlaybookSections(skill.playbookMd));
   }
   if (skill.verificationRules?.length) {
     lines.push("Verify:");
@@ -476,15 +485,80 @@ export function formatSkillsCatalogBlock(skills) {
 /**
  * @param {object|null} skill
  * @param {object[]} history
- * @returns {{ current: number, total: number, label: string }|null}
+ * @returns {{ current: number, total: number, label: string, doneCount: number }|null}
  */
 export function computeDbSkillProgress(skill, history) {
   const steps = normalizeSkillSteps(skill?.steps);
   if (!steps.length) return null;
   const total = steps.length;
-  const actions = (history || []).filter((h) => h?.action?.type && h.action.type !== "finish").length;
-  const current = Math.min(Math.max(actions + 1, 1), total);
-  return { current, total, label: steps[current - 1] || steps[0] };
+  const hist = Array.isArray(history) ? history : [];
+  let done = 0;
+  for (let i = 0; i < steps.length; i += 1) {
+    if (skillStepLikelyDone(steps[i], hist)) done = i + 1;
+    else break;
+  }
+  const current = Math.min(done + 1, total);
+  return {
+    current,
+    total,
+    label: steps[current - 1] || steps[0],
+    doneCount: done,
+  };
+}
+
+/**
+ * Heuristic: has history already covered this durable skill step?
+ * @param {string} stepLine
+ * @param {object[]} history
+ * @returns {boolean}
+ */
+function skillStepLikelyDone(stepLine, history) {
+  const step = String(stepLine || "").toLowerCase();
+  if (!step) return false;
+  const quoted = step.match(/"([^"]+)"/)?.[1] || "";
+  if (/navigate/.test(step)) {
+    const urlMatch = step.match(/https?:\/\/[^\s"]+/i);
+    if (urlMatch) {
+      try {
+        const host = new URL(urlMatch[0]).hostname.replace(/^www\./, "");
+        return history.some((h) => {
+          const u = String(h?.action?.url || h?.url || "").toLowerCase();
+          return u.includes(host);
+        });
+      } catch {
+        /* fall through */
+      }
+    }
+    return history.some((h) => String(h?.action?.type || "").toLowerCase() === "navigate");
+  }
+  if (/credentials|password/.test(step)) {
+    return history.some((h) => {
+      const t = String(h?.action?.type || "").toLowerCase();
+      const n = String(h?.action?.name || "").toLowerCase();
+      return (t === "type" || t === "fill") && /pass/.test(n);
+    });
+  }
+  if (/\btype\b/.test(step)) {
+    if (quoted) {
+      return history.some((h) => {
+        const t = String(h?.action?.type || "").toLowerCase();
+        const n = String(h?.action?.name || "").toLowerCase();
+        return (t === "type" || t === "fill") && n.includes(quoted.toLowerCase());
+      });
+    }
+    return history.some((h) => /^(type|fill)$/i.test(String(h?.action?.type || "")));
+  }
+  if (/click/.test(step) && quoted) {
+    return history.some((h) => {
+      const t = String(h?.action?.type || "").toLowerCase();
+      const n = String(h?.action?.name || "").toLowerCase();
+      return t === "click" && n.includes(quoted.toLowerCase());
+    });
+  }
+  if (/select|choose/.test(step)) {
+    return history.some((h) => /select|choose/i.test(String(h?.action?.type || "")));
+  }
+  return false;
 }
 
 /**

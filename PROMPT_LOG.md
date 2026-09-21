@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 11:30] Skill hints steer harder — plan from Suggested flow
+
+- **Prompt Provided:** Skills left one-by-one — #3 hints steer harder.
+- **Architectural Flow:** Matched learned skill builds the run Plan from durable steps (`planFromSkill`). ACTIVE SKILL block mandates ordered Suggested flow; SKILL PROGRESS names the next step using history heuristics (navigate/click/type match). System prompt reinforces skill-first steering.
+- **Impacted Files:** planner.js, skills.js, agent.js, browserState/index.js, PROMPT_LOG
+
 ## [2026-09-21 11:25] One skill per workflow — merge overlapping learns
 
 - **Prompt Provided:** Skills left one-by-one — #2 one skill per workflow (merge overlaps).

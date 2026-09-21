@@ -44,6 +44,7 @@ import {
   createBrowserTelemetry,
   createGoalPlan,
   defaultPlan,
+  planFromSkill,
   computeGoalProgress,
   detectActionLoop,
   evaluateBlockedSubgoal,
@@ -91,6 +92,7 @@ import {
   formatSkillsCatalogBlock,
   computeDbSkillProgress,
   evaluateSkillVerification,
+  normalizeSkillSteps,
   runSkillReplay,
   describeReplayStep,
   extractDomain,
@@ -1977,20 +1979,29 @@ export function createCloudAgent({ api, config, log = console.log }) {
         appendMessage: skillPickLines.join("\n"),
       }).catch(() => {});
 
-      // Why: skip extra planning LLM call for login/short goals — saves ~20–30s before step 1.
+      // Why: matched learned skills should drive the plan (Suggested flow), not a vague one-liner.
       const goalText = String(goal || "").trim();
       let goalPlan =
-        (activeDbSkill || activeSkill?.id === "login") || goalText.length < 500
-          ? defaultPlan(goal)
-          : await createGoalPlan({
-              goal,
-              chatCompletion: (o) =>
-                trackedChatCompletion({ ...o, traceLabel: "plan" }),
-              apiKey: settings.llmApiKey,
-              baseUrl: settings.llmBaseUrl,
-              model: settings.llmModel,
-            });
-      if (goalPlan.source === "default") {
+        activeDbSkill && normalizeSkillSteps(activeDbSkill.steps).length >= 2
+          ? planFromSkill(activeDbSkill, goal, normalizeSkillSteps)
+          : (activeDbSkill || activeSkill?.id === "login") || goalText.length < 500
+            ? defaultPlan(goal)
+            : await createGoalPlan({
+                goal,
+                chatCompletion: (o) =>
+                  trackedChatCompletion({ ...o, traceLabel: "plan" }),
+                apiKey: settings.llmApiKey,
+                baseUrl: settings.llmBaseUrl,
+                model: settings.llmModel,
+              });
+      if (goalPlan.source === "skill") {
+        await mirror(taskId, "plan", {
+          payload: { plan: goalPlan },
+          appendMessage:
+            `Plan (from skill${goalPlan.skillName ? `: ${goalPlan.skillName}` : ""}):\n` +
+            goalPlan.subgoals.map((s) => `• ${s.title}`).join("\n"),
+        }).catch(() => {});
+      } else if (goalPlan.source === "default") {
         await mirror(taskId, "plan", {
           payload: { plan: goalPlan },
           appendMessage: `Plan: ${goalPlan.subgoals[0]?.title || goalText}`,
@@ -2391,6 +2402,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
               "SPEED: multi-action batches are mandatory when ACTION SURFACE already lists the next controls. Prefer 4+ actions per turn using those [ref] ids. Single-action turns are a last resort (unknown UI after navigate/submit, or finish/ask_user alone).",
               "If RECENT ACTIONS show you only did 1 step last turn, expand: queue every remaining click/type on this page before calling the model again.",
+              activeDbSkill
+                ? "When ACTIVE SKILL is present, treat Suggested flow + SKILL PROGRESS as the primary plan for this run."
+                : "",
               skillBlock,
               skillsCatalogBlock,
               skillProgressBlock,

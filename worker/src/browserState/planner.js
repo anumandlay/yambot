@@ -20,6 +20,34 @@ export function defaultPlan(goal) {
 }
 
 /**
+ * Build the run plan from a matched learned skill's durable steps.
+ * Why: steers the agent along the proven path instead of a vague one-line default plan.
+ * @param {object|null|undefined} skill
+ * @param {string} goal
+ * @param {(steps: unknown[]) => string[]} normalizeSteps
+ * @returns {object}
+ */
+export function planFromSkill(skill, goal, normalizeSteps) {
+  const steps =
+    typeof normalizeSteps === "function"
+      ? normalizeSteps(skill?.steps)
+      : (Array.isArray(skill?.steps) ? skill.steps : [])
+          .map((s) => (typeof s === "string" ? s.trim() : ""))
+          .filter(Boolean);
+  if (steps.length < 2) return defaultPlan(goal);
+  return {
+    subgoals: steps.slice(0, 10).map((title, i) => ({
+      id: String(i + 1),
+      title: String(title).slice(0, 240),
+      status: "pending",
+    })),
+    currentIndex: 0,
+    source: "skill",
+    skillName: skill?.name || "",
+  };
+}
+
+/**
  * Parses planner JSON from model output.
  * @param {string} raw
  * @param {string} goal
