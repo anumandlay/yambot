@@ -36,7 +36,7 @@ import {
   textRequestsCua,
   CUA_ACTIVATE_AFTER_FAILS,
 } from "./computerUse.js";
-import { clickWithVisibleCursor } from "./xCursor.js";
+import { clickWithVisibleCursor, atspiFrameCenterToViewport } from "./xCursor.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
@@ -4107,7 +4107,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return result;
       }
       case "computer_use": {
-        // Why: Hermes-parity — cua-driver MCP when available; Playwright + xCursor fallback.
+        // Why: Hermes-parity — element_index via MCP; raw x/y are Playwright viewport CSS
+        // (attached screenshot). AT-SPI frames are desktop pixels — convert before PW fallback.
         const sub = String(action.action || action.cua_action || "click")
           .trim()
           .toLowerCase();
@@ -4132,7 +4133,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
 
         /**
-         * Playwright coordinate fallback when MCP click/type fails.
+         * Playwright viewport click (correct space for attached screenshot / model x,y).
          * @param {string} kind
          */
         async function pwFallback(kind) {
@@ -4140,16 +4141,27 @@ export function createCloudAgent({ api, config, log = console.log }) {
             let x = Number(action.x);
             let y = Number(action.y);
             const elIdx = action.element ?? action.element_index;
-            if ((!Number.isFinite(x) || !Number.isFinite(y)) && elIdx != null && captureApi) {
-              const el = captureApi.getElement(Number(elIdx));
-              const f = el?.frame;
-              if (f && f.x != null && f.y != null) {
-                x = Number(f.x) + Number(f.w || 0) / 2;
-                y = Number(f.y) + Number(f.h || 0) / 2;
+            if ((!Number.isFinite(x) || !Number.isFinite(y)) && elIdx != null) {
+              let mapped = null;
+              if (actionsApi?.elementCenterViewport) {
+                mapped = await actionsApi.elementCenterViewport(page, Number(elIdx));
+              } else if (captureApi) {
+                mapped = await atspiFrameCenterToViewport(
+                  page,
+                  captureApi.getElement(Number(elIdx))?.frame || null
+                );
+              }
+              if (mapped?.ok) {
+                x = mapped.x;
+                y = mapped.y;
               }
             }
             if (!Number.isFinite(x) || !Number.isFinite(y)) {
-              return { ok: false, error: "computer_use fallback click needs x/y or element frame", computerUse: true };
+              return {
+                ok: false,
+                error: "computer_use fallback click needs viewport x/y or element frame",
+                computerUse: true,
+              };
             }
             const hit = await clickWithVisibleCursor(page, x, y, { delayMs: 40 });
             return {
@@ -4196,6 +4208,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         try {
           if (sub === "click") {
+            const hasElement = action.element != null || action.element_index != null;
+            const hasXY = action.x != null && action.y != null;
+            // Viewport x/y from the screenshot → Playwright (MCP window coords miss).
+            if (!hasElement && hasXY) {
+              return pwFallback("click");
+            }
             const r = await actionsApi.click({
               element: action.element ?? action.element_index,
               x: action.x,

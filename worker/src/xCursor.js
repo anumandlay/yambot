@@ -2,7 +2,11 @@
  * @fileoverview Visible X11 cursor moves for CUA mode on the live noVNC screen.
  * Purpose: Playwright CDP clicks do not move the OS cursor; xdotool does — so Take control
  * viewers can see the pointer glide to each target while CUA is active.
- * Downstream: agent.js click / click_at / type / type_at when computerUse.isActive().
+ * Downstream: agent.js click / click_at / type / type_at / computer_use when CUA is active.
+ *
+ * Coordinate spaces (do not mix):
+ * - viewport CSS: Playwright page.mouse + attached vision screenshot (origin = content top-left)
+ * - screen/desktop: AT-SPI frames + xdotool (origin = X root)
  */
 
 import { execFile } from "node:child_process";
@@ -41,7 +45,7 @@ async function xdotool(args, opts = {}) {
  * @param {import('playwright').Page} page
  * @param {number} x
  * @param {number} y
- * @returns {Promise<{ screenX: number, screenY: number, ok: boolean }>}
+ * @returns {Promise<{ screenX: number, screenY: number, contentScreenX?: number, contentScreenY?: number, ok: boolean }>}
  */
 export async function viewportToScreen(page, x, y) {
   try {
@@ -58,6 +62,8 @@ export async function viewportToScreen(page, x, y) {
         return {
           screenX: Math.round(sx + borderX + (Number(vx) || 0)),
           screenY: Math.round(sy + chromeY + (Number(vy) || 0)),
+          contentScreenX: Math.round(sx + borderX),
+          contentScreenY: Math.round(sy + chromeY),
         };
       },
       { vx: x, vy: y }
@@ -65,11 +71,55 @@ export async function viewportToScreen(page, x, y) {
     return {
       screenX: Number(m.screenX) || 0,
       screenY: Number(m.screenY) || 0,
+      contentScreenX: Number(m.contentScreenX) || 0,
+      contentScreenY: Number(m.contentScreenY) || 0,
       ok: true,
     };
   } catch {
     return { screenX: Math.round(x), screenY: Math.round(y), ok: false };
   }
+}
+
+/**
+ * Inverse of viewportToScreen — AT-SPI / desktop pixels → Playwright viewport CSS.
+ * @param {import('playwright').Page} page
+ * @param {number} screenX
+ * @param {number} screenY
+ * @returns {Promise<{ x: number, y: number, ok: boolean }>}
+ */
+export async function screenToViewport(page, screenX, screenY) {
+  const origin = await viewportToScreen(page, 0, 0);
+  if (!origin.ok) {
+    return { x: Math.round(screenX), y: Math.round(screenY), ok: false };
+  }
+  const ox = origin.contentScreenX ?? origin.screenX;
+  const oy = origin.contentScreenY ?? origin.screenY;
+  return {
+    x: Math.round(Number(screenX) - ox),
+    y: Math.round(Number(screenY) - oy),
+    ok: true,
+  };
+}
+
+/**
+ * AT-SPI frame {x,y,w,h} is desktop/screen space — convert center to viewport CSS for Playwright.
+ * @param {import('playwright').Page} page
+ * @param {{ x?: number, y?: number, w?: number, h?: number }|null} frame
+ * @returns {Promise<{ x: number, y: number, screenX: number, screenY: number, ok: boolean }|null>}
+ */
+export async function atspiFrameCenterToViewport(page, frame) {
+  if (!frame || frame.x == null || frame.y == null) return null;
+  const screenX = Number(frame.x) + Number(frame.w || 0) / 2;
+  const screenY = Number(frame.y) + Number(frame.h || 0) / 2;
+  if (!Number.isFinite(screenX) || !Number.isFinite(screenY)) return null;
+  const vp = await screenToViewport(page, screenX, screenY);
+  return {
+    x: vp.x,
+    y: vp.y,
+    screenX: Math.round(screenX),
+    screenY: Math.round(screenY),
+    ok: vp.ok,
+  };
 }
 
 /**
@@ -98,7 +148,6 @@ export async function moveXCursorVisible(screenX, screenY, opts = {}) {
   const steps = Math.max(1, Math.min(24, Number(opts.steps) || 10));
   const stepMs = Math.max(8, Math.min(80, Number(opts.stepMs) || 18));
 
-  // Why: ensure a visible pointer theme on bare Xvfb/fluxbox sessions.
   await xdotool(["mousemove_relative", "--", "0", "0"]);
 
   const cur = await getMouseLocation();

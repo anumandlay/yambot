@@ -173,8 +173,10 @@ CUA / COMPUTER-USE (active — Hermes-parity via cua-driver MCP — REQUIRED):
     {"type":"computer_use","action":"type","text":"user@example.com"},
     {"type":"computer_use","action":"key","keys":"Tab"}
   ]}
-- Coords allowed: {"type":"computer_use","action":"click","x":640,"y":420}
-- click_at / type_at / DOM refs are fallback only when computer_use fails.
+- Coords are Playwright viewport CSS matching the attached screenshot (NOT AT-SPI desktop pixels):
+  {"type":"computer_use","action":"click","x":640,"y":420}
+- Prefer element over x/y whenever the control appears in CUA CAPTURE.
+- DOM click/type refs are last resort if computer_use fails.
 - navigate / open_tab / finish / ask_user / extract / CRM tools stay on the normal YamBot path.
 `
     : "";

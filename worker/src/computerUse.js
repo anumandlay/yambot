@@ -173,7 +173,8 @@ export function createComputerUseController(initialMode) {
       if (!active) return "";
       return [
         "COMPUTER USE (CUA) MODE — Hermes-parity via cua-driver MCP:",
-        "- REQUIRED loop: read CUA CAPTURE elements, then computer_use { action:\"click\", element:N } (preferred) or x/y.",
+        "- REQUIRED loop: read CUA CAPTURE elements, then computer_use { action:\"click\", element:N } (preferred).",
+        "- Coords: computer_use { action:\"click\", x, y } uses Playwright viewport CSS from the attached screenshot (not AT-SPI desktop pixels).",
         "- Also: computer_use { action:\"type\", text:\"...\" }, { action:\"key\", keys:\"Enter\" }, { action:\"scroll\", direction:\"down\" }, { action:\"capture\", mode:\"som\" }.",
         "- Do NOT use DOM click/type refs while CUA is active unless computer_use failed — prefer element indices from the capture list.",
         "- navigate / open_tab / finish / ask_user / extract / CRM tools still use the normal YamBot path.",

@@ -277,9 +277,10 @@ export function createCuaCapture(session) {
     formatForPrompt(cap) {
       if (!cap?.ok) return `CUA CAPTURE FAILED: ${cap?.error || "unknown"}`;
       const head = [
-        "CUA CAPTURE (cua-driver — click with computer_use action=click element=N):",
+        "CUA CAPTURE (cua-driver AT-SPI — prefer computer_use action=click element=N):",
         `Window: ${cap.appName || "?"} — ${cap.title || "?"}`,
         `pid=${cap.pid} window_id=${cap.windowId} elements=${cap.elements?.length || 0}`,
+        "Coords (if used): Playwright viewport CSS from the attached screenshot — not AT-SPI frame x/y.",
       ];
       const list = (cap.elements || [])
         .slice(0, 100)

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 15:15] Fix CUA click coordinate spaces (viewport vs AT-SPI)
+
+- **Prompt Provided:** CUA clicks not landing on the right coordinates.
+- **Architectural Flow:** AT-SPI frames are desktop/screen pixels; model x/y and Playwright use viewport CSS from the attached screenshot. Route raw x/y through Playwright; convert AT-SPI frame centers → viewport for fallback; glide cursor using screen coords for element clicks.
+- **Impacted Files:** xCursor.js, cuaActions.js, agent.js, actions.js, cuaCapture.js, PROMPT_LOG
+
 ## [2026-09-21 15:10] Linux AT-SPI live + SOM tree without SHM screenshot
 
 - **Prompt Provided:** Improve Linux AX in the worker image.

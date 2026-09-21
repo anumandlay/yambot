@@ -1,10 +1,15 @@
 /**
  * @fileoverview Hermes-parity input actions via cua-driver MCP (click / type / key / scroll).
- * Purpose: Element-index and coordinate actions against the sticky Chrome window.
+ * Purpose: Element-index actions against the sticky Chrome window; coordinate clicks stay on
+ * Playwright viewport space (matching the attached screenshot) so hits land correctly.
  * Downstream: agent.js computer_use execute path; pairs with xCursor for visible demo glide.
  */
 
-import { moveXCursorVisible, viewportToScreen } from "./xCursor.js";
+import {
+  moveXCursorVisible,
+  viewportToScreen,
+  atspiFrameCenterToViewport,
+} from "./xCursor.js";
 
 /**
  * @param {import('./cuaMcpSession.js').CuaMcpSession} session
@@ -24,40 +29,55 @@ export function createCuaActions(session, capture) {
   }
 
   /**
-   * Glide OS cursor for live demos after a successful CUA click.
+   * Glide OS cursor after a CUA action.
+   * AT-SPI frames are desktop/screen pixels — do NOT run them through viewportToScreen.
+   * Explicit x/y from the model are Playwright viewport CSS.
    * @param {import('playwright').Page|null} page
    * @param {number|null} element
    * @param {number|null} x
    * @param {number|null} y
+   * @param {"viewport"|"screen"} [xySpace]
    */
-  async function maybeShowCursor(page, element, x, y) {
+  async function maybeShowCursor(page, element, x, y, xySpace = "viewport") {
     try {
-      let vx = x;
-      let vy = y;
-      if ((vx == null || vy == null) && element != null) {
+      if (element != null) {
         const el = capture.getElement(element);
         const f = el?.frame;
         if (f && f.x != null && f.y != null) {
-          vx = Number(f.x) + Number(f.w || 0) / 2;
-          vy = Number(f.y) + Number(f.h || 0) / 2;
+          const sx = Number(f.x) + Number(f.w || 0) / 2;
+          const sy = Number(f.y) + Number(f.h || 0) / 2;
+          if (Number.isFinite(sx) && Number.isFinite(sy)) {
+            const moved = await moveXCursorVisible(sx, sy);
+            return {
+              cursorMoved: moved.ok,
+              screenX: moved.screenX,
+              screenY: moved.screenY,
+              x: sx,
+              y: sy,
+            };
+          }
         }
       }
-      if (vx == null || vy == null || !Number.isFinite(vx) || !Number.isFinite(vy)) {
+      if (x == null || y == null || !Number.isFinite(x) || !Number.isFinite(y)) {
         return { cursorMoved: false };
       }
+      if (xySpace === "screen") {
+        const moved = await moveXCursorVisible(x, y);
+        return { cursorMoved: moved.ok, screenX: moved.screenX, screenY: moved.screenY, x, y };
+      }
       if (page && !page.isClosed()) {
-        const mapped = await viewportToScreen(page, vx, vy);
+        const mapped = await viewportToScreen(page, x, y);
         const moved = await moveXCursorVisible(mapped.screenX, mapped.screenY);
         return {
           cursorMoved: moved.ok,
           screenX: moved.screenX,
           screenY: moved.screenY,
-          x: vx,
-          y: vy,
+          x,
+          y,
         };
       }
-      const moved = await moveXCursorVisible(vx, vy);
-      return { cursorMoved: moved.ok, screenX: moved.screenX, screenY: moved.screenY, x: vx, y: vy };
+      const moved = await moveXCursorVisible(x, y);
+      return { cursorMoved: moved.ok, screenX: moved.screenX, screenY: moved.screenY, x, y };
     } catch {
       return { cursorMoved: false };
     }
@@ -65,6 +85,7 @@ export function createCuaActions(session, capture) {
 
   return {
     /**
+     * Prefer element_index via MCP. Raw x/y are viewport CSS — caller should use Playwright.
      * @param {{
      *   element?: number,
      *   x?: number,
@@ -86,13 +107,26 @@ export function createCuaActions(session, capture) {
       if (element == null && (x == null || y == null)) {
         return { ok: false, error: "computer_use click requires element or x/y" };
       }
+
+      // Why: model x/y match the Playwright viewport screenshot — MCP window coords miss.
+      if (element == null) {
+        return {
+          ok: false,
+          error: "use_playwright_viewport",
+          action: "click",
+          x,
+          y,
+          computerUse: true,
+        };
+      }
+
       const args = targetArgs(sticky, {
         button: String(opts.button || "left").toLowerCase(),
-        ...(element != null ? { element_index: element } : { x, y }),
+        element_index: element,
       });
       const res = await session.callTool("click", args, 20000);
       const cursor = res.ok
-        ? await maybeShowCursor(opts.page || null, element, x, y)
+        ? await maybeShowCursor(opts.page || null, element, null, null)
         : { cursorMoved: false };
       return {
         ok: res.ok,
@@ -105,6 +139,16 @@ export function createCuaActions(session, capture) {
         computerUse: true,
         ...cursor,
       };
+    },
+
+    /**
+     * Convert AT-SPI element frame → viewport CSS for Playwright fallback.
+     * @param {import('playwright').Page} page
+     * @param {number} elementIndex
+     */
+    async elementCenterViewport(page, elementIndex) {
+      const el = capture.getElement(elementIndex);
+      return atspiFrameCenterToViewport(page, el?.frame || null);
     },
 
     /**
@@ -145,7 +189,6 @@ export function createCuaActions(session, capture) {
       }
       const keys = String(opts.keys || "").trim();
       if (!keys) return { ok: false, error: "computer_use key requires keys" };
-      // cua-driver `key` / `press_key` naming — try keypress then press_key.
       let res = await session.callTool("keypress", targetArgs(sticky, { keys }), 15000);
       if (!res.ok) {
         res = await session.callTool("press_key", targetArgs(sticky, { key: keys }), 15000);
