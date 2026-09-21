@@ -2041,6 +2041,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       let prevObs = null;
       let prevUrl = "";
       let siteProfile = null;
+      /** @type {Set<string>} domains already announced via site_memory_pull chip this run */
+      const siteMemoryPosted = new Set();
       for (;;) {
         step += 1;
         const stepClock = metrics.beginStep();
@@ -2189,6 +2191,29 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (pageDomain && pageDomain !== siteDomain) {
           siteDomain = pageDomain;
           siteProfile = await loadSiteProfile(api, config.agentId, siteDomain);
+        }
+        // Why: curated MEMORY chip is at enqueue; SITE MEMORY injects later when on a domain —
+        // post a Site chip once per domain so operators see what entered the browser LLM prompt.
+        if (
+          siteDomain &&
+          siteProfile?.hints?.length &&
+          !siteMemoryPosted.has(siteDomain)
+        ) {
+          siteMemoryPosted.add(siteDomain);
+          const insertedBlock = formatSiteHintsBlock(siteProfile);
+          await mirror(taskId, "site_memory_pull", {
+            payload: {
+              domain: siteDomain,
+              hints: (siteProfile.hints || []).slice(0, 8).map((h) => ({
+                kind: h.kind || "note",
+                content: String(h.content || "").slice(0, 500),
+              })),
+              stats: siteProfile.stats || {},
+              insertedBlock,
+              insertionPoint:
+                "Browser LLM system prompt — SITE MEMORY block (with skills / plan), each step while on this domain",
+            },
+          }).catch(() => {});
         }
         const pageState = buildPageState(obs, { previousUrl: prevUrl || undefined });
         const stateDiff = prevObs ? diffObservations(prevObs, obs) : null;

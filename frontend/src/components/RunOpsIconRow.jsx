@@ -41,6 +41,7 @@ export const OPS_ICON_KINDS = new Set([
   "event",
   "curated_pull",
   "curated_save",
+  "site_memory_pull",
 ]);
 
 /**
@@ -137,6 +138,9 @@ export function opsIconMeta(message) {
   if (kind === "curated_save" || /^Memory saved/i.test(content)) {
     return { icon: "M+", label: "Saved" };
   }
+  if (kind === "site_memory_pull" || /^Site memory/i.test(content)) {
+    return { icon: "🌐", label: "Site" };
+  }
   if (/^Thinking/i.test(content)) return { icon: "…", label: "Thinking" };
   if (/^Opening /i.test(content)) return { icon: "↗", label: "Navigate" };
   return { icon: "•", label: "Status" };
@@ -155,6 +159,7 @@ function OpsIconPopup({ message, label, icon, onClose }) {
   const titleId = useId();
   const curated = message?.meta?.kind === "curated_pull" ? message.meta?.curatedMemory : null;
   const saved = message?.meta?.kind === "curated_save" ? message.meta?.curatedSave : null;
+  const siteMem = message?.meta?.kind === "site_memory_pull" ? message.meta?.siteMemory : null;
   const body = String(message?.content || "").trim() || label;
 
   useEffect(() => {
@@ -227,6 +232,8 @@ function OpsIconPopup({ message, label, icon, onClose }) {
                 empty="No facts saved."
               />
             </div>
+          ) : siteMem ? (
+            <SiteMemoryPullDetails site={siteMem} fallbackContent={body} />
           ) : (
             <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-teal-950">
               {body}
@@ -283,6 +290,11 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
           </>
         ) : null}
       </p>
+      <p className="rounded-lg border border-teal-50 bg-teal-50/50 px-2.5 py-1.5 text-[0.7rem] leading-snug text-teal-800/75">
+        Curated MEMORY only. Domain <span className="font-semibold">Site memory</span> (vughy.com
+        flows, etc.) injects later when the browser lands on that site — look for the{" "}
+        <span className="font-semibold">Site</span> chip.
+      </p>
       <PulledList
         title="Agent MEMORY"
         rows={agentRows}
@@ -301,6 +313,66 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
             : "No USER prefs matched this goal."
         }
       />
+    </div>
+  );
+}
+
+/**
+ * Domain SiteProfile injected into the browser LLM system prompt.
+ * @param {{ site: object, fallbackContent?: string }} props
+ */
+function SiteMemoryPullDetails({ site, fallbackContent = "" }) {
+  const domain = String(site?.domain || "").trim() || "site";
+  const hints = Array.isArray(site?.hints) ? site.hints : [];
+  const stats = site?.stats || {};
+  const insertedBlock = String(site?.insertedBlock || "").trim() || fallbackContent;
+  const insertionPoint = String(site?.insertionPoint || "").trim();
+
+  return (
+    <div className="flex flex-col gap-4 text-sm text-teal-950">
+      <p className="text-xs text-teal-800/70">
+        <span className="font-semibold text-teal-950">{domain}</span>
+        {" · "}
+        {hints.length} hint{hints.length === 1 ? "" : "s"}
+        {" · "}
+        {stats.successes || 0} ok · {stats.failures || 0} fail · {stats.visits || 0} visits
+      </p>
+      <div>
+        <h3 className="mb-1 text-xs font-bold uppercase tracking-wide text-teal-800/70">
+          How inserted
+        </h3>
+        <p className="text-xs leading-relaxed text-teal-900/80">
+          {insertionPoint ||
+            "Browser LLM system prompt — SITE MEMORY block while on this domain (each step until the domain changes)."}
+        </p>
+      </div>
+      {hints.length ? (
+        <ul className="space-y-2">
+          {hints.map((h, i) => (
+            <li
+              key={`${h.kind}-${i}-${String(h.content || "").slice(0, 24)}`}
+              className="rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2"
+            >
+              <div className="mb-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-teal-700/70">
+                {h.kind || "note"}
+              </div>
+              <p className="whitespace-pre-wrap text-sm text-teal-950">{h.content}</p>
+            </li>
+          ))}
+        </ul>
+      ) : (
+        <p className="text-sm text-teal-900/60">No hints on this domain profile.</p>
+      )}
+      {insertedBlock ? (
+        <div>
+          <h3 className="mb-1 text-xs font-bold uppercase tracking-wide text-teal-800/70">
+            Exact block in prompt
+          </h3>
+          <pre className="whitespace-pre-wrap break-words rounded-xl border border-teal-100 bg-teal-50/30 p-3 font-mono text-[0.7rem] leading-relaxed text-teal-950">
+            {insertedBlock}
+          </pre>
+        </div>
+      ) : null}
     </div>
   );
 }
@@ -393,6 +465,8 @@ export function RunOpsIconRow({ messages }) {
           const memoryChip = m.meta?.kind === "curated_pull";
           const savedChip =
             m.meta?.kind === "curated_save" || /^Memory saved/i.test(String(m.content || ""));
+          const siteChip =
+            m.meta?.kind === "site_memory_pull" || /^Site memory/i.test(String(m.content || ""));
           const llmChip =
             m.meta?.kind === "llm_request" ||
             m.meta?.kind === "llm_response" ||
@@ -401,11 +475,13 @@ export function RunOpsIconRow({ messages }) {
             ? "Memory"
             : savedChip
               ? "Saved"
-              : llmChip
-                ? m.meta?.kind === "llm_response"
-                  ? "LLM↓"
-                  : "LLM"
-                : null;
+              : siteChip
+                ? "Site"
+                : llmChip
+                  ? m.meta?.kind === "llm_response"
+                    ? "LLM↓"
+                    : "LLM"
+                  : null;
           return (
             <button
               key={m._id || `${label}-${tip.slice(0, 12)}`}

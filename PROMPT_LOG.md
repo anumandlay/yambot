@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 09:10] Site memory inject chip in chat
+
+- **Prompt Provided:** On trial-expiring chat Memory chip, also show domain site profile and how it is inserted.
+- **Architectural Flow:** Worker posts `site_memory_pull` once per domain when SiteProfile hints load; chat Site chip popup shows hints + exact `SITE MEMORY` block and insertion point (browser LLM system prompt). Memory curated popup notes Site is separate.
+- **Impacted Files:** worker agent.js, worker.js routes, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-21 08:25] Strip Auto QUEUE_GOAL placeholder leaks
 
 - **Prompt Provided:** Chat showed `<optional one short sentence to the user>` after “Let's start your work”.

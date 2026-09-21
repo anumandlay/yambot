@@ -455,6 +455,42 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
           skillPick: pick,
         },
       });
+    } else if (type === "site_memory_pull") {
+      // Why: show domain SiteProfile when it first enters the browser LLM prompt (separate from curated MEMORY).
+      const domain = String(payload.domain || "").trim() || "site";
+      const hints = Array.isArray(payload.hints) ? payload.hints : [];
+      const stats = payload.stats && typeof payload.stats === "object" ? payload.stats : {};
+      const insertedBlock = String(payload.insertedBlock || "").trim();
+      const insertionPoint = String(payload.insertionPoint || "").trim();
+      const lines = [
+        `Site memory · ${domain}`,
+        `${hints.length} hint${hints.length === 1 ? "" : "s"} · ${stats.successes || 0} ok · ${stats.failures || 0} fail · ${stats.visits || 0} visits`,
+        "",
+        "How inserted:",
+        insertionPoint ||
+          "Browser LLM system prompt — SITE MEMORY block while on this domain",
+        "",
+        insertedBlock ||
+          hints.map((h) => `- [${h.kind || "note"}] ${h.content}`).join("\n") ||
+          "(empty)",
+      ];
+      await Message.create({
+        chat: task.chat,
+        role: "system",
+        content: lines.filter((l) => l != null).join("\n"),
+        meta: {
+          taskId: task._id,
+          kind: "site_memory_pull",
+          ui: "icon",
+          siteMemory: {
+            domain,
+            hints,
+            stats,
+            insertedBlock,
+            insertionPoint,
+          },
+        },
+      });
     } else if (req.body?.appendMessage && !skipChatMessage) {
       const content = stripModelThinking(String(req.body.appendMessage));
       const kind =
