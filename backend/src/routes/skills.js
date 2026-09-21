@@ -280,7 +280,7 @@ skillsRouter.post("/from-demo/:demoId", async (req, res, next) => {
       status: "draft",
       steps,
       executionMode,
-      verificationRules: ["Replay steps without error", "Match success criteria"],
+      verificationRules: [],
       sourceDemonstration: demo._id,
       sourceTask: demo.task || null,
     });

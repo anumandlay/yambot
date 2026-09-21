@@ -562,6 +562,18 @@ function skillStepLikelyDone(stepLine, history) {
 }
 
 /**
+ * Soft placeholder rules from /learn — not literal phrases that appear in the result text.
+ * Why: "Goal completed successfully" was regex-tested against the summary and always failed.
+ * @param {string} pat
+ * @returns {boolean}
+ */
+function isSuccessMetaVerificationRule(pat) {
+  return /^(goal\s+)?completed\s+successfully\.?$|^success\.?$|^task\s+(done|succeeded|completed)\.?$|^replay steps without error\.?$|^match success criteria\.?$/i.test(
+    String(pat || "").trim()
+  );
+}
+
+/**
  * Checks skill verification rules against summary + trajectory text (hint-only).
  * @param {object|null} skill
  * @param {{ success?: boolean, summary?: string, trajectory?: object[] }} ctx
@@ -581,6 +593,11 @@ export function evaluateSkillVerification(skill, ctx) {
   for (const rule of rules) {
     const pat = String(rule || "").trim();
     if (!pat) continue;
+    // Why: learn defaults are outcome checks, not substrings of the chat result.
+    if (isSuccessMetaVerificationRule(pat)) {
+      if (!ctx.success) notes.push(`Rule not met: ${pat}`);
+      continue;
+    }
     try {
       if (!new RegExp(pat, "i").test(blob)) notes.push(`Rule not met: ${pat}`);
     } catch {

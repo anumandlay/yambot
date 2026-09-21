@@ -284,7 +284,7 @@ export async function ensureSkillSuggestionFromTask(userId, opts = {}) {
       status: "draft",
       steps,
       executionMode,
-      verificationRules: ["Goal completed successfully"],
+      verificationRules: [],
       sourceTask: task._id,
       sourceDemonstration: demo?._id || null,
     });

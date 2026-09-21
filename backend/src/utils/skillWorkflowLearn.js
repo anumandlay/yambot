@@ -608,7 +608,8 @@ export async function learnSkillFromSuccessfulRun(opts) {
       triggers,
       steps: durable,
       executionMode: "hints",
-      verificationRules: ["Goal completed successfully"],
+      // Why: empty — "Goal completed successfully" was treated as a regex and always warned.
+      verificationRules: [],
       sourceTask: task._id,
       workflowKey,
       stats: { runs: 1, successes: 1, failures: 0 },

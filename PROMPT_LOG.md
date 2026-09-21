@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 13:16] Fix bogus skill verification warning
+
+- **Prompt Provided:** Pakistan trial-expiring ran correctly (0 rows) but chat showed `Skill verification warnings: Rule not met: Goal completed successfully`.
+- **Architectural Flow:** Learn had seeded that phrase as a verificationRules regex; evaluateSkillVerification required it in the summary blob. Treat success-meta rules as `ctx.success` checks; stop seeding the placeholder; clear it on the live Vughy skill.
+- **Impacted Files:** worker skills.js, skillWorkflowLearn.js, skillSuggestion.js, PROMPT_LOG
+
 ## [2026-09-21 13:10] Never stream Auto freeform (thinking flash)
 
 - **Prompt Provided:** User still saw LLM thinking text in chat after the ack-sanitize deploy.
