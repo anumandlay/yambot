@@ -53,5 +53,12 @@ echo "[desktop] preparing browser profile in ${PROFILE_DIR} (channel=${YAMBOT_BR
 cd /app
 node src/bootProfile.js
 
+# Why: binary only — serve starts lazily when CUA mode activates (chat "using cua" or 2 fails).
+if command -v cua-driver >/dev/null 2>&1; then
+  echo "[desktop] cua-driver present: $(cua-driver --version 2>/dev/null || echo ok)"
+else
+  echo "[desktop] cua-driver not installed — CUA uses Playwright click_at/type_at only"
+fi
+
 echo "[desktop] ready — launching worker (headed=${YAMBOT_HEADED})"
 exec node src/index.js

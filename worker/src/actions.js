@@ -9,7 +9,9 @@ import { getMaxActionsPerTurn } from "./fastMode.js";
 export const ACTION_TYPES = [
   "navigate",
   "click",
+  "click_at",
   "type",
+  "type_at",
   "select",
   "press_key",
   "scroll",
@@ -60,13 +62,15 @@ export const ACTION_TYPES = [
 /** Field docs + locator/business rules appended after the batch header. */
 const ACTION_FIELDS_AND_RULES = `
 "type" for action.type:
-"<one of: navigate|click|type|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|message_agent|memory|investigate|request_training|finish>"
+"<one of: navigate|click|click_at|type|type_at|select|press_key|scroll|wait|wait_for|switch_tab|open_tab|upload_file|dismiss_dialog|choose_menu_item|choose_searchable|extract|solve_captcha|ask_user|send_email|check_email|search_entities|get_entity|create_entity|update_entity|add_entity_observation|start_process|advance_process|set_entity_status|assign_entity|update_enrollment|update_kpi|update_ticket|send_slack|send_webhook|create_calendar_event|attach_document|search_tickets|create_ticket|search_deals|update_invoice|crm_sync|send_sms|http_request|message_agent|memory|investigate|request_training|finish>"
 
 Action fields:
 - navigate: { "type":"navigate", "url":"https://..." }
 - click: { "type":"click", "ref":"e12", "role":"button", "name":"Sign in", "css":"#login", "xpath":"//button[@id='login']" }
+- click_at: { "type":"click_at", "x": 420, "y": 310 } — viewport CSS pixels (CUA / screenshot-grounded); origin top-left
 - type: { "type":"type", "ref":"e5", "text":"...", "submit": false, "role":"textbox", "name":"Email", "css":"input[name=email]", "xpath":"//input[@name='email']" }
   Instant fill (not keystroke-by-keystroke). Also works on contenteditable compose bodies. For multi-field forms, batch several type actions + one click submit — do not use fill_form.
+- type_at: { "type":"type_at", "x": 420, "y": 310, "text":"...", "submit": false } — click viewport point then type (CUA)
 - select: { "type":"select", "ref":"e8", "value":"option text or value", "name":"Country", "css":"select#country", "xpath":"//select[@id='country']" }
   Optional "query" turns this into a searchable dropdown (same as choose_searchable).
 - press_key: { "type":"press_key", "key":"Enter|Tab|Escape|ArrowDown|..." }
@@ -145,10 +149,19 @@ Rules:
 /**
  * Builds the system action contract. Max batch size follows YAMBOT_MAX_ACTIONS_PER_TURN / fast mode.
  * @param {number} [maxActions]
+ * @param {{ cuaMode?: boolean }} [opts]
  * @returns {string}
  */
-export function buildActionSchemaForPrompt(maxActions) {
+export function buildActionSchemaForPrompt(maxActions, opts = {}) {
   const max = Math.max(1, Math.min(16, Number(maxActions) || getMaxActionsPerTurn()));
+  const cuaExtra = opts.cuaMode
+    ? `
+
+CUA / COMPUTER-USE (active): Prefer click_at / type_at from the viewport screenshot when DOM refs are unreliable.
+Example: {"thought":"sign-in by pixels","actions":[{"type":"click_at","x":640,"y":420}]}
+Example: {"thought":"email field","actions":[{"type":"type_at","x":500,"y":300,"text":"user@example.com"}]}
+`
+    : "";
   const header = `
 You control a real Chromium browser (cloud computer for this agent). Reply with ONE JSON object only (no markdown), shape:
 {
@@ -170,7 +183,7 @@ MULTI-ACTION BATCHES (REQUIRED for speed — single-action replies are a last re
 - If both "action" and "actions" exist, "actions" wins. Hard max ${max} actions per turn.
 - Put finish/ask_user/solve_captcha last (or alone). Do not put navigate/open_tab in the middle of a fill burst — they end the batch.
 - Gmail / label / filter workflows: batch search box type + Enter, or checkbox + Move-to + label click, in ONE reply when those refs are already on screen.
-
+${cuaExtra}
 Example (Google search in ONE turn):
 {"thought":"search hello","actions":[
   {"type":"click","ref":"e3","name":"Search"},
@@ -391,6 +404,8 @@ export const BATCH_STOP_TYPES = new Set([
 /** Light settle types — short pause, no full DOM wait every field. */
 export const LIGHT_SETTLE_TYPES = new Set([
   "type",
+  "type_at",
+  "click_at",
   "fill_form",
   "select",
   "choose_searchable",

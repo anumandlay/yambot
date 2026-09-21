@@ -662,8 +662,8 @@ export const HELP = {
   "agent.cloudComputerEngine": {
     title: "Desktop engine",
     body: helpBody(
-      "Agents always use Playwright Chromium on a virtual display (~3 GB). CUA / full XFCE desktops are not offered.",
-      "The browser profile (cookies) persists across restarts of the same agent box."
+      "Agents always use Playwright Chromium on a virtual display (~3 GB). Full XFCE desktops are not offered for website agents.",
+      "Say “using cua” in chat (e.g. “login to this site using cua”) to start screenshot/coordinate computer-use on the same box. After 2 failed locator attempts, CUA also activates automatically. Browser profile (cookies) persists across restarts of the same agent box."
     ),
   },
   "agent.clearBrowserData": {

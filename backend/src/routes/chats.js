@@ -35,6 +35,7 @@ import {
 } from "../utils/chatContext.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
+import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
 
 export const chatsRouter = Router();
 
@@ -1505,6 +1506,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       });
     }
 
+    // Why: “login using cua” → computerUseMode=cua; strip the phrase from the worker goal.
+    const cuParsed = parseComputerUseFromText(goalText || content);
+    const computerUseMode = normalizeComputerUseMode(cuParsed.mode);
+    const workerGoalText = cuParsed.cleanedGoal || goalText || content;
+
     // Why: rebuild snapshot with final goal + semantic curated top-k + chat context for the worker.
     /** @type {object|null} */
     let curatedMeta = null;
@@ -1515,12 +1521,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       const curated = await resolveCuratedMemoryForPrompt({
         userEntries: userForCtx?.curatedMemory?.entries,
         agentEntries: agentDoc.curatedMemory?.entries,
-        goal: goalText || content,
+        goal: workerGoalText,
         creds: ctxCreds,
       });
       curatedMeta = curated.meta;
       snapshot = toAgentSnapshot(agentDoc, {
-        goal: goalText || content,
+        goal: workerGoalText,
         userCuratedEntries: curated.userCuratedEntries,
         agentCuratedEntries: curated.agentCuratedEntries,
       });
@@ -1533,24 +1539,26 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       void refreshChatContextIfNeeded(chat, ctxCreds).catch(() => {});
     } catch (err) {
       console.warn("[chats] chat context pack failed:", err?.message || err);
-      snapshot = toAgentSnapshot(agentDoc, { goal: goalText || content });
+      snapshot = toAgentSnapshot(agentDoc, { goal: workerGoalText });
     }
 
     const task = await Task.create({
       user: req.userId,
       chat: chat._id,
       message: message._id,
-      goal: goalText || content,
+      goal: workerGoalText,
       agent: agentDoc._id,
       agentSnapshot: snapshot,
       invokedSkill: invokedSkillDoc?._id || null,
       runner: "cloud",
+      computerUseMode,
       status: "pending",
       events: [
         {
           type: "queued",
           payload: {
-            goal: goalText || content,
+            goal: workerGoalText,
+            computerUseMode,
             agentId: snapshot?.id || null,
             agentName: snapshot?.name || null,
             runner: "cloud",

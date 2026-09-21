@@ -151,6 +151,18 @@ const taskSchema = new mongoose.Schema(
       default: "cloud",
       index: true,
     },
+    /**
+     * How the cloud worker should drive the live browser for this run.
+     * auto = Playwright locators first; activate CUA after 2 failed recoverable attempts.
+     * cua = start in screenshot/coordinate computer-use (chat said “using cua”).
+     * playwright = never auto-escalate to CUA.
+     * Why: website agents stay on the same Xvfb Chrome box — no XFCE swap.
+     */
+    computerUseMode: {
+      type: String,
+      enum: ["auto", "cua", "playwright"],
+      default: "auto",
+    },
     status: {
       type: String,
       enum: [

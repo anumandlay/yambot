@@ -11,6 +11,7 @@ import { User } from "../models/User.js";
 import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { postCuratedPullMessage, resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
+import { normalizeComputerUseMode, parseComputerUseFromText } from "./computerUseMode.js";
 
 /**
  * One human chat per agent — find the newest agent chat or create it.
@@ -86,6 +87,7 @@ export async function ensureAgentChat(userId, agentId, opts = {}) {
  * @param {string} [opts.ticketRef]
  * @param {boolean} [opts.skipCompanyContext]
  * @param {string} [opts.displayContent] — chat bubble text (defaults to goal before company framing)
+ * @param {"auto"|"cua"|"playwright"} [opts.computerUseMode] — override parsed mode from goal text
  * @returns {Promise<{ task: import('mongoose').Document, chat: import('mongoose').Document, message: import('mongoose').Document }>}
  */
 export async function enqueueTask(opts) {
@@ -101,10 +103,17 @@ export async function enqueueTask(opts) {
     throw Object.assign(new Error("Agent missing"), { status: 404 });
   }
 
+  // Why: “login using cua” → mode cua + cleaned goal so the LLM focuses on the site task.
+  const parsedCu = parseComputerUseFromText(rawGoal);
+  const computerUseMode = opts.computerUseMode
+    ? normalizeComputerUseMode(opts.computerUseMode)
+    : parsedCu.mode;
+  const goalForWorker = parsedCu.cleanedGoal || rawGoal;
+
   // Why: chat shows the human ask; Task.goal keeps company memory + A2A framing for the worker.
   const displayContent =
     String(opts.displayContent || "").trim() || rawGoal;
-  let workerGoal = rawGoal;
+  let workerGoal = goalForWorker;
   if (!opts.skipCompanyContext) {
     const contextBlock = await buildCompanyContextBlock(userId, {
       agentId,
@@ -112,7 +121,7 @@ export async function enqueueTask(opts) {
       enrollmentId: opts.enrollmentRef || opts.meta?.enrollmentId || null,
       ticketId: opts.ticketRef || opts.meta?.ticketId || null,
     });
-    workerGoal = prependContextToGoal(rawGoal, contextBlock);
+    workerGoal = prependContextToGoal(goalForWorker, contextBlock);
   }
 
   let chat;
@@ -187,6 +196,7 @@ export async function enqueueTask(opts) {
       agentCuratedEntries: curated.agentCuratedEntries,
     }),
     runner: "cloud",
+    computerUseMode,
     status: blockedByDeps > 0 ? "blocked" : "pending",
     dependsOn,
     slaDeadline: opts.slaDeadline || null,
@@ -200,6 +210,7 @@ export async function enqueueTask(opts) {
           source: opts.source || "enqueue",
           blocked: blockedByDeps > 0,
           userFacingGoal: displayContent,
+          computerUseMode,
           curatedMemory: curated.meta,
           ...(opts.meta && typeof opts.meta === "object" ? opts.meta : {}),
         },

@@ -19,9 +19,20 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fluxbox \
     xterm \
     xdotool \
+    libxi6 \
+    at-spi2-core \
+    dbus-x11 \
     fonts-liberation \
     fonts-noto-color-emoji \
+    curl \
+    ca-certificates \
   && rm -rf /var/lib/apt/lists/*
+
+# Why: website-agent CUA — install cua-driver on the same Xvfb box (lazy-started on activate).
+# Non-fatal if the installer is unreachable at build time; worker falls back to coordinate mode.
+RUN curl -fsSL https://cua.ai/driver/install.sh | bash \
+  && ln -sf /root/.local/bin/cua-driver /usr/local/bin/cua-driver \
+  && cua-driver --version || echo "[build] cua-driver install skipped or failed — coordinate CUA still works"
 
 COPY worker/package.json ./
 RUN npm install --omit=dev \

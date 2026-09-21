@@ -31,6 +31,11 @@ import {
 import { addLlmUsage, createLlmUsageTracker, snapshotLlmUsage } from "./llmUsage.js";
 import { solveCaptchaWithDbc } from "./captcha.js";
 import { buildActionSchemaForPrompt, parseAgentResponse, BATCH_STOP_TYPES, LIGHT_SETTLE_TYPES } from "./actions.js";
+import {
+  createComputerUseController,
+  textRequestsCua,
+  CUA_ACTIVATE_AFTER_FAILS,
+} from "./computerUse.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
 import { observeInPage, executeInPage, captchaMetaInPage, sanitizePageObservation, precheckLocatorInPage, waitForConditionInPage } from "./pageDom.js";
@@ -1746,6 +1751,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const taskValueUsd = Number(task.estimatedValueUsd) || 0;
     const runStartedAt = Date.now();
     const agentSnapshot = task.agentSnapshot || null;
+    const computerUse = createComputerUseController(task.computerUseMode || "auto");
     const notes = [];
     const history = [];
     let siteDomain = "";
@@ -1758,6 +1764,35 @@ export function createCloudAgent({ api, config, log = console.log }) {
       log(
         `[${config.workerName}] FAST_MODE on (observe≤${speedProfile.maxInteractives}, batch≤${speedProfile.maxActionsPerTurn}, skipFrames=${speedProfile.skipFrames})`
       );
+    }
+
+    /**
+     * Activates CUA (idempotent), starts cua-driver best-effort, mirrors chat note.
+     * @param {string} reason
+     */
+    async function activateComputerUse(reason) {
+      const result = await computerUse.activate(reason);
+      const driverBit = result.driver?.ok
+        ? `cua-driver ready (${result.driver.version || "ok"})`
+        : `cua-driver optional (${result.driver?.error || "unavailable"} — using Playwright coordinate mode)`;
+      const msg =
+        reason === "fallback_after_fails"
+          ? `CUA activated after ${CUA_ACTIVATE_AFTER_FAILS} failed locator attempts — ${driverBit}.`
+          : reason === "explicit"
+            ? `CUA mode (requested in chat) — ${driverBit}.`
+            : `CUA activated (${reason}) — ${driverBit}.`;
+      notes.push(msg);
+      await mirror(taskId, "info", {
+        appendMessage: msg,
+        payload: {
+          kind: "computer_use_activated",
+          reason: result.reason,
+          driverOk: Boolean(result.driver?.ok),
+          state: computerUse.getState(),
+        },
+      }).catch(() => {});
+      log(`[${config.workerName}] ${msg}`);
+      return result;
     }
 
     /**
@@ -1822,6 +1857,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
     try {
       await ensureBrowser();
+
+      if (computerUse.isActive()) {
+        await activateComputerUse("explicit");
+      }
 
       const settings = await getSettings();
       if (!settings.llmApiKey) {
@@ -2141,6 +2180,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           if (opRows.length) {
             const latest = String(opRows[opRows.length - 1]?.content || "").trim();
             if (latest) {
+              if (textRequestsCua(latest) && !computerUse.isActive()) {
+                await activateComputerUse("operator_message");
+              }
               const prior = goal && goal !== latest ? goal : originalGoal;
               goal = [
                 `ACTIVE REQUEST (from human mid-run — complete THIS; call finish only when THIS is done or they cancel it):\n${latest}`,
@@ -2294,10 +2336,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
         const sessionTelemetry = telemetry?.getSummary();
         const prevResult = history[history.length - 1]?.result;
         const visionAllowed = agentSnapshot?.autonomy?.visionEnabled === true;
+        const cuaActive = computerUse.isActive();
+        // Why: CUA always needs a viewport image; otherwise keep existing vision policy.
         const wantVision =
-          visionAllowed &&
-          shouldAttachVision({ step, result: prevResult }) &&
-          !remoteHumanControl;
+          !remoteHumanControl &&
+          (cuaActive ||
+            (visionAllowed && shouldAttachVision({ step, result: prevResult })));
 
         const snapshotText = formatObservation(obs, pageState, stateDiff, goal, {
           plan: goalPlan,
@@ -2308,6 +2352,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const userTextParts = [
           `GOAL:\n${goal}`,
+          cuaActive ? computerUse.promptBlock() : "",
           goalIncludesLoginCredentials(goal)
             ? "LOGIN: User supplied credentials in GOAL — proceed with login; do not call ask_user for confirmation."
             : "",
@@ -2391,7 +2436,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           {
             role: "system",
             content: [
-              buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn),
+              buildActionSchemaForPrompt(stepTiming.maxActionsPerTurn, {
+                cuaMode: computerUse.isActive(),
+              }),
               "You are YamBot Browser Agent on a dedicated cloud computer.",
               "There is no step limit — keep working until the goal is met, then call finish.",
               "DELEGATION: If the user asks you to have peer(s) open/visit a site (or do work) and report back, call message_agent only — do NOT navigate/open_tab that site yourself. Fan-out with to:[\"B\",\"C\"] or fanout:[{to,content}…] for parallel peers — when the goal says both/at the same time, put ALL peers in ONE message_agent (never ask them one-after-another with wait:true). Use wait:false when you still have other work; wait:\"soft\" to work a few minutes then pause; wait:true only when you cannot proceed without their answers. After wait:\"soft\", NEVER finish in the same turn — keep working until the soft window ends or a PEER RESULT note arrives. If a goal starts with LATE PEER RESULT, incorporate that answer and finish — do not re-open the peer’s site unless verifying.",
@@ -2411,9 +2458,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
               siteHintsBlock,
               visionAttached
                 ? "A viewport screenshot is attached — correlate refs with visible UI."
-                : visionAllowed
-                  ? "A screenshot may attach after failed verification steps."
-                  : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
+                : computerUse.isActive()
+                  ? "CUA mode is on but screenshot capture failed — use click_at carefully or fall back to DOM refs."
+                  : visionAllowed
+                    ? "A screenshot may attach after failed verification steps."
+                    : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
               "PAGE READY: navigate already waits for domcontentloaded then snapshots — do not wait_for invented site phrases. Act on ACTION SURFACE refs in CURRENT PAGE SNAPSHOT.",
               formatAgentSnapshot(agentSnapshot, goal),
@@ -2819,6 +2868,14 @@ export function createCloudAgent({ api, config, log = console.log }) {
           result?.ok === false ||
           result?.success === false ||
           result?.verification?.passed === false;
+        if (!failedHard) {
+          computerUse.noteSuccess();
+        } else if (isRecoverableAction(actionToRun)) {
+          const failNote = computerUse.noteRecoverableFailure();
+          if (failNote.activated) {
+            await activateComputerUse("fallback_after_fails");
+          }
+        }
         // Why: success already announced before act; only post again on failure so chat isn't duplicated/laggy.
         if (failedHard) {
           const errText = String(result?.error || result?.failure_class || "failed").slice(0, 160);
@@ -3884,6 +3941,37 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
         await page.mouse.click(point.x, point.y, { delay: 0 });
         return { ok: true, clicked: point.name, x: point.x, y: point.y };
+      }
+      case "click_at": {
+        const x = Number(action.x);
+        const y = Number(action.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { ok: false, error: "click_at requires numeric x and y (viewport CSS pixels)" };
+        }
+        await page.mouse.click(x, y, { delay: 40 });
+        return { ok: true, clicked_at: { x, y }, computerUse: true };
+      }
+      case "type_at": {
+        const x = Number(action.x);
+        const y = Number(action.y);
+        if (!Number.isFinite(x) || !Number.isFinite(y)) {
+          return { ok: false, error: "type_at requires numeric x and y (viewport CSS pixels)" };
+        }
+        const text = String(action.text ?? "");
+        await page.mouse.click(x, y, { delay: 30 });
+        await page.keyboard.press("Control+a");
+        await sleep(40);
+        await page.keyboard.type(text, { delay: action.human_type === true ? 12 : 0 });
+        if (action.submit) {
+          await page.keyboard.press("Enter");
+        }
+        return {
+          ok: true,
+          typed_at: { x, y },
+          textLength: text.length,
+          submit: Boolean(action.submit),
+          computerUse: true,
+        };
       }
       case "select":
       case "press_key":

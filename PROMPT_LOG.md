@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 13:25] Website CUA: chat “using cua” + auto after 2 fails
+
+- **Prompt Provided:** Install cua-driver on the live Playwright computer; activate after 2 failed attempts; also start CUA when chat says e.g. “login using cua”. Website agents (no full XFCE).
+- **Architectural Flow:** `Task.computerUseMode` (`auto`|`cua`|`playwright`) from `parseComputerUseFromText`. Worker `createComputerUseController` starts CUA on explicit mode or after 2 recoverable locator failures; lazy `cua-driver serve`; `click_at`/`type_at` + forced vision. Same Xvfb Chrome session — no container swap.
+- **Impacted Files:** computerUseMode.js, Task.js, enqueueTask.js, chats.js, worker computerUse.js/cuaDriver.js/actions.js/agent.js, Dockerfile.worker, entrypoint.sh, helpContent.js, PROMPT_LOG
+
 ## [2026-09-21 13:16] Fix bogus skill verification warning
 
 - **Prompt Provided:** Pakistan trial-expiring ran correctly (0 rows) but chat showed `Skill verification warnings: Rule not met: Goal completed successfully`.
