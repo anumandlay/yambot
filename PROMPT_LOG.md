@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 10:10] USER memory delete must drop chat summary zombies
+
+- **Prompt Provided:** Settings → Memory deleted “be rude with me” but agents still used the old rude USER profile.
+- **Architectural Flow:** Live USER curated store was empty; poison lived in `Chat.contextSummary` (and old frozen task snapshots). On USER curated mutate/clear, invalidate all chat context summaries for the account. Prompt/summary rules: USER PROFILE from Settings is authoritative; empty USER → do not invent tone from chat history.
+- **Impacted Files:** curatedMemoryOps.js, chatContext.js, Agent.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-21 09:50] Dedupe site-memory flows (don’t stack every success)
 
 - **Prompt Provided:** Every successful same run adds another site-memory flow and all get injected.

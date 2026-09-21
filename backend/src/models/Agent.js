@@ -729,7 +729,9 @@ export function formatAgentPrompt(snapshot) {
       : "",
     `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${auto.askBeforeLogin === true}; askBeforeSubmit=${auto.askBeforeSubmit === true}; visionEnabled=${auto.visionEnabled === true}`,
     "STEP BUDGET: unlimited — call finish when done",
-    snapshot.curatedUserBlock ? String(snapshot.curatedUserBlock) : "",
+    snapshot.curatedUserBlock
+      ? String(snapshot.curatedUserBlock)
+      : "USER PROFILE: (none — Settings → Memory is empty. Do not invent tone/identity prefs from chat history.)",
     snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
     formatCredentialsBlock(snapshot.credentials),
     formatDayHistoryBlock(snapshot.dayHistoryRecent, snapshot.dayHistoryRelevant),

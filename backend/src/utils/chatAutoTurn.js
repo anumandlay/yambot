@@ -723,6 +723,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- hypothetical / policy questions (what if…, what would you do if…, if I don’t give details…) — answer from memory; do NOT queue the computer",
     "",
     "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing or peers.",
+    "USER PROFILE (Settings → Memory) is authoritative for tone/identity. If that block is empty or says none, ignore old tone prefs from chat history.",
   ];
 
   if (mode === "tools") {
@@ -1123,6 +1124,7 @@ export async function streamChatQuestion(opts) {
         "Never append lines like “AGENT NAME: …” to your replies.",
         "This is Q&A mode — you are NOT controlling the computer right now.",
         "Use the agent profile, USER PROFILE, MEMORY, day history, saved logins, and chat session context.",
+        "USER PROFILE (Settings → Memory) is authoritative for tone/identity. If it is empty or says none, ignore old rude/tone prefs from chat history.",
         "If the user needs browsing, peers, or fan-out, tell them briefly that Auto/Computer mode will run it — but still answer what you can from memory.",
         "Be concise. Plain prose only — no tool JSON, no finish, no <think> tags.",
         "",

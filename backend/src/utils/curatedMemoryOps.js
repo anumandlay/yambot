@@ -18,6 +18,7 @@ import {
 } from "./curatedMemory.js";
 import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { embedCuratedContent } from "./semanticMemory.js";
+import { invalidateChatContextSummariesForUser } from "./chatContext.js";
 
 /**
  * @param {string} userId
@@ -103,6 +104,10 @@ export async function mutateCuratedMemory(opts) {
       updatedAt: now,
     };
     await user.save();
+    // Why: chat contextSummary often absorbed tone/identity from USER.md — drop it so deletes stick.
+    await invalidateChatContextSummariesForUser(opts.userId).catch((err) => {
+      console.warn("[curatedMemory] chat summary invalidate failed:", err?.message || err);
+    });
     return {
       ...result,
       ...publicCuratedStore(user.curatedMemory.entries, USER_CHAR_LIMIT, now),
@@ -199,6 +204,9 @@ export async function setCuratedMemoryEntries(opts) {
     if (!user) return { success: false, target, error: "User not found." };
     user.curatedMemory = { entries: persistable, updatedAt: now };
     await user.save();
+    await invalidateChatContextSummariesForUser(opts.userId).catch((err) => {
+      console.warn("[curatedMemory] chat summary invalidate failed:", err?.message || err);
+    });
     return {
       success: true,
       target,

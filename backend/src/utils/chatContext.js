@@ -5,7 +5,7 @@
  * Downstream: chats routes (Q&A + Task.agentSnapshot); worker formatAgentSnapshot.
  */
 
-import { Message } from "../models/Chat.js";
+import { Chat, Message } from "../models/Chat.js";
 import { llmChatCompletion } from "./llmChat.js";
 import {
   chatContextBudgetFromTokens,
@@ -117,9 +117,31 @@ export function formatChatContextBlock(chat, eligible, budget = null) {
   }
   if (!parts.length) return "";
   return (
-    "THIS CHAT SESSION CONTEXT (use for continuity; do not invent turns that are not listed):\n\n" +
-    parts.join("\n\n")
+    "THIS CHAT SESSION CONTEXT (use for continuity; do not invent turns that are not listed):\n" +
+      "AUTHORITY: Account USER prefs / tone / identity come only from the USER PROFILE block " +
+      "(Settings → Memory). If that block is absent or empty, do not keep old tone/identity " +
+      "instructions from this summary or from prior assistant replies.\n\n" +
+      parts.join("\n\n")
   );
+}
+
+/**
+ * Drop every chat's running summary for an account after Settings USER memory changes.
+ * Why: summaries often absorb tone/identity from USER.md; after delete they keep zombie prefs.
+ * @param {string|import('mongoose').Types.ObjectId} userId
+ * @returns {Promise<{ matched: number, modified: number }>}
+ */
+export async function invalidateChatContextSummariesForUser(userId) {
+  const uid = String(userId || "").trim();
+  if (!uid) return { matched: 0, modified: 0 };
+  const result = await Chat.updateMany(
+    { user: uid },
+    { $set: { contextSummary: "", contextSummarizedThrough: null } }
+  );
+  return {
+    matched: Number(result.matchedCount || 0),
+    modified: Number(result.modifiedCount || 0),
+  };
 }
 
 /**
@@ -212,6 +234,7 @@ export async function refreshChatContextIfNeeded(chat, creds) {
             "You maintain a running summary of a YamBot agent chat thread.",
             "Write a concise third-person summary of goals, decisions, sites visited, outcomes, and open follow-ups.",
             "Keep facts the agent must remember later. Omit UI chrome and repeated fluff.",
+            "Do NOT copy account identity, location, or tone/personality prefs into the summary — those live in Settings → Memory (USER PROFILE) and change independently.",
             `Max ~${budget.summaryMax} characters. Plain text only.`,
           ].join(" "),
         },
