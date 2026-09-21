@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 11:35] Skills page: Learned badge, workflow key, demote
+
+- **Prompt Provided:** Skills left one-by-one — #4 Skills page clarity.
+- **Architectural Flow:** GET `/api/skills` populates agent + sourceTask and flags `learnedFromRun`. Skills page shows Learned/Live badges, workflow key, source goal snippet, Promote/Demote/Restore/Delete; deprecated skills in a collapsed section.
+- **Impacted Files:** skills.js routes, SkillsPage.jsx, PROMPT_LOG
+
 ## [2026-09-21 11:30] Skill hints steer harder — plan from Suggested flow
 
 - **Prompt Provided:** Skills left one-by-one — #3 hints steer harder.

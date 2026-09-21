@@ -110,10 +110,20 @@ skillsRouter.get("/", async (req, res, next) => {
     );
     // Why: drop leftover Suggested:* drafts from the old auto-from-task pipeline.
     await purgeAutoSuggestedSkills(req.userId);
-    const skills = await Skill.find({ user: req.userId }).sort({ updatedAt: -1 }).lean();
+    const skills = await Skill.find({ user: req.userId })
+      .populate({ path: "agent", select: "name" })
+      .populate({ path: "sourceTask", select: "goal chat status createdAt" })
+      .sort({ updatedAt: -1 })
+      .lean();
     res.json({
       ok: true,
-      skills: skills.map(normalizeSkillStatus),
+      skills: skills.map((s) => {
+        const row = normalizeSkillStatus(s);
+        return {
+          ...row,
+          learnedFromRun: Boolean(row.workflowKey || row.sourceTask),
+        };
+      }),
       systemSkills: listSystemSkills(),
     });
   } catch (err) {
