@@ -25,7 +25,10 @@ mkdir -p "${XDG_RUNTIME_DIR}"
 chmod 700 "${XDG_RUNTIME_DIR}"
 
 echo "[desktop] starting Xvfb ${DISPLAY} ${SCREEN_W}x${SCREEN_H}x24"
-Xvfb "${DISPLAY}" -screen 0 "${SCREEN_W}x${SCREEN_H}x24" -ac +extension RANDR +extension GLX >/tmp/xvfb.log 2>&1 &
+# Why: cua-driver window screenshots need MIT-SHM; without it Linux capture backends fail with X11 Match.
+Xvfb "${DISPLAY}" -screen 0 "${SCREEN_W}x${SCREEN_H}x24" -ac \
+  +extension RANDR +extension GLX +extension MIT-SHM +extension RENDER \
+  >/tmp/xvfb.log 2>&1 &
 XVFB_PID=$!
 sleep 0.8
 if ! kill -0 "${XVFB_PID}" 2>/dev/null; then
@@ -33,6 +36,9 @@ if ! kill -0 "${XVFB_PID}" 2>/dev/null; then
   cat /tmp/xvfb.log >&2 || true
   exit 1
 fi
+# Why: some capture paths still choke on SHM Magick/Match — prefer non-SHM fallbacks when available.
+export QT_X11_NO_MITSHM="${QT_X11_NO_MITSHM:-0}"
+export GDK_BACKEND="${GDK_BACKEND:-x11}"
 
 # Why: cua-driver Linux AX talks AT-SPI over the session bus. Without dbus-launch,
 # get_window_state hangs / warns "AT-SPI connect failed: No such file or directory".
@@ -53,6 +59,19 @@ if [[ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]]; then
 else
   echo "[desktop] dbus session reused (${DBUS_SESSION_BUS_ADDRESS})"
 fi
+
+# Why: persist for docker exec / debug probes; worker already inherits via export+exec.
+{
+  echo "export DBUS_SESSION_BUS_ADDRESS=$(printf %q "${DBUS_SESSION_BUS_ADDRESS:-}")"
+  echo "export DBUS_SESSION_BUS_PID=$(printf %q "${DBUS_SESSION_BUS_PID:-}")"
+  echo "export XDG_RUNTIME_DIR=$(printf %q "${XDG_RUNTIME_DIR:-}")"
+  echo "export NO_AT_BRIDGE=0"
+  echo "export GTK_A11Y=1"
+  echo "export QT_ACCESSIBILITY=1"
+  echo "export ACCESSIBILITY_ENABLED=1"
+  echo "export DISPLAY=$(printf %q "${DISPLAY}")"
+} >/tmp/yambot-desktop.env
+chmod 644 /tmp/yambot-desktop.env
 
 ATSPI_LAUNCHER=""
 for candidate in \

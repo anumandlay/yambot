@@ -152,36 +152,84 @@ export function createCuaCapture(session) {
         if (!resolved.ok) return { ok: false, error: resolved.error };
       }
 
-      const includeTree = mode !== "vision";
-      const includeShot = mode !== "ax";
-      // Why: AT-SPI is often missing in agent boxes — long SOM captures hang; keep tight budgets.
+      // Why: on Xvfb, include_screenshot often fails (MIT-SHM Match) even when AT-SPI tree works.
+      // Prefer tree for som/ax; Playwright supplies the vision image in agent.js when shot missing.
+      const wantTree = mode !== "vision";
+      const wantShot = mode === "vision" || mode === "som";
       const timeoutMs = mode === "vision" ? 20000 : 25000;
-      const gws = await session.callTool(
+
+      let gws = await session.callTool(
         "get_window_state",
         {
           pid: sticky.pid,
           window_id: sticky.windowId,
-          include_accessibility_tree: includeTree,
-          include_screenshot: includeShot,
+          include_accessibility_tree: wantTree,
+          include_screenshot: wantShot,
           max_elements: mode === "som" ? 400 : 800,
           max_depth: mode === "som" ? 18 : 25,
         },
         timeoutMs
       );
 
+      // SOM with both flags failed — keep the AX tree (Hermes still useful without overlay PNG).
+      if (!gws.ok && mode === "som" && !retried) {
+        const treeOnly = await session.callTool(
+          "get_window_state",
+          {
+            pid: sticky.pid,
+            window_id: sticky.windowId,
+            include_accessibility_tree: true,
+            include_screenshot: false,
+            max_elements: 400,
+            max_depth: 18,
+          },
+          20000
+        );
+        if (treeOnly.ok) gws = treeOnly;
+      }
+
       if (!gws.ok) {
         if (!retried) {
-          // One re-resolve + lighter vision capture, then give up (no infinite recursion).
           sticky = null;
           const resolved = await this.resolveTarget();
           if (!resolved.ok) {
             return { ok: false, error: gws.error || resolved.error || "get_window_state failed" };
           }
-          if (mode !== "vision") {
-            return this.capture({ mode: "vision", _retried: true });
+          if (mode === "vision") {
+            // Last resort: desktop-scope screenshot via set_config (Hermes full-screen lane).
+            await session
+              .callTool("set_config", { key: "capture_scope", value: "desktop" }, 8000)
+              .catch(() => null);
+            const desk = await session.callTool(
+              "get_window_state",
+              {
+                pid: sticky.pid,
+                window_id: sticky.windowId,
+                include_accessibility_tree: false,
+                include_screenshot: true,
+                max_elements: 50,
+                max_depth: 8,
+              },
+              20000
+            );
+            await session
+              .callTool("set_config", { key: "capture_scope", value: "window" }, 8000)
+              .catch(() => null);
+            if (desk.ok) gws = desk;
+            else return { ok: false, error: gws.error || desk.error || "screenshot failed", via: gws.via };
+          } else {
+            return this.capture({ mode: "ax", _retried: true });
           }
-          return this.capture({ mode, _retried: true });
+        } else {
+          return {
+            ok: false,
+            error: gws.error || "get_window_state failed",
+            via: gws.via,
+          };
         }
+      }
+
+      if (!gws.ok) {
         return {
           ok: false,
           error: gws.error || "get_window_state failed",
@@ -217,6 +265,7 @@ export function createCuaCapture(session) {
         width: Number(sc.screenshot_width || sc.width || 0) || undefined,
         height: Number(sc.screenshot_height || sc.height || 0) || undefined,
         via: gws.via,
+        degraded: Boolean(sc.degraded) || (wantShot && !shot),
       };
     },
 
