@@ -2441,7 +2441,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let visionAttached = false;
         if (wantVision) {
           try {
-            const b64 = cuaShotB64 || (await captureViewportBase64(page));
+            // Why: cua-driver window PNGs include chrome chrome + different size; model x/y must
+            // match Playwright viewport CSS from the attached image — always prefer viewport JPEG.
+            const b64 = (await captureViewportBase64(page)) || cuaShotB64;
             if (b64) {
               userContent = buildVisionUserContent(userTextParts, b64);
               visionAttached = true;
@@ -4141,9 +4143,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
             let x = Number(action.x);
             let y = Number(action.y);
             const elIdx = action.element ?? action.element_index;
+            let via = "playwright_xy";
             if ((!Number.isFinite(x) || !Number.isFinite(y)) && elIdx != null) {
               let mapped = null;
-              if (actionsApi?.elementCenterViewport) {
+              if (actionsApi?.resolveElementViewport) {
+                mapped = await actionsApi.resolveElementViewport(page, Number(elIdx));
+              } else if (actionsApi?.elementCenterViewport) {
                 mapped = await actionsApi.elementCenterViewport(page, Number(elIdx));
               } else if (captureApi) {
                 mapped = await atspiFrameCenterToViewport(
@@ -4154,12 +4159,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
               if (mapped?.ok) {
                 x = mapped.x;
                 y = mapped.y;
+                via = mapped.via || "atspi_frame_to_viewport";
               }
             }
             if (!Number.isFinite(x) || !Number.isFinite(y)) {
               return {
                 ok: false,
-                error: "computer_use fallback click needs viewport x/y or element frame",
+                error: "computer_use fallback click needs viewport x/y or element label/frame",
                 computerUse: true,
               };
             }
@@ -4168,10 +4174,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
               ok: true,
               action: "click",
               fallback: "playwright",
+              via,
               x,
               y,
               computerUse: true,
               cursorMoved: hit.cursorMoved,
+              overlayMoved: hit.overlayMoved,
               screenX: hit.screenX,
               screenY: hit.screenY,
             };

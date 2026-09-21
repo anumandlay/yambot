@@ -277,18 +277,27 @@ export function createCuaCapture(session) {
     formatForPrompt(cap) {
       if (!cap?.ok) return `CUA CAPTURE FAILED: ${cap?.error || "unknown"}`;
       const head = [
-        "CUA CAPTURE (cua-driver AT-SPI — prefer computer_use action=click element=N):",
+        "CUA CAPTURE (AT-SPI list — click by element index; YamBot hits via Playwright label/frame):",
         `Window: ${cap.appName || "?"} — ${cap.title || "?"}`,
         `pid=${cap.pid} window_id=${cap.windowId} elements=${cap.elements?.length || 0}`,
-        "Coords (if used): Playwright viewport CSS from the attached screenshot — not AT-SPI frame x/y.",
+        "Pick the element whose label matches the control you want (exact words matter).",
+        "Coords (if used): Playwright viewport CSS from the attached viewport screenshot — not AT-SPI frame x/y.",
       ];
-      const list = (cap.elements || [])
-        .slice(0, 100)
-        .map((e) => {
-          const lab = String(e.label || "").slice(0, 70);
-          const val = e.value ? ` value=${String(e.value).slice(0, 40)}` : "";
-          return `  [${e.element_index}] ${e.role || "el"} "${lab}"${val}`;
-        });
+      // Prefer interactive roles so the model does not pick chrome chrome / container indices.
+      const ranked = [...(cap.elements || [])].sort((a, b) => {
+        const score = (e) => {
+          const r = String(e.role || "").toLowerCase();
+          if (/link|button|entry|text|checkbox|radio|tab|menuitem|combo/.test(r)) return 0;
+          if (String(e.label || "").trim()) return 1;
+          return 2;
+        };
+        return score(a) - score(b);
+      });
+      const list = ranked.slice(0, 100).map((e) => {
+        const lab = String(e.label || "").slice(0, 70);
+        const val = e.value ? ` value=${String(e.value).slice(0, 40)}` : "";
+        return `  [${e.element_index}] ${e.role || "el"} "${lab}"${val}`;
+      });
       return [...head, "Elements:", ...list, cap.treeMarkdown ? `\nAX tree excerpt:\n${String(cap.treeMarkdown).slice(0, 4000)}` : ""]
         .filter(Boolean)
         .join("\n");

@@ -1,15 +1,39 @@
 /**
  * @fileoverview Hermes-parity input actions via cua-driver MCP (click / type / key / scroll).
- * Purpose: Element-index actions against the sticky Chrome window; coordinate clicks stay on
- * Playwright viewport space (matching the attached screenshot) so hits land correctly.
+ * Purpose: Element-index actions resolve to Playwright viewport hits (AT-SPI label/frame → CSS)
+ * so Chrome web clicks land correctly; MCP click is last resort only. Visible cursor/overlay
+ * glides before the hit so Take control shows the pointer.
  * Downstream: agent.js computer_use execute path; pairs with xCursor for visible demo glide.
  */
 
 import {
   moveXCursorVisible,
-  viewportToScreen,
   atspiFrameCenterToViewport,
+  clickWithVisibleCursor,
+  showCursorAtViewport,
 } from "./xCursor.js";
+
+/**
+ * Map AT-SPI role strings to Playwright getByRole names.
+ * @param {string} role
+ * @returns {string|null}
+ */
+function playwrightRole(role) {
+  const r = String(role || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[_-]+/g, " ");
+  if (!r) return null;
+  if (/(^| )link($| )/.test(r) || r === "hyperlink") return "link";
+  if (/button|push button/.test(r)) return "button";
+  if (/text(field| box)?|entry|edit|combobox/.test(r)) return "textbox";
+  if (/checkbox/.test(r)) return "checkbox";
+  if (/radio/.test(r)) return "radio";
+  if (/tab($| )/.test(r)) return "tab";
+  if (/menuitem/.test(r)) return "menuitem";
+  if (/heading/.test(r)) return "heading";
+  return null;
+}
 
 /**
  * @param {import('./cuaMcpSession.js').CuaMcpSession} session
@@ -29,9 +53,56 @@ export function createCuaActions(session, capture) {
   }
 
   /**
-   * Glide OS cursor after a CUA action.
-   * AT-SPI frames are desktop/screen pixels — do NOT run them through viewportToScreen.
-   * Explicit x/y from the model are Playwright viewport CSS.
+   * Resolve an AT-SPI element to a Playwright viewport point, preferring DOM role/name match.
+   * Why: MCP AT-SPI element_index clicks often hit the wrong Chrome control (e.g. Notifications
+   * instead of Trial expiring). Label→locator and frame→viewport are accurate for web content.
+   * @param {import('playwright').Page} page
+   * @param {number} elementIndex
+   */
+  async function resolveElementViewport(page, elementIndex) {
+    const el = capture.getElement(elementIndex);
+    if (!el) return null;
+
+    const label = String(el.label || "").trim();
+    const role = playwrightRole(el.role);
+    if (label && page && !page.isClosed()) {
+      try {
+        /** @type {import('playwright').Locator|null} */
+        let loc = null;
+        if (role) {
+          loc = page.getByRole(role, { name: label, exact: false }).first();
+        }
+        if (!loc) {
+          loc = page.getByText(label, { exact: false }).first();
+        }
+        await loc.waitFor({ state: "visible", timeout: 2500 }).catch(() => null);
+        const box = await loc.boundingBox().catch(() => null);
+        if (box && box.width > 0 && box.height > 0) {
+          return {
+            x: Math.round(box.x + box.width / 2),
+            y: Math.round(box.y + box.height / 2),
+            screenX: undefined,
+            screenY: undefined,
+            ok: true,
+            via: role ? "playwright_role_label" : "playwright_text_label",
+            label,
+            role: el.role,
+          };
+        }
+      } catch {
+        /* fall through to AT-SPI frame */
+      }
+    }
+
+    const mapped = await atspiFrameCenterToViewport(page, el.frame || null);
+    if (mapped?.ok) {
+      return { ...mapped, via: "atspi_frame_to_viewport", label, role: el.role };
+    }
+    return null;
+  }
+
+  /**
+   * Glide OS cursor after a CUA action (legacy MCP path).
    * @param {import('playwright').Page|null} page
    * @param {number|null} element
    * @param {number|null} x
@@ -40,6 +111,12 @@ export function createCuaActions(session, capture) {
    */
   async function maybeShowCursor(page, element, x, y, xySpace = "viewport") {
     try {
+      if (element != null && page && !page.isClosed()) {
+        const resolved = await resolveElementViewport(page, element);
+        if (resolved?.ok) {
+          return showCursorAtViewport(page, resolved.x, resolved.y);
+        }
+      }
       if (element != null) {
         const el = capture.getElement(element);
         const f = el?.frame;
@@ -66,15 +143,7 @@ export function createCuaActions(session, capture) {
         return { cursorMoved: moved.ok, screenX: moved.screenX, screenY: moved.screenY, x, y };
       }
       if (page && !page.isClosed()) {
-        const mapped = await viewportToScreen(page, x, y);
-        const moved = await moveXCursorVisible(mapped.screenX, mapped.screenY);
-        return {
-          cursorMoved: moved.ok,
-          screenX: moved.screenX,
-          screenY: moved.screenY,
-          x,
-          y,
-        };
+        return showCursorAtViewport(page, x, y);
       }
       const moved = await moveXCursorVisible(x, y);
       return { cursorMoved: moved.ok, screenX: moved.screenX, screenY: moved.screenY, x, y };
@@ -84,8 +153,11 @@ export function createCuaActions(session, capture) {
   }
 
   return {
+    resolveElementViewport,
+    elementCenterViewport: resolveElementViewport,
+
     /**
-     * Prefer element_index via MCP. Raw x/y are viewport CSS — caller should use Playwright.
+     * Prefer Playwright hit for element_index (label/frame). Raw x/y → caller Playwright path.
      * @param {{
      *   element?: number,
      *   x?: number,
@@ -120,13 +192,42 @@ export function createCuaActions(session, capture) {
         };
       }
 
+      const page = opts.page || null;
+      if (page && !page.isClosed()) {
+        const resolved = await resolveElementViewport(page, element);
+        if (resolved?.ok) {
+          const hit = await clickWithVisibleCursor(page, resolved.x, resolved.y, {
+            delayMs: 40,
+          });
+          return {
+            ok: true,
+            action: "click",
+            element,
+            x: resolved.x,
+            y: resolved.y,
+            via: resolved.via,
+            label: resolved.label,
+            computerUse: true,
+            cursorMoved: hit.cursorMoved,
+            overlayMoved: hit.overlayMoved,
+            screenX: hit.screenX,
+            screenY: hit.screenY,
+          };
+        }
+      }
+
+      // Last resort: MCP AT-SPI click (often imprecise on Chrome web UIs).
       const args = targetArgs(sticky, {
         button: String(opts.button || "left").toLowerCase(),
         element_index: element,
       });
+      // Show cursor first when we can map a frame.
+      if (page && !page.isClosed()) {
+        await maybeShowCursor(page, element, null, null);
+      }
       const res = await session.callTool("click", args, 20000);
       const cursor = res.ok
-        ? await maybeShowCursor(opts.page || null, element, null, null)
+        ? await maybeShowCursor(page, element, null, null)
         : { cursorMoved: false };
       return {
         ok: res.ok,
@@ -135,20 +236,10 @@ export function createCuaActions(session, capture) {
         x,
         y,
         error: res.ok ? undefined : res.error || "click failed",
-        via: res.via,
+        via: res.via ? `mcp_${res.via}` : "mcp",
         computerUse: true,
         ...cursor,
       };
-    },
-
-    /**
-     * Convert AT-SPI element frame → viewport CSS for Playwright fallback.
-     * @param {import('playwright').Page} page
-     * @param {number} elementIndex
-     */
-    async elementCenterViewport(page, elementIndex) {
-      const el = capture.getElement(elementIndex);
-      return atspiFrameCenterToViewport(page, el?.frame || null);
     },
 
     /**
@@ -162,6 +253,22 @@ export function createCuaActions(session, capture) {
         sticky = capture.getSticky();
       }
       const text = String(opts.text ?? "");
+      const page = opts.page || null;
+      // Prefer Playwright keyboard when focused — MCP type often misses web inputs.
+      if (page && !page.isClosed()) {
+        try {
+          await page.keyboard.type(text, { delay: 8 });
+          return {
+            ok: true,
+            action: "type",
+            textLength: text.length,
+            via: "playwright_keyboard",
+            computerUse: true,
+          };
+        } catch {
+          /* MCP fallback */
+        }
+      }
       const res = await session.callTool(
         "type_text",
         targetArgs(sticky, { text }),

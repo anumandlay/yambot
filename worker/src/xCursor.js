@@ -1,12 +1,11 @@
 /**
- * @fileoverview Visible X11 cursor moves for CUA mode on the live noVNC screen.
- * Purpose: Playwright CDP clicks do not move the OS cursor; xdotool does — so Take control
- * viewers can see the pointer glide to each target while CUA is active.
- * Downstream: agent.js click / click_at / type / type_at / computer_use when CUA is active.
- *
- * Coordinate spaces (do not mix):
+ * @fileoverview Visible cursor for CUA mode on the live noVNC screen.
+ * Purpose: Playwright CDP clicks do not move the OS cursor; xdotool does. Chrome often hides
+ * the X pointer over web content, so we also paint a fixed ✕ overlay in the page that noVNC
+ * always shows. Coordinate spaces must not be mixed:
  * - viewport CSS: Playwright page.mouse + attached vision screenshot (origin = content top-left)
  * - screen/desktop: AT-SPI frames + xdotool (origin = X root)
+ * Downstream: agent.js click / click_at / type / type_at / computer_use when CUA is active.
  */
 
 import { execFile } from "node:child_process";
@@ -136,6 +135,82 @@ async function getMouseLocation() {
 }
 
 /**
+ * Glides a bright ✕ overlay inside the page (always visible on noVNC even when Chrome hides X pointer).
+ * @param {import('playwright').Page} page
+ * @param {number} x
+ * @param {number} y
+ * @param {{ fromX?: number, fromY?: number, steps?: number, stepMs?: number }} [opts]
+ */
+async function glidePageOverlay(page, x, y, opts = {}) {
+  if (!page || page.isClosed()) return { ok: false };
+  const tx = Math.round(Number(x) || 0);
+  const ty = Math.round(Number(y) || 0);
+  const steps = Math.max(1, Math.min(20, Number(opts.steps) || 12));
+  const stepMs = Math.max(12, Math.min(60, Number(opts.stepMs) || 22));
+  try {
+    await page.evaluate(
+      ({ tx, ty, steps, stepMs, fromX, fromY }) => {
+        const ID = "__yambot_cua_cursor";
+        let el = document.getElementById(ID);
+        if (!el) {
+          el = document.createElement("div");
+          el.id = ID;
+          el.setAttribute("aria-hidden", "true");
+          el.textContent = "✕";
+          el.style.cssText = [
+            "position:fixed",
+            "z-index:2147483647",
+            "pointer-events:none",
+            "width:32px",
+            "height:32px",
+            "margin-left:-16px",
+            "margin-top:-16px",
+            "font:800 28px/32px ui-monospace,monospace",
+            "color:#e11",
+            "text-shadow:0 0 2px #fff,0 0 6px #000,1px 1px 0 #fff",
+            "left:0",
+            "top:0",
+            "display:block",
+          ].join(";");
+          document.documentElement.appendChild(el);
+        }
+        const startX =
+          Number.isFinite(fromX) ? fromX : Number.parseFloat(el.style.left) || tx;
+        const startY =
+          Number.isFinite(fromY) ? fromY : Number.parseFloat(el.style.top) || ty;
+        el.style.display = "block";
+        return new Promise((resolve) => {
+          let i = 0;
+          const tick = () => {
+            i += 1;
+            const t = i / steps;
+            el.style.left = `${Math.round(startX + (tx - startX) * t)}px`;
+            el.style.top = `${Math.round(startY + (ty - startY) * t)}px`;
+            if (i >= steps) {
+              resolve(true);
+              return;
+            }
+            setTimeout(tick, stepMs);
+          };
+          tick();
+        });
+      },
+      {
+        tx,
+        ty,
+        steps,
+        stepMs,
+        fromX: opts.fromX,
+        fromY: opts.fromY,
+      }
+    );
+    return { ok: true };
+  } catch {
+    return { ok: false };
+  }
+}
+
+/**
  * Glides the real X cursor so noVNC shows motion (not an instant teleport).
  * @param {number} screenX
  * @param {number} screenY
@@ -145,8 +220,14 @@ async function getMouseLocation() {
 export async function moveXCursorVisible(screenX, screenY, opts = {}) {
   const tx = Math.round(Number(screenX) || 0);
   const ty = Math.round(Number(screenY) || 0);
-  const steps = Math.max(1, Math.min(24, Number(opts.steps) || 10));
-  const stepMs = Math.max(8, Math.min(80, Number(opts.stepMs) || 18));
+  const steps = Math.max(1, Math.min(24, Number(opts.steps) || 12));
+  const stepMs = Math.max(8, Math.min(80, Number(opts.stepMs) || 22));
+
+  // Why: bare Xvfb sometimes has no cursor glyph until left_ptr is set again.
+  await execFileAsync("xsetroot", ["-cursor_name", "left_ptr"], {
+    timeout: 2000,
+    env: { ...process.env, DISPLAY: process.env.DISPLAY || ":99" },
+  }).catch(() => null);
 
   await xdotool(["mousemove_relative", "--", "0", "0"]);
 
@@ -166,21 +247,24 @@ export async function moveXCursorVisible(screenX, screenY, opts = {}) {
       await new Promise((r) => setTimeout(r, stepMs));
     }
   }
+  // Hold on target so Take control viewers can see the pointer before the click.
+  await new Promise((r) => setTimeout(r, 80));
   return { ok: true, screenX: tx, screenY: ty };
 }
 
 /**
- * Moves the visible OS cursor to a viewport point, then Playwright-clicks (reliable hit).
+ * Moves the visible OS cursor + page ✕ overlay to a viewport point, then Playwright-clicks.
  * @param {import('playwright').Page} page
  * @param {number} x - viewport CSS x
  * @param {number} y - viewport CSS y
  * @param {{ delayMs?: number, steps?: number }} [opts]
- * @returns {Promise<{ ok: boolean, x: number, y: number, screenX?: number, screenY?: number, cursorMoved: boolean }>}
+ * @returns {Promise<{ ok: boolean, x: number, y: number, screenX?: number, screenY?: number, cursorMoved: boolean, overlayMoved?: boolean }>}
  */
 export async function clickWithVisibleCursor(page, x, y, opts = {}) {
   const vx = Number(x);
   const vy = Number(y);
   const mapped = await viewportToScreen(page, vx, vy);
+  const overlay = await glidePageOverlay(page, vx, vy, { steps: opts.steps });
   const moved = await moveXCursorVisible(mapped.screenX, mapped.screenY, {
     steps: opts.steps,
   });
@@ -192,6 +276,33 @@ export async function clickWithVisibleCursor(page, x, y, opts = {}) {
     y: vy,
     screenX: moved.screenX,
     screenY: moved.screenY,
-    cursorMoved: moved.ok,
+    cursorMoved: moved.ok || overlay.ok,
+    overlayMoved: overlay.ok,
+  };
+}
+
+/**
+ * Glide visible cursors to a viewport point without clicking (e.g. before MCP actions).
+ * @param {import('playwright').Page} page
+ * @param {number} x
+ * @param {number} y
+ * @param {{ steps?: number }} [opts]
+ */
+export async function showCursorAtViewport(page, x, y, opts = {}) {
+  const vx = Number(x);
+  const vy = Number(y);
+  const overlay = await glidePageOverlay(page, vx, vy, { steps: opts.steps });
+  const mapped = await viewportToScreen(page, vx, vy);
+  const moved = await moveXCursorVisible(mapped.screenX, mapped.screenY, {
+    steps: opts.steps,
+  });
+  return {
+    ok: moved.ok || overlay.ok,
+    x: vx,
+    y: vy,
+    screenX: moved.screenX,
+    screenY: moved.screenY,
+    cursorMoved: moved.ok || overlay.ok,
+    overlayMoved: overlay.ok,
   };
 }

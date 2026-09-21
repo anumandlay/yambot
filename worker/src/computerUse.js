@@ -178,7 +178,7 @@ export function createComputerUseController(initialMode) {
         "- Also: computer_use { action:\"type\", text:\"...\" }, { action:\"key\", keys:\"Enter\" }, { action:\"scroll\", direction:\"down\" }, { action:\"capture\", mode:\"som\" }.",
         "- Do NOT use DOM click/type refs while CUA is active unless computer_use failed — prefer element indices from the capture list.",
         "- navigate / open_tab / finish / ask_user / extract / CRM tools still use the normal YamBot path.",
-        "- The live screen shows an X cursor glide after clicks (YamBot demo overlay).",
+        "- The live Take control screen shows a red ✕ overlay + OS cursor glide to each click target before the hit.",
         activatedReason === "fallback_after_fails"
           ? `- Activated after ${CUA_ACTIVATE_AFTER_FAILS} failed Playwright locator attempts.`
           : "- Activated because the human asked for CUA (e.g. “using cua”).",

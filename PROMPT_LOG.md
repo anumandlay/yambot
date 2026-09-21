@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 15:20] CUA: visible ✕ cursor + Playwright-accurate element clicks
+
+- **Prompt Provided:** Live cursor missing; clicks still landing on the wrong link (e.g. Notifications instead of Trial expiring).
+- **Architectural Flow:** MCP AT-SPI `element_index` clicks were “ok” but hit the wrong Chrome control. Resolve element → Playwright role/label bbox (else AT-SPI frame→viewport) and click with a pre-hit red ✕ page overlay + xdotool glide. Always attach Playwright viewport JPEG for CUA vision so x/y match. Rank interactive elements in the capture prompt.
+- **Impacted Files:** xCursor.js, cuaActions.js, cuaCapture.js, agent.js, computerUse.js, PROMPT_LOG
+
 ## [2026-09-21 15:15] Fix CUA click coordinate spaces (viewport vs AT-SPI)
 
 - **Prompt Provided:** CUA clicks not landing on the right coordinates.
