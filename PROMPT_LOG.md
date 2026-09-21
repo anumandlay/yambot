@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 09:45] Conditional goals must not reuse older if-rules
+
+- **Prompt Provided:** User said “if more than 1 accounts, say hi” but agent evaluated old “days_left &lt; 15” and skipped messaging.
+- **Architectural Flow:** Auto was rewriting goals from chat history; SITE MEMORY flow hints stored full prior summaries with old conditions. Pin ACTIVE USER MESSAGE on queue; reject `...` goals; store navigation-only site flows; worker prompt: current condition overrides SITE MEMORY.
+- **Impacted Files:** chatAutoTurn.js, learn.js, agent.js, PROMPT_LOG
+
 ## [2026-09-21 09:40] Learn production skills from successful runs (all workflows)
 
 - **Prompt Provided:** Implement Hermes-style skills for all workflows (not only trial expiry).

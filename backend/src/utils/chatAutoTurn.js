@@ -45,12 +45,13 @@ export const AUTO_CHAT_TOOLS = [
         properties: {
           goal: {
             type: "string",
-            description: "Exact instructions for the worker / peer run.",
+            description:
+              "Exact instructions for the worker / peer run. If the user gave an if/then condition, keep THAT condition verbatim — do not reuse older conditions from chat.",
           },
           ack: {
             type: "string",
             description:
-              "Optional real short status sentence shown to the user while the goal queues. Never use angle-bracket placeholders.",
+              "One short real status sentence for the user. No meta commentary, no angle-bracket placeholders.",
           },
         },
         required: ["goal"],
@@ -235,6 +236,7 @@ function parseToolArgs(rawArgs) {
 export function isPromptPlaceholder(text) {
   const s = String(text || "").trim();
   if (!s) return false;
+  if (/^\.{1,5}$/.test(s) || /^…+$/.test(s)) return true;
   if (/^<[^>\n]{2,120}>$/i.test(s)) return true;
   if (
     /optional one short sentence|exact instructions for the worker|plain prose for the user|^<one sentence>$/i.test(
@@ -268,7 +270,36 @@ export function sanitizeAutoReplyContent(text) {
     return "";
   }
   if (isPromptPlaceholder(s)) return "";
+  // Why: models append meta like: "On it." Short one sentence. Rude but okay.
+  s = s
+    .replace(/^["'“”]+|["'“”]+$/g, "")
+    .replace(
+      /\s*(Short one sentence|Rude but okay|optional short status|one short sentence)[^.]*\.?\s*$/gi,
+      ""
+    )
+    .trim();
   return s;
+}
+
+/**
+ * True when the model goal still reflects the user's if-condition (not an older chat rule).
+ * @param {string} userText
+ * @param {string} goal
+ * @returns {boolean}
+ */
+export function userConditionReflectedInGoal(userText, goal) {
+  const u = String(userText || "");
+  const g = String(goal || "").toLowerCase();
+  if (!/\bif\b/i.test(u)) return true;
+  const clause = (u.match(/\bif\b([\s\S]+?)(?:\.|$)/i) || [])[1] || u;
+  const tokens = String(clause)
+    .toLowerCase()
+    .replace(/[^a-z0-9\s-]+/g, " ")
+    .split(/\s+/)
+    .filter((t) => t.length >= 4 && !/^(than|then|with|from|this|that|have|more|less)$/i.test(t));
+  if (!tokens.length) return true;
+  const hits = tokens.filter((t) => g.includes(t)).length;
+  return hits >= Math.min(2, tokens.length);
 }
 
 /**
@@ -304,11 +335,20 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   let content = sanitizeAutoReplyContent(result?.content || "");
   let goal = String(result?.goal || "").replace(/\s+/g, " ").trim();
   let ack = sanitizeAutoReplyContent(result?.ack || "");
-  // Why: never queue literal template text like "<exact instructions for the worker>".
-  if (isPromptPlaceholder(goal)) goal = "";
+  // Why: never queue literal template text like "<exact instructions for the worker>" or "...".
+  if (isPromptPlaceholder(goal) || goal.length < 8) goal = "";
 
   if (action === "queue_goal") {
     if (!goal) goal = userText;
+    // Why: Auto often reinjects older if-rules from chat (e.g. days_left < 15) when the user
+    // changed the condition — pin the ACTIVE USER MESSAGE so the worker evaluates THIS request.
+    if (userText && /\bif\b/i.test(userText) && !userConditionReflectedInGoal(userText, goal)) {
+      goal = `${goal}\n\nACTIVE USER MESSAGE (follow THIS condition exactly; ignore older if-rules from chat or SITE MEMORY):\n${userText}`;
+    } else if (userText && goal === userText) {
+      // ok
+    } else if (userText && /\bif\b/i.test(userText) && !/\bACTIVE USER MESSAGE\b/i.test(goal)) {
+      goal = `${goal}\n\nACTIVE USER MESSAGE (authoritative conditions):\n${userText}`;
+    }
     if (!goal) {
       // Cannot queue without instructions — fall back to a safe chat reply.
       return {
@@ -712,12 +752,12 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "Option B — need the computer / peers:",
     "QUEUE_GOAL",
-    "goal: concrete worker instructions (never copy this label's example text)",
-    "ack: optional short status for the user (real words only; omit ack if unsure)",
+    "goal: concrete worker instructions. If the user stated an if/then condition, copy THAT condition verbatim — never reuse an older condition from chat history.",
+    "ack: one short real status sentence only (no meta commentary)",
     "Example:",
     "QUEUE_GOAL",
-    "goal: Log into Vughy admin and open Trial expiring list for India",
-    "ack: On it — starting the computer now.",
+    "goal: Log into Vughy admin, open Trial expiring list for India, then if more than 1 accounts exist message general agent hi; otherwise do not message.",
+    "ack: On it — checking the list now.",
     "",
     context || "(no extra agent context)",
     thread ? `\n\n${thread}` : "",

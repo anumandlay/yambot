@@ -279,7 +279,10 @@ export function sessionCredentialsForAsk(question, history) {
  */
 export function formatSiteHintsBlock(profile) {
   if (!profile?.hints?.length) return "";
-  const lines = [`SITE MEMORY (${profile.domain}):`];
+  const lines = [
+    `SITE MEMORY (${profile.domain}):`,
+    "Historical navigation hints only — do NOT reuse old if/then conditions from these notes; follow the current GOAL / ACTIVE USER MESSAGE.",
+  ];
   for (const h of profile.hints.slice(0, 8)) {
     lines.push(`  - [${h.kind || "note"}] ${h.content}`);
   }
@@ -323,10 +326,28 @@ export function deriveSiteHint({ success, summary, domain, trajectory }) {
       content: `On ${domain}, ${lastFail.action?.type || "action"} on ${lastFail.action?.ref || "?"} often fails (${lastFail.failure_class}). Try wait_for or different ref.`,
     };
   }
-  if (success && summary) {
+  if (success) {
+    // Why: do NOT store full result summaries — they bake old if-conditions into SITE MEMORY
+    // and bias the next run (e.g. "days_left < 15" when the user later said "more than 1 accounts").
+    const durable = [];
+    for (const row of trajectory || []) {
+      const a = row?.action || {};
+      const type = String(a.type || "").toLowerCase();
+      if (type === "navigate" && a.url) {
+        durable.push(`Navigate ${String(a.url).slice(0, 120)}`);
+      } else if (type === "click" && a.name) {
+        durable.push(`Click "${String(a.name).slice(0, 80)}"`);
+      } else if ((type === "select" || type === "choose" || type === "choose_searchable") && (a.value || a.name)) {
+        durable.push(`Select ${String(a.value || a.query || a.name).slice(0, 60)}`);
+      }
+      if (durable.length >= 6) break;
+    }
+    const flow = durable.length
+      ? `Successful path on ${domain}: ${durable.join(" → ")}`
+      : `Successful run on ${domain} (navigation path).`;
     return {
       kind: "flow",
-      content: `Successful run on ${domain}: ${String(summary).slice(0, 240)}`,
+      content: flow.slice(0, 280),
     };
   }
   return null;
