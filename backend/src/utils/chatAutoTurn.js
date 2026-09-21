@@ -49,7 +49,8 @@ export const AUTO_CHAT_TOOLS = [
           },
           ack: {
             type: "string",
-            description: "Optional one short sentence shown to the user while the goal queues.",
+            description:
+              "Optional real short status sentence shown to the user while the goal queues. Never use angle-bracket placeholders.",
           },
         },
         required: ["goal"],
@@ -226,7 +227,27 @@ function parseToolArgs(rawArgs) {
 }
 
 /**
- * Strip protocol headers / tool-call junk from user-visible reply text.
+ * Detects when the model echoed angle-bracket prompt placeholders instead of filling them in.
+ * Why: models often copy `ack: <optional one short sentence…>` literally into chat.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isPromptPlaceholder(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  if (/^<[^>\n]{2,120}>$/i.test(s)) return true;
+  if (
+    /optional one short sentence|exact instructions for the worker|plain prose for the user|^<one sentence>$/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Strip protocol headers / tool-call junk / leaked placeholders from user-visible reply text.
  * @param {string} text
  * @returns {string}
  */
@@ -246,6 +267,7 @@ export function sanitizeAutoReplyContent(text) {
   if (/^goal:\s*/i.test(s) && /\nack:\s*/i.test(s)) {
     return "";
   }
+  if (isPromptPlaceholder(s)) return "";
   return s;
 }
 
@@ -282,6 +304,8 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   let content = sanitizeAutoReplyContent(result?.content || "");
   let goal = String(result?.goal || "").replace(/\s+/g, " ").trim();
   let ack = sanitizeAutoReplyContent(result?.ack || "");
+  // Why: never queue literal template text like "<exact instructions for the worker>".
+  if (isPromptPlaceholder(goal)) goal = "";
 
   if (action === "queue_goal") {
     if (!goal) goal = userText;
@@ -684,12 +708,16 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "Output format (strict) — text fallback when tools are unavailable:",
     "Option A — direct answer:",
     "REPLY",
-    "<plain prose for the user — no tool JSON>",
+    "Your plain sentence(s) to the user — no tool JSON, no angle brackets.",
     "",
     "Option B — need the computer / peers:",
     "QUEUE_GOAL",
-    "goal: <exact instructions for the worker>",
-    "ack: <optional one short sentence to the user>",
+    "goal: concrete worker instructions (never copy this label's example text)",
+    "ack: optional short status for the user (real words only; omit ack if unsure)",
+    "Example:",
+    "QUEUE_GOAL",
+    "goal: Log into Vughy admin and open Trial expiring list for India",
+    "ack: On it — starting the computer now.",
     "",
     context || "(no extra agent context)",
     thread ? `\n\n${thread}` : "",

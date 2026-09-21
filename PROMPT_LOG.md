@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 08:25] Strip Auto QUEUE_GOAL placeholder leaks
+
+- **Prompt Provided:** Chat showed `<optional one short sentence to the user>` after “Let's start your work”.
+- **Architectural Flow:** Model echoed Auto prompt angle-bracket templates as ack/goal. Detect placeholders, fall back to defaultQueueAck / user text; rewrite text-fallback prompt with real examples (no `<…>` slots).
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-20 01:45] History page Curated memory link
 
 - **Prompt Provided:** On /history put curated memory alongside view chat history and view memory.
