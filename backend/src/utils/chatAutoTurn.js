@@ -294,14 +294,19 @@ export function sanitizeAutoReplyContent(text) {
  */
 export function looksLikeAutoDeliberation(text) {
   const s = String(text || "").trim();
-  if (s.length < 48) return false;
+  if (s.length < 40) return false;
   const hit =
-    /should we be rude|user profile empty|meta commentary|we can say|that's (neutral|fine)|one short real status|optional short|output format|could be ["'“]|the ack is|do not invent tone|authoritative from USER/i.test(
+    /should we be rude|user profile empty|meta commentary|we can say|that's (neutral|fine)|one short real status|optional short|output format|could be ["'“]|the ack is|do not invent tone|authoritative from USER|tone\?|don't invent|do not invent|planning|let's see|i need to|the user (wants|asked|said)|queue_goal|as the assistant|in the (prompt|system)/i.test(
       s
     );
-  if (!hit) return false;
-  // Planning dumps are multi-clause / multi-sentence.
-  return s.split(/[.!?\n]/).filter((p) => p.trim().length > 8).length >= 2 || s.includes('"');
+  if (hit) {
+    return s.split(/[.!?\n]/).filter((p) => p.trim().length > 8).length >= 2 || s.includes('"') || s.length > 120;
+  }
+  // Long multi-sentence freeform without a protocol header is usually model scratchpad.
+  if (s.length > 140 && s.split(/[.!?]/).filter((p) => p.trim().length > 12).length >= 3) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -738,10 +743,7 @@ function streamVisibleFromBuffer(buf) {
     if (head === "REPLY" || head === "ANSWER") {
       return { visible: "", mode: "pending" };
     }
-    // Why: wait longer — models often stream planning notes before QUEUE_GOAL/REPLY.
-    if (buf.length < 80) return { visible: "", mode: "pending" };
-    if (looksLikeAutoDeliberation(buf)) return { visible: "", mode: "pending" };
-    if (buf.length >= 12) return { visible: buf, mode: "reply" };
+    // Why: never stream freeform — models dump planning notes before QUEUE_GOAL/REPLY.
     return { visible: "", mode: "pending" };
   }
   const first = buf.slice(0, nl).trim().toUpperCase().replace(/[^A-Z_]/g, "");
@@ -750,11 +752,11 @@ function streamVisibleFromBuffer(buf) {
     return { visible: "", mode: "queue_goal" };
   }
   if (first === "REPLY" || first === "ANSWER") {
+    if (looksLikeAutoDeliberation(rest)) return { visible: "", mode: "pending" };
     return { visible: rest, mode: "reply" };
   }
-  // Freeform without protocol header — hide planning dumps; stream only clean short replies.
-  if (looksLikeAutoDeliberation(buf)) return { visible: "", mode: "pending" };
-  return { visible: buf, mode: "reply" };
+  // No protocol header yet — hold the bubble empty until finalize sanitizes.
+  return { visible: "", mode: "pending" };
 }
 
 /**
@@ -818,13 +820,13 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "Option B — need the computer / peers:",
     "QUEUE_GOAL",
     "goal: concrete worker instructions. If the user stated an if/then condition, copy THAT condition verbatim — never reuse an older condition from chat history.",
-    "ack: one short real status sentence only (no meta commentary)",
+    "ack: On it — checking the list now.",
     "Example:",
     "QUEUE_GOAL",
     "goal: Log into Vughy admin, open Trial expiring list for India, then if more than 1 accounts exist message general agent hi; otherwise do not message.",
     "ack: On it — checking the list now.",
     "",
-    "CRITICAL: Output ONLY the protocol lines above. Never write planning notes, tone debates, or “we can say …” — those must not appear in chat.",
+    "CRITICAL: Output ONLY the protocol lines above. Never write planning notes, tone debates, prompt restatements, or “we can say …” — those must not appear in chat.",
     "",
     context || "(no extra agent context)",
     thread ? `\n\n${thread}` : "",

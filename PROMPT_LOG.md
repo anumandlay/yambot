@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 13:10] Never stream Auto freeform (thinking flash)
+
+- **Prompt Provided:** User still saw LLM thinking text in chat after the ack-sanitize deploy.
+- **Architectural Flow:** Saved acks were clean; leak was live stream of freeform planning before `QUEUE_GOAL`/`REPLY`. `streamVisibleFromBuffer` now emits nothing until a clean `REPLY`/`ANSWER` body; queue_goal never streams. Broadened `looksLikeAutoDeliberation`. Scrubbed old deliberation rows in Trial chat.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-21 12:55] Strip Auto planning dumps from queue acks
 
 - **Prompt Provided:** Chat showed LLM thinking (“Should we be rude?… We can say On it…”) before the real status sentence.
