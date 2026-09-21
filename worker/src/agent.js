@@ -2491,6 +2491,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
               skillsCatalogBlock,
               skillProgressBlock,
               siteHintsBlock,
+              /mail\.google\.com/i.test(String(obs?.url || ""))
+                ? "GMAIL LABELING (fast path): With conversations selected, prefer toolbar Labels (or keyboard l) — not endless More→Label as retries. If the More menu is already open, use ONE choose_menu_item { path:[\"Label as\",\"Tradingview\"] } (or the goal label name). Submenus open via the right-edge chevron / ArrowRight — do not loop center-clicks on Label as."
+                : "",
               visionAttached
                 ? cuaActive
                   ? "A CUA / viewport screenshot is attached — prefer computer_use click by element index from CUA CAPTURE."
@@ -4008,11 +4011,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
         if (cuaActive) {
           const hit = await clickWithVisibleCursor(page, point.x, point.y, { delayMs: 40 });
+          if (point.hasSubmenu) {
+            await page.keyboard.press("ArrowRight").catch(() => {});
+            await sleep(200);
+          }
           return {
             ok: true,
             clicked: point.name,
             x: point.x,
             y: point.y,
+            hasSubmenu: point.hasSubmenu,
             computerUse: true,
             cursorMoved: hit.cursorMoved,
             screenX: hit.screenX,
@@ -4020,7 +4028,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
           };
         }
         await page.mouse.click(point.x, point.y, { delay: 0 });
-        return { ok: true, clicked: point.name, x: point.x, y: point.y };
+        // Why: Gmail "Label as" and similar submenu parents need ArrowRight to open the flyout.
+        if (point.hasSubmenu) {
+          await page.keyboard.press("ArrowRight").catch(() => {});
+          await sleep(200);
+        }
+        return {
+          ok: true,
+          clicked: point.name,
+          x: point.x,
+          y: point.y,
+          hasSubmenu: point.hasSubmenu,
+        };
       }
       case "click_at": {
         const x = Number(action.x);

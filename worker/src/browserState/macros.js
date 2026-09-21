@@ -201,7 +201,16 @@ export async function runChooseMenuItem(page, frame, action) {
     clicked.push(hit.name || segment);
     const isLast = i === path.length - 1;
     if (hit.hasSubmenu && !isLast) {
-      await sleep(350);
+      // Why: Gmail/MUI often need ArrowRight after focusing a submenu parent.
+      await page.keyboard.press("ArrowRight").catch(() => {});
+      await sleep(280);
+      // Retry briefly until the next segment appears in a new menu panel.
+      for (let attempt = 0; attempt < 8; attempt += 1) {
+        const peek = await frame.evaluate(clickMenuSegmentInPage, path[i + 1]);
+        if (peek?.ok) break;
+        await page.keyboard.press("ArrowRight").catch(() => {});
+        await sleep(160);
+      }
     }
   }
 

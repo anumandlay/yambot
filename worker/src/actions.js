@@ -90,7 +90,7 @@ Action fields:
 - open_tab: { "type":"open_tab", "url":"https://..." } — navigates the same window (no new tabs)
 - upload_file: { "type":"upload_file", "ref":"e5", "path":"invoice.pdf" } — path relative to agent uploads folder; use on file inputs
 - dismiss_dialog: { "type":"dismiss_dialog" } or { "button":"Cancel" } — closes modal via cancel/close/Escape
-- choose_menu_item: { "type":"choose_menu_item", "path": ["File", "Export", "PDF"] } — clicks open menu items in order (menu must already be open)
+- choose_menu_item: { "type":"choose_menu_item", "path": ["Label as", "Tradingview"] } — walks an ALREADY OPEN menu (Gmail More → Label as → label). Prefer this over many click/press_key loops on nested submenus.
 - choose_searchable: { "type":"choose_searchable", "ref":"e12", "query":"product", "value":"Product Hunt" } — searchable dropdown/combobox: open ref (optional if already open), type filter with real keystrokes, then click the matching option. Use when ACTION SURFACE shows [searchable] or the list only appears after typing.
 - extract: { "type":"extract", "focus":"what to pull from the page" }
 - solve_captcha: { "type":"solve_captcha" }

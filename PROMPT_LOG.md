@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 16:35] Unstick Gmail Label as (three-dots) + speed up cursor
+
+- **Prompt Provided:** Need to click three dots and select the label; taking too long.
+- **Architectural Flow:** Live task looped 100+ steps on Gmail More→Label as center clicks. Click submenu parents on the right-edge chevron + ArrowRight; strengthen choose_menu_item for nested Label as→label; Gmail-specific prompt hint; shorten CUA arrow holds so clicks are not slowed ~1s each.
+- **Impacted Files:** pageDom.js, macros.js, agent.js, actions.js, xCursor.js, PROMPT_LOG
+
 ## [2026-09-21 15:45] Make CUA arrow actually visible (CSP-safe + longer hold)
 
 - **Prompt Provided:** Cannot see live CUA-style gradient arrow.

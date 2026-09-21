@@ -239,8 +239,8 @@ async function glidePageOverlay(page, x, y, opts = {}) {
   if (!page || page.isClosed()) return { ok: false, error: "page_closed" };
   const tx = Math.round(Number(x) || 0);
   const ty = Math.round(Number(y) || 0);
-  const steps = Math.max(4, Math.min(24, Number(opts.steps) || 14));
-  const stepMs = Math.max(18, Math.min(70, Number(opts.stepMs) || 28));
+  const steps = Math.max(3, Math.min(16, Number(opts.steps) || 8));
+  const stepMs = Math.max(12, Math.min(40, Number(opts.stepMs) || 16));
 
   const ready = await ensureArrowOverlay(page);
   if (!ready) return { ok: false, error: "overlay_inject_failed" };
@@ -275,8 +275,8 @@ async function glidePageOverlay(page, x, y, opts = {}) {
     if (!placed) return { ok: false, error: "overlay_place_failed" };
     if (i < steps) await new Promise((r) => setTimeout(r, stepMs));
   }
-  // Hold so Zoom / Take control viewers can actually see the arrow on target.
-  await new Promise((r) => setTimeout(r, 420));
+  // Hold so Zoom / Take control viewers can see the arrow on target (keep short — long holds stall goals).
+  await new Promise((r) => setTimeout(r, 70));
   return { ok: true };
 }
 
@@ -338,12 +338,12 @@ export async function clickWithVisibleCursor(page, x, y, opts = {}) {
     moveXCursorVisible(mapped.screenX, mapped.screenY, { steps: opts.steps }),
   ]);
   // Brief settle after both motions land.
-  await new Promise((r) => setTimeout(r, 120));
+  await new Promise((r) => setTimeout(r, 40));
   const delayMs = Math.max(0, Number(opts.delayMs) ?? 40);
   await page.mouse.click(vx, vy, { delay: delayMs });
   // Keep arrow visible briefly after the click.
   await placeArrowOverlay(page, vx, vy).catch(() => false);
-  await new Promise((r) => setTimeout(r, 280));
+  await new Promise((r) => setTimeout(r, 60));
   return {
     ok: true,
     x: vx,
@@ -371,7 +371,7 @@ export async function showCursorAtViewport(page, x, y, opts = {}) {
     glidePageOverlay(page, vx, vy, { steps: opts.steps }),
     moveXCursorVisible(mapped.screenX, mapped.screenY, { steps: opts.steps }),
   ]);
-  await new Promise((r) => setTimeout(r, 200));
+  await new Promise((r) => setTimeout(r, 120));
   return {
     ok: moved.ok || overlay.ok,
     x: vx,

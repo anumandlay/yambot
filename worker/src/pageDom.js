@@ -1565,12 +1565,19 @@ export function executeInPage(action) {
       const el = resolveElement(action);
       el.scrollIntoView({ block: "center", inline: "center", behavior: "instant" });
       const r = el.getBoundingClientRect();
+      const popup = (el.getAttribute("aria-haspopup") || "").toLowerCase();
+      const submenu = popup === "menu" || popup === "true";
+      // Why: Gmail "Label as" / nested menus open from the disclosure on the RIGHT, not the row center.
+      const x = submenu
+        ? Math.round(r.left + Math.max(r.width - 10, r.width * 0.88))
+        : Math.round(r.left + r.width / 2);
       return {
         ok: true,
-        x: Math.round(r.left + r.width / 2),
+        x,
         y: Math.round(r.top + r.height / 2),
         name: labelFor(el),
         role: impliedRole(el),
+        hasSubmenu: submenu || undefined,
         contentEditable: isContentEditableEl(el),
       };
     }
@@ -2037,12 +2044,16 @@ export function clickMenuSegmentInPage(segmentName) {
         const rect = el.getBoundingClientRect();
         const popup = el.getAttribute("aria-haspopup");
         const hasSubmenu = popup === "menu" || popup === "true";
+        // Why: nested menus (Gmail Label as) expand from the chevron on the right edge.
+        const x = hasSubmenu
+          ? Math.round(rect.left + Math.max(rect.width - 10, rect.width * 0.88))
+          : Math.round(rect.left + rect.width / 2);
         return {
           ok: true,
           name,
           hasSubmenu,
-          x: rect.left + rect.width / 2,
-          y: rect.top + rect.height / 2,
+          x,
+          y: Math.round(rect.top + rect.height / 2),
         };
       }
     }
