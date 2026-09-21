@@ -1506,10 +1506,20 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       });
     }
 
-    // Why: “login using cua” → computerUseMode=cua; strip the phrase from the worker goal.
-    const cuParsed = parseComputerUseFromText(goalText || content);
-    const computerUseMode = normalizeComputerUseMode(cuParsed.mode);
-    const workerGoalText = cuParsed.cleanedGoal || goalText || content;
+    // Why: Hermes Auto often rewrites the goal and drops “using cua” — detect mode from the
+    // original user bubble (content) first, then the rewritten goalText.
+    const cuFromUser = parseComputerUseFromText(content);
+    const cuFromGoal = parseComputerUseFromText(goalText || "");
+    const computerUseMode = normalizeComputerUseMode(
+      cuFromUser.mode === "cua" || cuFromGoal.mode === "cua"
+        ? "cua"
+        : cuFromUser.mode === "playwright" || cuFromGoal.mode === "playwright"
+          ? "playwright"
+          : "auto"
+    );
+    // Why: strip CUA phrases from the worker goal so the LLM focuses on the site task.
+    const workerGoalText =
+      parseComputerUseFromText(goalText || content).cleanedGoal || goalText || content;
 
     // Why: rebuild snapshot with final goal + semantic curated top-k + chat context for the worker.
     /** @type {object|null} */

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 13:42] CUA mode: honor “using cua” in original chat bubble
+
+- **Prompt Provided:** User sent “Check india trial-expiring list on Vughy again using cua” but saw no CUA / no live mouse.
+- **Architectural Flow:** Hermes Auto rewrote the goal and dropped “using cua”, so Task.computerUseMode stayed `auto` and Playwright DOM clicks succeeded without activating CUA. Parse mode from original user `content` as well as rewritten `goalText`.
+- **Impacted Files:** chats.js, PROMPT_LOG
+
 ## [2026-09-21 13:25] Website CUA: chat “using cua” + auto after 2 fails
 
 - **Prompt Provided:** Install cua-driver on the live Playwright computer; activate after 2 failed attempts; also start CUA when chat says e.g. “login using cua”. Website agents (no full XFCE).

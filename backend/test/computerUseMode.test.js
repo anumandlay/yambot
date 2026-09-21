@@ -13,6 +13,18 @@ test("parseComputerUseFromText detects using cua", () => {
   assert.doesNotMatch(r.cleanedGoal, /using cua/i);
 });
 
+test("Auto-rewritten goal without phrase still needs original bubble", () => {
+  // Why: chats.js must parse content AND goalText — this documents the failure mode.
+  const rewritten = parseComputerUseFromText(
+    "Log in to vughy, apply India filter, extract rows"
+  );
+  assert.equal(rewritten.mode, "auto");
+  const original = parseComputerUseFromText(
+    "Check india trial-expiring list on Vughy again using cua"
+  );
+  assert.equal(original.mode, "cua");
+});
+
 test("parseComputerUseFromText defaults to auto", () => {
   const r = parseComputerUseFromText("open github.com");
   assert.equal(r.mode, "auto");
