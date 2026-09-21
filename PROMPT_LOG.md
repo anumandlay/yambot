@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 11:20] Skill triggers: strip email/password match signals
+
+- **Prompt Provided:** Skills left items one-by-one — start with clean triggers (no email/password tokens).
+- **Architectural Flow:** Learn scrubbing strips emails, password literals, mail hosts (gmail…), digit secrets from tokens/triggers/titles/workflowKey. Matcher skips credential triggers and key parts. Live production skills scrubbed to drop `ayamunesh`/`gmail`/password triggers.
+- **Impacted Files:** skillWorkflowLearn.js, worker skills.js, PROMPT_LOG
+
 ## [2026-09-21 10:25] Skill match: no domain-only; skip placeholder learns
 
 - **Prompt Provided:** Continue skills — tighten match so similar goals activate Skill chip; stop junk learns.

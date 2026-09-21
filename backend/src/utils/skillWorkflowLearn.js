@@ -17,17 +17,72 @@ const STOP = new Set(
 
 /** Too generic to be useful triggers / title tokens (cause false matches). */
 const GENERIC_SKILL_TOKENS = new Set(
-  "navigate filter extract report total details safe worker instructions concrete open click type page list check again log login sign password goal ack optional short status sentence thats".split(
+  "navigate filter extract report total details safe worker instructions concrete open click type page list check again log login sign password goal ack optional short status sentence thats https http www com agency admin".split(
     " "
   )
 );
+
+/** Mail hosts / auth words that must never become match triggers. */
+const CREDENTIAL_SKILL_TOKENS = new Set(
+  "gmail yahoo hotmail outlook icloud protonmail proton mail email password passwd secret token credential".split(
+    " "
+  )
+);
+
+/**
+ * Strip emails, password assignments, and long digit secrets before tokenization.
+ * @param {string} text
+ * @returns {string}
+ */
+export function scrubCredentialText(text) {
+  return String(text || "")
+    .replace(/\b[\w.+-]+@[\w.-]+\.\w+\b/gi, " ")
+    .replace(/\b(password|passwd|pwd)\s*[:=]?\s*\S+/gi, " ")
+    .replace(/\b\d{6,}\b/g, " ");
+}
+
+/**
+ * @param {string} tok
+ * @returns {boolean}
+ */
+export function isCredentialOrPiiToken(tok) {
+  const t = String(tok || "")
+    .toLowerCase()
+    .trim();
+  if (!t) return true;
+  if (t.includes("@")) return true;
+  if (CREDENTIAL_SKILL_TOKENS.has(t)) return true;
+  if (/^\d{5,}$/.test(t)) return true;
+  if (/^(password|passwd|secret|token)$/i.test(t)) return true;
+  return false;
+}
+
+/**
+ * Local-parts of emails in text (e.g. ayamunesh from ayamunesh@gmail.com).
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function extractEmailLocalParts(text) {
+  /** @type {string[]} */
+  const parts = [];
+  const re = /\b([\w.+-]+)@[\w.-]+\.\w+\b/gi;
+  let m;
+  while ((m = re.exec(String(text || "")))) {
+    const local = String(m[1] || "")
+      .toLowerCase()
+      .split(/[.+]/)[0];
+    if (local.length >= 4) parts.push(local);
+  }
+  return [...new Set(parts)];
+}
 
 /**
  * @param {string} text
  * @returns {string[]}
  */
 export function extractSignificantTokens(text) {
-  return String(text || "")
+  const bannedLocals = new Set(extractEmailLocalParts(text));
+  return scrubCredentialText(text)
     .toLowerCase()
     .replace(/https?:\/\/[^\s]+/gi, " ")
     .replace(/[^a-z0-9.\s-]+/g, " ")
@@ -38,6 +93,8 @@ export function extractSignificantTokens(text) {
         t.length >= 4 &&
         !STOP.has(t) &&
         !GENERIC_SKILL_TOKENS.has(t) &&
+        !isCredentialOrPiiToken(t) &&
+        !bannedLocals.has(t) &&
         !/^\d+$/.test(t)
     );
 }
@@ -109,7 +166,7 @@ export function resolveGoalForSkillLearn(task) {
  * @returns {string}
  */
 export function skillTitleFromGoal(goal) {
-  let g = String(goal || "")
+  let g = scrubCredentialText(goal)
     .replace(/\s+/g, " ")
     .trim();
   const pin = g.search(/\bACTIVE USER MESSAGE\b/i);
@@ -121,6 +178,58 @@ export function skillTitleFromGoal(goal) {
 }
 
 /**
+ * Drop credential/PII triggers (email hosts, passwords, digit secrets).
+ * @param {string[]} triggers
+ * @returns {string[]}
+ */
+export function sanitizeSkillTriggers(triggers, bannedExtras = []) {
+  const banned = new Set(
+    (bannedExtras || []).map((t) => String(t || "").toLowerCase()).filter(Boolean)
+  );
+  const out = [];
+  for (const raw of triggers || []) {
+    const pat = String(raw || "").trim();
+    if (!pat) continue;
+    if (isCredentialTrigger(pat)) continue;
+    const parts = pat
+      .toLowerCase()
+      .replace(/\\\./g, ".")
+      .split(/[\s@._-]+/)
+      .filter(Boolean);
+    if (parts.some((p) => banned.has(p))) continue;
+    out.push(pat);
+  }
+  return [...new Set(out)].slice(0, 12);
+}
+
+/**
+ * @param {string} pat
+ * @returns {boolean}
+ */
+export function isCredentialTrigger(pat) {
+  const raw = String(pat || "")
+    .toLowerCase()
+    .replace(/\\\./g, ".");
+  if (!raw) return true;
+  if (raw.includes("@")) return true;
+  if (isDomainTriggerPat(raw)) return false;
+  const parts = raw.split(/[\s@._-]+/).filter(Boolean);
+  if (!parts.length) return true;
+  // Why: "ayamunesh gmail" / "gmail 12345678" must not score matches.
+  if (parts.some((p) => isCredentialOrPiiToken(p))) return true;
+  if (/^\d{5,}$/.test(raw.replace(/\s+/g, ""))) return true;
+  return false;
+}
+
+/**
+ * @param {string} raw
+ * @returns {boolean}
+ */
+function isDomainTriggerPat(raw) {
+  return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(String(raw || ""));
+}
+
+/**
  * Trigger patterns for matching future goals (regex-safe substrings).
  * @param {string} goal
  * @param {string} [domain]
@@ -128,13 +237,21 @@ export function skillTitleFromGoal(goal) {
  */
 export function buildTriggersFromGoal(goal, domain = "") {
   const out = [];
+  const bannedLocals = extractEmailLocalParts(goal);
   const d = String(domain || extractDomainFromText(goal) || "").trim();
   if (d) out.push(d.replace(/\./g, "\\."));
-  const words = String(goal || "")
+  const words = scrubCredentialText(goal)
     .toLowerCase()
     .replace(/[^a-z0-9\s-]+/g, " ")
     .split(/\s+/)
-    .filter((w) => w.length >= 4 && !STOP.has(w) && !GENERIC_SKILL_TOKENS.has(w));
+    .filter(
+      (w) =>
+        w.length >= 4 &&
+        !STOP.has(w) &&
+        !GENERIC_SKILL_TOKENS.has(w) &&
+        !isCredentialOrPiiToken(w) &&
+        !bannedLocals.includes(w)
+    );
   for (let i = 0; i < words.length - 1 && out.length < 8; i += 1) {
     const bigram = `${words[i]} ${words[i + 1]}`;
     if (bigram.length >= 8) out.push(bigram.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
@@ -143,7 +260,7 @@ export function buildTriggersFromGoal(goal, domain = "") {
     if (out.length >= 10) break;
     if (!out.some((x) => x.toLowerCase() === t)) out.push(t);
   }
-  return [...new Set(out)].slice(0, 10);
+  return sanitizeSkillTriggers(out, bannedLocals).slice(0, 10);
 }
 
 /**
@@ -323,7 +440,10 @@ export async function learnSkillFromSuccessfulRun(opts) {
     skill.status = "production";
     skill.workflowKey = workflowKey || skill.workflowKey;
     skill.sourceTask = task._id;
-    const merged = [...new Set([...(skill.triggers || []), ...triggers])].slice(0, 12);
+    const merged = sanitizeSkillTriggers(
+      [...(skill.triggers || []), ...triggers],
+      extractEmailLocalParts(`${goal} ${skill.name || ""} ${skill.playbookMd || ""}`)
+    );
     skill.triggers = merged;
     skill.stats = skill.stats || {};
     skill.stats.runs = (skill.stats.runs || 0) + 1;

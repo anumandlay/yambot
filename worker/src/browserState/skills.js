@@ -187,23 +187,82 @@ export function normalizeSkillSteps(steps) {
 }
 
 /**
+ * Strip emails / password literals before match tokenization.
+ * @param {string} text
+ * @returns {string}
+ */
+function scrubCredentialText(text) {
+  return String(text || "")
+    .replace(/\b[\w.+-]+@[\w.-]+\.\w+\b/gi, " ")
+    .replace(/\b(password|passwd|pwd)\s*[:=]?\s*\S+/gi, " ")
+    .replace(/\b\d{6,}\b/g, " ");
+}
+
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
+function extractEmailLocalParts(text) {
+  /** @type {string[]} */
+  const parts = [];
+  const re = /\b([\w.+-]+)@[\w.-]+\.\w+\b/gi;
+  let m;
+  while ((m = re.exec(String(text || "")))) {
+    const local = String(m[1] || "")
+      .toLowerCase()
+      .split(/[.+]/)[0];
+    if (local.length >= 4) parts.push(local);
+  }
+  return [...new Set(parts)];
+}
+
+/**
+ * @param {string} tok
+ * @returns {boolean}
+ */
+function isCredentialOrPiiToken(tok) {
+  const t = String(tok || "")
+    .toLowerCase()
+    .trim();
+  if (!t) return true;
+  if (t.includes("@")) return true;
+  if (
+    /^(gmail|yahoo|hotmail|outlook|icloud|protonmail|proton|mail|email|password|passwd|secret|token|credential)$/.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  if (/^\d{5,}$/.test(t)) return true;
+  return false;
+}
+
+/**
  * Significant tokens for skill match (mirrors backend skillWorkflowLearn).
  * @param {string} text
  * @returns {string[]}
  */
 function skillMatchTokens(text) {
   const stop = new Set(
-    "a an the and or for to of in on at by with from into over again also just please can you me my we our your this that those these is are was were be been being do does did doing have has had will would should could may might must not no yes ok hey hi hello thanks thank navigate filter extract report total details safe worker instructions concrete open click type page list check log login sign password goal ack".split(
+    "a an the and or for to of in on at by with from into over again also just please can you me my we our your this that those these is are was were be been being do does did doing have has had will would should could may might must not no yes ok hey hi hello thanks thank navigate filter extract report total details safe worker instructions concrete open click type page list check log login sign password goal ack https http www com agency admin".split(
       " "
     )
   );
-  return String(text || "")
+  const bannedLocals = new Set(extractEmailLocalParts(text));
+  return scrubCredentialText(text)
     .toLowerCase()
     .replace(/https?:\/\/[^\s]+/gi, " ")
     .replace(/[^a-z0-9.\s-]+/g, " ")
     .split(/[\s._|/-]+/)
     .map((t) => t.trim())
-    .filter((t) => t.length >= 4 && !stop.has(t) && !/^\d+$/.test(t));
+    .filter(
+      (t) =>
+        t.length >= 4 &&
+        !stop.has(t) &&
+        !isCredentialOrPiiToken(t) &&
+        !bannedLocals.has(t) &&
+        !/^\d+$/.test(t)
+    );
 }
 
 /**
@@ -213,6 +272,24 @@ function skillMatchTokens(text) {
 function isDomainTrigger(pat) {
   const raw = String(pat || "").replace(/\\\./g, ".");
   return /^[a-z0-9-]+(?:\.[a-z0-9-]+)+$/i.test(raw);
+}
+
+/**
+ * Skip email/password triggers left on older skills.
+ * @param {string} pat
+ * @returns {boolean}
+ */
+function isCredentialTrigger(pat) {
+  const raw = String(pat || "")
+    .toLowerCase()
+    .replace(/\\\./g, ".");
+  if (!raw) return true;
+  if (raw.includes("@")) return true;
+  if (isDomainTrigger(pat)) return false;
+  const parts = raw.split(/[\s@._-]+/).filter(Boolean);
+  if (parts.some((p) => isCredentialOrPiiToken(p))) return true;
+  if (/^\d{5,}$/.test(raw.replace(/\s+/g, ""))) return true;
+  return false;
 }
 
 /**
@@ -241,7 +318,7 @@ export function detectDbSkillMatch(skills, goal, url = "") {
 
     for (const trigger of triggers) {
       const pat = String(trigger || "").trim();
-      if (!pat) continue;
+      if (!pat || isCredentialTrigger(pat)) continue;
       let hit = false;
       try {
         hit = new RegExp(pat, "i").test(blob);
@@ -262,7 +339,12 @@ export function detectDbSkillMatch(skills, goal, url = "") {
     const keyParts = String(skill.workflowKey || "")
       .toLowerCase()
       .split(/[|.-]+/)
-      .filter((t) => t.length >= 4);
+      .filter(
+        (t) =>
+          t.length >= 4 &&
+          !isCredentialOrPiiToken(t) &&
+          !/^(gmail|yahoo|hotmail|agency|admin|https|http)$/.test(t)
+      );
     let keyOverlap = 0;
     for (const t of keyParts) {
       if (goalTokens.has(t) || blobLower.includes(t)) keyOverlap += 1;
