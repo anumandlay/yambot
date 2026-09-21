@@ -1,5 +1,17 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 14:45] Fix CUA MCP hang on start_session CLI fallback
+
+- **Prompt Provided:** Hermes-parity CUA MCP smoke hung after NDJSON fix.
+- **Architectural Flow:** `start_session` ran via `callTool` before `started=true`, so it fell through to `cua-driver call` CLI (daemon required) and blocked. Mark session started after tools/list; then optional start_session uses MCP.
+- **Impacted Files:** cuaMcpSession.js, PROMPT_LOG
+
+## [2026-09-21 14:40] Fix cua-driver MCP framing (NDJSON)
+
+- **Prompt Provided:** Hermes-parity CUA — MCP initialize timed out on live agent boxes.
+- **Architectural Flow:** cua-driver 0.28.x speaks newline-delimited JSON-RPC on stdio; Content-Length framing caused Parse error. Client now writes/reads NDJSON (still accepts Content-Length if present).
+- **Impacted Files:** cuaMcpSession.js, PROMPT_LOG
+
 ## [2026-09-21 14:30] Hermes-parity CUA inside YamBot (MCP + SOM)
 
 - **Prompt Provided:** When CUA is on, keep YamBot Playwright as orchestrator but drive Chrome through cua-driver MCP like Hermes (SOM/AX capture, element click/type/key) plus visible X-cursor glide; normal goals stay Playwright-primary.

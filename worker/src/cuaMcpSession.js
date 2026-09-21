@@ -3,7 +3,8 @@
  * Purpose: Spawn `cua-driver mcp`, JSON-RPC tools/call, with `cua-driver call` CLI fallback.
  * Downstream: cuaCapture.js / cuaActions.js / computerUse.js activate path.
  *
- * Why: Hermes uses the Python MCP SDK; YamBot stays Node — same wire protocol (Content-Length framing).
+ * Why: Hermes uses the Python MCP SDK; YamBot stays Node. cua-driver 0.28.x speaks
+ * newline-delimited JSON-RPC on stdio (not Content-Length framing) — verified on live boxes.
  */
 
 import { spawn } from "node:child_process";
@@ -24,7 +25,7 @@ import { resolveCuaDriverBin, runCuaDriverCall } from "./cuaDriver.js";
  */
 
 /**
- * Reads Content-Length framed MCP messages from a buffer stream.
+ * Parses MCP stdout: prefers NDJSON lines; also accepts Content-Length frames.
  */
 class McpFramer {
   constructor() {
@@ -39,24 +40,42 @@ class McpFramer {
     this.buf = Buffer.concat([this.buf, chunk]);
     /** @type {object[]} */
     const out = [];
-    while (true) {
-      const headerEnd = this.buf.indexOf("\r\n\r\n");
-      if (headerEnd < 0) break;
-      const header = this.buf.slice(0, headerEnd).toString("utf8");
-      const m = /Content-Length:\s*(\d+)/i.exec(header);
-      if (!m) {
-        this.buf = this.buf.slice(headerEnd + 4);
+
+    // Content-Length framed (standard MCP) — only if buffer starts with that header.
+    while (this.buf.length) {
+      const asText = this.buf.toString("utf8");
+      if (/^\s*Content-Length:/i.test(asText)) {
+        const headerEnd = this.buf.indexOf("\r\n\r\n");
+        if (headerEnd < 0) break;
+        const header = this.buf.slice(0, headerEnd).toString("utf8");
+        const m = /Content-Length:\s*(\d+)/i.exec(header);
+        if (!m) {
+          this.buf = this.buf.slice(headerEnd + 4);
+          continue;
+        }
+        const len = Number(m[1]);
+        const start = headerEnd + 4;
+        if (this.buf.length < start + len) break;
+        const body = this.buf.slice(start, start + len).toString("utf8");
+        this.buf = this.buf.slice(start + len);
+        try {
+          out.push(JSON.parse(body));
+        } catch {
+          /* skip */
+        }
         continue;
       }
-      const len = Number(m[1]);
-      const start = headerEnd + 4;
-      if (this.buf.length < start + len) break;
-      const body = this.buf.slice(start, start + len).toString("utf8");
-      this.buf = this.buf.slice(start + len);
+
+      // NDJSON (cua-driver 0.28.x)
+      const nl = this.buf.indexOf(0x0a);
+      if (nl < 0) break;
+      const line = this.buf.slice(0, nl).toString("utf8").replace(/\r$/, "").trim();
+      this.buf = this.buf.slice(nl + 1);
+      if (!line) continue;
       try {
-        out.push(JSON.parse(body));
+        out.push(JSON.parse(line));
       } catch {
-        /* skip bad frame */
+        /* skip non-JSON noise */
       }
     }
     return out;
@@ -91,9 +110,8 @@ export class CuaMcpSession {
     if (!this.proc?.stdin || this.proc.stdin.destroyed) {
       throw new Error("cua-driver MCP stdin closed");
     }
-    const body = Buffer.from(JSON.stringify(msg), "utf8");
-    this.proc.stdin.write(`Content-Length: ${body.length}\r\n\r\n`);
-    this.proc.stdin.write(body);
+    // Why: cua-driver mcp expects one JSON object per line (NDJSON), not Content-Length.
+    this.proc.stdin.write(`${JSON.stringify(msg)}\n`);
   }
 
   /**
@@ -172,7 +190,7 @@ export class CuaMcpSession {
       }
     });
     this.proc.stderr?.on("data", () => {
-      /* doctor noise */
+      /* AT-SPI / doctor noise */
     });
     this.proc.on("exit", () => {
       this.started = false;
@@ -205,13 +223,15 @@ export class CuaMcpSession {
         tools.map((t) => t?.name).filter((n) => typeof n === "string")
       );
 
+      // Why: mark started before start_session so callTool uses MCP, not CLI (CLI needs daemon).
+      this.started = true;
+
       if (this.toolNames.has("start_session")) {
         await this.callTool("start_session", { session: this.sessionId }, 15000).catch(
           () => null
         );
       }
 
-      this.started = true;
       return { ok: true, tools: [...this.toolNames] };
     } catch (err) {
       await this.stop().catch(() => {});
@@ -261,7 +281,6 @@ export class CuaMcpSession {
         );
         return normalizeMcpToolResult(result, "mcp");
       } catch (err) {
-        // Fall through to CLI
         const cli = await runCuaDriverCall(name, payload, { timeoutMs });
         if (cli.ok) return { ...cli, via: "cli" };
         return {
