@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 15:30] Fix Zoom “no connection” — x11vnc crash + supervisor
+
+- **Prompt Provided:** Clicking Zoom shows “no connection”.
+- **Architectural Flow:** Live agent had x11vnc SIGSEGV (zombie); websockify still listened on :6080 but could not reach :5900 → noVNC “Failed to connect”. Stabilize x11vnc flags (`-noxdamage -noshm -cursor arrow`) and run x11vnc + websockify under restart loops in entrypoint.
+- **Impacted Files:** worker/entrypoint.sh, PROMPT_LOG
+
 ## [2026-09-21 15:20] CUA: visible ✕ cursor + Playwright-accurate element clicks
 
 - **Prompt Provided:** Live cursor missing; clicks still landing on the wrong link (e.g. Notifications instead of Trial expiring).

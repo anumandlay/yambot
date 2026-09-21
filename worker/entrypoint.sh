@@ -110,18 +110,39 @@ if command -v xsetroot >/dev/null 2>&1; then
   xsetroot -cursor_name left_ptr >/dev/null 2>&1 || true
 fi
 
-echo "[desktop] starting x11vnc on :${VNC_PORT}"
-x11vnc -display "${DISPLAY}" -forever -shared -rfbport "${VNC_PORT}" -localhost -nopw \
-  -xkb -repeat -cursor most -o /tmp/x11vnc.log >/tmp/x11vnc.out 2>&1 &
-sleep 0.5
+# Why: x11vnc can SIGSEGV under load (Zoom reconnect / MIT-SHM / damage); without a
+# restart loop, websockify stays up but Zoom shows "Failed to connect to server".
+echo "[desktop] starting x11vnc supervisor on :${VNC_PORT}"
+(
+  while true; do
+    # -noxdamage / -noshm: avoid common Xvfb segfault paths; -cursor arrow is stabler than "most"
+    x11vnc -display "${DISPLAY}" -forever -shared -rfbport "${VNC_PORT}" -localhost -nopw \
+      -xkb -repeat -cursor arrow -noxdamage -noshm -wait 10 -defer 10 \
+      -o /tmp/x11vnc.log >>/tmp/x11vnc.out 2>&1
+    code=$?
+    echo "[desktop] x11vnc exited code=${code} — restarting in 1s" >>/tmp/x11vnc.out
+    sleep 1
+  done
+) &
+sleep 0.8
+if ! ss -lntp 2>/dev/null | grep -q ":${VNC_PORT}" && ! netstat -lntp 2>/dev/null | grep -q ":${VNC_PORT}"; then
+  echo "[desktop] WARNING: x11vnc not listening on :${VNC_PORT} yet — Zoom may fail until it comes up" >&2
+  tail -20 /tmp/x11vnc.log >&2 || true
+fi
 
 NOVNC_WEB="${NOVNC_WEB:-/usr/share/novnc}"
 if [[ ! -d "${NOVNC_WEB}" ]]; then
   NOVNC_WEB="/usr/share/novnc"
 fi
 echo "[desktop] starting noVNC/websockify on :${NOVNC_PORT} (web=${NOVNC_WEB})"
-websockify --web="${NOVNC_WEB}" "0.0.0.0:${NOVNC_PORT}" "127.0.0.1:${VNC_PORT}" \
-  >/tmp/websockify.log 2>&1 &
+(
+  while true; do
+    websockify --web="${NOVNC_WEB}" "0.0.0.0:${NOVNC_PORT}" "127.0.0.1:${VNC_PORT}" \
+      >>/tmp/websockify.log 2>&1
+    echo "[desktop] websockify exited — restarting in 1s" >>/tmp/websockify.log
+    sleep 1
+  done
+) &
 sleep 0.4
 
 # Why: corrupted persistent profiles show "Something went wrong when opening your profile"
