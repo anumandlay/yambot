@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 11:25] One skill per workflow — merge overlapping learns
+
+- **Prompt Provided:** Skills left one-by-one — #2 one skill per workflow (merge overlaps).
+- **Architectural Flow:** `buildWorkflowKey` uses compact seeded tokens so rephrases collide. `findExistingLearnedSkill` matches exact key or Jaccard/shared-triggers near-duplicates; upsert merges steps/triggers and `deprecateDuplicateLearnedSkills` archives siblings. Live Vughy trial skills merged to one production skill.
+- **Impacted Files:** skillWorkflowLearn.js, PROMPT_LOG
+
 ## [2026-09-21 11:20] Skill triggers: strip email/password match signals
 
 - **Prompt Provided:** Skills left items one-by-one — start with clean triggers (no email/password tokens).

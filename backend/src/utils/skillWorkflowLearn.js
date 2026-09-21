@@ -112,6 +112,7 @@ export function extractDomainFromText(text) {
 
 /**
  * Stable key so repeat goals upsert one skill instead of N drafts.
+ * Uses domain + a small core of workflow tokens (not every goal word) so rephrases collide.
  * @param {string} goal
  * @param {string} [domain]
  * @returns {string}
@@ -120,9 +121,179 @@ export function buildWorkflowKey(goal, domain = "") {
   const d = String(domain || extractDomainFromText(goal) || "")
     .toLowerCase()
     .trim();
-  const tokens = [...new Set(extractSignificantTokens(goal))].sort().slice(0, 8);
+  const tokens = coreWorkflowTokens(goal);
   if (!tokens.length && !d) return "";
   return `${d}|${tokens.join("-")}`.slice(0, 140);
+}
+
+/** High-signal words that define a workflow family across rephrases. */
+const WORKFLOW_SEED = new Set(
+  "trial expiring expiry expired india filter account accounts list days left extract crm travel booking hotel register signup checkout cart inbox compose nse yahoo bloomberg".split(
+    " "
+  )
+);
+
+/**
+ * Compact token set for workflow identity (seeded when possible).
+ * @param {string} goal
+ * @returns {string[]}
+ */
+export function coreWorkflowTokens(goal) {
+  const tokens = extractSignificantTokens(goal);
+  const seeded = tokens.filter(
+    (t) => WORKFLOW_SEED.has(t) || WORKFLOW_SEED.has(t.replace(/s$/, ""))
+  );
+  const core = seeded.length >= 2 ? seeded : tokens;
+  return [...new Set(core)].sort().slice(0, 5);
+}
+
+/**
+ * @param {string} key
+ * @returns {Set<string>}
+ */
+export function workflowKeyTokenSet(key) {
+  const rest = String(key || "").includes("|")
+    ? String(key).split("|").slice(1).join("|")
+    : String(key || "");
+  return new Set(
+    rest
+      .toLowerCase()
+      .split(/[-|]+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 4 && !isCredentialOrPiiToken(t))
+  );
+}
+
+/**
+ * @param {Set<string>|string[]} a
+ * @param {Set<string>|string[]} b
+ * @returns {number}
+ */
+export function tokenJaccard(a, b) {
+  const A = a instanceof Set ? a : new Set(a || []);
+  const B = b instanceof Set ? b : new Set(b || []);
+  if (!A.size || !B.size) return 0;
+  let inter = 0;
+  for (const x of A) if (B.has(x)) inter += 1;
+  return inter / new Set([...A, ...B]).size;
+}
+
+/**
+ * @param {string[]} a
+ * @param {string[]} b
+ * @returns {number}
+ */
+export function sharedTriggerCount(a, b) {
+  const left = sanitizeSkillTriggers(a || []);
+  const right = new Set(
+    sanitizeSkillTriggers(b || []).map((t) => t.toLowerCase().replace(/\\\./g, "."))
+  );
+  let n = 0;
+  for (const t of left) {
+    const norm = t.toLowerCase().replace(/\\\./g, ".");
+    if (isDomainTriggerPat(norm)) continue;
+    if (right.has(norm)) n += 1;
+  }
+  return n;
+}
+
+/**
+ * Find an existing learned skill for this agent workflow (exact key or near-duplicate).
+ * @param {{
+ *   userId: string,
+ *   agentId?: string|null,
+ *   workflowKey: string,
+ *   triggers: string[],
+ * }} opts
+ * @returns {Promise<object|null>}
+ */
+export async function findExistingLearnedSkill(opts) {
+  const { userId, agentId, workflowKey, triggers } = opts;
+  if (!userId || !workflowKey) return null;
+
+  if (agentId) {
+    const exact = await Skill.findOne({
+      user: userId,
+      agent: agentId,
+      workflowKey,
+      status: { $in: ["production", "draft", "training"] },
+    });
+    if (exact) return exact;
+  } else {
+    const exact = await Skill.findOne({
+      user: userId,
+      agent: null,
+      workflowKey,
+      status: { $in: ["production", "draft", "training"] },
+    });
+    if (exact) return exact;
+  }
+
+  const filter = {
+    user: userId,
+    status: { $in: ["production", "draft", "training"] },
+    workflowKey: { $type: "string", $ne: "" },
+  };
+  if (agentId) filter.agent = agentId;
+
+  const candidates = await Skill.find(filter).sort({ updatedAt: -1 }).limit(40);
+  const want = workflowKeyTokenSet(workflowKey);
+  const contentTriggers = (triggers || []).filter((t) => !String(t).includes("\\."));
+  let best = null;
+  let bestScore = 0;
+  for (const s of candidates) {
+    const jac = tokenJaccard(want, workflowKeyTokenSet(s.workflowKey));
+    const shared = sharedTriggerCount(contentTriggers, s.triggers || []);
+    // Same domain prefix helps but is not enough alone.
+    const sameDomain =
+      String(workflowKey).split("|")[0] &&
+      String(workflowKey).split("|")[0] === String(s.workflowKey || "").split("|")[0];
+    let score = jac * 4 + shared * 1.5;
+    if (sameDomain && (jac >= 0.4 || shared >= 2)) score += 1;
+    if (jac >= 0.45 || shared >= 2) {
+      if (score > bestScore) {
+        bestScore = score;
+        best = s;
+      }
+    }
+  }
+  return best;
+}
+
+/**
+ * After upsert, deprecate other production siblings that are clearly the same workflow.
+ * @param {{
+ *   userId: string,
+ *   agentId?: string|null,
+ *   keepId: object,
+ *   workflowKey: string,
+ *   triggers: string[],
+ * }} opts
+ * @returns {Promise<number>}
+ */
+export async function deprecateDuplicateLearnedSkills(opts) {
+  const { userId, agentId, keepId, workflowKey, triggers } = opts;
+  if (!userId || !keepId || !workflowKey) return 0;
+  const filter = {
+    user: userId,
+    _id: { $ne: keepId },
+    status: "production",
+    workflowKey: { $type: "string", $ne: "" },
+  };
+  if (agentId) filter.agent = agentId;
+  const siblings = await Skill.find(filter).limit(40);
+  const want = workflowKeyTokenSet(workflowKey);
+  let n = 0;
+  for (const s of siblings) {
+    const jac = tokenJaccard(want, workflowKeyTokenSet(s.workflowKey));
+    const shared = sharedTriggerCount(triggers, s.triggers || []);
+    if (jac >= 0.45 || shared >= 2) {
+      s.status = "deprecated";
+      await s.save();
+      n += 1;
+    }
+  }
+  return n;
 }
 
 /**
@@ -323,6 +494,31 @@ export function extractDurableStepsFromTask(task) {
 }
 
 /**
+ * Prefer the richer procedure; keep unique prior steps that still help.
+ * @param {unknown[]} prev
+ * @param {string[]} next
+ * @returns {string[]}
+ */
+export function mergeDurableSteps(prev, next) {
+  const a = (Array.isArray(prev) ? prev : [])
+    .map((s) => (typeof s === "string" ? s.trim() : ""))
+    .filter(Boolean);
+  const b = (Array.isArray(next) ? next : []).map((s) => String(s || "").trim()).filter(Boolean);
+  if (!a.length) return b.slice(0, 20);
+  if (!b.length) return a.slice(0, 20);
+  // Newest successful procedure wins as primary; append older unique lines.
+  const seen = new Set(b.map((s) => s.toLowerCase()));
+  const out = [...b];
+  for (const line of a) {
+    if (seen.has(line.toLowerCase())) continue;
+    out.push(line);
+    seen.add(line.toLowerCase());
+    if (out.length >= 20) break;
+  }
+  return out;
+}
+
+/**
  * @param {string} goal
  * @returns {boolean}
  */
@@ -390,25 +586,12 @@ export async function learnSkillFromSuccessfulRun(opts) {
     .join("\n");
 
   const agentId = task.agent || null;
-  let skill = null;
-  if (workflowKey) {
-    skill = await Skill.findOne({
-      user: userId,
-      workflowKey,
-      ...(agentId ? { agent: agentId } : {}),
-    });
-  }
-  if (!skill && agentId) {
-    const bigrams = triggers.filter((t) => t.includes(" "));
-    if (bigrams.length) {
-      skill = await Skill.findOne({
-        user: userId,
-        agent: agentId,
-        status: { $in: ["production", "draft", "training"] },
-        triggers: { $in: bigrams },
-      }).sort({ updatedAt: -1 });
-    }
-  }
+  let skill = await findExistingLearnedSkill({
+    userId,
+    agentId,
+    workflowKey,
+    triggers,
+  });
 
   let created = false;
   let updated = false;
@@ -432,12 +615,21 @@ export async function learnSkillFromSuccessfulRun(opts) {
     });
     created = true;
   } else {
-    skill.name = name.slice(0, 120);
+    // Why: keep the clearer title when the new one is a long login dump.
+    const prevName = String(skill.name || "");
+    const nextName = name.slice(0, 120);
+    skill.name =
+      nextName.length + 15 < prevName.length || /password|@|with and/i.test(prevName)
+        ? nextName
+        : prevName.length <= nextName.length
+          ? prevName
+          : nextName;
     skill.description = `Learned from successful run${domain ? ` on ${domain}` : ""}.`;
     skill.playbookMd = playbookMd;
-    skill.steps = durable;
+    skill.steps = mergeDurableSteps(skill.steps, durable);
     skill.executionMode = "hints";
     skill.status = "production";
+    // Prefer the compact seeded key going forward.
     skill.workflowKey = workflowKey || skill.workflowKey;
     skill.sourceTask = task._id;
     const merged = sanitizeSkillTriggers(
@@ -452,6 +644,14 @@ export async function learnSkillFromSuccessfulRun(opts) {
     updated = true;
   }
 
+  const deprecated = await deprecateDuplicateLearnedSkills({
+    userId,
+    agentId,
+    keepId: skill._id,
+    workflowKey: skill.workflowKey || workflowKey,
+    triggers: skill.triggers || triggers,
+  }).catch(() => 0);
+
   if (task.chat) {
     try {
       const verb = created ? "Skill learned" : "Skill updated";
@@ -463,9 +663,12 @@ export async function learnSkillFromSuccessfulRun(opts) {
           `Triggers: ${(skill.triggers || []).slice(0, 5).join(", ") || "(none)"}`,
           `Procedure: ${durable.length} durable steps`,
           `Status: production — next similar goals can match this skill.`,
+          deprecated ? `Merged: deprecated ${deprecated} overlapping skill(s).` : "",
           "",
           durable.map((s, i) => `${i + 1}. ${s}`).join("\n"),
-        ].join("\n"),
+        ]
+          .filter(Boolean)
+          .join("\n"),
         meta: {
           kind: "skill_learned",
           ui: "icon",
@@ -476,9 +679,10 @@ export async function learnSkillFromSuccessfulRun(opts) {
             slug: skill.slug,
             created,
             updated,
+            deprecated,
             triggers: skill.triggers || [],
             steps: durable,
-            workflowKey,
+            workflowKey: skill.workflowKey || workflowKey,
           },
         },
       });
