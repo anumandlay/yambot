@@ -279,15 +279,26 @@ export function sessionCredentialsForAsk(question, history) {
  */
 export function formatSiteHintsBlock(profile) {
   if (!profile?.hints?.length) return "";
+  const hints = profile.hints || [];
+  // Why: inject a small set — 1–2 flows + a few avoid/note, not every historical success.
+  const flows = hints.filter((h) => String(h.kind || "") === "flow").slice(0, 2);
+  const avoids = hints.filter((h) => String(h.kind || "") === "avoid").slice(0, 2);
+  const notes = hints
+    .filter((h) => !/^(flow|avoid)$/i.test(String(h.kind || "")))
+    .slice(0, 2);
+  const picked = [...flows, ...avoids, ...notes];
+  if (!picked.length) return "";
   const lines = [
     `SITE MEMORY (${profile.domain}):`,
     "Historical navigation hints only — do NOT reuse old if/then conditions from these notes; follow the current GOAL / ACTIVE USER MESSAGE.",
   ];
-  for (const h of profile.hints.slice(0, 8)) {
+  for (const h of picked) {
     lines.push(`  - [${h.kind || "note"}] ${h.content}`);
   }
   if (profile.stats?.successes) {
-    lines.push(`  visits: ${profile.stats.visits || 0}, successes: ${profile.stats.successes || 0}`);
+    lines.push(
+      `  stats: ${profile.stats.visits || 0} visits, ${profile.stats.successes || 0} successes (count only — not duplicated as hints)`
+    );
   }
   return lines.join("\n");
 }

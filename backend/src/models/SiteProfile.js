@@ -50,24 +50,64 @@ const siteProfileSchema = new mongoose.Schema(
 siteProfileSchema.index({ agent: 1, domain: 1 }, { unique: true });
 
 /**
+ * Fingerprint for near-duplicate flow hints (same path, different wording/counts).
+ * @param {string} content
+ * @returns {string}
+ */
+export function siteFlowFingerprint(content) {
+  const s = String(content || "")
+    .toLowerCase()
+    .replace(/successful (?:run|path) on [a-z0-9.-]+:\s*/i, "")
+    .replace(/\d+\s*(?:of\s*)?\d+/g, "#")
+    .replace(/\b\d+\s*days?\b/g, "#days")
+    .replace(/https?:\/\/[^\s]+/g, (u) => {
+      try {
+        const url = new URL(u);
+        return `${url.hostname}${url.pathname}`.replace(/\/+$/, "");
+      } catch {
+        return u;
+      }
+    })
+    .replace(/[^a-z0-9/\s→>-]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 160);
+  return s;
+}
+
+/**
  * Appends a hint and caps the list.
+ * Why: repeated successful runs must not stack near-duplicate `flow` hints that all get
+ * injected into the LLM — upsert similar flows and keep a small cap.
  * @param {import('mongoose').Document} doc
  * @param {{ kind?: string, content: string }} hint
  * @param {number} [cap]
  */
-export function appendSiteHint(doc, hint, cap = 30) {
+export function appendSiteHint(doc, hint, cap = 12) {
   const content = String(hint.content || "").trim();
   if (!content) return;
-  doc.hints = doc.hints || [];
-  const dup = doc.hints.some((h) => h.content === content);
-  if (!dup) {
-    doc.hints.unshift({
-      kind: hint.kind || "note",
-      content: content.slice(0, 500),
-      at: new Date(),
-    });
+  doc.hints = Array.isArray(doc.hints) ? [...doc.hints] : [];
+  const kind = hint.kind || "note";
+  const next = {
+    kind,
+    content: content.slice(0, 500),
+    at: new Date(),
+  };
+
+  if (kind === "flow") {
+    const fp = siteFlowFingerprint(content);
+    doc.hints = doc.hints.filter(
+      (h) => String(h.kind || "") !== "flow" || siteFlowFingerprint(h.content) !== fp
+    );
+    doc.hints.unshift(next);
+  } else {
+    if (doc.hints.some((h) => h.content === content)) return;
+    doc.hints.unshift(next);
   }
-  if (doc.hints.length > cap) doc.hints = doc.hints.slice(0, cap);
+
+  const flows = doc.hints.filter((h) => String(h.kind || "") === "flow").slice(0, 3);
+  const rest = doc.hints.filter((h) => String(h.kind || "") !== "flow");
+  doc.hints = [...flows, ...rest].slice(0, cap);
 }
 
 /**

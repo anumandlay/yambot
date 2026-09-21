@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 09:50] Dedupe site-memory flows (don’t stack every success)
+
+- **Prompt Provided:** Every successful same run adds another site-memory flow and all get injected.
+- **Architectural Flow:** `appendSiteHint` upserts similar `flow` fingerprints (keep newest); cap flows at 3 stored / 2 injected. Stats visits/successes still increment. Inject block explains counts are stats, not duplicated hints.
+- **Impacted Files:** SiteProfile.js, learn.js, PROMPT_LOG
+
 ## [2026-09-21 09:45] Conditional goals must not reuse older if-rules
 
 - **Prompt Provided:** User said “if more than 1 accounts, say hi” but agent evaluated old “days_left &lt; 15” and skipped messaging.
