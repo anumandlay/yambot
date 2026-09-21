@@ -21,8 +21,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     xdotool \
     x11-xserver-utils \
     libxi6 \
-    at-spi2-core \
+    dbus \
     dbus-x11 \
+    at-spi2-core \
+    libatspi2.0-0 \
+    libatk-bridge2.0-0 \
+    libatk1.0-0 \
     fonts-liberation \
     fonts-noto-color-emoji \
     curl \
@@ -57,7 +61,12 @@ ENV NODE_ENV=production \
     YAMBOT_NOVNC_PORT=6080 \
     YAMBOT_VNC_PORT=5900 \
     YAMBOT_VIEWPORT_WIDTH=1280 \
-    YAMBOT_VIEWPORT_HEIGHT=800
+    YAMBOT_VIEWPORT_HEIGHT=800 \
+    XDG_RUNTIME_DIR=/tmp/runtime-root \
+    NO_AT_BRIDGE=0 \
+    GTK_A11Y=1 \
+    QT_ACCESSIBILITY=1 \
+    ACCESSIBILITY_ENABLED=1
 
 EXPOSE 6080
 

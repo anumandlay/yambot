@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 15:00] Linux AT-SPI for CUA SOM/element capture
+
+- **Prompt Provided:** Improve Linux AX in the worker image so CUA get_window_state returns elements (was AT-SPI connect failed).
+- **Architectural Flow:** Dockerfile adds libatspi/atk-bridge; entrypoint starts dbus-launch session + at-spi-bus-launcher and exports a11y env; Chrome gets `--force-renderer-accessibility`. cua-driver inherits DBUS_SESSION_BUS_ADDRESS from the worker process.
+- **Impacted Files:** Dockerfile.worker, entrypoint.sh, agent.js, deploy/README.md, PROMPT_LOG
+
 ## [2026-09-21 14:55] Unstick CUA capture hang (AT-SPI / get_window_state)
 
 - **Prompt Provided:** Live “Check india trial-expiring… using cua” stuck after site memory with no LLM turn.

@@ -30,7 +30,7 @@ cd deploy && docker compose up -d --build
 4. Worker logs in with the token, streams screenshots, claims that agent’s tasks
 5. Dashboard → Live screen → enable **Take control** to click/type (captchas, recovery)
 
-**CUA (website agents):** Same Playwright box. Chat “using cua” (or `/cua`) sets `computerUseMode=cua`. Otherwise `auto` — after **2** failed recoverable locator attempts the worker activates CUA (screenshot + `click_at`/`type_at`, lazy `cua-driver serve` when installed). Full XFCE images are not used for this path.
+**CUA (website agents):** Same Playwright box. Chat “using cua” (or `/cua`) sets `computerUseMode=cua`. Otherwise `auto` — after **2** failed recoverable locator attempts the worker activates CUA (cua-driver MCP + SOM/element clicks when AT-SPI is up, Playwright vision fallback). Worker entrypoint starts a D-Bus session + AT-SPI bus; Chrome launches with `--force-renderer-accessibility`. Full XFCE images are not used for this path.
 
 RAM: Playwright boxes ~3 GB limit each.
 

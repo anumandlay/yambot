@@ -667,6 +667,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       "--no-first-run",
       "--no-default-browser-check",
       "--disable-restore-session-state",
+      // Why: expose Chrome's AT-SPI tree so cua-driver SOM/element clicks work on Linux.
+      "--force-renderer-accessibility",
       ...(config.headed ? ["--test-type"] : []),
     ];
     const extensionDir = resolveExtensionDir();
