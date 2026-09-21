@@ -1864,6 +1864,17 @@ export function goalRequiresFreshPeerAsk(goal) {
   if (/^\[?\s*PEER RESULTS READY/i.test(g)) return false;
   if (/^\[?\s*PEER FANOUT/i.test(g)) return false;
   if (/^\[?\s*AGENT MESSAGE from/i.test(g)) return false;
+  // Why: "if X, message agent; otherwise do not" must be allowed to finish without a hop
+  // when the condition is false — forcing message_agent caused wait/finish loops.
+  if (
+    /\bif\b[\s\S]{0,200}\b(message|ask|tell|ping)\b[\s\S]{0,120}\bagent\b/i.test(g) &&
+    /\b(otherwise|else|if not|only if|unless)\b/i.test(g)
+  ) {
+    return false;
+  }
+  if (/\b(do not|don't|dont)\s+(message|ask|tell|ping)\b/i.test(g) && /\bif\b/i.test(g)) {
+    return false;
+  }
   if (/\bsoft\s*wait\b/i.test(g)) return true;
   if (/\bmessage_agent\b/i.test(g)) return true;
   if (

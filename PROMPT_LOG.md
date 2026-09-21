@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 09:15] Conditional peer-message goals must not block finish
+
+- **Prompt Provided:** Live check of “check trial expiring… if >1 under 15 days say hi to general agent”.
+- **Architectural Flow:** `goalRequiresFreshPeerAsk` matched “message … agent” inside an if/otherwise clause, blocking finish and causing wait loops on about:blank. Skip fresh-peer requirement for conditional “if…otherwise do not message” goals.
+- **Impacted Files:** agentMessageBus.js, PROMPT_LOG
+
 ## [2026-09-21 09:10] Site memory inject chip in chat
 
 - **Prompt Provided:** On trial-expiring chat Memory chip, also show domain site profile and how it is inserted.
