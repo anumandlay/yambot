@@ -4,6 +4,7 @@
  * via a cheap LLM turn; optionally delegate browse/work via sendAgentMessage into the room.
  * Inputs: room Chat (kind=room), user message text, participant Agent docs.
  * Downstream: Message bubbles on the room chat; AgentMessage/Task when work is delegated.
+ * Memory: same Mem0 + curated merge as 1:1 Auto (resolveCuratedMemoryForPrompt + ingest).
  */
 
 import { Agent, formatAgentPrompt, toAgentSnapshot } from "../models/Agent.js";
@@ -21,7 +22,8 @@ import {
   sendAgentMessage,
   shouldAnswerPeerCheaply,
 } from "./agentMessageBus.js";
-
+import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
+import { mem0IngestChatTurn } from "./mem0Service.js";
 /**
  * @param {string} content
  * @returns {boolean}
@@ -70,7 +72,7 @@ async function loadRoomTranscriptBlock(chatId, limit = 12) {
  *   transcript: string,
  *   addressedDirectly: boolean,
  * }} opts
- * @returns {Promise<{ text: string, passed: boolean }|null>}
+ * @returns {Promise<{ text: string, passed: boolean, mem0Meta?: object|null }|null>}
  */
 async function cheapRoomMemberReply(opts) {
   const { userId, agent, roomTitle, memberNames, humanMessage, transcript, addressedDirectly } =
@@ -80,10 +82,34 @@ async function cheapRoomMemberReply(opts) {
   const creds = await resolveLlmCredentialsForAgent(owner, agent);
   if (!creds?.apiKey) return null;
 
+  // Why: rooms used to pass empty curated arrays — Mem0 / MEMORY prefs never reached room LLMs.
+  let curatedEntries = { userCuratedEntries: [], agentCuratedEntries: [] };
+  /** @type {object|null} */
+  let mem0Meta = null;
+  try {
+    const curated = await resolveCuratedMemoryForPrompt({
+      userEntries: owner.curatedMemory?.entries,
+      agentEntries: agent.curatedMemory?.entries,
+      goal: humanMessage,
+      creds,
+      userId: String(userId),
+      agentId: String(agent._id),
+      userDoc: owner,
+      agentDoc: agent,
+    });
+    curatedEntries = {
+      userCuratedEntries: curated.userCuratedEntries || [],
+      agentCuratedEntries: curated.agentCuratedEntries || [],
+    };
+    mem0Meta = curated.meta?.mem0 || null;
+  } catch (err) {
+    console.warn("[roomTurn] curated/mem0 pull failed:", agent.name, err?.message || err);
+  }
+
   const snapshot = toAgentSnapshot(agent, {
     goal: humanMessage,
-    userCuratedEntries: [],
-    agentCuratedEntries: [],
+    userCuratedEntries: curatedEntries.userCuratedEntries,
+    agentCuratedEntries: curatedEntries.agentCuratedEntries,
   });
   const persona = formatAgentPrompt(snapshot);
 
@@ -109,6 +135,7 @@ async function cheapRoomMemberReply(opts) {
               ? "You were @mentioned — prefer a real reply unless the ask clearly belongs to someone else."
               : "You were not @mentioned — PASS unless you clearly own the topic.",
             "Otherwise reply in 1–5 short sentences as yourself. No tools, no JSON, no finish tags.",
+            "Use USER / MEMORY facts in your persona when relevant (prefs, durable notes).",
             "",
             persona || "(no extra persona)",
             "",
@@ -128,9 +155,9 @@ async function cheapRoomMemberReply(opts) {
   }
 
   const text = stripModelThinking(raw).trim();
-  if (!text) return { text: "PASS", passed: true };
+  if (!text) return { text: "PASS", passed: true, mem0Meta };
   const passed = /^pass\b/i.test(text) || text.toUpperCase() === "PASS";
-  return { text: passed ? "PASS" : text.slice(0, 2000), passed };
+  return { text: passed ? "PASS" : text.slice(0, 2000), passed, mem0Meta };
 }
 
 /**
@@ -299,8 +326,16 @@ export async function runRoomTurn(opts) {
         fromAgentId: String(agent._id),
         fromAgentName: agent.name,
         roomTurn: true,
+        mem0: result.mem0Meta || null,
       },
     }).catch(() => null);
+    // Why: durable facts from room chat should land in Mem0 like 1:1 Auto turns.
+    void mem0IngestChatTurn({
+      userId,
+      agentId: String(agent._id),
+      userText: content,
+      assistantText: result.text,
+    }).catch(() => {});
   }
 
   const passedNames = replies.filter((r) => r.passed).map((r) => r.agentName);

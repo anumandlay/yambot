@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 14:40] Plug Mem0 into group rooms
+
+- **Prompt Provided:** Wire Mem0 into rooms (e.g. Website Ops) like 1:1 agent chats.
+- **Architectural Flow:** `cheapRoomMemberReply` now calls `resolveCuratedMemoryForPrompt` (curated Mongo + Mem0 search merge) instead of empty curated arrays. After non-PASS room replies, `mem0IngestChatTurn` stores durable facts per speaking agent. Reply meta records mem0 merge counts.
+- **Impacted Files:** roomTurn.js, PROMPT_LOG
+
 ## [2026-09-22 14:30] “Tell general agent to …” — peer fan-out, not sender Chromium
 
 - **Prompt Provided:** `tell general agent to open vughy.com` showed “Starting Trial India’s computer”.
