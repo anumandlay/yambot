@@ -25,6 +25,58 @@ export function stripIntentOverrides(text) {
 }
 
 /**
+ * True when the user wants a chat summary of today's work / day history — never a browser run.
+ * Why: models invent QUEUE_GOAL like "Log in... verify" from chat context for "what we did today".
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeDayHistoryOrStatusRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+  // Explicit browse job wins.
+  if (
+    /\b(go to|navigate to|open (the )?(site|page|url)|click|fill|sign in to|log ?in to)\b/i.test(lower) ||
+    /\b(open|visit)\s+https?:\/\//i.test(lower)
+  ) {
+    return false;
+  }
+  if (
+    /\b(what (did|have) (we|you|i) (do|done)|what we did|what you did|what happened)\b[\s\S]{0,40}\b(today|this (morning|afternoon|evening|day)|so far)\b/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(tell me|show me|summarize|recap|list)\b[\s\S]{0,60}\b(what we did|what you did|today('s)? (work|runs?|activity|activities|history)|day history)\b/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  if (/\b(day history|today'?s (work|runs?|activity)|with timestamps?)\b/i.test(lower) && raw.length < 220) {
+    return true;
+  }
+  if (/^(status|what('?s| is) (going on|happening)|how('?s| is) (it|today) going)\b[!?.\s]*$/i.test(raw)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Ultra-short follow-ups that must stay chat (models invent browser goals from thread context).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeVagueChatFollowup(text) {
+  const raw = String(text || "").trim();
+  if (!raw || raw.length > 24) return false;
+  if (/https?:\/\//i.test(raw) || /\b[\w-]+\.(com|io|net|org)\b/i.test(raw)) return false;
+  return /^(what|huh|hmm+|and\??|so\??|ok what|then what|now what)\b[!?.\s]*$/i.test(raw);
+}
+
+/**
  * True when the user is teaching durable prefs/facts (often with URLs) and does not want a browser run.
  * Why: "Remember … https://vughy.com/admin … do not start a computer" used to match has_url_or_domain
  * and force-queue Chromium. Memory store stays chat/Mem0 ingest.
@@ -238,6 +290,16 @@ export function classifyMessageIntent(text, opts = {}) {
       intent: "question",
       confidence: 0.96,
       reason: "memory_store_request",
+      text: cleaned,
+    };
+  }
+
+  // Day history / "what we did today" — chat from dayLogs, never Chromium.
+  if (looksLikeDayHistoryOrStatusRequest(cleaned) || looksLikeVagueChatFollowup(cleaned)) {
+    return {
+      intent: "question",
+      confidence: 0.96,
+      reason: looksLikeVagueChatFollowup(cleaned) ? "vague_chat_followup" : "day_history_or_status",
       text: cleaned,
     };
   }

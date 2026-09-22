@@ -59,6 +59,25 @@ describe("capability questions vs concrete goals", () => {
       "queue_goal"
     );
   });
+
+  it("day-history asks stay chat (never heuristic queue)", () => {
+    const msg = "tell me clearly what we did today with timestamp";
+    const c = classifyMessageIntent(msg);
+    assert.equal(c.intent, "question");
+    assert.equal(c.reason, "day_history_or_status");
+    assert.equal(autoTurnHeuristicGate(msg), "model");
+  });
+
+  it("vague 'what' is chat follow-up, not a computer goal", () => {
+    const c = classifyMessageIntent("what");
+    assert.equal(c.intent, "question");
+    // greeting_or_chitchat or vague_chat_followup — both stay chat.
+    assert.ok(
+      c.reason === "vague_chat_followup" || c.reason === "greeting_or_chitchat",
+      c.reason
+    );
+    assert.equal(autoTurnHeuristicGate("what"), "model");
+  });
 });
 
 describe("memory store mis-queue is forced back to reply", () => {
@@ -78,6 +97,22 @@ describe("memory store mis-queue is forced back to reply", () => {
     assert.equal(out.action, "reply");
     assert.match(out.reason, /memory_store_forced_reply/);
     assert.equal(out.goal, "");
+  });
+
+  it("ensureAutoTurnResult converts queue_goal → reply for day history", async () => {
+    const { ensureAutoTurnResult } = await import("../src/utils/chatAutoTurn.js");
+    const msg = "tell me clearly what we did today with timestamp";
+    const out = ensureAutoTurnResult(
+      {
+        action: "queue_goal",
+        goal: msg,
+        ack: "Starting computer…",
+        reason: "model_queue",
+      },
+      { userText: msg, agentName: "Trial" }
+    );
+    assert.equal(out.action, "reply");
+    assert.match(out.reason, /day_history_forced_reply/);
   });
 });
 

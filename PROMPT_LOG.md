@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 13:45] Auto: day-history / “what we did today” stays chat
+
+- **Prompt Provided:** “tell me clearly what we did today with timestamp” started the computer.
+- **Architectural Flow:** Model text_fallback chose QUEUE_GOAL and invented a browse goal from thread. Added `looksLikeDayHistoryOrStatusRequest` + `looksLikeVagueChatFollowup`; classify as question; Auto short-circuits to forced Q&A (`answerChatQuestion`/`streamChatQuestion`); `ensureAutoTurnResult` also force-REPLies if somehow queued. Cheap reply for bare “what”.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 13:20] Auto: memory-store prefs with URLs stay chat (no computer)
 
 - **Prompt Provided:** Fix Auto so remember/store preferences stays chat-only even when URLs are listed.
