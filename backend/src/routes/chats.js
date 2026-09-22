@@ -25,7 +25,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny } from "../utils/chatAutoTurn.js";
 import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
@@ -1051,7 +1051,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let turn;
       let answerError = null;
       let qaCreds = null;
+      const cheapReply = cheapChatReplyIfAny(questionText);
       try {
+        if (cheapReply) {
+          if (wantStream) writeNdjson({ type: "delta", text: cheapReply });
+          turn = {
+            action: "reply",
+            content: cheapReply,
+            goal: "",
+            ack: "",
+            reason: "cheap_greeting",
+          };
+        } else {
         const userForLlm = await User.findById(req.userId);
         qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
         if (!qaCreds.apiKey) {
@@ -1143,6 +1154,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             },
           },
         });
+        }
       } catch (err) {
         answerError = err;
         turn = {
@@ -1304,7 +1316,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let assistantContent;
       let answerError = null;
       let qaCreds = null;
+      const cheapReply = cheapChatReplyIfAny(questionText);
       try {
+        if (cheapReply) {
+          assistantContent = cheapReply;
+          if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
+        } else {
         const userForLlm = await User.findById(req.userId);
         qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
         if (!qaCreds.apiKey) {
@@ -1348,6 +1365,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             creds: qaCreds,
             chatContext: chatContextBlock,
           });
+        }
         }
       } catch (err) {
         answerError = err;

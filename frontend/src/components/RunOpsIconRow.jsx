@@ -590,7 +590,8 @@ function PulledList({ title, rows, empty }) {
 }
 
 /**
- * One bubble for a whole run segment of ops messages — click opens the event modal.
+ * Tiny chip for a whole run segment of ops messages — click opens the event modal.
+ * Why: must not look like a chat thread bubble; just a control to open details.
  * @param {{ messages: object[] }} props
  */
 export function RunOpsIconRow({ messages }) {
@@ -602,47 +603,20 @@ export function RunOpsIconRow({ messages }) {
 
   const n = list.length;
   const summary = summarizeOpsKinds(list);
-  const previewIcons = [...new Set(list.map((m) => opsIconMeta(m).icon))].slice(0, 6);
-  const firstAt = list[0]?.createdAt;
-  const lastAt = list[list.length - 1]?.createdAt;
 
   return (
     <>
       <button
         type="button"
         onClick={() => setOpen(true)}
-        title="Open run details"
-        aria-label={`Run details, ${n} events. ${summary}`}
-        className="group flex max-w-[95%] flex-col gap-1 self-start rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-2 text-left text-sm text-teal-950 shadow-sm transition hover:border-teal-200 hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-500/40 sm:max-w-[85%]"
+        title={`Run log — ${n} events. ${summary}`}
+        aria-label={`Open run log, ${n} events`}
+        className="yb-ops-chip yb-ops-chip--label self-start inline-flex cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 font-semibold text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95"
       >
-        <span className="flex items-center gap-2">
-          <span className="flex items-center gap-0.5" aria-hidden="true">
-            {previewIcons.map((icon, i) => (
-              <span
-                key={`${icon}-${i}`}
-                className="yb-ops-chip inline-flex items-center justify-center rounded-full border border-teal-100 bg-white text-teal-900"
-              >
-                <span>{icon}</span>
-              </span>
-            ))}
-          </span>
-          <span className="font-semibold text-teal-950">
-            Run details · {n} event{n === 1 ? "" : "s"}
-          </span>
-          <span className="ml-auto text-[0.7rem] font-medium text-teal-700/70 group-hover:text-teal-900">
-            Open
-          </span>
+        <span aria-hidden="true" className="leading-none">
+          ≡
         </span>
-        {summary ? (
-          <span className="line-clamp-2 text-[0.7rem] leading-snug text-teal-800/70">{summary}</span>
-        ) : null}
-        {firstAt || lastAt ? (
-          <span className="text-[0.65rem] tabular-nums text-teal-800/50">
-            {firstAt ? formatChatMessageTime(firstAt) : ""}
-            {firstAt && lastAt && String(firstAt) !== String(lastAt) ? " – " : ""}
-            {lastAt && String(firstAt) !== String(lastAt) ? formatChatMessageTime(lastAt) : ""}
-          </span>
-        ) : null}
+        <span className="leading-none tabular-nums">{n}</span>
       </button>
       {open ? <RunOpsModal messages={list} onClose={close} /> : null}
     </>

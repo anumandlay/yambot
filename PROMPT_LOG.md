@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:05] Tiny run-log chip + instant “hi” replies
+
+- **Prompt Provided:** “hi” stuck on Sending; don’t want Run details as a thread bubble — only a small control to open the modal.
+- **Architectural Flow:** Ops collapse to a tiny `≡ N` chip (opens same modal). Greetings/acks use `cheapChatReplyIfAny` (no LLM). Stream path clears busy as soon as the optimistic bubble appears so Send is not locked for the full reply.
+- **Impacted Files:** RunOpsIconRow.jsx, ChatDetailPage.jsx, chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-22 11:55] Chat: one run-details bubble + fix scroll-up
 
 - **Prompt Provided:** Cannot scroll up for earlier messages; replace inline ops chips with one bubble that opens a modal of all chips for that run.

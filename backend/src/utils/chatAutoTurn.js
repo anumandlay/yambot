@@ -1462,6 +1462,28 @@ export async function runChatAutoTurn(opts) {
 }
 
 /**
+ * Instant replies for greetings / acknowledgements — skip LLM so “hi” is not a long Sending….
+ * @param {string} question
+ * @returns {string|null}
+ */
+export function cheapChatReplyIfAny(question) {
+  const q = String(question || "").trim();
+  if (!q || q.length > 64) return null;
+  if (
+    /^(hi|hello|hey|yo|sup|howdy|good (morning|afternoon|evening))([!?.\s]*)$/i.test(q)
+  ) {
+    return "Hi — I'm here. Ask a question or send a computer goal.";
+  }
+  if (/^(thanks|thank you|thx|ty)([!?.\s]*)$/i.test(q)) {
+    return "You're welcome.";
+  }
+  if (/^(ok|okay|k|cool|nice|got it|sure|yep|yes|no|nope|later|wait)([!?.\s]*)$/i.test(q)) {
+    return "Got it.";
+  }
+  return null;
+}
+
+/**
  * Stream a forced Answer-mode (memory Q&A) reply.
  * @param {{
  *   question: string,

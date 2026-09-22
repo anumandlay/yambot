@@ -754,12 +754,14 @@ export function ChatDetailPage() {
       {
         _id: `${streamId}-assistant`,
         role: "assistant",
-        content: "",
+        content: "…",
         createdAt: new Date().toISOString(),
         meta: { kind: "chat_qa", streaming: true },
       },
     ]);
     scrollThreadToBottom(true);
+    // Why: unlock Send as soon as the optimistic bubble is up — don’t wait for the full LLM stream.
+    setBusy(false);
 
     try {
       const result = await apiChatMessageStream(`/api/chats/${chatId}/messages`, {
@@ -767,11 +769,15 @@ export function ChatDetailPage() {
         timeoutMs: 120000,
         onDelta: (text) => {
           setMessages((prev) =>
-            prev.map((m) =>
-              m._id === `${streamId}-assistant`
-                ? { ...m, content: String(m.content || "") + text }
-                : m
-            )
+            prev.map((m) => {
+              if (m._id !== `${streamId}-assistant`) return m;
+              const prevText = String(m.content || "");
+              const next =
+                prevText === "…" || prevText === "..."
+                  ? text
+                  : prevText + text;
+              return { ...m, content: next };
+            })
           );
           scrollThreadToBottom(true);
         },
