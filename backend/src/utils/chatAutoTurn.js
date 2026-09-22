@@ -1339,7 +1339,7 @@ export async function runChatAutoTurn(opts) {
       content = "Could you clarify what you mean?";
     } else {
       // Why: build from dayLogs directly — LLM was echoing Mem0 prefs (“long scratchpads”) instead.
-      content = formatDayHistoryChatAnswer(snapshot);
+      content = formatDayHistoryChatAnswer(snapshot, text);
       if (stream && typeof delta === "function" && content) {
         delta(content);
       }
@@ -1577,10 +1577,15 @@ export async function runChatAutoTurn(opts) {
  * Deterministic chat answer from agent dayLogs (no LLM).
  * Why: day-history Q&A was returning Mem0 pref fragments like “long scratchpads” instead of the log.
  * @param {object|null|undefined} snapshot
+ * @param {string} [question]
  * @returns {string}
  */
-export function formatDayHistoryChatAnswer(snapshot) {
+export function formatDayHistoryChatAnswer(snapshot, question = "") {
   const today = new Date().toISOString().slice(0, 10);
+  const q = String(question || "");
+  const domainMatch = q.match(/\b([a-z0-9-]+(?:\.[a-z]{2,})(?:\.[a-z]{2,})?)\b/i);
+  const needle = domainMatch ? domainMatch[1].toLowerCase() : "";
+
   const recent = Array.isArray(snapshot?.dayHistoryRecent) ? snapshot.dayHistoryRecent : [];
   const relevant = Array.isArray(snapshot?.dayHistoryRelevant)
     ? snapshot.dayHistoryRelevant
@@ -1597,7 +1602,9 @@ export function formatDayHistoryChatAnswer(snapshot) {
   const todayLogs = pool.filter((d) => String(d?.day || "") === today);
   const logs = todayLogs.length ? todayLogs : pool.slice(0, 2);
   if (!logs.length) {
-    return "I don’t have day-history notes recorded yet. After a computer run finishes, a dated summary will show up here.";
+    return needle
+      ? `No — I don’t see ${needle} in day history yet (no notes recorded).`
+      : "I don’t have day-history notes recorded yet. After a computer run finishes, a dated summary will show up here.";
   }
 
   /** @param {string} raw */
@@ -1626,22 +1633,41 @@ export function formatDayHistoryChatAnswer(snapshot) {
       .slice(0, 420);
   }
 
-  const dayLabel = String(logs[0]?.day || today);
-  /** @type {string[]} */
-  const out = [`Here’s what day history shows for ${dayLabel}:`, ""];
-  let n = 0;
+  /** @type {{ when: string, line: string, hay: string }[]} */
+  const items = [];
   for (const d of logs) {
     const when = d?.at
       ? new Date(d.at).toISOString().replace("T", " ").slice(0, 19) + " UTC"
       : String(d?.day || "");
-    const items = splitWorkItems(d?.detail || d?.summary || "");
-    for (const item of items) {
+    for (const item of splitWorkItems(d?.detail || d?.summary || "")) {
       const line = oneLine(item);
       if (!line) continue;
-      n += 1;
-      out.push(`${n}. [${when}] ${line}`);
-      if (n >= 12) break;
+      items.push({ when, line, hay: `${d?.day || ""} ${line}`.toLowerCase() });
     }
+  }
+
+  if (needle) {
+    const hits = items.filter((it) => it.hay.includes(needle));
+    if (!hits.length) {
+      return `No — day history for ${todayLogs.length ? today : logs[0]?.day || "recent days"} does not mention ${needle}. (Answered from dayLogs — no computer run.)`;
+    }
+    const lines = [
+      `Yes — day history mentions ${needle}:`,
+      "",
+      ...hits.slice(0, 8).map((it, i) => `${i + 1}. [${it.when}] ${it.line}`),
+      "",
+      "(From agent dayLogs — not a live browser run.)",
+    ];
+    return lines.join("\n");
+  }
+
+  const dayLabel = String(logs[0]?.day || today);
+  /** @type {string[]} */
+  const out = [`Here’s what day history shows for ${dayLabel}:`, ""];
+  let n = 0;
+  for (const it of items) {
+    n += 1;
+    out.push(`${n}. [${it.when}] ${it.line}`);
     if (n >= 12) break;
   }
   if (n === 0) {

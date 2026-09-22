@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 13:55] “Did we open nseindia.com today?” stays in dayLogs chat
+
+- **Prompt Provided:** “did we opened nseindia.com today ?” started the computer.
+- **Architectural Flow:** Domain tripped `has_url_or_domain` before past-tense day-history matched. Expand `looksLikeDayHistoryOrStatusRequest` for “did we open/visit … today”; answer yes/no from dayLogs via `formatDayHistoryChatAnswer(snapshot, question)`. Imperative “open https://…” still queues.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 13:50] Day-history ask: answer from dayLogs (not Mem0 pref echo)
 
 - **Prompt Provided:** “tell me clearly what we did today with timestamp” replied “long scratchpads”.

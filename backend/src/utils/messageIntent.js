@@ -27,6 +27,7 @@ export function stripIntentOverrides(text) {
 /**
  * True when the user wants a chat summary of today's work / day history — never a browser run.
  * Why: models invent QUEUE_GOAL like "Log in... verify" from chat context for "what we did today".
+ * Also: "did we open nseindia.com today?" must not hit has_url_or_domain.
  * @param {string} text
  * @returns {boolean}
  */
@@ -34,13 +35,26 @@ export function looksLikeDayHistoryOrStatusRequest(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
   const lower = raw.toLowerCase();
-  // Explicit browse job wins.
-  if (
-    /\b(go to|navigate to|open (the )?(site|page|url)|click|fill|sign in to|log ?in to)\b/i.test(lower) ||
-    /\b(open|visit)\s+https?:\/\//i.test(lower)
-  ) {
-    return false;
-  }
+
+  // Past / recall about opening a site (may include a domain) — dayLogs, not Chromium.
+  const pastBrowseAsk =
+    /\b(did|have|has|was|were)\b[\s\S]{0,48}\b(we|you|i|us)\b[\s\S]{0,48}\b(open|opened|visit|visited|go|went|browse|browsed|check|checked|run|ran|load|loaded)\b/i.test(
+      lower
+    ) ||
+    /\b(did|have)\b[\s\S]{0,24}\b(open|opened|visit|visited)\b[\s\S]{0,48}\b(today|earlier|already|before|this (morning|afternoon|evening|day))\b/i.test(
+      lower
+    ) ||
+    /\b(already|earlier today)\b[\s\S]{0,40}\b(open|opened|visit|visited|went to)\b/i.test(lower);
+
+  if (pastBrowseAsk) return true;
+
+  // Imperative browse NOW — not history (exclude those from the rest of the matcher).
+  const imperativeBrowse =
+    /^(please\s+)?(go to|navigate to|open|visit|browse|log ?in to|sign in to)\b/i.test(raw) ||
+    /\b(go to|navigate to)\s+https?:\/\//i.test(lower) ||
+    /\b(open|visit)\s+https?:\/\//i.test(lower);
+  if (imperativeBrowse) return false;
+
   if (
     /\b(what (did|have) (we|you|i) (do|done)|what we did|what you did|what happened)\b[\s\S]{0,40}\b(today|this (morning|afternoon|evening|day)|so far)\b/i.test(
       lower

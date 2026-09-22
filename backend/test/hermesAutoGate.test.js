@@ -68,6 +68,15 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(autoTurnHeuristicGate(msg), "model");
   });
 
+  it("did we open <domain> today stays chat (not URL heuristic queue)", () => {
+    const msg = "did we opened nseindia.com today ?";
+    const c = classifyMessageIntent(msg);
+    assert.equal(c.intent, "question");
+    assert.equal(c.reason, "day_history_or_status");
+    assert.equal(autoTurnHeuristicGate(msg), "model");
+    assert.equal(autoTurnHeuristicGate("open https://nseindia.com and tell me the title"), "queue_goal");
+  });
+
   it("vague 'what' is chat follow-up, not a computer goal", () => {
     const c = classifyMessageIntent("what");
     assert.equal(c.intent, "question");
@@ -132,6 +141,27 @@ describe("memory store mis-queue is forced back to reply", () => {
     assert.match(out, /day history/i);
     assert.match(out, /India trial|Admin Login/i);
     assert.equal(/long scratchpads/i.test(out), false);
+  });
+
+  it("formatDayHistoryChatAnswer answers domain yes/no from logs", async () => {
+    const { formatDayHistoryChatAnswer } = await import("../src/utils/chatAutoTurn.js");
+    const snap = {
+      dayHistoryRecent: [
+        {
+          day: new Date().toISOString().slice(0, 10),
+          at: new Date().toISOString(),
+          summary: "Opened yahoo.com",
+          detail: "• Opened yahoo.com — page title Yahoo",
+        },
+      ],
+      dayHistoryRelevant: [],
+    };
+    const yes = formatDayHistoryChatAnswer(snap, "did we open yahoo.com today?");
+    assert.match(yes, /^Yes/i);
+    assert.match(yes, /yahoo\.com/i);
+    const no = formatDayHistoryChatAnswer(snap, "did we opened nseindia.com today ?");
+    assert.match(no, /^No/i);
+    assert.match(no, /nseindia\.com/i);
   });
 });
 
