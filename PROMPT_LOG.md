@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 13:05] Big Mem0 live suite (multi-fact + isolation + ingest)
+
+- **Prompt Provided:** Bigger Mem0 test, not a small one.
+- **Architectural Flow:** Suite stores 15 facts (10 agent / 4 user / 1 other-agent), 14 paraphrased searches, agent+user scope isolation, ephemeral reject, chat ingest (greeting skip + LLM extract), `resolveCuratedMemoryForPrompt` merge. Script: `scripts/_mem0_big_suite_turn.py`.
+- **Impacted Files:** scripts/_mem0_big_suite_turn.py, PROMPT_LOG
+
 ## [2026-09-22 12:55] Mem0 embed: accept FastEmbed Float32Array rows
 
 - **Prompt Provided:** Test Mem0 with an example — add returned `embed_failed` after FastEmbed init.
