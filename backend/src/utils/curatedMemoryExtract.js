@@ -11,6 +11,7 @@ import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { mutateCuratedMemory } from "./curatedMemoryOps.js";
 import { normalizeEntries } from "./curatedMemory.js";
+import { filterDurableCuratedFacts, isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
 
 const MAX_FACTS = 5;
 const MAX_FACT_CHARS = 320;
@@ -24,9 +25,18 @@ function heuristicFacts(text) {
   /** @type {string[]} */
   const out = [];
   const remembered = raw.match(/Remembered:\s*(.+)/i);
-  if (remembered?.[1]) out.push(remembered[1].trim().slice(0, MAX_FACT_CHARS));
-  const means = raw.match(/\b([A-Za-z][\w\s-]{0,40})\s+means\s+(\S.+)/i);
-  if (means) out.push(`${means[1].trim()} means ${means[2].trim()}`.slice(0, MAX_FACT_CHARS));
+  if (remembered?.[1]) {
+    const fact = remembered[1].trim().slice(0, MAX_FACT_CHARS);
+    if (!isEphemeralCuratedFact(fact)) out.push(fact);
+  }
+  // Why: do NOT match Auto goals that start with "That means count…" — those are task pins, not facts.
+  const means = raw.match(
+    /\b([A-Za-z][\w.-]{1,40})\s+means\s+(https?:\/\/\S+|[a-z0-9.-]+\.[a-z]{2,}(?:\/\S*)?)/i
+  );
+  if (means) {
+    const fact = `${means[1].trim()} means ${means[2].trim()}`.slice(0, MAX_FACT_CHARS);
+    if (!isEphemeralCuratedFact(fact)) out.push(fact);
+  }
   if (/\b(crm|vughy)\b/i.test(raw) && /\b(register|registration|account|signup|sign up)\b/i.test(raw)) {
     if (/\bdummy\b/i.test(raw)) {
       out.push(
@@ -37,7 +47,7 @@ function heuristicFacts(text) {
       out.push("CRM account registration on Vughy.com can be completed with dummy signup details.");
     }
   }
-  return [...new Set(out.filter(Boolean))];
+  return filterDurableCuratedFacts([...new Set(out.filter(Boolean))]);
 }
 
 /**
@@ -89,6 +99,8 @@ async function llmExtractFacts(opts) {
     "- 0 to 5 short facts (≤320 chars each).",
     "- Prefer stable mappings, site URLs, login paths, preferences the human taught, successful signup patterns.",
     "- Skip one-off navigation (“opened Google”), ephemeral UI, passwords/secrets, and chatter.",
+    "- NEVER save the GOAL text itself, ACTIVE USER MESSAGE pins, or if/then task conditions (e.g. “if count > 1 message agent”).",
+    "- NEVER save peer-message instructions or one-off counters/filters from a single run.",
     "- If nothing durable, return {\"facts\":[]}.",
     "",
     `GOAL:\n${String(opts.goal || "").slice(0, 800)}`,
@@ -197,6 +209,8 @@ export async function persistCuratedMemoryFromRun(opts) {
     if (!facts.length) {
       facts = heuristicFacts(`${opts.goal}\n${summary}`);
     }
+    // Why: strip goal/if-rule dumps even when the LLM returns them.
+    facts = filterDurableCuratedFacts(facts);
     facts = dedupeFacts(facts, normalizeEntries(agent.curatedMemory?.entries));
     if (!facts.length) {
       return { ok: true, saved: [], skipped: "none" };

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 10:30] Curated MEMORY hygiene — stop goal/if-rule pollution
+
+- **Prompt Provided:** Memory chip on “open vughy.com and register” showed old India trial-expiring if-rule + ACTIVE USER MESSAGE; user said “lets go” on the fix plan.
+- **Architectural Flow:** New `curatedMemoryFilter` drops ephemeral goal/if-rule dumps on extract; `persistCuratedMemoryFromRun` always filters; `selectCuratedSubset` strips ephemeral on pull, lowers full-inject threshold (10→4), tightens keyword/semantic floors so unrelated facts are not padded in. Scrub production Mongo of matching entries.
+- **Impacted Files:** curatedMemoryFilter.js, curatedMemoryExtract.js, semanticMemory.js, tests, scrub scripts, PROMPT_LOG
+
 ## [2026-09-22 10:20] CUA type — foreground delivery_mode on Xvfb
 
 - **Prompt Provided:** Follow-up: type still failed after type_text fix with background delivery unavailable.

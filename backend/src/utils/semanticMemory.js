@@ -13,10 +13,14 @@ import {
   normalizeEntryRecords,
   toPersistableEntries,
 } from "./curatedMemory.js";
+import { isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
 import { embedOne, embedTexts, embeddingsSupported } from "./llmEmbed.js";
 
-/** When store is small, inject everything (no retrieval noise). */
-export const SEMANTIC_FULL_INJECT_BELOW = 10;
+/**
+ * When store is tiny, inject everything durable (no retrieval noise).
+ * Kept low so a handful of unrelated old goals cannot flood every prompt.
+ */
+export const SEMANTIC_FULL_INJECT_BELOW = 4;
 
 /** Max curated entries injected per store after semantic / keyword rank. */
 export const SEMANTIC_TOP_K = 8;
@@ -116,10 +120,12 @@ export async function ensureEntryEmbeddings(records, creds) {
  * }>}
  */
 export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
-  const { records: withEmb } = await ensureEntryEmbeddings(
+  const { records: withEmbRaw } = await ensureEntryEmbeddings(
     normalizeEntryRecords(rawEntries),
     creds || {}
   );
+  // Why: defense in depth — never re-inject goal/if-rule dumps already stuck in Mongo.
+  const withEmb = withEmbRaw.filter((r) => !isEphemeralCuratedFact(r.content));
   const total = withEmb.length;
   if (!total) {
     return { contents: [], scores: [], records: [], mode: "all", selected: 0, total: 0 };
@@ -166,8 +172,15 @@ export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
   ranked.sort((a, b) => b.score - a.score);
   const maxScore = ranked[0]?.score || 0;
   // Why: don't pad the prompt with near-zero matches just to fill TOP_K.
+  // Keyword: require ≥2 overlapping tokens when anything scored ≥2; semantic: keep prior floor.
   const minKeep =
-    mode === "semantic" ? Math.max(0.22, maxScore * 0.55) : maxScore >= 1 ? 1 : 0;
+    mode === "semantic"
+      ? Math.max(0.28, maxScore * 0.6)
+      : maxScore >= 2
+        ? 2
+        : maxScore >= 1
+          ? 1
+          : 0;
 
   // Why: keep a floor of newest entries so brand-new facts aren't starved by old high scorers —
   // but only if they clear a soft relevance floor (or the store is sparse).
@@ -198,7 +211,15 @@ export async function selectCuratedSubset(rawEntries, goal, creds, charLimit) {
 
   let selected = [...picked.values()];
   if (!selected.length) {
-    selected = ranked.slice(0, Math.min(4, SEMANTIC_TOP_K)).map((r) => r.record);
+    // Why: prefer empty over injecting unrelated if/then leftovers when nothing clears the floor.
+    if (mode === "keyword" && maxScore < 1) {
+      selected = [];
+    } else {
+      selected = ranked
+        .filter((r) => r.score >= (mode === "semantic" ? minKeep * 0.5 : 1))
+        .slice(0, Math.min(3, SEMANTIC_TOP_K))
+        .map((r) => r.record);
+    }
   }
   // Preserve rank order (highest score first) for the prompt.
   selected.sort((a, b) => {
