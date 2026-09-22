@@ -114,12 +114,17 @@ async function embedText(text) {
   if (!emb) return null;
   const t = String(text || "").trim();
   if (!t) return null;
-  const iter = emb.embed([t]);
-  for await (const batch of iter) {
-    const row = batch?.[0];
-    if (Array.isArray(row) && row.length) {
-      return row.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+  try {
+    const iter = emb.embed([t]);
+    for await (const batch of iter) {
+      const row = batch?.[0];
+      // Why: FastEmbed yields Float32Array rows; Array.isArray is false for typed arrays.
+      if (row == null) continue;
+      const nums = Array.from(row, (n) => Number(n)).filter((n) => Number.isFinite(n));
+      if (nums.length) return nums;
     }
+  } catch (err) {
+    console.warn("[mem0] embed failed:", err?.message || err);
   }
   return null;
 }

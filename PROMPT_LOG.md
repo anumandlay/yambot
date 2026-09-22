@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:55] Mem0 embed: accept FastEmbed Float32Array rows
+
+- **Prompt Provided:** Test Mem0 with an example — add returned `embed_failed` after FastEmbed init.
+- **Architectural Flow:** FastEmbed yields `Float32Array` vectors; `Array.isArray` skipped them. Normalize via `Array.from` so store/search work.
+- **Impacted Files:** mem0Service.js, PROMPT_LOG
+
 ## [2026-09-22 12:50] Fix API npm ci (lockfile sync + fail-hard Dockerfile)
 
 - **Prompt Provided:** Test Mem0 with an example (API crash-looped: missing `cors`).
