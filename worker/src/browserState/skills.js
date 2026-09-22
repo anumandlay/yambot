@@ -243,16 +243,21 @@ function isCredentialOrPiiToken(tok) {
 }
 
 /**
+ * Tokens too generic for skill/workflow overlap (would match any "open …" goal).
+ * Why: trial-expiring skills were winning register goals via open/vughy overlap alone.
+ */
+const SKILL_GENERIC_TOKENS = new Set(
+  "a an the and or for to of in on at by with from into over again also just please can you me my we our your this that those these is are was were be been being do does did doing have has had will would should could may might must not no yes ok hey hi hello thanks thank navigate filter extract report total details safe worker instructions concrete open click type page list check log login sign password goal ack https http www com agency admin apply using site same next then after before when while more less than onto unto about between without within".split(
+    " "
+  )
+);
+
+/**
  * Significant tokens for skill match (mirrors backend skillWorkflowLearn).
  * @param {string} text
  * @returns {string[]}
  */
 function skillMatchTokens(text) {
-  const stop = new Set(
-    "a an the and or for to of in on at by with from into over again also just please can you me my we our your this that those these is are was were be been being do does did doing have has had will would should could may might must not no yes ok hey hi hello thanks thank navigate filter extract report total details safe worker instructions concrete open click type page list check log login sign password goal ack https http www com agency admin".split(
-      " "
-    )
-  );
   const bannedLocals = new Set(extractEmailLocalParts(text));
   return scrubCredentialText(text)
     .toLowerCase()
@@ -263,11 +268,56 @@ function skillMatchTokens(text) {
     .filter(
       (t) =>
         t.length >= 4 &&
-        !stop.has(t) &&
+        !SKILL_GENERIC_TOKENS.has(t) &&
         !isCredentialOrPiiToken(t) &&
         !bannedLocals.has(t) &&
         !/^\d+$/.test(t)
     );
+}
+
+/**
+ * Goal/skill intent families used to reject cross-workflow matches.
+ * @param {string} text
+ * @returns {{ register: boolean, trialAdmin: boolean }}
+ */
+export function skillIntentFlags(text) {
+  const blob = String(text || "");
+  return {
+    register:
+      /sign\s*up|register|create\s+(an?\s+)?account|onboard|join\s+(as|now)|new\s+account|travel\s+agency/i.test(
+        blob
+      ),
+    trialAdmin:
+      /trial[- ]?expir|days?\s*left|super\s*admin|admin\s*login|\/agency\/login|filter.*india|india.*filter|extract.*(account|row|email)|trial\s+expiring/i.test(
+        blob
+      ),
+  };
+}
+
+/**
+ * True when goal and skill describe opposite workflows (e.g. register vs trial-expiring).
+ * @param {string} goal
+ * @param {object} skill
+ * @returns {boolean}
+ */
+export function skillIntentConflicts(goal, skill) {
+  const goalFlags = skillIntentFlags(goal);
+  const skillBlob = [
+    skill?.name,
+    skill?.description,
+    skill?.slug,
+    skill?.workflowKey,
+    ...(Array.isArray(skill?.triggers) ? skill.triggers : []),
+    ...(Array.isArray(skill?.steps)
+      ? skill.steps.map((s) => (typeof s === "string" ? s : s?.text || s?.label || ""))
+      : []),
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const skillFlags = skillIntentFlags(skillBlob);
+  if (goalFlags.register && skillFlags.trialAdmin && !skillFlags.register) return true;
+  if (goalFlags.trialAdmin && skillFlags.register && !goalFlags.register) return true;
+  return false;
 }
 
 /**
@@ -315,6 +365,9 @@ export function detectDbSkillMatch(skills, goal, url = "") {
   let bestReason = "";
 
   for (const skill of skills || []) {
+    // Why: register goals must not load trial-expiring/admin-login playbooks (and vice versa).
+    if (skillIntentConflicts(goal, skill)) continue;
+
     const triggers = skill.triggers || [];
     const matchedTriggers = [];
     let score = 0;
@@ -347,12 +400,14 @@ export function detectDbSkillMatch(skills, goal, url = "") {
       .filter(
         (t) =>
           t.length >= 4 &&
+          !SKILL_GENERIC_TOKENS.has(t) &&
           !isCredentialOrPiiToken(t) &&
           !/^(gmail|yahoo|hotmail|agency|admin|https|http)$/.test(t)
       );
     let keyOverlap = 0;
     for (const t of keyParts) {
-      if (goalTokens.has(t) || blobLower.includes(t)) keyOverlap += 1;
+      // Why: only count goal tokens — blobLower.includes("open") matched every "open vughy…" goal.
+      if (goalTokens.has(t)) keyOverlap += 1;
     }
     if (keyOverlap) score += keyOverlap * 1.25;
     if (keyParts.length >= 2 && keyOverlap / keyParts.length >= 0.4) score += 2;
@@ -362,7 +417,7 @@ export function detectDbSkillMatch(skills, goal, url = "") {
     ).slice(0, 12);
     let nameHits = 0;
     for (const tok of hay) {
-      if (goalTokens.has(tok) || blobLower.includes(tok)) {
+      if (goalTokens.has(tok)) {
         nameHits += 1;
         score += 0.7;
       }

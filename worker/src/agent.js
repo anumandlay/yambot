@@ -110,6 +110,7 @@ import {
   summarizeSessionContext,
   sessionCredentialsForAsk,
   extractSessionCredentials,
+  resolveAskUserGuard,
 } from "./browserState/index.js";
 import { expandMessageAgentTargetsForFanOut } from "./a2aFanout.js";
 
@@ -1483,6 +1484,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       `AUTONOMY: allowSubmit=${auto.allowSubmit !== false}; allowCaptcha=${auto.allowCaptcha !== false}; askBeforeLogin=${effectiveAskLogin}; askBeforeSubmit=${Boolean(auto.askBeforeSubmit)}`,
       credsInGoal
         ? "LOGIN: credentials are in the task GOAL — enter them without ask_user confirmation."
+        : "",
+      looksLikeSignupRun(goal)
+        ? "SIGNUP: No credentials were provided — fill the form with plausible dummy agency details (email travel.agency.demo@example.com, password DummyPass123!). NEVER ask_user for a password/email on signup unless the human explicitly said to ask. NEVER ask_user about CUA permission policy."
         : "",
       vaultLines
         ? `SAVED LOGINS (use when the site matches; do NOT invent new passwords):\n${vaultLines}`
@@ -3206,6 +3210,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
             reason: "session_credentials",
             credentials: known,
             detail: `Already typed this session — reuse these instead of asking: ${reuse}`,
+          };
+        }
+        // Why: CUA permission / signup-password asks burned 60+ turns on register runs.
+        const guarded = resolveAskUserGuard({
+          question: action.question,
+          goal: ctx.goal || goal,
+        });
+        if (guarded?.skip) {
+          notes.push(guarded.detail || guarded.userAnswer);
+          await mirror(taskId, "info", {
+            appendMessage: String(guarded.detail || guarded.userAnswer).slice(0, 500),
+            payload: { kind: "ask_user_guard", reason: guarded.reason },
+          }).catch(() => {});
+          return {
+            ok: true,
+            skippedAsk: true,
+            reason: guarded.reason,
+            userAnswer: guarded.userAnswer,
+            detail: guarded.detail,
           };
         }
         const answer = await waitForUserAnswer(taskId, action.question || "Need your input");

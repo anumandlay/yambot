@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 11:45] Fewer steps — skill intent gate + ask_user guards
+
+- **Prompt Provided:** Register-on-Vughy run showed huge chip/step spam; user said “lets go” on skill-gate + no CUA-permission/password ask_user.
+- **Architectural Flow:** `detectDbSkillMatch` rejects register↔trial-admin intent conflicts and stops counting generic tokens (`open`) via blob includes. New `askUserGuards` auto-skips CUA permission asks and signup password asks (dummy credentials). Signup prompt line tells the model to use dummy values without asking.
+- **Impacted Files:** worker skills.js, askUserGuards.js, agent.js, computerUse.js, index.js, worker/test/skillsMatch.test.js, PROMPT_LOG
+
 ## [2026-09-22 10:30] Curated MEMORY hygiene — stop goal/if-rule pollution
 
 - **Prompt Provided:** Memory chip on “open vughy.com and register” showed old India trial-expiring if-rule + ACTIVE USER MESSAGE; user said “lets go” on the fix plan.

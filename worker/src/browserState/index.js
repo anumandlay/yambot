@@ -79,8 +79,17 @@ export {
   computeDbSkillProgress,
   evaluateSkillVerification,
   normalizeSkillSteps,
+  skillIntentConflicts,
+  skillIntentFlags,
   SKILL_TEMPLATES,
 } from "./skills.js";
+export {
+  resolveAskUserGuard,
+  isCuaPermissionAsk,
+  isSignupCredentialAsk,
+  looksLikeSignupGoal,
+  SIGNUP_DUMMY_PASSWORD,
+} from "./askUserGuards.js";
 export { runSkillReplay, describeReplayStep, extractReplayableSteps } from "./skillReplay.js";
 export {
   extractDomain,
