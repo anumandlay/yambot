@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 13:50] Day-history ask: answer from dayLogs (not Mem0 pref echo)
+
+- **Prompt Provided:** “tell me clearly what we did today with timestamp” replied “long scratchpads”.
+- **Architectural Flow:** Path was correct (`day_history_forced_qa`) but LLM Q&A echoed a Mem0 short-reply/scratchpad pref. Now format answer deterministically from `snapshot.dayHistoryRecent/Relevant` (agent `dayLogs`) — no LLM for that ask.
+- **Impacted Files:** chatAutoTurn.js (`formatDayHistoryChatAnswer`), hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 13:45] Auto: day-history / “what we did today” stays chat
 
 - **Prompt Provided:** “tell me clearly what we did today with timestamp” started the computer.

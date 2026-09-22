@@ -114,6 +114,25 @@ describe("memory store mis-queue is forced back to reply", () => {
     assert.equal(out.action, "reply");
     assert.match(out.reason, /day_history_forced_reply/);
   });
+
+  it("formatDayHistoryChatAnswer uses dayLogs not Mem0 prefs", async () => {
+    const { formatDayHistoryChatAnswer } = await import("../src/utils/chatAutoTurn.js");
+    const out = formatDayHistoryChatAnswer({
+      dayHistoryRecent: [
+        {
+          day: new Date().toISOString().slice(0, 10),
+          at: new Date().toISOString(),
+          summary: "• Checked India trial list — 5 accounts verified",
+          detail:
+            "• Checked India trial list — 5 accounts verified\n---\n• Opened https://vughy.com/admin — page title Admin Login",
+        },
+      ],
+      dayHistoryRelevant: [],
+    });
+    assert.match(out, /day history/i);
+    assert.match(out, /India trial|Admin Login/i);
+    assert.equal(/long scratchpads/i.test(out), false);
+  });
 });
 
 describe("Auto reply scratchpad must not leak", () => {

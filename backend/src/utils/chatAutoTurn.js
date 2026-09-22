@@ -12,7 +12,6 @@ import {
   looksLikeMemoryStoreRequest,
   looksLikeDayHistoryOrStatusRequest,
   looksLikeVagueChatFollowup,
-  answerChatQuestion,
 } from "./messageIntent.js";
 
 /**
@@ -1336,29 +1335,14 @@ export async function runChatAutoTurn(opts) {
     track.setPath("day_history_forced_qa");
     track.markDecision("reply");
     let content = "";
-    try {
-      if (stream && typeof onDelta === "function") {
-        content = await streamChatQuestion({
-          question: text,
-          snapshot,
-          creds,
-          chatContext,
-          onDelta: delta,
-        });
-      } else {
-        content = await answerChatQuestion({
-          question: text,
-          snapshot,
-          creds,
-          chatContext,
-        });
+    if (looksLikeVagueChatFollowup(text)) {
+      content = "Could you clarify what you mean?";
+    } else {
+      // Why: build from dayLogs directly — LLM was echoing Mem0 prefs (“long scratchpads”) instead.
+      content = formatDayHistoryChatAnswer(snapshot);
+      if (stream && typeof delta === "function" && content) {
+        delta(content);
       }
-    } catch (err) {
-      content =
-        looksLikeVagueChatFollowup(text)
-          ? "Could you clarify what you mean?"
-          : "I couldn’t load day history just now. Try asking again, or open Computer mode only if you need a live browse.";
-      console.warn("[chatAutoTurn] day_history_forced_qa failed:", err?.message || err);
     }
     return finalize({
       action: "reply",
@@ -1587,6 +1571,85 @@ export async function runChatAutoTurn(opts) {
     track
   );
   return finalize(fallback);
+}
+
+/**
+ * Deterministic chat answer from agent dayLogs (no LLM).
+ * Why: day-history Q&A was returning Mem0 pref fragments like “long scratchpads” instead of the log.
+ * @param {object|null|undefined} snapshot
+ * @returns {string}
+ */
+export function formatDayHistoryChatAnswer(snapshot) {
+  const today = new Date().toISOString().slice(0, 10);
+  const recent = Array.isArray(snapshot?.dayHistoryRecent) ? snapshot.dayHistoryRecent : [];
+  const relevant = Array.isArray(snapshot?.dayHistoryRelevant)
+    ? snapshot.dayHistoryRelevant
+    : [];
+  /** @type {object[]} */
+  const pool = [];
+  const seen = new Set();
+  for (const d of [...relevant, ...recent]) {
+    const key = `${d?.day || ""}|${String(d?.summary || "").slice(0, 80)}`;
+    if (seen.has(key)) continue;
+    seen.add(key);
+    pool.push(d);
+  }
+  const todayLogs = pool.filter((d) => String(d?.day || "") === today);
+  const logs = todayLogs.length ? todayLogs : pool.slice(0, 2);
+  if (!logs.length) {
+    return "I don’t have day-history notes recorded yet. After a computer run finishes, a dated summary will show up here.";
+  }
+
+  /** @param {string} raw */
+  function splitWorkItems(raw) {
+    const text = String(raw || "").trim();
+    if (!text) return [];
+    const bySep = text
+      .split(/\n\s*---\s*\n/)
+      .map((c) => c.trim())
+      .filter(Boolean);
+    if (bySep.length > 1) return bySep;
+    const bullets = text
+      .split(/\n\s*•\s+/)
+      .map((c) => c.replace(/^•\s*/, "").trim())
+      .filter((c) => c.length > 8);
+    if (bullets.length > 1) return bullets;
+    return [text];
+  }
+
+  /** @param {string} item */
+  function oneLine(item) {
+    return String(item || "")
+      .replace(/\s+/g, " ")
+      .replace(/\s*—\s*goal:\s*.*$/i, "")
+      .trim()
+      .slice(0, 420);
+  }
+
+  const dayLabel = String(logs[0]?.day || today);
+  /** @type {string[]} */
+  const out = [`Here’s what day history shows for ${dayLabel}:`, ""];
+  let n = 0;
+  for (const d of logs) {
+    const when = d?.at
+      ? new Date(d.at).toISOString().replace("T", " ").slice(0, 19) + " UTC"
+      : String(d?.day || "");
+    const items = splitWorkItems(d?.detail || d?.summary || "");
+    for (const item of items) {
+      const line = oneLine(item);
+      if (!line) continue;
+      n += 1;
+      out.push(`${n}. [${when}] ${line}`);
+      if (n >= 12) break;
+    }
+    if (n >= 12) break;
+  }
+  if (n === 0) {
+    return `Day history for ${dayLabel} exists but has no readable summary yet.`;
+  }
+  out.push("");
+  out.push("(From agent dayLogs — not a live browser run.)");
+  return out.join("\n");
 }
 
 /**
