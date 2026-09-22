@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 10:20] CUA type — foreground delivery_mode on Xvfb
+
+- **Prompt Provided:** Follow-up: type still failed after type_text fix with background delivery unavailable.
+- **Architectural Flow:** Default `delivery_mode: foreground` on type_text / click / key for Linux Xvfb (no focus-free backend).
+- **Impacted Files:** cua_hermes/sidecar.py, PROMPT_LOG
+
 ## [2026-09-22 10:15] Fix CUA type blocked — use type_text + unrestricted
 
 - **Prompt Provided:** Agent ask_user: CUA text entry blocked by browser permission policy.

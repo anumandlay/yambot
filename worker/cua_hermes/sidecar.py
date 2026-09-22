@@ -398,6 +398,8 @@ class HermesCuaSession:
             args["y"] = int(y)
         else:
             return {"ok": False, "error": "click requires element or x/y"}
+        if self.mcp.tool_accepts(tool, "delivery_mode"):
+            args["delivery_mode"] = "foreground"
         out = self.mcp.call_tool(tool, args, timeout=20)
         return {
             "ok": out["ok"],
@@ -418,7 +420,18 @@ class HermesCuaSession:
         args: Dict[str, Any] = {"pid": self.pid, "text": text or ""}
         if self.window_id is not None:
             args["window_id"] = self.window_id
+        # Why: Linux Xvfb workers usually lack focus-free/background input — Hermes delivery ladder
+        # then requires foreground (activate target, type, restore).
+        if self.mcp.tool_accepts("type_text", "delivery_mode"):
+            args["delivery_mode"] = "foreground"
         out = self.mcp.call_tool("type_text", args, timeout=30)
+        if (
+            not out["ok"]
+            and "delivery_mode" in (out.get("text") or "").lower()
+            and "foreground" not in args
+        ):
+            args["delivery_mode"] = "foreground"
+            out = self.mcp.call_tool("type_text", args, timeout=30)
         return {
             "ok": out["ok"],
             "action": "type",
@@ -437,6 +450,10 @@ class HermesCuaSession:
         args: Dict[str, Any] = {"pid": self.pid}
         if self.window_id is not None:
             args["window_id"] = self.window_id
+        if self.mcp.tool_accepts("press_key", "delivery_mode") or self.mcp.tool_accepts(
+            "hotkey", "delivery_mode"
+        ):
+            args["delivery_mode"] = "foreground"
         # Why: Hermes maps key → press_key / hotkey. Raw tool name `key` is not in the risk map.
         parts = [p for p in keys.replace("+", " ").replace("-", " ").split() if p]
         if len(parts) >= 2:
