@@ -7,9 +7,9 @@ RUN apt-get update \
   && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY backend/package.json backend/package-lock.json ./
-# Why: install full lockfile (not a cached broken layer); onnxruntime postinstall for FastEmbed.
-RUN npm ci --omit=dev \
-  && npm rebuild onnxruntime-node || true
+# Why: npm ci must fail the build if deps are missing; only onnx rebuild is best-effort.
+RUN npm ci --omit=dev
+RUN npm rebuild onnxruntime-node || true
 COPY backend/src ./src
 ENV NODE_ENV=production
 ENV HF_HOME=/app/.cache/huggingface

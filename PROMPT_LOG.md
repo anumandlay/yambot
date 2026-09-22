@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:50] Fix API npm ci (lockfile sync + fail-hard Dockerfile)
+
+- **Prompt Provided:** Test Mem0 with an example (API crash-looped: missing `cors`).
+- **Architectural Flow:** Incomplete lockfile made `npm ci` fail; Dockerfile `… || true` hid the failure so the image shipped with no deps. Regenerated full `package-lock.json`; `npm ci` must fail the build; onnx rebuild stays best-effort. Then re-run live Mem0 add→search example.
+- **Impacted Files:** backend/package-lock.json, deploy/Dockerfile.api, PROMPT_LOG
+
 ## [2026-09-22 12:45] Mem0-style FastEmbed+Qdrant (live example path)
 
 - **Prompt Provided:** Test Mem0 with an example.
