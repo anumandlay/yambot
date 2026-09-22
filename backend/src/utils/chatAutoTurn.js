@@ -609,6 +609,16 @@ export function defaultQueueAck(goal, agentName = "Agent") {
   const g = String(goal || "").replace(/\s+/g, " ").trim();
   const preview = g.length > 90 ? `${g.slice(0, 87)}…` : g;
   const who = String(agentName || "Agent").trim() || "Agent";
+  // Why: peer-delegation goals must not sound like this agent is browsing.
+  if (
+    /\[PEER FANOUT/i.test(g) ||
+    /\bYou must call message_agent\b/i.test(g) ||
+    /\b(tell|ask|message)\b[\s\S]{0,80}\b(agent|peer)\b[\s\S]{0,40}\b(to|that)\b/i.test(g)
+  ) {
+    return preview
+      ? `Asking a peer agent to handle this (their computer, not ${who}’s): ${preview}`
+      : `Asking a peer agent to handle this — their computer, not ${who}’s.`;
+  }
   if (!preview) return `Starting ${who}’s computer now.`;
   return `Starting ${who}’s computer: ${preview}`;
 }

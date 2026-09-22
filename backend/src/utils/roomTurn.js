@@ -13,7 +13,7 @@ import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import {
-  parsePeerAskAssignments,
+  resolvePeerAskAssignments,
   resolveAllAgentMentions,
 } from "./mentionAgent.js";
 import {
@@ -175,7 +175,7 @@ export async function runRoomTurn(opts) {
   const agentRefs = ordered.map((a) => ({ _id: a._id, name: a.name }));
   const mentionSpans = resolveAllAgentMentions(content, agentRefs);
   const mentionedIds = new Set(mentionSpans.map((s) => String(s.agentId)));
-  const peerAssignments = parsePeerAskAssignments(content, agentRefs, null);
+  const peerAssignments = resolvePeerAskAssignments(content, agentRefs, null);
   /** @type {Map<string, string>} */
   const assignmentById = new Map(
     peerAssignments.map((p) => [String(p.agentId), p.content])

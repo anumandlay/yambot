@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 14:30] “Tell general agent to …” — peer fan-out, not sender Chromium
+
+- **Prompt Provided:** `tell general agent to open vughy.com` showed “Starting Trial India’s computer”.
+- **Architectural Flow:** Natural-language peer asks (no `@`) now parse via `parseNaturalPeerAsk` / `resolvePeerAskAssignments` into the existing waiting_peer fan-out (General’s computer only). Clear assistant ack. `defaultQueueAck` no longer says “Starting … computer” for tell/ask peer goals.
+- **Impacted Files:** mentionAgent.js, chats.js, roomTurn.js, chatAutoTurn.js, mentionPeerAsk.test.js, PROMPT_LOG
+
 ## [2026-09-22 14:22] Faster finish → chat result (skip JPEG / post bubble early)
 
 - **Prompt Provided:** After open example.com the page loaded quickly but the final chat message lagged ~16s.

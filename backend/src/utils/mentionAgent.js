@@ -205,6 +205,102 @@ export function parsePeerAskAssignments(content, agents, boundAgentId) {
 }
 
 /**
+ * Natural-language peer ask without @: "tell General agent to open vughy.com".
+ * Why: without this, Auto force-queues the *sender* Chromium just to call message_agent.
+ * @param {string} content
+ * @param {AgentRef[]} agents
+ * @param {string|null|undefined} boundAgentId
+ * @returns {PeerAskAssignment[]}
+ */
+export function parseNaturalPeerAsk(content, agents, boundAgentId) {
+  const raw = String(content || "").trim();
+  if (!raw || !agents?.length) return [];
+  // Why: @mentions already handled by parsePeerAskAssignments.
+  if (raw.includes("@")) return [];
+
+  const bound = boundAgentId ? String(boundAgentId) : "";
+  const candidates = [...agents]
+    .filter((a) => String(a._id) !== bound)
+    .sort((a, b) => String(b.name || "").length - String(a.name || "").length);
+
+  for (const agent of candidates) {
+    const name = String(agent.name || "").trim();
+    if (!name || name.length < 2) continue;
+    const nameRe = escapeRegExp(name);
+    /** @type {RegExp[]} */
+    const patterns = [
+      new RegExp(
+        `^(?:please\\s+)?(?:tell|ask|message|instruct)\\s+(?:the\\s+)?${nameRe}(?:\\s+agent)?\\s+to\\s+(.+)$`,
+        "i"
+      ),
+      new RegExp(
+        `^(?:please\\s+)?(?:have|get)\\s+(?:the\\s+)?${nameRe}(?:\\s+agent)?\\s+(?:to\\s+)?(.+)$`,
+        "i"
+      ),
+      new RegExp(
+        `^(?:please\\s+)?(?:tell|ask|message)\\s+(?:the\\s+)?${nameRe}(?:\\s+agent)?\\s+that\\s+(.+)$`,
+        "i"
+      ),
+    ];
+    for (const re of patterns) {
+      const m = raw.match(re);
+      const body = cleanPeerInstruction(m?.[1] || "");
+      if (body.length >= 3) {
+        return [
+          {
+            agentId: String(agent._id),
+            agentName: name,
+            content: rewritePeerAskContent(body, name),
+          },
+        ];
+      }
+    }
+  }
+
+  // Why: “tell general to open …” when the peer is named “General agent”.
+  for (const agent of candidates) {
+    const name = String(agent.name || "").trim();
+    const first = name.split(/\s+/)[0] || "";
+    if (first.length < 3) continue;
+    const firstNorm = normalizeToken(first);
+    const sameFirst = candidates.filter(
+      (a) => normalizeToken(String(a.name || "").split(/\s+/)[0]) === firstNorm
+    );
+    if (sameFirst.length !== 1) continue;
+    const firstRe = escapeRegExp(first);
+    const re = new RegExp(
+      `^(?:please\\s+)?(?:tell|ask|message)\\s+(?:the\\s+)?${firstRe}(?:\\s+agent)?\\s+to\\s+(.+)$`,
+      "i"
+    );
+    const m = raw.match(re);
+    const body = cleanPeerInstruction(m?.[1] || "");
+    if (body.length >= 3) {
+      return [
+        {
+          agentId: String(agent._id),
+          agentName: name,
+          content: rewritePeerAskContent(body, name),
+        },
+      ];
+    }
+  }
+
+  return [];
+}
+
+/**
+ * @param {string} content
+ * @param {AgentRef[]} agents
+ * @param {string|null|undefined} boundAgentId
+ * @returns {PeerAskAssignment[]}
+ */
+export function resolvePeerAskAssignments(content, agents, boundAgentId) {
+  const fromAt = parsePeerAskAssignments(content, agents, boundAgentId);
+  if (fromAt.length) return fromAt;
+  return parseNaturalPeerAsk(content, agents, boundAgentId);
+}
+
+/**
  * Parses an `@agent` mention anywhere in the message (longest name match first).
  * strippedContent = message with the `@Name` token removed.
  *

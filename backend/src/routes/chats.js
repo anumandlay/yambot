@@ -13,7 +13,7 @@ import { User } from "../models/User.js";
 import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
 import {
   resolveAgentMention,
-  parsePeerAskAssignments,
+  resolvePeerAskAssignments,
   rewritePeerAskContent,
 } from "../utils/mentionAgent.js";
 import { parseLearnCommand, parseSkillSlash, findSkillBySlash } from "../utils/skillSlash.js";
@@ -741,7 +741,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         .select("name skill instructions")
         .lean();
       const boundId = String(chat.agent);
-      const peerAssignments = parsePeerAskAssignments(content, userAgents, boundId);
+      const peerAssignments = resolvePeerAskAssignments(content, userAgents, boundId);
       const mention = resolveAgentMention(content, userAgents);
       let afterMention = content;
       if (mention.matched && mention.agentId) {
@@ -929,6 +929,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let autoAck = "";
     /** @type {object|null} */
     let autoTiming = null;
+
+    // Why: peer fan-out must not look like “Starting this agent’s computer”.
+    if (peerFanoutTargets?.length >= 1 && agentDoc?.name) {
+      autoAck =
+        peerFanoutTargets.length === 1
+          ? `Asking ${peerFanoutTargets[0].agentName} to do this on their computer — not starting ${agentDoc.name}’s browser.`
+          : `Asking ${peerFanoutTargets.map((p) => p.agentName).join(", ")} in parallel — their computers, not ${agentDoc.name}’s.`;
+    }
 
     let classification = classifyMessageIntent(goalText || content, {
       forceGoal,
