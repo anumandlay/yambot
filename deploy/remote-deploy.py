@@ -62,6 +62,7 @@ def main() -> int:
         "coverage",
         ".profiles",
         "__pycache__",
+        ".tmp-hermes-cua",
     }
 
     tgz = Path(tempfile.gettempdir()) / "yambot-deploy.tgz"

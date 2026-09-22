@@ -294,6 +294,8 @@ async function runCheapPeerQuestion(opts) {
     agentEntries: toAgent.curatedMemory?.entries,
     goal: content,
     creds,
+    userId: String(userId),
+    agentId: String(toAgent._id),
   });
   const snapshot = toAgentSnapshot(toAgent, {
     goal: content,
@@ -998,6 +1000,8 @@ export async function resumeParentForLatePeer(opts) {
     agentEntries: agentDoc.curatedMemory?.entries,
     goal: goalText,
     creds,
+    userId: String(userId),
+    agentId: String(agentDoc._id),
   });
   const snapshot = toAgentSnapshot(agentDoc, {
     goal: goalText,

@@ -1,4 +1,4 @@
-# YamBot VPS stack: Mongo + API + Web + auto computer-manager
+# YamBot VPS stack: Mongo + Qdrant (Mem0) + API + Web + auto computer-manager
 # Secrets: deploy/.env on the server only
 
 services:
@@ -7,6 +7,16 @@ services:
     restart: unless-stopped
     volumes:
       - yambot_mongo:/data/db
+
+  # Why: Mem0 OSS vector store — keeps long-term memory on our VPS (not mem0 cloud).
+  qdrant:
+    image: qdrant/qdrant:v1.13.2
+    restart: unless-stopped
+    volumes:
+      - yambot_qdrant:/qdrant/storage
+    # Internal only — API reaches it on the compose network.
+    expose:
+      - "6333"
 
   web:
     build:
@@ -38,10 +48,19 @@ services:
       DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-MiniMax-M2.7}
       DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY:-}
       COMPUTER_MANAGER_URL: http://computer-manager:4050
+      MEM0_ENABLED: ${MEM0_ENABLED:-1}
+      MEM0_QDRANT_URL: http://qdrant:6333
+      MEM0_COLLECTION: ${MEM0_COLLECTION:-yambot_memories}
+      MEM0_LLM_API_KEY: ${MEM0_LLM_API_KEY:-}
+      MEM0_LLM_BASE_URL: ${MEM0_LLM_BASE_URL:-}
+      MEM0_LLM_MODEL: ${MEM0_LLM_MODEL:-}
+      MEM0_EMBEDDER_MODEL: ${MEM0_EMBEDDER_MODEL:-text-embedding-3-small}
     ports:
       - "4010:4000"
     depends_on:
       mongo:
+        condition: service_started
+      qdrant:
         condition: service_started
 
   # Builds the Playwright worker image used by computer-manager for each agent box.
@@ -94,3 +113,4 @@ services:
 
 volumes:
   yambot_mongo:
+  yambot_qdrant:

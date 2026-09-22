@@ -90,6 +90,8 @@ export async function runScheduledAgent(agent, job = null) {
     agentEntries: agent.curatedMemory?.entries,
     goal,
     creds,
+    userId: String(agent.user || owner?._id || ""),
+    agentId: String(agent._id),
   });
   const snapshot = toAgentSnapshot(agent, {
     goal,

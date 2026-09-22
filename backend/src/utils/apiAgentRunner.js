@@ -224,6 +224,8 @@ async function executeApiTask(task, agent, userId) {
       agentEntries: agent.curatedMemory?.entries,
       goal: task.goal,
       creds,
+      userId: String(userId || user?._id || ""),
+      agentId: String(agent._id),
     });
     snapshot = {
       ...toAgentSnapshot(agent, {

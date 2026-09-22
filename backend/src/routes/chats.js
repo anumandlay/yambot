@@ -1083,6 +1083,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentEntries: agentDoc.curatedMemory?.entries,
           goal: questionText,
           creds: qaCreds,
+          userId: String(req.userId),
+          agentId: String(agentDoc._id),
         });
         const qaSnapshot = withChatContext(
           toAgentSnapshot(agentDoc, {
@@ -1217,6 +1219,17 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             error: answerError ? String(answerError.message || answerError) : undefined,
           },
         });
+        // Why: Mem0 learns durable facts from chat turns (async; never blocks the reply).
+        void import("../utils/mem0Service.js")
+          .then(({ mem0IngestChatTurn }) =>
+            mem0IngestChatTurn({
+              userId: req.userId,
+              agentId: agentDoc._id,
+              userText: questionText,
+              assistantText: assistantContent,
+            })
+          )
+          .catch(() => {});
         const systemMessage = await Message.create({
           chat: chat._id,
           role: "system",
@@ -1341,6 +1354,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentEntries: agentDoc.curatedMemory?.entries,
           goal: questionText,
           creds: qaCreds,
+          userId: String(req.userId),
+          agentId: String(agentDoc._id),
         });
         const qaSnapshot = withChatContext(
           toAgentSnapshot(agentDoc, {
@@ -1390,6 +1405,16 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           error: answerError ? String(answerError.message || answerError) : undefined,
         },
       });
+      void import("../utils/mem0Service.js")
+        .then(({ mem0IngestChatTurn }) =>
+          mem0IngestChatTurn({
+            userId: req.userId,
+            agentId: agentDoc._id,
+            userText: questionText,
+            assistantText: assistantContent,
+          })
+        )
+        .catch(() => {});
 
       const systemMessage = await Message.create({
         chat: chat._id,
@@ -1551,6 +1576,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         agentEntries: agentDoc.curatedMemory?.entries,
         goal: workerGoalText,
         creds: ctxCreds,
+        userId: String(req.userId),
+        agentId: String(agentDoc._id),
       });
       curatedMeta = curated.meta;
       snapshot = toAgentSnapshot(agentDoc, {

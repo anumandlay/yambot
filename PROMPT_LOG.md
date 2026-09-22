@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:30] Self-host Mem0 (Qdrant) + wire into YamBot memory
+
+- **Prompt Provided:** Install Mem0 on our server and implement it in YamBot for clearer memory/context.
+- **Architectural Flow:** Add Qdrant to deploy compose. API uses `mem0ai/oss` Memory (disableHistory) against Qdrant — data stays on VPS (Hub mem0-api-server image is stale). Curated writes also `mem0AddFact`; chat Auto/Q&A turns `mem0IngestChatTurn` (infer). `resolveCuratedMemoryForPrompt` merges Mem0 search hits ahead of Hermes USER/MEMORY; Memory chip shows `mem0 +N`. Pollution filter still applies. LLM/embed via DEFAULT_LLM_* (optional MEM0_* overrides).
+- **Impacted Files:** mem0Service.js, semanticMemory.js, curatedMemoryOps.js, chats/enqueue/goals/workforce/scheduler/agentMessageBus/apiAgentRunner, docker-compose.yml, env.js, .env.example, package.json, tests, PROMPT_LOG
+
 ## [2026-09-22 12:25] Strip Auto scratchpad before REPLY (capability Q leak)
 
 - **Prompt Provided:** Chat showed planning notes (“We need answer… capability question… Output REPLY…”) then the real sentence for “can you also open webistes for me”.

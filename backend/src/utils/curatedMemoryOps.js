@@ -108,6 +108,14 @@ export async function mutateCuratedMemory(opts) {
     await invalidateChatContextSummariesForUser(opts.userId).catch((err) => {
       console.warn("[curatedMemory] chat summary invalidate failed:", err?.message || err);
     });
+    if (action === "add" || action === "replace") {
+      const { mem0AddFact } = await import("./mem0Service.js");
+      void mem0AddFact({
+        userId: opts.userId,
+        scope: "user",
+        content: String(payload.content || "").trim(),
+      }).catch(() => {});
+    }
     return {
       ...result,
       ...publicCuratedStore(user.curatedMemory.entries, USER_CHAR_LIMIT, now),
@@ -143,6 +151,15 @@ export async function mutateCuratedMemory(opts) {
       updatedAt: now,
     };
     await agent.save();
+    if (action === "add" || action === "replace") {
+      const { mem0AddFact } = await import("./mem0Service.js");
+      void mem0AddFact({
+        userId: opts.userId,
+        agentId,
+        scope: "agent",
+        content: String(payload.content || "").trim(),
+      }).catch(() => {});
+    }
     return {
       ...result,
       ...publicCuratedStore(agent.curatedMemory.entries, MEMORY_CHAR_LIMIT, now),

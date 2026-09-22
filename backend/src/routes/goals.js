@@ -329,6 +329,8 @@ goalsRouter.post("/:id/run", async (req, res, next) => {
       agentEntries: agentDoc.curatedMemory?.entries,
       goal: runText,
       creds,
+      userId: String(req.userId),
+      agentId: String(agentDoc._id),
     });
     const snapshot = toAgentSnapshot(agentDoc, {
       goal: runText,

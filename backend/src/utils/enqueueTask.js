@@ -172,6 +172,8 @@ export async function enqueueTask(opts) {
     userDoc: owner,
     agentDoc,
     persistEmbeddings: Boolean(creds?.apiKey),
+    userId: String(userId),
+    agentId: String(agentId),
   });
 
   const task = await Task.create({

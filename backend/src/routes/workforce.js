@@ -188,6 +188,8 @@ workforceRouter.post("/run-goal/:goalId", async (req, res, next) => {
       agentEntries: agentDoc.curatedMemory?.entries,
       goal: runText,
       creds,
+      userId: String(req.userId),
+      agentId: String(agentDoc._id),
     });
 
     const task = await Task.create({

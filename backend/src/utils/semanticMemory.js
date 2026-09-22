@@ -264,6 +264,7 @@ function fitByChars(records, charLimit) {
 /**
  * Resolve USER + agent MEMORY subsets for a task/chat snapshot.
  * Optionally persists newly computed embeddings back onto the documents.
+ * When Mem0 is enabled, merges Qdrant-ranked facts ahead of Hermes curated entries.
  * @param {{
  *   userEntries: unknown[]|undefined|null,
  *   agentEntries: unknown[]|undefined|null,
@@ -272,6 +273,8 @@ function fitByChars(records, charLimit) {
  *   userDoc?: import('mongoose').Document|null,
  *   agentDoc?: import('mongoose').Document|null,
  *   persistEmbeddings?: boolean,
+ *   userId?: string|null,
+ *   agentId?: string|null,
  * }} opts
  * @returns {Promise<{
  *   userCuratedEntries: string[],
@@ -291,15 +294,68 @@ export async function resolveCuratedMemoryForPrompt(opts) {
     await persistEmbeddingsIfNeeded(opts.agentDoc, opts.agentEntries, creds, "agent");
   }
 
+  let userContents = userSel.contents;
+  let agentContents = agentSel.contents;
+  /** @type {{ enabled: boolean, userHits: number, agentHits: number, userMerged: number, agentMerged: number }} */
+  let mem0Meta = {
+    enabled: false,
+    userHits: 0,
+    agentHits: 0,
+    userMerged: 0,
+    agentMerged: 0,
+  };
+
+  const userId = String(opts.userId || opts.userDoc?._id || "").trim();
+  const agentId = String(opts.agentId || opts.agentDoc?._id || "").trim();
+  const goal = String(opts.goal || "").trim();
+
+  if (userId && goal) {
+    try {
+      const { isMem0Enabled, mem0SearchFacts, mergeMem0IntoCurated } = await import(
+        "./mem0Service.js"
+      );
+      if (isMem0Enabled()) {
+        mem0Meta.enabled = true;
+        const [userHits, agentHits] = await Promise.all([
+          mem0SearchFacts({
+            userId,
+            scope: "user",
+            query: goal,
+            topK: 6,
+          }),
+          agentId
+            ? mem0SearchFacts({
+                userId,
+                agentId,
+                scope: "agent",
+                query: goal,
+                topK: 8,
+              })
+            : Promise.resolve([]),
+        ]);
+        mem0Meta.userHits = userHits.length;
+        mem0Meta.agentHits = agentHits.length;
+        const userMerged = mergeMem0IntoCurated(userContents, userHits, USER_CHAR_LIMIT);
+        const agentMerged = mergeMem0IntoCurated(agentContents, agentHits, MEMORY_CHAR_LIMIT);
+        userContents = userMerged.contents;
+        agentContents = agentMerged.contents;
+        mem0Meta.userMerged = userMerged.mem0Added;
+        mem0Meta.agentMerged = agentMerged.mem0Added;
+      }
+    } catch (err) {
+      console.warn("[semanticMemory] mem0 merge failed:", err?.message || err);
+    }
+  }
+
   return {
-    userCuratedEntries: userSel.contents,
-    agentCuratedEntries: agentSel.contents,
+    userCuratedEntries: userContents,
+    agentCuratedEntries: agentContents,
     meta: {
       user: {
         mode: userSel.mode,
-        selected: userSel.selected,
+        selected: userContents.length,
         total: userSel.total,
-        pulled: userSel.contents.map((content, i) => ({
+        pulled: userContents.map((content, i) => ({
           rank: i + 1,
           score: Number(userSel.scores?.[i] || 0),
           content,
@@ -307,14 +363,15 @@ export async function resolveCuratedMemoryForPrompt(opts) {
       },
       agent: {
         mode: agentSel.mode,
-        selected: agentSel.selected,
+        selected: agentContents.length,
         total: agentSel.total,
-        pulled: agentSel.contents.map((content, i) => ({
+        pulled: agentContents.map((content, i) => ({
           rank: i + 1,
           score: Number(agentSel.scores?.[i] || 0),
           content,
         })),
       },
+      mem0: mem0Meta,
     },
   };
 }
@@ -327,10 +384,14 @@ export async function resolveCuratedMemoryForPrompt(opts) {
 export function formatCuratedPullMessageContent(meta) {
   const agent = meta?.agent || {};
   const user = meta?.user || {};
+  const mem0 = meta?.mem0 || {};
   const lines = [
     `Memory pull · agent ${agent.mode || "?"} ${agent.selected || 0}/${agent.total || 0}` +
       (user.total
         ? ` · user ${user.mode || "?"} ${user.selected || 0}/${user.total || 0}`
+        : "") +
+      (mem0.enabled
+        ? ` · mem0 +${(mem0.agentMerged || 0) + (mem0.userMerged || 0)}`
         : ""),
   ];
   if (Array.isArray(agent.pulled) && agent.pulled.length) {

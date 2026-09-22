@@ -19,6 +19,13 @@
  * @property {string} DEFAULT_LLM_BASE_URL
  * @property {string} DEFAULT_LLM_MODEL
  * @property {string} COMPUTER_MANAGER_URL
+ * @property {string} MEM0_ENABLED
+ * @property {string} MEM0_QDRANT_URL
+ * @property {string} MEM0_COLLECTION
+ * @property {string} MEM0_LLM_API_KEY
+ * @property {string} MEM0_LLM_BASE_URL
+ * @property {string} MEM0_LLM_MODEL
+ * @property {string} MEM0_EMBEDDER_MODEL
  * @property {string} SUPERADMIN_EMAILS
  * @property {string} SUPERADMIN_BOOTSTRAP_EMAIL
  * @property {string} SUPERADMIN_BOOTSTRAP_PASSWORD
@@ -47,6 +54,18 @@ export const env = {
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
   /** Internal computer-manager HTTP (Compose network). */
   COMPUTER_MANAGER_URL: process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050",
+  /**
+   * Mem0 (OSS + Qdrant). Empty MEM0_QDRANT_URL disables unless MEM0_ENABLED=1.
+   * Production compose sets MEM0_QDRANT_URL=http://qdrant:6333.
+   */
+  MEM0_ENABLED: process.env.MEM0_ENABLED || "",
+  MEM0_QDRANT_URL: process.env.MEM0_QDRANT_URL || "",
+  MEM0_COLLECTION: process.env.MEM0_COLLECTION || "yambot_memories",
+  MEM0_LLM_API_KEY: process.env.MEM0_LLM_API_KEY || "",
+  MEM0_LLM_BASE_URL: process.env.MEM0_LLM_BASE_URL || "",
+  MEM0_LLM_MODEL: process.env.MEM0_LLM_MODEL || "",
+  MEM0_EMBEDDER_MODEL: process.env.MEM0_EMBEDDER_MODEL || "text-embedding-3-small",
+  MEM0_EMBEDDING_DIMS: process.env.MEM0_EMBEDDING_DIMS || "1536",
   /** Public web app URL for Stripe redirects (defaults to first CORS origin). */
   PUBLIC_WEB_URL:
     process.env.PUBLIC_WEB_URL ||
