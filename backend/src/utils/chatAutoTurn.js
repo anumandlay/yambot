@@ -964,24 +964,21 @@ export function parseAutoTurnOutput(raw, userText = "") {
 }
 
 /**
- * Cheap pre-gate: strong browser/peer signals queue immediately.
+ * Whether Auto should skip the model and queue the computer immediately.
+ * Why (Hermes-style): the model normally decides reply vs queue_goal. Only force-queue
+ * when the user already named a concrete browse/peer/mail job — never for capability Qs.
  * @param {string} text
  * @returns {"queue_goal"|"model"}
  */
 export function autoTurnHeuristicGate(text) {
   const c = classifyMessageIntent(text, {});
   if (c.reason === "send_email_from_context") return "queue_goal";
-  if (
-    c.reason === "peer_a2a_or_fanout" ||
-    c.reason === "peer_a2a_overrides_ask" ||
-    c.reason === "has_url_or_domain" ||
-    c.reason === "action_verbs" ||
-    c.reason === "explicit_task" ||
-    c.reason === "question_shaped_but_actionable"
-  ) {
+  if (c.reason === "peer_a2a_or_fanout" || c.reason === "peer_a2a_overrides_ask") {
     return "queue_goal";
   }
-  if (c.intent === "goal" && c.confidence >= 0.9) return "queue_goal";
+  if (c.reason === "has_url_or_domain") return "queue_goal";
+  if (c.reason === "explicit_task") return "queue_goal";
+  // Why: action_verbs / question_shaped_but_actionable / capability_question → model chooses.
   return "model";
 }
 
@@ -1035,8 +1032,8 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "You are NOT controlling the browser in this turn. Queuing starts a cloud computer / A2A workers.",
     "",
-    "Use queue_goal / QUEUE_GOAL when the user wants:",
-    "- open/navigate/click/fill a website or use the live computer",
+    "Use queue_goal / QUEUE_GOAL when the user wants a concrete job done now:",
+    "- open/navigate a specific site or URL, or click/fill/submit on a live page",
     "- message/ask peers, fan-out, soft-wait, handoff (message_agent)",
     "- live research that needs browsing right now",
     "- change something external (send mail, download, submit forms)",
@@ -1045,10 +1042,12 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "Use reply / REPLY when you can answer from conversation, profile, memory, or stable knowledge:",
     "- greetings, thanks, status from memory",
     "- explanations, code examples, planning advice",
-    "- questions that do not require opening a site or peers",
-    "- hypothetical / policy questions (what if…, what would you do if…, if I don’t give details…) — answer from memory; do NOT queue the computer",
-    "- draft / write / compose emails or messages from THIS CHAT’s recent results, lists, or addresses — put the full draft in REPLY; do NOT queue the computer unless they ask you to send it",
-    "- follow-ups that refer to prior results (“above emails”, “for them”, “those accounts”) — answer using RECENT MESSAGES / EARLIER IN THIS CHAT",
+    "- capability / policy questions (can you open websites?, do you use a computer?, what if…) — answer in chat; do NOT queue until they name a specific site or task",
+    "- questions that do not require opening a site or peers right now",
+    "- draft / write / compose emails or messages from THIS CHAT’s recent results — put the full draft in REPLY; do NOT queue unless they ask you to send it",
+    "- follow-ups that refer to prior results (“above emails”, “for them”) — answer using RECENT MESSAGES",
+    "",
+    "Hermes-style rule: YOU decide reply vs queue_goal for this turn. Prefer reply when unsure.",
     "",
     "SEND MAIL RULES:",
     "- Draft = REPLY. Send/deliver = QUEUE_GOAL.",

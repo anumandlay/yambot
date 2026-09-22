@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:20] Hermes-style Auto — model decides reply vs computer
+
+- **Prompt Provided:** Follow Hermes: model always decides reply vs tools; “can you open websites” should not start the computer.
+- **Architectural Flow:** Capability questions without a concrete URL/site classify as `capability_question` (chat). `autoTurnHeuristicGate` only force-queues URL/domain, peer A2A, send-email, explicit task — not action_verbs / “can you open…”. Auto prompt tells the model to reply for capability Qs and choose reply vs queue_goal itself.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 12:05] Tiny run-log chip + instant “hi” replies
 
 - **Prompt Provided:** “hi” stuck on Sending; don’t want Run details as a thread bubble — only a small control to open the modal.

@@ -234,13 +234,36 @@ export function classifyMessageIntent(text, opts = {}) {
     );
 
   if ((endsWithQuestion || interrogativeStart || askPhrase) && cleaned.length < 400) {
-    // "Can you open gmail and …?" is still a goal.
+    // "Can you open gmail.com and …?" / "open vughy and register" → still a goal.
+    // "Can you also open websites for me?" → capability Q — answer in chat (Hermes-style).
     if (
       /\b(open|go to|navigate|log ?in|click|fill|book|buy|scrape|download|upload|sign (in|up))\b/i.test(
         lower
       )
     ) {
-      return { intent: "goal", confidence: 0.85, reason: "question_shaped_but_actionable", text: cleaned };
+      const hasConcreteTarget =
+        /https?:\/\//i.test(withoutEmails) ||
+        /\b[\w-]+\.(com|io|net|org|co|ai|app)\b/i.test(withoutEmails) ||
+        /\b(gmail|outlook|youtube|amazon|linkedin|facebook|twitter|x\.com|vughy|nse|nyse)\b/i.test(
+          lower
+        ) ||
+        /\band\b[\s\S]{0,80}\b(click|fill|log ?in|sign|register|download|submit|extract|filter)\b/i.test(
+          lower
+        );
+      if (hasConcreteTarget) {
+        return {
+          intent: "goal",
+          confidence: 0.85,
+          reason: "question_shaped_but_actionable",
+          text: cleaned,
+        };
+      }
+      return {
+        intent: "question",
+        confidence: 0.92,
+        reason: "capability_question",
+        text: cleaned,
+      };
     }
     return {
       intent: "question",
