@@ -50,7 +50,7 @@ export function mem0AgentKey(id) {
  * Resolve LLM/embed credentials for Mem0 (site default, optional MEM0_* override).
  * @returns {{ apiKey: string, baseURL: string, model: string, embedModel: string, embedDims: number }|null}
  */
-function resolveMem0LlmConfig() {
+function resolveMem0LlmConfigFromEnv() {
   const apiKey = String(
     process.env.MEM0_LLM_API_KEY || env.MEM0_LLM_API_KEY || env.DEFAULT_LLM_API_KEY || ""
   ).trim();
@@ -77,18 +77,62 @@ function resolveMem0LlmConfig() {
 }
 
 /**
+ * Prefer site DEFAULT/MEM0_* keys; else the user's Settings LLM (YamBot stores keys per account).
+ * @param {string|null|undefined} userId
+ * @returns {Promise<{ apiKey: string, baseURL: string, model: string, embedModel: string, embedDims: number }|null>}
+ */
+async function resolveMem0LlmConfig(userId) {
+  const fromEnv = resolveMem0LlmConfigFromEnv();
+  if (fromEnv) return fromEnv;
+  const uid = String(userId || "").trim();
+  if (!uid) return null;
+  try {
+    const { User } = await import("../models/User.js");
+    const { resolveLlmCredentials } = await import("./llmCredentials.js");
+    const user = await User.findById(uid);
+    if (!user) return null;
+    const creds = await resolveLlmCredentials(user);
+    const apiKey = String(creds?.apiKey || "").trim();
+    if (!apiKey) return null;
+    const embedModel = String(
+      process.env.MEM0_EMBEDDER_MODEL || env.MEM0_EMBEDDER_MODEL || "text-embedding-3-small"
+    ).trim();
+    const embedDims = Math.max(
+      64,
+      Number(process.env.MEM0_EMBEDDING_DIMS || env.MEM0_EMBEDDING_DIMS || 1536) || 1536
+    );
+    return {
+      apiKey,
+      baseURL: String(creds.llmBaseUrl || env.DEFAULT_LLM_BASE_URL || "")
+        .trim()
+        .replace(/\/$/, ""),
+      model: String(creds.llmModel || env.DEFAULT_LLM_MODEL || "").trim(),
+      embedModel,
+      embedDims,
+    };
+  } catch (err) {
+    console.warn("[mem0] user LLM resolve failed:", err?.message || err);
+    return null;
+  }
+}
+
+/**
  * Lazy-init Mem0 Memory (one process-wide client → shared Qdrant collection).
+ * @param {{ userId?: string|null }} [opts]
  * @returns {Promise<import("mem0ai/oss").Memory|null>}
  */
-export async function getMem0Memory() {
+export async function getMem0Memory(opts = {}) {
   if (!isMem0Enabled()) return null;
   if (memorySingleton) return memorySingleton;
   if (memoryInitPromise) return memoryInitPromise;
 
+  const bootstrapUserId = String(opts.userId || "").trim();
   memoryInitPromise = (async () => {
-    const llm = resolveMem0LlmConfig();
+    const llm = await resolveMem0LlmConfig(bootstrapUserId);
     if (!llm) {
-      console.warn("[mem0] enabled but no LLM API key — set DEFAULT_LLM_API_KEY or MEM0_LLM_API_KEY");
+      console.warn(
+        "[mem0] enabled but no LLM API key — set DEFAULT_LLM_API_KEY / MEM0_LLM_API_KEY, or save an LLM key in Settings"
+      );
       return null;
     }
     const qdrantUrl = String(
@@ -131,7 +175,9 @@ export async function getMem0Memory() {
         },
       });
       memorySingleton = instance;
-      console.log(`[mem0] ready · qdrant=${qdrantUrl} · collection=${collectionName}`);
+      console.log(
+        `[mem0] ready · qdrant=${qdrantUrl} · collection=${collectionName} · base=${llm.baseURL || "default"}`
+      );
       return instance;
     } catch (err) {
       console.warn("[mem0] init failed:", err?.message || err);
@@ -143,7 +189,7 @@ export async function getMem0Memory() {
   try {
     return await memoryInitPromise;
   } finally {
-    // Why: allow retry after transient Qdrant downtime on next call.
+    // Why: allow retry after transient Qdrant downtime / missing key on next call.
     if (!memorySingleton) memoryInitPromise = null;
   }
 }
@@ -190,7 +236,7 @@ export async function mem0SearchFacts(opts) {
   const query = String(opts.query || "").trim();
   const userKey = mem0UserKey(opts.userId);
   if (!query || !userKey) return [];
-  const memory = await getMem0Memory();
+  const memory = await getMem0Memory({ userId: opts.userId });
   if (!memory) return [];
 
   const scope = opts.scope === "user" ? "user" : "agent";
@@ -231,7 +277,7 @@ export async function mem0AddFact(opts) {
   if (!content || !userKey) return { ok: false, skipped: "missing" };
   if (isEphemeralCuratedFact(content)) return { ok: false, skipped: "ephemeral" };
 
-  const memory = await getMem0Memory();
+  const memory = await getMem0Memory({ userId: opts.userId });
   if (!memory) return { ok: false, skipped: "disabled" };
 
   const scope = opts.scope === "user" ? "user" : "agent";
@@ -279,7 +325,7 @@ export async function mem0IngestChatTurn(opts) {
     return { ok: false, skipped: "greeting" };
   }
 
-  const memory = await getMem0Memory();
+  const memory = await getMem0Memory({ userId: opts.userId });
   if (!memory) return { ok: false, skipped: "disabled" };
 
   const messages = [

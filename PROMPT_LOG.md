@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:35] Mem0 falls back to Settings LLM when site key empty
+
+- **Prompt Provided:** Test Mem0 with an example — first run failed (`no LLM API key`).
+- **Architectural Flow:** VPS `DEFAULT_LLM_API_KEY` is empty (keys live in user Settings). `getMem0Memory({ userId })` now resolves Settings credentials when site/MEM0 env keys are missing, then runs add/search against Qdrant.
+- **Impacted Files:** mem0Service.js, live example script, PROMPT_LOG
+
 ## [2026-09-22 12:30] Self-host Mem0 (Qdrant) + wire into YamBot memory
 
 - **Prompt Provided:** Install Mem0 on our server and implement it in YamBot for clearer memory/context.
