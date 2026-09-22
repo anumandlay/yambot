@@ -9,7 +9,7 @@
 
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { resolveCuaDriverBin, runCuaDriverCall } from "./cuaDriver.js";
+import { resolveCuaDriverBin, runCuaDriverCall, cuaDriverChildEnv } from "./cuaDriver.js";
 
 /**
  * @typedef {{
@@ -174,13 +174,7 @@ export class CuaMcpSession {
     this.sessionId = `yambot-${randomUUID().slice(0, 8)}`;
     this.framer = new McpFramer();
     this.proc = spawn(bin, ["mcp"], {
-      env: {
-        ...process.env,
-        DISPLAY: process.env.DISPLAY || ":99",
-        CUA_DRIVER_PERMISSION_MODE:
-          process.env.CUA_DRIVER_PERMISSION_MODE || "standard",
-        CUA_DRIVER_RS_TELEMETRY_ENABLED: "0",
-      },
+      env: cuaDriverChildEnv(),
       stdio: ["pipe", "pipe", "pipe"],
     });
 

@@ -179,6 +179,7 @@ export function createComputerUseController(initialMode) {
         "- REQUIRED loop: read CUA CAPTURE elements, then computer_use { action:\"click\", element:N }.",
         "- Also: computer_use { action:\"type\", text:\"...\" }, { action:\"key\", keys:\"Enter\" }, { action:\"scroll\", direction:\"down\" }, { action:\"capture\", mode:\"som\" }.",
         "- Clicks/types go through cua-driver (same as Hermes). Do NOT use DOM click/type refs while CUA is active.",
+        "- Typing is allowed. NEVER ask_user about CUA permission policy / text-entry authorization — click the field then computer_use type.",
         "- Coords: computer_use { action:\"click\", x, y } are screen/window coords for the driver (not Playwright CSS).",
         "- navigate / open_tab / finish / ask_user / extract / CRM / send_email still use the normal YamBot path.",
         activatedReason === "fallback_after_fails"

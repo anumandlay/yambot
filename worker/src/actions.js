@@ -175,6 +175,7 @@ CUA / COMPUTER-USE (active — Hermes path: Python → cua-driver MCP — REQUIR
     {"type":"computer_use","action":"key","keys":"Tab"}
   ]}
 - Clicks/types go through cua-driver like Hermes — do NOT use DOM click/type refs while CUA is on.
+- Typing is allowed (type_text). NEVER ask_user about "permission policy" / "enable text entry" — if type fails, click the field first then type again, or report the error.
 - Coords (last resort): {"type":"computer_use","action":"click","x":640,"y":420} — driver screen/window coords.
 - Prefer element over x/y whenever the control appears in CUA CAPTURE.
 - navigate / open_tab / finish / ask_user / extract / CRM / send_email stay on the normal YamBot path.

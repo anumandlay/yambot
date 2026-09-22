@@ -74,10 +74,14 @@ class CuaMcp:
         env = os.environ.copy()
         env.setdefault("DISPLAY", ":99")
         env["CUA_DRIVER_RS_TELEMETRY_ENABLED"] = "0"
-        env.setdefault(
-            "CUA_DRIVER_PERMISSION_MODE",
-            os.environ.get("CUA_DRIVER_PERMISSION_MODE", "standard"),
-        )
+        # Why: YamBot cloud agents have no Cua approval UI. Match Hermes YOLO:
+        # unrestricted + dangerous acknowledgement so type_text/click are allowed.
+        mode = (os.environ.get("CUA_DRIVER_PERMISSION_MODE") or "unrestricted").strip() or "unrestricted"
+        env["CUA_DRIVER_PERMISSION_MODE"] = mode
+        if mode == "unrestricted":
+            env["CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS"] = os.environ.get(
+                "CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS", "1"
+            )
         self.proc = subprocess.Popen(
             [bin_path, "mcp"],
             stdin=subprocess.PIPE,
@@ -409,22 +413,17 @@ class HermesCuaSession:
     def type_text(self, text: str) -> Dict[str, Any]:
         if self.pid is None:
             return {"ok": False, "error": "No active window — call capture first"}
-        out = self.mcp.call_tool(
-            "type_text",
-            {"pid": self.pid, "text": text or ""},
-            timeout=30,
-        )
-        if not out["ok"]:
-            out = self.mcp.call_tool(
-                "type",
-                {"pid": self.pid, "text": text or ""},
-                timeout=30,
-            )
+        # Why: cua-driver's reviewed risk map knows `type_text`, not the alias `type`.
+        # Falling back to `type` yields: Permission denied: tool 'type' has no reviewed risk classification.
+        args: Dict[str, Any] = {"pid": self.pid, "text": text or ""}
+        if self.window_id is not None:
+            args["window_id"] = self.window_id
+        out = self.mcp.call_tool("type_text", args, timeout=30)
         return {
             "ok": out["ok"],
             "action": "type",
             "textLength": len(text or ""),
-            "error": None if out["ok"] else (out.get("text") or "type failed"),
+            "error": None if out["ok"] else (out.get("text") or "type_text failed"),
             "via": "hermes_python_mcp",
             "computerUse": True,
         }
@@ -435,11 +434,29 @@ class HermesCuaSession:
         keys = (keys or "").strip()
         if not keys:
             return {"ok": False, "error": "key requires keys"}
-        out = self.mcp.call_tool("keypress", {"pid": self.pid, "keys": keys}, timeout=15)
-        if not out["ok"]:
-            out = self.mcp.call_tool("press_key", {"pid": self.pid, "key": keys}, timeout=15)
-        if not out["ok"]:
-            out = self.mcp.call_tool("key", {"pid": self.pid, "keys": keys}, timeout=15)
+        args: Dict[str, Any] = {"pid": self.pid}
+        if self.window_id is not None:
+            args["window_id"] = self.window_id
+        # Why: Hermes maps key → press_key / hotkey. Raw tool name `key` is not in the risk map.
+        parts = [p for p in keys.replace("+", " ").replace("-", " ").split() if p]
+        if len(parts) >= 2:
+            out = self.mcp.call_tool(
+                "hotkey",
+                {**args, "keys": parts},
+                timeout=15,
+            )
+        else:
+            out = self.mcp.call_tool(
+                "press_key",
+                {**args, "key": parts[0] if parts else keys},
+                timeout=15,
+            )
+            if not out["ok"]:
+                out = self.mcp.call_tool(
+                    "keypress",
+                    {**args, "keys": keys},
+                    timeout=15,
+                )
         return {
             "ok": out["ok"],
             "action": "key",

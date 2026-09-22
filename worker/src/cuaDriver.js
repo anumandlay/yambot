@@ -18,6 +18,29 @@ let serveProc = null;
 let readyPromise = null;
 
 /**
+ * Env for cua-driver child processes (MCP / serve).
+ * Why: cloud workers have no Cua approval UI — default unrestricted like Hermes --yolo.
+ * @returns {NodeJS.ProcessEnv}
+ */
+export function cuaDriverChildEnv() {
+  const mode =
+    String(process.env.CUA_DRIVER_PERMISSION_MODE || "unrestricted").trim() ||
+    "unrestricted";
+  /** @type {NodeJS.ProcessEnv} */
+  const env = {
+    ...process.env,
+    DISPLAY: process.env.DISPLAY || ":99",
+    CUA_DRIVER_PERMISSION_MODE: mode,
+    CUA_DRIVER_RS_TELEMETRY_ENABLED: "0",
+  };
+  if (mode === "unrestricted") {
+    env.CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS =
+      process.env.CUA_DRIVER_DANGEROUSLY_BYPASS_APPROVALS || "1";
+  }
+  return env;
+}
+
+/**
  * Resolves the cua-driver binary path if present.
  * @returns {string}
  */
@@ -171,14 +194,8 @@ export async function ensureCuaDriverReady() {
     }
 
     if (!serveProc || serveProc.killed || serveProc.exitCode != null) {
-      serveProc = spawn(bin, ["serve"], {
-        env: {
-          ...process.env,
-          DISPLAY: process.env.DISPLAY || ":99",
-          CUA_DRIVER_PERMISSION_MODE:
-            process.env.CUA_DRIVER_PERMISSION_MODE || "standard",
-          CUA_DRIVER_RS_TELEMETRY_ENABLED: "0",
-        },
+      serveProc = spawn(bin, ["serve", "--dangerously-bypass-approvals", "--permission-mode", "unrestricted"], {
+        env: cuaDriverChildEnv(),
         stdio: ["ignore", "ignore", "ignore"],
         detached: false,
       });
