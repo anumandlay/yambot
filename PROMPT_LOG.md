@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 21:30] Fix Auto draft follow-ups wiped as “thinking”
+
+- **Prompt Provided:** Chat has context but “draft an email for above emails” returned “I am here…”. Do all fixes (sanitize, fallback, prompt, prefer results in context).
+- **Architectural Flow:** Root cause: `looksLikeAutoDeliberation` treated any long multi-sentence REPLY (email drafts) as scratchpad and `sanitizeAutoReplyContent` emptied them. Protect substantive replies; drop blanket length heuristic; draft-from-context intent + prompt; clearer empty fallback; pack chat context preferring user/result/chat_qa over agent step spam; longer lines for result messages.
+- **Impacted Files:** chatAutoTurn.js, chatContext.js, messageIntent.js, PROMPT_LOG
+
 ## [2026-09-21 16:35] Unstick Gmail Label as (three-dots) + speed up cursor
 
 - **Prompt Provided:** Need to click three dots and select the label; taking too long.

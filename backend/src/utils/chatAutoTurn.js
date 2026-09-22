@@ -249,6 +249,31 @@ export function isPromptPlaceholder(text) {
 }
 
 /**
+ * True when text looks like a real user-facing answer (draft, list, explanation) — not an ack dump.
+ * Why: long multi-sentence drafts were wiped by the deliberation filter.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSubstantiveUserReply(text) {
+  const s = String(text || "").trim();
+  if (s.length < 60) return false;
+  if (
+    /^(subject\s*:|dear\s+\w|hi\s+\w|hello\s+\w|to\s*:|from\s*:|here(?:'|’)s (a |the )?(draft|email|message)|draft email|email draft)/i.test(
+      s
+    )
+  ) {
+    return true;
+  }
+  if (/\b(subject\s*:|best regards|sincerely|kind regards)\b/i.test(s)) return true;
+  // Multi-line body without planning meta → keep (email drafts, bullet answers).
+  const lines = s.split(/\n/).filter((l) => l.trim().length > 0);
+  if (lines.length >= 3 && !/should we be rude|we can say|one short real status|meta commentary/i.test(s)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Strip protocol headers / tool-call junk / leaked placeholders from user-visible reply text.
  * @param {string} text
  * @returns {string}
@@ -270,10 +295,21 @@ export function sanitizeAutoReplyContent(text) {
     return "";
   }
   if (isPromptPlaceholder(s)) return "";
+  // Why: never strip email drafts / multi-line answers as “planning notes”.
+  if (looksLikeSubstantiveUserReply(s)) {
+    return s
+      .replace(/^["'“”]+|["'“”]+$/g, "")
+      .trim();
+  }
   // Why: models often dump planning notes then the real ack in quotes — keep only the ack.
   if (looksLikeAutoDeliberation(s)) {
     const extracted = extractQuotedOrFinalAck(s);
-    return extracted;
+    // Why: if extract fails but text is long, prefer keeping it over returning empty.
+    if (extracted) return extracted;
+    if (s.length >= 80 && !/should we be rude|one short real status|we can say/i.test(s)) {
+      return s;
+    }
+    return "";
   }
   // Why: models append meta like: "On it." Short one sentence. Rude but okay.
   s = s
@@ -283,7 +319,10 @@ export function sanitizeAutoReplyContent(text) {
       ""
     )
     .trim();
-  if (looksLikeAutoDeliberation(s)) return extractQuotedOrFinalAck(s);
+  if (looksLikeAutoDeliberation(s)) {
+    if (looksLikeSubstantiveUserReply(s)) return s;
+    return extractQuotedOrFinalAck(s);
+  }
   return s;
 }
 
@@ -295,6 +334,8 @@ export function sanitizeAutoReplyContent(text) {
 export function looksLikeAutoDeliberation(text) {
   const s = String(text || "").trim();
   if (s.length < 40) return false;
+  // Why: drafts/explanations are long on purpose — never classify them as scratchpad.
+  if (looksLikeSubstantiveUserReply(s)) return false;
   const hit =
     /should we be rude|user profile empty|meta commentary|we can say|that's (neutral|fine)|one short real status|optional short|output format|could be ["'“]|the ack is|do not invent tone|authoritative from USER|tone\?|don't invent|do not invent|planning|let's see|i need to|the user (wants|asked|said)|queue_goal|as the assistant|in the (prompt|system)/i.test(
       s
@@ -302,11 +343,21 @@ export function looksLikeAutoDeliberation(text) {
   if (hit) {
     return s.split(/[.!?\n]/).filter((p) => p.trim().length > 8).length >= 2 || s.includes('"') || s.length > 120;
   }
-  // Long multi-sentence freeform without a protocol header is usually model scratchpad.
-  if (s.length > 140 && s.split(/[.!?]/).filter((p) => p.trim().length > 12).length >= 3) {
-    return true;
-  }
+  // Why: only treat long freeform as scratchpad when it has planning cues — not every email draft.
   return false;
+}
+
+/**
+ * User asked to write/draft/summarize from chat — never fall back to the generic “I am here” line.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeWriteFromContextRequest(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  return /\b(draft|write|compose|prepare|make)\b.+\b(email|mail|message|letter|note|reply|reminder)\b|\b(email|mail)\b.+\b(draft|remind|expiration|expir)\b|\b(summarize|summary|list (them|the emails|above)|only email)\b/i.test(
+    s
+  );
 }
 
 /**
@@ -451,8 +502,14 @@ export function ensureAutoTurnResult(result, ctx = {}) {
         timing: result?.timing,
       };
     }
-    content =
-      "I am here. Ask a question, or send a computer goal (open a site, ask peers, etc.).";
+    // Why: draft/write follow-ups must not collapse to the generic greeting placeholder.
+    if (looksLikeWriteFromContextRequest(userText)) {
+      content =
+        "I could not draft that from chat context. Please try again, or paste the emails/details to include.";
+    } else {
+      content =
+        "I am here. Ask a question, or send a computer goal (open a site, ask peers, etc.).";
+    }
   }
 
   return {
@@ -752,6 +809,8 @@ function streamVisibleFromBuffer(buf) {
     return { visible: "", mode: "queue_goal" };
   }
   if (first === "REPLY" || first === "ANSWER") {
+    // Why: stream real drafts immediately; only hold clear planning dumps.
+    if (looksLikeSubstantiveUserReply(rest)) return { visible: rest, mode: "reply" };
     if (looksLikeAutoDeliberation(rest)) return { visible: "", mode: "pending" };
     return { visible: rest, mode: "reply" };
   }
@@ -787,6 +846,8 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- explanations, code examples, planning advice",
     "- questions that do not require opening a site or peers",
     "- hypothetical / policy questions (what if…, what would you do if…, if I don’t give details…) — answer from memory; do NOT queue the computer",
+    "- draft / write / compose emails or messages from THIS CHAT’s recent results, lists, or addresses — put the full draft in REPLY; do NOT queue the computer unless they ask you to send it",
+    "- follow-ups that refer to prior results (“above emails”, “for them”, “those accounts”) — answer using RECENT MESSAGES / EARLIER IN THIS CHAT",
     "",
     "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing or peers.",
     "USER PROFILE (Settings → Memory) is authoritative for tone/identity. If that block is empty or says none, ignore old tone prefs from chat history.",

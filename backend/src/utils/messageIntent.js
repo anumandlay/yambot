@@ -143,7 +143,7 @@ export function classifyMessageIntent(text, opts = {}) {
   // Hypothetical / policy questions — answer from memory (e.g. dummy-data prefs), don't start the computer.
   // Why: "what if I tell you to register…" used to match action_verbs and boot Chromium.
   if (
-    /\b(what if|what would( you)?( do)?( if)?|suppose (that )?i|assuming (that )?i|how would you( handle| respond| react)?|what happens if|what do you do (if|when)|if i (don'?t|do not|told|tell|ask|said|say)\b)/i.test(
+    /\b(what if|what would( you)?( do)?( if)?|suppose (that )?i|assuming (that )?i|how would you( handle|respond| react)?|what happens if|what do you do (if|when)|if i (don'?t|do not|told|tell|ask|said|say)\b)/i.test(
       lower
     )
   ) {
@@ -153,6 +153,24 @@ export function classifyMessageIntent(text, opts = {}) {
       reason: "hypothetical_or_policy",
       text: cleaned,
     };
+  }
+
+  // Draft / write from chat context — reply in-thread; do not queue the computer to "send" unless explicit.
+  // Why: "draft an email for above emails" must stay Q&A even when "email" / "them" appear.
+  if (
+    /\b(draft|write|compose|prepare)\b.+\b(email|mail|message|letter|note|reminder)\b/i.test(lower) ||
+    /\b(draft|write)\b.+\b(for (them|these|those|above|the emails?))\b/i.test(lower) ||
+    /\b(email draft|draft email)\b/i.test(lower)
+  ) {
+    if (!/\b(send|email them|mail them|deliver)\b.+\b(email|mail|message)\b/i.test(lower) &&
+        !/\b(send (the |this |an )?email|send (it|mail)|actually send)\b/i.test(lower)) {
+      return {
+        intent: "question",
+        confidence: 0.94,
+        reason: "draft_from_context",
+        text: cleaned,
+      };
+    }
   }
 
   // Strong goal signals — always use the computer.

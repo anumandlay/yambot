@@ -74,8 +74,29 @@ export async function loadEligibleChatMessages(chatId, opts = {}) {
 }
 
 /**
+ * Priority for packing recent chat into Auto prompts.
+ * Why: agent step/observe spam buries result rows and email lists needed for follow-ups.
+ * @param {object} m
+ * @returns {number} higher = keep first
+ */
+export function contextMessagePriority(m) {
+  const role = String(m?.role || "");
+  const kind = String(m?.meta?.kind || "");
+  if (role === "user") return 100;
+  if (role === "assistant" && (kind === "result" || kind === "chat_qa")) return 95;
+  if (role === "assistant") return 80;
+  if (role === "system" && kind === "skill_learned") return 40;
+  if (role === "agent" && kind === "step" && /\bfinish\b/i.test(String(m?.content || ""))) return 55;
+  if (role === "agent" && (kind === "step" || kind === "observe")) return 20;
+  if (role === "agent") return 30;
+  if (role === "system") return 25;
+  return 10;
+}
+
+/**
  * Builds the prompt block: optional summary + recent raw turns.
  * Why: take from the end until count OR char budget is hit so large windows stay usable.
+ * Prefer user / result / chat_qa over agent step spam so follow-ups keep emails and outcomes.
  * @param {object} chat — Chat doc (needs contextSummary)
  * @param {object[]} eligible — oldest → newest
  * @param {{ recent?: number, lineMax?: number, chatChars?: number, summaryMax?: number }|null} [budget]
@@ -91,16 +112,50 @@ export function formatChatContextBlock(chat, eligible, budget = null) {
   const summaryRoom = summary ? summary.length + 120 : 0;
   const recentBudget = Math.max(2_000, chatChars - summaryRoom);
 
+  const tail = eligible.slice(-Math.max(recentN * 3, 48));
+  /** Cap low-value agent noise so results/emails stay in the packed block. */
+  const maxLowPriority = Math.max(4, Math.floor(recentN / 3));
+  let lowCount = 0;
+  /** @type {object[]} */
+  const candidates = [];
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    const m = tail[i];
+    const pri = contextMessagePriority(m);
+    if (pri <= 30) {
+      if (lowCount >= maxLowPriority) continue;
+      lowCount += 1;
+    }
+    candidates.push(m);
+    if (candidates.length >= recentN * 2) break;
+  }
+
+  // Prefer high-priority among candidates, then restore chronological order (newest-first pick).
+  candidates.sort((a, b) => {
+    const pd = contextMessagePriority(b) - contextMessagePriority(a);
+    if (pd !== 0) return pd;
+    return String(b._id || "").localeCompare(String(a._id || ""));
+  });
+
   /** @type {object[]} */
   const picked = [];
   let used = 0;
-  for (let i = eligible.length - 1; i >= 0 && picked.length < recentN; i--) {
-    const line = formatContextMessageLine(eligible[i], lineMax);
-    if (picked.length && used + line.length + 1 > recentBudget) break;
-    picked.push(eligible[i]);
+  for (const m of candidates) {
+    if (picked.length >= recentN) break;
+    const lineMaxForMsg =
+      String(m?.meta?.kind || "") === "result" ? Math.max(lineMax, 2400) : lineMax;
+    const line = formatContextMessageLine(m, lineMaxForMsg);
+    if (picked.length && used + line.length + 1 > recentBudget) {
+      // Why: still try to keep at least one high-priority result/user line.
+      if (contextMessagePriority(m) >= 90 && picked.every((p) => contextMessagePriority(p) < 90)) {
+        /* allow overshoot once for a critical result */
+      } else {
+        continue;
+      }
+    }
+    picked.push(m);
     used += line.length + 1;
   }
-  picked.reverse();
+  picked.sort((a, b) => String(a._id || "").localeCompare(String(b._id || "")));
 
   const parts = [];
   if (summary) {
@@ -112,7 +167,14 @@ export function formatChatContextBlock(chat, eligible, budget = null) {
   if (picked.length) {
     parts.push(
       "RECENT MESSAGES IN THIS CHAT:\n" +
-        picked.map((m) => formatContextMessageLine(m, lineMax)).join("\n")
+        picked
+          .map((m) =>
+            formatContextMessageLine(
+              m,
+              String(m?.meta?.kind || "") === "result" ? Math.max(lineMax, 2400) : lineMax
+            )
+          )
+          .join("\n")
     );
   }
   if (!parts.length) return "";
@@ -120,7 +182,10 @@ export function formatChatContextBlock(chat, eligible, budget = null) {
     "THIS CHAT SESSION CONTEXT (use for continuity; do not invent turns that are not listed):\n" +
       "AUTHORITY: Account USER prefs / tone / identity come only from the USER PROFILE block " +
       "(Settings → Memory). If that block is absent or empty, do not keep old tone/identity " +
-      "instructions from this summary or from prior assistant replies.\n\n" +
+      "instructions from this summary or from prior assistant replies.\n" +
+      "FOLLOW-UPS: When the user refers to above/those/them emails or prior results, use the " +
+      "lists and addresses in RECENT MESSAGES (and EARLIER summary). Draft or answer in chat — " +
+      "do not invent missing emails.\n\n" +
       parts.join("\n\n")
   );
 }
