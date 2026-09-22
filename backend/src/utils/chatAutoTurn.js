@@ -274,6 +274,28 @@ export function looksLikeSubstantiveUserReply(text) {
 }
 
 /**
+ * Take user-facing prose after the last protocol REPLY/ANSWER marker.
+ * Why: models often dump scratchpad then glue “….REPLY\nYes…” — line-1-only parsers leak the notes.
+ * @param {string} raw
+ * @returns {string|null} Body after marker, or null when no protocol marker found.
+ */
+export function extractAfterLastReplyMarker(raw) {
+  const s = String(raw || "");
+  if (!s.trim()) return null;
+  // Protocol token: start of string/line, or glued after punctuation (e.g. "sentence.REPLY\n…").
+  // Why: skip prose like “Output REPLY with …” — that REPLY is not followed by end-of-line.
+  const re = /(?:^|[\r\n]|[.!?])\s*(REPLY|ANSWER)\s*(?:\r?\n|$)/gi;
+  let last = null;
+  let m;
+  while ((m = re.exec(s)) !== null) {
+    last = m;
+  }
+  if (!last) return null;
+  const after = s.slice(last.index + last[0].length).trim();
+  return after || null;
+}
+
+/**
  * Strip protocol headers / tool-call junk / leaked placeholders from user-visible reply text.
  * @param {string} text
  * @returns {string}
@@ -281,6 +303,9 @@ export function looksLikeSubstantiveUserReply(text) {
 export function sanitizeAutoReplyContent(text) {
   let s = stripModelThinking(String(text || "")).trim();
   if (!s) return "";
+  // Why: prefer body after mid-text REPLY before other cleanup — drops leaked capability-Q scratchpads.
+  const afterMarker = extractAfterLastReplyMarker(s);
+  if (afterMarker != null) s = afterMarker;
   s = s
     .replace(/^REPLY\s*\n+/i, "")
     .replace(/^ANSWER\s*\n+/i, "")
@@ -304,11 +329,8 @@ export function sanitizeAutoReplyContent(text) {
   // Why: models often dump planning notes then the real ack in quotes — keep only the ack.
   if (looksLikeAutoDeliberation(s)) {
     const extracted = extractQuotedOrFinalAck(s);
-    // Why: if extract fails but text is long, prefer keeping it over returning empty.
     if (extracted) return extracted;
-    if (s.length >= 80 && !/should we be rude|one short real status|we can say/i.test(s)) {
-      return s;
-    }
+    // Why: never keep scratchpad just because it is long — empty is better than leaking notes.
     return "";
   }
   // Why: models append meta like: "On it." Short one sentence. Rude but okay.
@@ -337,7 +359,7 @@ export function looksLikeAutoDeliberation(text) {
   // Why: drafts/explanations are long on purpose — never classify them as scratchpad.
   if (looksLikeSubstantiveUserReply(s)) return false;
   const hit =
-    /should we be rude|user profile empty|meta commentary|we can say|that's (neutral|fine)|one short real status|optional short|output format|could be ["'“]|the ack is|do not invent tone|authoritative from USER|tone\?|don't invent|do not invent|planning|let's see|i need to|the user (wants|asked|said)|queue_goal|as the assistant|in the (prompt|system)/i.test(
+    /should we be rude|user profile empty|meta commentary|we can say|that's (neutral|fine)|one short real status|optional short|output format|output reply|could be ["'“]|the ack is|do not invent tone|authoritative from USER|tone\?|don't invent|do not invent|planning|let's see|i need to|we need (an? )?answer|the user (wants|asked|said)|capability question|per instructions|don'?t queue|do not queue|no specific site|reply directly|queue_goal|as the assistant|in the (prompt|system)/i.test(
       s
     );
   if (hit) {
@@ -523,10 +545,14 @@ export function looksLikeMangledEmailNavigateUrl(url, goalText = "") {
 export function extractQuotedOrFinalAck(text) {
   const s = String(text || "").trim();
   if (!s) return "";
+  const afterMarker = extractAfterLastReplyMarker(s);
+  if (afterMarker && !looksLikeAutoDeliberation(afterMarker)) {
+    return afterMarker.replace(/^["'“”]+|["'“”]+$/g, "").trim();
+  }
   const quotes = [...s.matchAll(/["“]([^"”]{8,160})["”]/g)].map((m) => String(m[1] || "").trim());
   const good = quotes.filter(
     (q) =>
-      !/meta|profile|should we|we can say|output format|one short real status/i.test(q) &&
+      !/meta|profile|should we|we can say|output format|one short real status|capability question/i.test(q) &&
       !isPromptPlaceholder(q)
   );
   if (good.length) return good[good.length - 1];
@@ -537,8 +563,8 @@ export function extractQuotedOrFinalAck(text) {
   for (let i = lines.length - 1; i >= 0; i -= 1) {
     const line = lines[i];
     if (
-      /^(on it|checking|starting|opening|looking|working|got it|okay|ok)\b/i.test(line) &&
-      line.length <= 160 &&
+      /^(on it|checking|starting|opening|looking|working|got it|okay|ok|yes[, ]|sure[, ])\b/i.test(line) &&
+      line.length <= 220 &&
       !looksLikeAutoDeliberation(line)
     ) {
       return line;
@@ -751,11 +777,14 @@ export function recoverMalformedAutoOutput(raw, userText = "") {
     if (goal) return { action: "queue_goal", content: ack, goal, ack };
   }
 
-  if (/"name"\s*:\s*"reply"|REPLY\b/i.test(cleaned)) {
+  if (/"name"\s*:\s*"reply"|REPLY\b|ANSWER\b/i.test(cleaned)) {
     const contentMatch =
       cleaned.match(/"content"\s*:\s*"((?:\\.|[^"\\])*)"/i) ||
       cleaned.match(/^REPLY\s*\n+([\s\S]+)/i);
-    let content = contentMatch ? contentMatch[1] : cleaned;
+    let content = contentMatch ? contentMatch[1] : null;
+    if (!content) {
+      content = extractAfterLastReplyMarker(cleaned) || cleaned;
+    }
     try {
       content = JSON.parse(`"${content}"`);
     } catch {
@@ -947,6 +976,17 @@ export function parseAutoTurnOutput(raw, userText = "") {
     };
   }
 
+  // Why: scratchpad then glued “…REPLY\nYes…” — first line is not REPLY; take body after last marker.
+  const afterReply = extractAfterLastReplyMarker(cleaned);
+  if (afterReply != null) {
+    return {
+      action: "reply",
+      content: sanitizeAutoReplyContent(afterReply),
+      goal: "",
+      ack: "",
+    };
+  }
+
   // Why: junk / mixed tool XML — last-resort recover instead of dumping raw protocol text.
   if (
     /<\/?tool_call>|<\/?function_call>|"name"\s*:\s*"(reply|queue_goal)"/i.test(cleaned) ||
@@ -988,6 +1028,12 @@ export function autoTurnHeuristicGate(text) {
  * @returns {{ visible: string, mode: "reply"|"queue_goal"|"pending" }}
  */
 function streamVisibleFromBuffer(buf) {
+  const afterReply = extractAfterLastReplyMarker(buf);
+  if (afterReply != null) {
+    if (looksLikeSubstantiveUserReply(afterReply)) return { visible: afterReply, mode: "reply" };
+    if (looksLikeAutoDeliberation(afterReply)) return { visible: "", mode: "pending" };
+    return { visible: afterReply, mode: "reply" };
+  }
   const nl = buf.indexOf("\n");
   if (nl === -1) {
     const head = buf.trim().toUpperCase().replace(/[^A-Z_]/g, "");
@@ -1092,7 +1138,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "goal: Log into Vughy admin, open Trial expiring list for India, then if more than 1 accounts exist message general agent hi; otherwise do not message.",
     "ack: On it — checking the list now.",
     "",
-    "CRITICAL: Output ONLY the protocol lines above. Never write planning notes, tone debates, prompt restatements, or “we can say …” — those must not appear in chat.",
+    "CRITICAL: Output ONLY the protocol lines above. Never write planning notes, tone debates, prompt restatements, capability-question reasoning, or “we can say …” — those must not appear in chat. First characters must be REPLY or QUEUE_GOAL.",
     "",
     context || "(no extra agent context)",
     thread ? `\n\n${thread}` : "",

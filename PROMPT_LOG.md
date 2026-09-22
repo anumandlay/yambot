@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:25] Strip Auto scratchpad before REPLY (capability Q leak)
+
+- **Prompt Provided:** Chat showed planning notes (“We need answer… capability question… Output REPLY…”) then the real sentence for “can you also open webistes for me”.
+- **Architectural Flow:** Models glue scratchpad then `….REPLY\nYes…`. New `extractAfterLastReplyMarker` takes body after the last protocol REPLY/ANSWER (including glued punctuation). `parseAutoTurnOutput` / sanitize / stream / recover use it; deliberation detector covers capability-Q phrases; never keep long scratchpad as “fallback”. Prompt CRITICAL line requires first token REPLY/QUEUE_GOAL.
+- **Impacted Files:** chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 12:20] Hermes-style Auto — model decides reply vs computer
 
 - **Prompt Provided:** Follow Hermes: model always decides reply vs tools; “can you open websites” should not start the computer.
