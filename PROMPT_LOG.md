@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:45] Mem0-style FastEmbed+Qdrant (live example path)
+
+- **Prompt Provided:** Test Mem0 with an example.
+- **Architectural Flow:** mem0ai/oss Memory was unusable (MiniMax no embeddings; Qdrant client 1.19 dropped `search`; optional peer import hell). Replaced with YamBot `mem0Service`: local FastEmbed + Qdrant 1.12 client, same scoped add/search/merge API. Chat ingest uses Settings LLM to extract facts then upserts. Live example script validates store→retrieve.
+- **Impacted Files:** mem0Service.js, package.json, Dockerfile.api, docker-compose, PROMPT_LOG
+
 ## [2026-09-22 12:40] Mem0 FastEmbed + Qdrant compat (live example)
 
 - **Prompt Provided:** Test Mem0 with an example.

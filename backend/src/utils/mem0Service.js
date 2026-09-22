@@ -1,21 +1,24 @@
 /**
- * @fileoverview Self-hosted Mem0 (OSS SDK + Qdrant) for YamBot long-term memory.
- * Purpose: Clearer fact extract/retrieve than dumping Hermes USER/MEMORY blocks alone.
- * Inputs: MEM0_ENABLED, Qdrant URL, DEFAULT_LLM_* (or MEM0_* overrides).
+ * @fileoverview Self-hosted long-term memory (Mem0-style) via FastEmbed + Qdrant.
+ * Purpose: Clearer fact retrieve/store than dumping Hermes USER/MEMORY alone.
+ * Why: mem0ai/oss Memory pulls broken optional peers + MiniMax has no /embeddings;
+ * we keep Mem0’s model (scoped facts + semantic search) with local FastEmbed on VPS Qdrant.
  * Downstream: semanticMemory resolve, curatedMemoryOps writes, chats Auto turns.
- * Why: Official mem0-api-server Hub image is stale; in-process OSS + Qdrant keeps data on our VPS.
  */
 
+import { randomUUID } from "crypto";
 import { env } from "./env.js";
 import { isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
 
-/** Sentinel agent_id for account-wide USER prefs in Mem0. */
+/** Sentinel agent_id for account-wide USER prefs. */
 export const MEM0_USER_SCOPE_AGENT = "yambot_user_profile";
 
-/** @type {import("mem0ai/oss").Memory|null} */
-let memorySingleton = null;
-/** @type {Promise<import("mem0ai/oss").Memory|null>|null} */
-let memoryInitPromise = null;
+/** @type {import("@qdrant/js-client-rest").QdrantClient|null} */
+let qdrantClient = null;
+/** @type {Promise<any>|null} */
+let embedderPromise = null;
+/** @type {Promise<boolean>|null} */
+let collectionReadyPromise = null;
 
 /**
  * @returns {boolean}
@@ -24,7 +27,6 @@ export function isMem0Enabled() {
   const flag = String(process.env.MEM0_ENABLED || env.MEM0_ENABLED || "").trim().toLowerCase();
   if (flag === "0" || flag === "false" || flag === "off" || flag === "no") return false;
   if (flag === "1" || flag === "true" || flag === "on" || flag === "yes") return true;
-  // Why: enabled automatically in production compose when Qdrant is wired; local stays opt-in.
   return Boolean(String(process.env.MEM0_QDRANT_URL || env.MEM0_QDRANT_URL || "").trim());
 }
 
@@ -47,195 +49,124 @@ export function mem0AgentKey(id) {
 }
 
 /**
- * Resolve LLM/embed credentials for Mem0 (site default, optional MEM0_* override).
- * @returns {{ apiKey: string, baseURL: string, model: string, embedModel: string, embedDims: number }|null}
+ * @returns {{ url: string, collection: string, dims: number, model: string }}
  */
-function resolveMem0LlmConfigFromEnv() {
-  const apiKey = String(
-    process.env.MEM0_LLM_API_KEY || env.MEM0_LLM_API_KEY || env.DEFAULT_LLM_API_KEY || ""
-  ).trim();
-  if (!apiKey) return null;
-  const baseURL = String(
-    process.env.MEM0_LLM_BASE_URL ||
-      env.MEM0_LLM_BASE_URL ||
-      env.DEFAULT_LLM_BASE_URL ||
-      ""
-  )
-    .trim()
-    .replace(/\/$/, "");
-  const model = String(
-    process.env.MEM0_LLM_MODEL || env.MEM0_LLM_MODEL || env.DEFAULT_LLM_MODEL || ""
-  ).trim();
-  const embedModel = String(
-    process.env.MEM0_EMBEDDER_MODEL || env.MEM0_EMBEDDER_MODEL || "text-embedding-3-small"
-  ).trim();
-  const embedDims = Math.max(
-    64,
-    Number(process.env.MEM0_EMBEDDING_DIMS || env.MEM0_EMBEDDING_DIMS || 1536) || 1536
-  );
-  return { apiKey, baseURL, model, embedModel, embedDims };
-}
-
-/**
- * Prefer site DEFAULT/MEM0_* keys; else the user's Settings LLM (YamBot stores keys per account).
- * @param {string|null|undefined} userId
- * @returns {Promise<{ apiKey: string, baseURL: string, model: string, embedModel: string, embedDims: number }|null>}
- */
-async function resolveMem0LlmConfig(userId) {
-  const fromEnv = resolveMem0LlmConfigFromEnv();
-  if (fromEnv) return fromEnv;
-  const uid = String(userId || "").trim();
-  if (!uid) return null;
-  try {
-    const { User } = await import("../models/User.js");
-    const { resolveLlmCredentials } = await import("./llmCredentials.js");
-    const user = await User.findById(uid);
-    if (!user) return null;
-    const creds = await resolveLlmCredentials(user);
-    const apiKey = String(creds?.apiKey || "").trim();
-    if (!apiKey) return null;
-    const embedModel = String(
-      process.env.MEM0_EMBEDDER_MODEL || env.MEM0_EMBEDDER_MODEL || "text-embedding-3-small"
-    ).trim();
-    const embedDims = Math.max(
+function mem0StoreConfig() {
+  return {
+    url: String(process.env.MEM0_QDRANT_URL || env.MEM0_QDRANT_URL || "http://127.0.0.1:6333").trim(),
+    collection: String(
+      process.env.MEM0_COLLECTION || env.MEM0_COLLECTION || "yambot_memories"
+    ).trim(),
+    dims: Math.max(
       64,
-      Number(process.env.MEM0_EMBEDDING_DIMS || env.MEM0_EMBEDDING_DIMS || 1536) || 1536
-    );
-    return {
-      apiKey,
-      baseURL: String(creds.llmBaseUrl || env.DEFAULT_LLM_BASE_URL || "")
-        .trim()
-        .replace(/\/$/, ""),
-      model: String(creds.llmModel || env.DEFAULT_LLM_MODEL || "").trim(),
-      embedModel,
-      embedDims,
-    };
-  } catch (err) {
-    console.warn("[mem0] user LLM resolve failed:", err?.message || err);
-    return null;
-  }
+      Number(process.env.MEM0_EMBEDDING_DIMS || env.MEM0_EMBEDDING_DIMS || 384) || 384
+    ),
+    model: String(
+      process.env.MEM0_EMBEDDER_MODEL || env.MEM0_EMBEDDER_MODEL || "fast-bge-small-en-v1.5"
+    ).trim(),
+  };
 }
 
 /**
- * Lazy-init Mem0 Memory (one process-wide client → shared Qdrant collection).
+ * @returns {Promise<import("@qdrant/js-client-rest").QdrantClient|null>}
+ */
+async function getQdrant() {
+  if (!isMem0Enabled()) return null;
+  if (qdrantClient) return qdrantClient;
+  const { QdrantClient } = await import("@qdrant/js-client-rest");
+  const { url } = mem0StoreConfig();
+  qdrantClient = new QdrantClient({ url, checkCompatibility: false });
+  return qdrantClient;
+}
+
+/**
+ * @returns {Promise<any|null>}
+ */
+async function getEmbedder() {
+  if (!isMem0Enabled()) return null;
+  if (embedderPromise) return embedderPromise;
+  embedderPromise = (async () => {
+    const { FlagEmbedding, EmbeddingModel } = await import("fastembed");
+    const { model } = mem0StoreConfig();
+    const modelId =
+      model === "fast-bge-small-en-v1.5" || !model
+        ? EmbeddingModel.BGESmallENV15
+        : Object.values(EmbeddingModel).includes(model)
+          ? model
+          : EmbeddingModel.BGESmallENV15;
+    const emb = await FlagEmbedding.init({ model: modelId });
+    console.log(`[mem0] FastEmbed ready · model=${modelId}`);
+    return emb;
+  })().catch((err) => {
+    console.warn("[mem0] FastEmbed init failed:", err?.message || err);
+    embedderPromise = null;
+    return null;
+  });
+  return embedderPromise;
+}
+
+/**
+ * @param {string} text
+ * @returns {Promise<number[]|null>}
+ */
+async function embedText(text) {
+  const emb = await getEmbedder();
+  if (!emb) return null;
+  const t = String(text || "").trim();
+  if (!t) return null;
+  const iter = emb.embed([t]);
+  for await (const batch of iter) {
+    const row = batch?.[0];
+    if (Array.isArray(row) && row.length) {
+      return row.map((n) => Number(n)).filter((n) => Number.isFinite(n));
+    }
+  }
+  return null;
+}
+
+/**
+ * @returns {Promise<boolean>}
+ */
+async function ensureCollection() {
+  if (collectionReadyPromise) return collectionReadyPromise;
+  collectionReadyPromise = (async () => {
+    const client = await getQdrant();
+    if (!client) return false;
+    const { collection, dims } = mem0StoreConfig();
+    try {
+      const existing = await client.getCollections();
+      const names = (existing?.collections || []).map((c) => c.name);
+      if (!names.includes(collection)) {
+        await client.createCollection(collection, {
+          vectors: { size: dims, distance: "Cosine" },
+        });
+        console.log(`[mem0] created Qdrant collection ${collection} · dims=${dims}`);
+      }
+      return true;
+    } catch (err) {
+      console.warn("[mem0] ensureCollection failed:", err?.message || err);
+      collectionReadyPromise = null;
+      return false;
+    }
+  })();
+  return collectionReadyPromise;
+}
+
+/**
+ * Compatibility shim — older code awaited getMem0Memory(); now returns truthy when store is ready.
  * @param {{ userId?: string|null }} [opts]
- * @returns {Promise<import("mem0ai/oss").Memory|null>}
+ * @returns {Promise<object|null>}
  */
 export async function getMem0Memory(opts = {}) {
   if (!isMem0Enabled()) return null;
-  if (memorySingleton) return memorySingleton;
-  if (memoryInitPromise) return memoryInitPromise;
-
-  const bootstrapUserId = String(opts.userId || "").trim();
-  memoryInitPromise = (async () => {
-    const llm = await resolveMem0LlmConfig(bootstrapUserId);
-    if (!llm) {
-      console.warn(
-        "[mem0] enabled but no LLM API key — set DEFAULT_LLM_API_KEY / MEM0_LLM_API_KEY, or save an LLM key in Settings"
-      );
-      return null;
-    }
-    const qdrantUrl = String(
-      process.env.MEM0_QDRANT_URL || env.MEM0_QDRANT_URL || "http://127.0.0.1:6333"
-    ).trim();
-    const collectionName = String(
-      process.env.MEM0_COLLECTION || env.MEM0_COLLECTION || "yambot_memories"
-    ).trim();
-    // Why: MiniMax (and many OpenAI-compatible chat APIs) have no /embeddings —
-    // FastEmbed runs locally so Mem0 works with Settings chat keys alone.
-    const embedProvider = String(
-      process.env.MEM0_EMBEDDER_PROVIDER || env.MEM0_EMBEDDER_PROVIDER || "fastembed"
-    )
-      .trim()
-      .toLowerCase();
-    const embedDims = Math.max(
-      64,
-      Number(
-        process.env.MEM0_EMBEDDING_DIMS ||
-          env.MEM0_EMBEDDING_DIMS ||
-          (embedProvider === "fastembed" ? 384 : llm.embedDims)
-      ) || (embedProvider === "fastembed" ? 384 : 1536)
-    );
-    const embedModel =
-      embedProvider === "fastembed"
-        ? String(
-            process.env.MEM0_EMBEDDER_MODEL ||
-              env.MEM0_EMBEDDER_MODEL ||
-              "fast-bge-small-en-v1.5"
-          ).trim()
-        : llm.embedModel;
-
-    try {
-      const { Memory } = await import("mem0ai/oss");
-      const { QdrantClient } = await import("@qdrant/js-client-rest");
-      // Why: compose may run a slightly older Qdrant image than the JS client — skip hard fail.
-      const qdrantClient = new QdrantClient({
-        url: qdrantUrl,
-        checkCompatibility: false,
-      });
-      const embedder =
-        embedProvider === "openai"
-          ? {
-              provider: "openai",
-              config: {
-                apiKey: llm.apiKey,
-                model: embedModel,
-                baseURL: llm.baseURL || undefined,
-                embeddingDims: embedDims,
-              },
-            }
-          : {
-              provider: "fastembed",
-              config: {
-                model: embedModel,
-                embeddingDims: embedDims,
-              },
-            };
-      const instance = new Memory({
-        // Why: avoid better-sqlite3 native build in slim Docker images.
-        disableHistory: true,
-        llm: {
-          provider: "openai",
-          config: {
-            apiKey: llm.apiKey,
-            model: llm.model || "gpt-4o-mini",
-            baseURL: llm.baseURL || undefined,
-            temperature: 0.1,
-          },
-        },
-        embedder,
-        vectorStore: {
-          provider: "qdrant",
-          config: {
-            client: qdrantClient,
-            url: qdrantUrl,
-            collectionName,
-            embeddingModelDims: embedDims,
-          },
-        },
-      });
-      memorySingleton = instance;
-      console.log(
-        `[mem0] ready · qdrant=${qdrantUrl} · collection=${collectionName} · embed=${embedProvider}/${embedModel} · dims=${embedDims} · llm=${llm.baseURL || "default"}`
-      );
-      return instance;
-    } catch (err) {
-      console.warn("[mem0] init failed:", err?.message || err);
-      memorySingleton = null;
-      return null;
-    }
-  })();
-
-  try {
-    return await memoryInitPromise;
-  } finally {
-    // Why: allow retry after transient Qdrant downtime / missing key on next call.
-    if (!memorySingleton) memoryInitPromise = null;
-  }
+  const ok = await ensureCollection();
+  if (!ok) return null;
+  const emb = await getEmbedder();
+  if (!emb) return null;
+  return { ok: true, userId: opts.userId || null };
 }
 
 /**
- * Normalize Mem0 search payload into plain fact strings.
  * @param {unknown} result
  * @returns {{ memory: string, score: number, id?: string }[]}
  */
@@ -261,7 +192,6 @@ export function normalizeMem0SearchResults(result) {
 }
 
 /**
- * Search Mem0 for facts relevant to a goal/query.
  * @param {{
  *   userId: string,
  *   agentId?: string|null,
@@ -276,24 +206,42 @@ export async function mem0SearchFacts(opts) {
   const query = String(opts.query || "").trim();
   const userKey = mem0UserKey(opts.userId);
   if (!query || !userKey) return [];
-  const memory = await getMem0Memory({ userId: opts.userId });
-  if (!memory) return [];
+  if (!(await ensureCollection())) return [];
+  const client = await getQdrant();
+  if (!client) return [];
 
   const scope = opts.scope === "user" ? "user" : "agent";
   const agentKey =
     scope === "user" ? MEM0_USER_SCOPE_AGENT : mem0AgentKey(opts.agentId);
   if (!agentKey) return [];
 
+  const vector = await embedText(query);
+  if (!vector) return [];
+
+  const { collection } = mem0StoreConfig();
+  const topK = Math.min(20, Math.max(1, Number(opts.topK) || 8));
+  const threshold = Number.isFinite(Number(opts.threshold)) ? Number(opts.threshold) : 0.15;
+
   try {
-    const result = await memory.search(query, {
-      filters: {
-        user_id: userKey,
-        agent_id: agentKey,
+    const hits = await client.search(collection, {
+      vector,
+      limit: topK,
+      with_payload: true,
+      score_threshold: threshold,
+      filter: {
+        must: [
+          { key: "user_id", match: { value: userKey } },
+          { key: "agent_id", match: { value: agentKey } },
+        ],
       },
-      topK: Math.min(20, Math.max(1, Number(opts.topK) || 8)),
-      threshold: Number.isFinite(Number(opts.threshold)) ? Number(opts.threshold) : 0.15,
     });
-    return normalizeMem0SearchResults(result);
+    return normalizeMem0SearchResults({
+      results: (hits || []).map((h) => ({
+        id: h.id,
+        memory: h.payload?.memory || h.payload?.data || "",
+        score: h.score,
+      })),
+    });
   } catch (err) {
     console.warn("[mem0] search failed:", err?.message || err);
     return [];
@@ -301,7 +249,6 @@ export async function mem0SearchFacts(opts) {
 }
 
 /**
- * Store a durable fact without LLM re-extraction (Hermes curated write path).
  * @param {{
  *   userId: string,
  *   agentId?: string|null,
@@ -316,25 +263,40 @@ export async function mem0AddFact(opts) {
   const userKey = mem0UserKey(opts.userId);
   if (!content || !userKey) return { ok: false, skipped: "missing" };
   if (isEphemeralCuratedFact(content)) return { ok: false, skipped: "ephemeral" };
-
-  const memory = await getMem0Memory({ userId: opts.userId });
-  if (!memory) return { ok: false, skipped: "disabled" };
+  if (!(await ensureCollection())) return { ok: false, skipped: "disabled" };
 
   const scope = opts.scope === "user" ? "user" : "agent";
   const agentKey =
     scope === "user" ? MEM0_USER_SCOPE_AGENT : mem0AgentKey(opts.agentId);
   if (!agentKey) return { ok: false, skipped: "no_agent" };
 
+  const vector = await embedText(content);
+  if (!vector) return { ok: false, skipped: "embed_failed" };
+
+  const client = await getQdrant();
+  if (!client) return { ok: false, skipped: "disabled" };
+  const { collection } = mem0StoreConfig();
+  const id = randomUUID();
+
   try {
-    await memory.add([{ role: "user", content }], {
-      userId: userKey,
-      agentId: agentKey,
-      infer: false,
-      metadata: {
-        source: "yambot_curated",
-        scope,
-        ...(opts.metadata && typeof opts.metadata === "object" ? opts.metadata : {}),
-      },
+    await client.upsert(collection, {
+      wait: true,
+      points: [
+        {
+          id,
+          vector,
+          payload: {
+            memory: content,
+            data: content,
+            user_id: userKey,
+            agent_id: agentKey,
+            scope,
+            source: "yambot_curated",
+            created_at: new Date().toISOString(),
+            ...(opts.metadata && typeof opts.metadata === "object" ? opts.metadata : {}),
+          },
+        },
+      ],
     });
     return { ok: true };
   } catch (err) {
@@ -344,53 +306,85 @@ export async function mem0AddFact(opts) {
 }
 
 /**
- * Ingest a chat turn so Mem0 can extract durable facts (async-safe).
+ * Extract durable facts from a chat turn via the user's Settings LLM, then store them.
  * @param {{
  *   userId: string,
  *   agentId?: string|null,
  *   userText: string,
  *   assistantText: string,
  * }} opts
- * @returns {Promise<{ ok: boolean, skipped?: string }>}
+ * @returns {Promise<{ ok: boolean, skipped?: string, saved?: number }>}
  */
 export async function mem0IngestChatTurn(opts) {
   const userText = String(opts.userText || "").trim();
   const assistantText = String(opts.assistantText || "").trim();
-  const userKey = mem0UserKey(opts.userId);
-  const agentKey = mem0AgentKey(opts.agentId);
-  if (!userKey || !agentKey) return { ok: false, skipped: "missing" };
+  const userId = String(opts.userId || "").trim();
+  const agentId = String(opts.agentId || "").trim();
+  if (!userId || !agentId) return { ok: false, skipped: "missing" };
   if (!userText || userText.length < 2) return { ok: false, skipped: "short" };
-  // Why: skip empty/cheap greetings — nothing durable to learn.
   if (/^(hi|hello|hey|ok|okay|thanks|thank you|yo|sup)[.!\s]*$/i.test(userText)) {
     return { ok: false, skipped: "greeting" };
   }
+  if (!(await ensureCollection())) return { ok: false, skipped: "disabled" };
 
-  const memory = await getMem0Memory({ userId: opts.userId });
-  if (!memory) return { ok: false, skipped: "disabled" };
-
-  const messages = [
-    { role: "user", content: userText.slice(0, 4000) },
-    ...(assistantText
-      ? [{ role: "assistant", content: assistantText.slice(0, 4000) }]
-      : []),
-  ];
-
+  /** @type {string[]} */
+  let facts = [];
   try {
-    await memory.add(messages, {
-      userId: userKey,
-      agentId: agentKey,
-      infer: true,
-      metadata: { source: "yambot_chat", scope: "agent" },
-    });
-    return { ok: true };
+    const { User } = await import("../models/User.js");
+    const { resolveLlmCredentials } = await import("./llmCredentials.js");
+    const { llmChatCompletion } = await import("./llmChat.js");
+    const user = await User.findById(userId);
+    const creds = user ? await resolveLlmCredentials(user) : null;
+    if (creds?.apiKey) {
+      const raw = await llmChatCompletion({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl || "",
+        model: creds.llmModel || "",
+        temperature: 0.1,
+        maxTokens: 400,
+        messages: [
+          {
+            role: "system",
+            content:
+              'Extract 0-3 durable facts about the user or their work from this chat. Return ONLY JSON {"facts":["..."]}. Skip greetings, one-off tasks, if/then rules, and secrets.',
+          },
+          {
+            role: "user",
+            content: `USER:\n${userText.slice(0, 2000)}\n\nASSISTANT:\n${assistantText.slice(0, 2000)}`,
+          },
+        ],
+      });
+      try {
+        const brace = String(raw || "").match(/\{[\s\S]*\}/);
+        const parsed = JSON.parse(brace ? brace[0] : raw);
+        facts = (Array.isArray(parsed?.facts) ? parsed.facts : [])
+          .map((f) => String(f || "").trim())
+          .filter((f) => f.length >= 8 && f.length <= 320 && !isEphemeralCuratedFact(f));
+      } catch {
+        facts = [];
+      }
+    }
   } catch (err) {
-    console.warn("[mem0] ingestChatTurn failed:", err?.message || err);
-    return { ok: false, skipped: "error" };
+    console.warn("[mem0] ingest extract failed:", err?.message || err);
   }
+
+  if (!facts.length) return { ok: true, skipped: "none", saved: 0 };
+
+  let saved = 0;
+  for (const content of facts) {
+    const r = await mem0AddFact({
+      userId,
+      agentId,
+      scope: "agent",
+      content,
+      metadata: { source: "yambot_chat" },
+    });
+    if (r.ok) saved += 1;
+  }
+  return { ok: true, saved };
 }
 
 /**
- * Merge Mem0 hits into a curated string list (dedupe, ephemeral filter, char budget).
  * @param {string[]} curated
  * @param {{ memory: string, score: number }[]} mem0Hits
  * @param {number} charLimit
@@ -416,7 +410,6 @@ export function mergeMem0IntoCurated(curated, mem0Hits, charLimit) {
     if (fromMem0) mem0Added += 1;
   };
 
-  // Why: Mem0-ranked hits first (clearer relevance), then existing Hermes curated.
   const ranked = [...(mem0Hits || [])].sort((a, b) => (b.score || 0) - (a.score || 0));
   for (const hit of ranked) push(hit.memory, true);
   for (const c of curated || []) push(c, false);

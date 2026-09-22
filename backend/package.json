@@ -15,7 +15,7 @@
     "test:live-bos": "node --test --test-force-exit test/liveBos.test.js"
   },
   "dependencies": {
-    "@qdrant/js-client-rest": "^1.19.0",
+    "@qdrant/js-client-rest": "1.12.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",
     "express": "^5.1.0",
@@ -23,13 +23,13 @@
     "http-proxy": "^1.18.1",
     "imapflow": "^1.7.1",
     "jsonwebtoken": "^9.0.2",
-    "mem0ai": "^3.2.0",
     "mongoose": "^8.16.1",
     "morgan": "^1.10.0",
     "nodemailer": "^9.0.5",
     "stripe": "^17.7.0"
   },
   "allowScripts": {
-    "onnxruntime-node@1.21.0": true
+    "onnxruntime-node@1.21.0": true,
+    "better-sqlite3@12.11.1": true
   }
 }
