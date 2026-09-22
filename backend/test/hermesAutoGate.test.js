@@ -39,6 +39,46 @@ describe("capability questions vs concrete goals", () => {
       "queue_goal"
     );
   });
+
+  it("memory-store preference dumps with URLs stay chat (no heuristic queue)", () => {
+    const msg = [
+      "Remember these permanent preferences for this agent — do not start a computer task, just acknowledge and store them:",
+      "1) CRM admin login is https://vughy.com/admin",
+      "2) Demo CRM username is ops-india@vughy.com",
+      "3) Agent timezone is Asia/Kolkata",
+    ].join("\n");
+    const c = classifyMessageIntent(msg);
+    assert.equal(c.intent, "question");
+    assert.equal(c.reason, "memory_store_request");
+    assert.equal(autoTurnHeuristicGate(msg), "model");
+  });
+
+  it("open URL + do work still queues (not a memory store)", () => {
+    assert.equal(
+      autoTurnHeuristicGate("Open https://vughy.com/admin and tell me the page title"),
+      "queue_goal"
+    );
+  });
+});
+
+describe("memory store mis-queue is forced back to reply", () => {
+  it("ensureAutoTurnResult converts queue_goal → reply for remember prefs", async () => {
+    const { ensureAutoTurnResult } = await import("../src/utils/chatAutoTurn.js");
+    const msg =
+      "Remember these permanent preferences for this agent — do not start a computer task, just acknowledge and store them:\n1) CRM admin login is https://vughy.com/admin";
+    const out = ensureAutoTurnResult(
+      {
+        action: "queue_goal",
+        goal: msg,
+        ack: "Starting computer…",
+        reason: "model_queue",
+      },
+      { userText: msg, agentName: "Trial" }
+    );
+    assert.equal(out.action, "reply");
+    assert.match(out.reason, /memory_store_forced_reply/);
+    assert.equal(out.goal, "");
+  });
 });
 
 describe("Auto reply scratchpad must not leak", () => {

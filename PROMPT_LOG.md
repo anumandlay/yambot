@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 13:20] Auto: memory-store prefs with URLs stay chat (no computer)
+
+- **Prompt Provided:** Fix Auto so remember/store preferences stays chat-only even when URLs are listed.
+- **Architectural Flow:** Live Part-1 paste hit `has_url_or_domain` → heuristic queue → Chromium. New `looksLikeMemoryStoreRequest` classifies those as `memory_store_request` (question) before URL/action checks. `autoTurnHeuristicGate` leaves them to the model; `ensureAutoTurnResult` force-REPLies if the model still queues. Auto prompt documents MEMORY STORE rule.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 13:05] Big Mem0 live suite (multi-fact + isolation + ingest)
 
 - **Prompt Provided:** Bigger Mem0 test, not a small one.

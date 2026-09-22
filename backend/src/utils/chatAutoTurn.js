@@ -7,7 +7,7 @@
 import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { formatAgentPrompt } from "../models/Agent.js";
-import { classifyMessageIntent } from "./messageIntent.js";
+import { classifyMessageIntent, looksLikeMemoryStoreRequest } from "./messageIntent.js";
 
 /**
  * OpenAI-compatible tool schemas for Auto chat (YamBot-only surface).
@@ -674,6 +674,20 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     };
   }
 
+  // Why: teach-prefs with URLs must never become a Chromium goal — even if the model mis-queues.
+  if (action === "queue_goal" && looksLikeMemoryStoreRequest(userText)) {
+    return {
+      action: "reply",
+      content:
+        content ||
+        "Got it — I’ll remember those preferences for this agent. No computer run started.",
+      goal: "",
+      ack: "",
+      reason: `${reason}_memory_store_forced_reply`,
+      timing: result?.timing,
+    };
+  }
+
   if (action === "queue_goal") {
     if (!goal) goal = userText;
     // Why: Auto often reinjects older if-rules from chat (e.g. days_left < 15) when the user
@@ -1012,6 +1026,8 @@ export function parseAutoTurnOutput(raw, userText = "") {
  */
 export function autoTurnHeuristicGate(text) {
   const c = classifyMessageIntent(text, {});
+  // Why: teach-prefs dumps often include https://… — never force-queue those.
+  if (c.reason === "memory_store_request") return "model";
   if (c.reason === "send_email_from_context") return "queue_goal";
   if (c.reason === "peer_a2a_or_fanout" || c.reason === "peer_a2a_overrides_ask") {
     return "queue_goal";
@@ -1089,6 +1105,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- greetings, thanks, status from memory",
     "- explanations, code examples, planning advice",
     "- capability / policy questions (can you open websites?, do you use a computer?, what if…) — answer in chat; do NOT queue until they name a specific site or task",
+    "- MEMORY STORE: user asks you to remember/store preferences or facts (even if the list includes https:// URLs or domains) and/or says do not start the computer — REPLY with a short ack; do NOT queue_goal. Mem0/chat ingest will persist facts.",
     "- questions that do not require opening a site or peers right now",
     "- draft / write / compose emails or messages from THIS CHAT’s recent results — put the full draft in REPLY; do NOT queue unless they ask you to send it",
     "- follow-ups that refer to prior results (“above emails”, “for them”) — answer using RECENT MESSAGES",

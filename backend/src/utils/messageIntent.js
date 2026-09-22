@@ -25,6 +25,48 @@ export function stripIntentOverrides(text) {
 }
 
 /**
+ * True when the user is teaching durable prefs/facts (often with URLs) and does not want a browser run.
+ * Why: "Remember … https://vughy.com/admin … do not start a computer" used to match has_url_or_domain
+ * and force-queue Chromium. Memory store stays chat/Mem0 ingest.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeMemoryStoreRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw || raw.length < 24) return false;
+  const lower = raw.toLowerCase();
+
+  const storeCue =
+    /\b(remember these|store these|save these|permanent preferences|preferences for this agent)\b/i.test(
+      lower
+    ) ||
+    /\b(remember|store|save|memorize)\b[\s\S]{0,80}\b(preference|preferences|facts?|notes?|settings?|for future|into (your )?memory)\b/i.test(
+      lower
+    ) ||
+    /\b(acknowledge and store|just acknowledge( and store)?)\b/i.test(lower);
+
+  const noComputer =
+    /\b(do not|don't|never)\b[\s\S]{0,40}\b(start|open|launch|spin up|use)\b[\s\S]{0,40}\b(computer|browser|chromium|playwright)\b/i.test(
+      lower
+    ) ||
+    /\b(without|no need to)\b[\s\S]{0,40}\b(computer|browser|chromium)\b/i.test(lower) ||
+    /\bjust acknowledge\b/i.test(lower) ||
+    /\bdo not start a computer task\b/i.test(lower);
+
+  // Explicit browse job — still a goal even if they also say "remember".
+  const browseJob =
+    /\b(go to|navigate to|open (the )?(site|page|url)|click|fill (out|in)|type into|sign in to|log ?in to)\b/i.test(
+      lower
+    ) || /\b(open|visit)\s+https?:\/\//i.test(lower);
+
+  if (browseJob) return false;
+  if (storeCue && noComputer) return true;
+  // Numbered preference dump with store cue and no browse verb.
+  if (storeCue && /\b\d+[).:]\s*\S/.test(raw) && raw.length >= 120) return true;
+  return false;
+}
+
+/**
  * Heuristic + override classification (no LLM).
  * @param {string} text
  * @param {{
@@ -189,6 +231,17 @@ export function classifyMessageIntent(text, opts = {}) {
     };
   }
 
+  // Memory store / teach prefs — chat only (Mem0 ingest), even when URLs appear in the list.
+  // Must run BEFORE has_url_or_domain / action_verbs ("admin login", "https://…").
+  if (looksLikeMemoryStoreRequest(cleaned)) {
+    return {
+      intent: "question",
+      confidence: 0.96,
+      reason: "memory_store_request",
+      text: cleaned,
+    };
+  }
+
   // Strong goal signals — always use the computer.
   // Why: strip addresses first so "user@gmail.com" does not trip the bare-domain matcher.
   const withoutEmails = cleaned.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, " ");
@@ -326,11 +379,12 @@ export async function refineMessageIntentWithLlm(text, creds, ctx = {}) {
           "",
           "intent=question — answer in chat from memory/profile/day history. NO browser, NO peer messaging.",
           "Examples: hi/hello, thanks, now, ok, yes, what do you know about me, what happened last run, explain X, status check, chit-chat, any vague 1–3 word message without a website.",
+          "Also question: remember/store permanent preferences or facts (lists may include https:// URLs) when they say do not start the computer / just acknowledge.",
           "",
           "intent=goal — needs a live worker run: browser/computer OR messaging other agents (message_agent / fan-out / ask both peers / soft wait / handoff).",
           "Examples: open gmail, go to amazon and buy…, log into CRM, scrape this page, ask both Market researcher and Content Inspector…, fan-out to peers, soft-wait for a peer reply.",
           "",
-          "If both apply, prefer goal. Peer collaboration is always goal (Q&A cannot call message_agent). Greetings, one-word pings (now/ok), and memory questions are always question.",
+          "If both apply, prefer goal — EXCEPT memory-store/acknowledge-only messages with URLs listed as facts (those stay question). Peer collaboration is always goal. Greetings, one-word pings (now/ok), and memory questions are always question.",
         ].join("\n"),
       },
       {
