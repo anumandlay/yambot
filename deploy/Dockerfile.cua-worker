@@ -27,6 +27,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
       x11-xserver-utils \
       fonts-liberation \
       fonts-noto-color-emoji \
+      python3 \
   && curl -fsSL "https://nodejs.org/dist/v${NODE_VERSION}/node-v${NODE_VERSION}-linux-x64.tar.xz" \
       | tar -xJ -C /usr/local --strip-components=1 \
   && rm -rf /var/lib/apt/lists/*
@@ -37,11 +38,14 @@ RUN npm install --omit=dev \
   && npx playwright install-deps chrome || true
 
 COPY worker/src ./src
+COPY worker/cua_hermes ./cua_hermes
 COPY worker/extension /app/extension
 COPY worker/entrypoint-cua.sh /app/entrypoint-cua.sh
 
 # Why: Windows checkouts often ship CRLF; Linux then fails with a missing shebang file.
-RUN sed -i 's/\r$//' /app/entrypoint-cua.sh && chmod +x /app/entrypoint-cua.sh
+RUN sed -i 's/\r$//' /app/entrypoint-cua.sh \
+  && sed -i 's/\r$//' /app/cua_hermes/sidecar.py \
+  && chmod +x /app/entrypoint-cua.sh /app/cua_hermes/sidecar.py
 
 ENV YAMBOT_TEACH_EXTENSION_DIR=/app/extension \
     NODE_ENV=production \
@@ -53,7 +57,9 @@ ENV YAMBOT_TEACH_EXTENSION_DIR=/app/extension \
     YAMBOT_POLL_MS=5000 \
     YAMBOT_NOVNC_PORT=6080 \
     YAMBOT_VIEWPORT_WIDTH=1280 \
-    YAMBOT_VIEWPORT_HEIGHT=800
+    YAMBOT_VIEWPORT_HEIGHT=800 \
+    YAMBOT_CUA_HERMES_SIDECAR=/app/cua_hermes/sidecar.py \
+    YAMBOT_CUA_PYTHON=python3
 
 EXPOSE 6080 6901
 

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 22:25] CUA on = Hermes Python path; CUA off = Playwright
+
+- **Prompt Provided:** When CUA is activated use the same way Hermes uses cua-driver and remove hybrid noise; when not CUA keep the current Playwright process.
+- **Architectural Flow:** New Python sidecar (`worker/cua_hermes/sidecar.py`) owns `cua-driver mcp` (NDJSON JSON-RPC, sticky window, element_token/snapshot_id). Node `cuaHermesBridge` + Hermes capture/actions. `computerUse.activate` starts this path only. CUA `computer_use` actions no longer rematch via Playwright or glide the demo cursor. Non-CUA runs unchanged. Worker images copy sidecar + python3.
+- **Impacted Files:** cua_hermes/sidecar.py, cuaHermesBridge.js, cuaHermesCapture.js, cuaHermesActions.js, computerUse.js, agent.js, actions.js, Dockerfile.worker, Dockerfile.cua-worker, PROMPT_LOG
+
 ## [2026-09-21 21:55] Harden Auto “send them the emails” → send_email
 
 - **Prompt Provided:** User will fill agent SMTP; harden Auto so send follow-ups don’t navigate to mangled address URLs.

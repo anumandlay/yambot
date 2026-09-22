@@ -166,7 +166,7 @@ export function buildActionSchemaForPrompt(maxActions, opts = {}) {
   const cuaExtra = opts.cuaMode
     ? `
 
-CUA / COMPUTER-USE (active — Hermes-parity via cua-driver MCP — REQUIRED):
+CUA / COMPUTER-USE (active — Hermes path: Python → cua-driver MCP — REQUIRED):
 - Each turn includes CUA CAPTURE with numbered elements. Prefer element clicks.
 - Example: {"thought":"sign-in","actions":[{"type":"computer_use","action":"click","element":14}]}
 - Example: {"thought":"email","actions":[
@@ -174,11 +174,10 @@ CUA / COMPUTER-USE (active — Hermes-parity via cua-driver MCP — REQUIRED):
     {"type":"computer_use","action":"type","text":"user@example.com"},
     {"type":"computer_use","action":"key","keys":"Tab"}
   ]}
-- Coords are Playwright viewport CSS matching the attached screenshot (NOT AT-SPI desktop pixels):
-  {"type":"computer_use","action":"click","x":640,"y":420}
+- Clicks/types go through cua-driver like Hermes — do NOT use DOM click/type refs while CUA is on.
+- Coords (last resort): {"type":"computer_use","action":"click","x":640,"y":420} — driver screen/window coords.
 - Prefer element over x/y whenever the control appears in CUA CAPTURE.
-- DOM click/type refs are last resort if computer_use fails.
-- navigate / open_tab / finish / ask_user / extract / CRM tools stay on the normal YamBot path.
+- navigate / open_tab / finish / ask_user / extract / CRM / send_email stay on the normal YamBot path.
 `
     : "";
   const header = `

@@ -31,6 +31,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     fonts-noto-color-emoji \
     curl \
     ca-certificates \
+    python3 \
   && rm -rf /var/lib/apt/lists/*
 
 # Why: website-agent CUA — install cua-driver on the same Xvfb box (lazy-started on activate).
@@ -44,13 +45,18 @@ RUN npm install --omit=dev \
   && npx playwright install chrome
 
 COPY worker/src ./src
+COPY worker/cua_hermes ./cua_hermes
 COPY worker/extension /app/extension
 COPY worker/entrypoint.sh /app/entrypoint.sh
 
 # Why: Windows checkouts often ship CRLF; Linux then fails with
 # `exec /app/entrypoint.sh: no such file or directory` (shebang becomes /bin/bash\r).
-RUN sed -i 's/\r$//' /app/entrypoint.sh && chmod +x /app/entrypoint.sh
+RUN sed -i 's/\r$//' /app/entrypoint.sh \
+  && sed -i 's/\r$//' /app/cua_hermes/sidecar.py \
+  && chmod +x /app/entrypoint.sh /app/cua_hermes/sidecar.py
 ENV YAMBOT_TEACH_EXTENSION_DIR=/app/extension
+ENV YAMBOT_CUA_HERMES_SIDECAR=/app/cua_hermes/sidecar.py
+ENV YAMBOT_CUA_PYTHON=python3
 
 ENV NODE_ENV=production \
     DISPLAY=:99 \

@@ -1,14 +1,14 @@
 /**
- * @fileoverview Per-run computer-use (CUA) mode — Hermes-parity via cua-driver MCP.
- * Purpose: Activate on “using cua” or after N Playwright failures; expose MCP capture/actions
- * and prompt contract (SOM → element click) while keeping YamBot as the orchestrator.
- * Downstream: agent.js runTask; cuaMcpSession / cuaCapture / cuaActions; xCursor for visible demo.
+ * @fileoverview Per-run computer-use (CUA) mode — Hermes path via Python cua-driver MCP.
+ * Purpose: When CUA is on, desktop capture/input matches Hermes (Python sidecar → cua-driver).
+ * When CUA is off, this controller stays inactive and YamBot uses Playwright as before.
+ * Downstream: agent.js runTask; cuaHermesBridge / Capture / Actions.
  */
 
 import { ensureCuaDriverReady } from "./cuaDriver.js";
-import { createCuaMcpSession } from "./cuaMcpSession.js";
-import { createCuaCapture } from "./cuaCapture.js";
-import { createCuaActions } from "./cuaActions.js";
+import { createCuaHermesBridge } from "./cuaHermesBridge.js";
+import { createHermesCuaCapture } from "./cuaHermesCapture.js";
+import { createHermesCuaActions } from "./cuaHermesActions.js";
 
 /** Failures (after recovery) before auto-activating CUA. */
 export const CUA_ACTIVATE_AFTER_FAILS = 2;
@@ -48,13 +48,13 @@ export function createComputerUseController(initialMode) {
   let activatedReason = active ? "explicit" : "";
   /** @type {object|null} */
   let lastDriver = null;
-  /** @type {import('./cuaMcpSession.js').CuaMcpSession|null} */
-  let mcpSession = null;
-  /** @type {ReturnType<typeof createCuaCapture>|null} */
+  /** @type {ReturnType<typeof createCuaHermesBridge>|null} */
+  let hermesBridge = null;
+  /** @type {ReturnType<typeof createHermesCuaCapture>|null} */
   let captureApi = null;
-  /** @type {ReturnType<typeof createCuaActions>|null} */
+  /** @type {ReturnType<typeof createHermesCuaActions>|null} */
   let actionsApi = null;
-  /** @type {import('./cuaCapture.js').CuaCaptureResult|null} */
+  /** @type {object|null} */
   let lastCapture = null;
 
   return {
@@ -71,7 +71,8 @@ export function createComputerUseController(initialMode) {
         consecutiveFails,
         activatedReason,
         driverOk: Boolean(lastDriver?.ok),
-        mcpOk: Boolean(mcpSession?.started),
+        hermesOk: Boolean(hermesBridge?.started),
+        path: active ? "hermes_python" : "playwright",
         sticky: captureApi?.getSticky?.() || null,
       };
     },
@@ -109,7 +110,7 @@ export function createComputerUseController(initialMode) {
     },
 
     /**
-     * Activates CUA: ensure driver, open MCP, resolve Chrome window.
+     * Activates Hermes CUA: ensure driver binary, start Python MCP sidecar.
      * @param {string} [reason]
      */
     async activate(reason = "manual") {
@@ -123,32 +124,34 @@ export function createComputerUseController(initialMode) {
       }
 
       try {
-        if (!mcpSession) mcpSession = createCuaMcpSession();
-        const started = await mcpSession.start();
+        if (!hermesBridge) hermesBridge = createCuaHermesBridge();
+        const started = await hermesBridge.start();
         if (started.ok) {
-          captureApi = createCuaCapture(mcpSession);
-          actionsApi = createCuaActions(mcpSession, captureApi);
-          const resolved = await captureApi.resolveTarget();
+          captureApi = createHermesCuaCapture(hermesBridge);
+          actionsApi = createHermesCuaActions(hermesBridge);
+          const resolved = await captureApi.resolveTarget().catch(() => ({ ok: false }));
           lastDriver = {
             ...lastDriver,
             ok: Boolean(lastDriver?.ok) || started.ok,
-            mcp: true,
+            hermes: true,
             tools: started.tools,
             target: resolved.ok ? resolved.sticky : null,
             targetError: resolved.ok ? undefined : resolved.error,
+            path: "hermes_python",
           };
         } else {
           lastDriver = {
             ...lastDriver,
-            mcp: false,
-            mcpError: started.error,
+            hermes: false,
+            hermesError: started.error,
+            path: "hermes_python_failed",
           };
         }
       } catch (err) {
         lastDriver = {
           ...lastDriver,
-          mcp: false,
-          mcpError: String(err?.message || err),
+          hermes: false,
+          hermesError: String(err?.message || err),
         };
       }
 
@@ -160,9 +163,9 @@ export function createComputerUseController(initialMode) {
     },
 
     async shutdown() {
-      if (mcpSession) {
-        await mcpSession.stop().catch(() => {});
-        mcpSession = null;
+      if (hermesBridge) {
+        await hermesBridge.stop().catch(() => {});
+        hermesBridge = null;
       }
       captureApi = null;
       actionsApi = null;
@@ -172,13 +175,12 @@ export function createComputerUseController(initialMode) {
     promptBlock() {
       if (!active) return "";
       return [
-        "COMPUTER USE (CUA) MODE — Hermes-parity via cua-driver MCP:",
-        "- REQUIRED loop: read CUA CAPTURE elements, then computer_use { action:\"click\", element:N } (preferred).",
-        "- Coords: computer_use { action:\"click\", x, y } uses Playwright viewport CSS from the attached screenshot (not AT-SPI desktop pixels).",
+        "COMPUTER USE (CUA) MODE — Hermes path (Python → cua-driver MCP):",
+        "- REQUIRED loop: read CUA CAPTURE elements, then computer_use { action:\"click\", element:N }.",
         "- Also: computer_use { action:\"type\", text:\"...\" }, { action:\"key\", keys:\"Enter\" }, { action:\"scroll\", direction:\"down\" }, { action:\"capture\", mode:\"som\" }.",
-        "- Do NOT use DOM click/type refs while CUA is active unless computer_use failed — prefer element indices from the capture list.",
-        "- navigate / open_tab / finish / ask_user / extract / CRM tools still use the normal YamBot path.",
-        "- The live Take control screen shows a CUA-style gradient arrow overlay + OS cursor glide to each click target before the hit.",
+        "- Clicks/types go through cua-driver (same as Hermes). Do NOT use DOM click/type refs while CUA is active.",
+        "- Coords: computer_use { action:\"click\", x, y } are screen/window coords for the driver (not Playwright CSS).",
+        "- navigate / open_tab / finish / ask_user / extract / CRM / send_email still use the normal YamBot path.",
         activatedReason === "fallback_after_fails"
           ? `- Activated after ${CUA_ACTIVATE_AFTER_FAILS} failed Playwright locator attempts.`
           : "- Activated because the human asked for CUA (e.g. “using cua”).",

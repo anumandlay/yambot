@@ -1777,16 +1777,16 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const result = await computerUse.activate(reason);
       const driverBit = result.driver?.ok
         ? `cua-driver ready (${result.driver.version || "ok"})`
-        : `cua-driver optional (${result.driver?.error || "unavailable"} — Playwright fallback)`;
-      const mcpBit = result.driver?.mcp
-        ? `MCP session up${result.driver.target ? ` · Chrome pid=${result.driver.target.pid}` : ""}`
-        : `MCP unavailable (${result.driver?.mcpError || result.driver?.targetError || "cli fallback"})`;
+        : `cua-driver optional (${result.driver?.error || "unavailable"})`;
+      const hermesBit = result.driver?.hermes
+        ? `Hermes Python MCP up${result.driver.target ? ` · Chrome pid=${result.driver.target.pid}` : ""}`
+        : `Hermes Python MCP unavailable (${result.driver?.hermesError || "start failed"})`;
       const msg =
         reason === "fallback_after_fails"
-          ? `CUA activated after ${CUA_ACTIVATE_AFTER_FAILS} failed locator attempts — ${driverBit}; ${mcpBit}.`
+          ? `CUA activated after ${CUA_ACTIVATE_AFTER_FAILS} failed locator attempts — ${driverBit}; ${hermesBit}.`
           : reason === "explicit"
-            ? `CUA mode (requested in chat) — ${driverBit}; ${mcpBit}.`
-            : `CUA activated (${reason}) — ${driverBit}; ${mcpBit}.`;
+            ? `CUA mode (requested in chat) — ${driverBit}; ${hermesBit}.`
+            : `CUA activated (${reason}) — ${driverBit}; ${hermesBit}.`;
       notes.push(msg);
       await mirror(taskId, "info", {
         appendMessage: msg,
@@ -1794,7 +1794,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
           kind: "computer_use_activated",
           reason: result.reason,
           driverOk: Boolean(result.driver?.ok),
-          mcpOk: Boolean(result.driver?.mcp),
+          hermesOk: Boolean(result.driver?.hermes),
+          path: "hermes_python",
           state: computerUse.getState(),
         },
       }).catch(() => {});
@@ -4170,17 +4171,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return result;
       }
       case "computer_use": {
-        // Why: Hermes-parity — element_index via MCP; raw x/y are Playwright viewport CSS
-        // (attached screenshot). AT-SPI frames are desktop pixels — convert before PW fallback.
+        // Why: CUA on = Hermes path only (Python → cua-driver). No Playwright rematch / glide.
         const sub = String(action.action || action.cua_action || "click")
           .trim()
           .toLowerCase();
         const actionsApi = cuaCtrl?.getActionsApi?.() || null;
         const captureApi = cuaCtrl?.getCaptureApi?.() || null;
 
+        if (!cuaActive || !actionsApi) {
+          return {
+            ok: false,
+            error: "computer_use requires CUA mode (Hermes Python sidecar)",
+            computerUse: true,
+          };
+        }
+
         if (sub === "capture" || sub === "get_window_state") {
           if (!captureApi) {
-            return { ok: false, error: "CUA capture not ready (MCP/driver unavailable)", computerUse: true };
+            return { ok: false, error: "CUA capture not ready", computerUse: true };
           }
           const cap = await captureApi.capture({ mode: action.mode || "som" });
           cuaCtrl?.setLastCapture?.(cap);
@@ -4188,154 +4196,51 @@ export function createCloudAgent({ api, config, log = console.log }) {
             ok: Boolean(cap?.ok),
             action: "capture",
             elements: cap?.elements?.length || 0,
-            via: cap?.via,
+            via: cap?.via || "hermes_python",
             error: cap?.ok ? undefined : cap?.error,
             computerUse: true,
             summary: captureApi.formatForPrompt(cap).slice(0, 2000),
           };
         }
 
-        /**
-         * Playwright viewport click (correct space for attached screenshot / model x,y).
-         * @param {string} kind
-         */
-        async function pwFallback(kind) {
-          if (kind === "click") {
-            let x = Number(action.x);
-            let y = Number(action.y);
-            const elIdx = action.element ?? action.element_index;
-            let via = "playwright_xy";
-            if ((!Number.isFinite(x) || !Number.isFinite(y)) && elIdx != null) {
-              let mapped = null;
-              if (actionsApi?.resolveElementViewport) {
-                mapped = await actionsApi.resolveElementViewport(page, Number(elIdx));
-              } else if (actionsApi?.elementCenterViewport) {
-                mapped = await actionsApi.elementCenterViewport(page, Number(elIdx));
-              } else if (captureApi) {
-                mapped = await atspiFrameCenterToViewport(
-                  page,
-                  captureApi.getElement(Number(elIdx))?.frame || null
-                );
-              }
-              if (mapped?.ok) {
-                x = mapped.x;
-                y = mapped.y;
-                via = mapped.via || "atspi_frame_to_viewport";
-              }
-            }
-            if (!Number.isFinite(x) || !Number.isFinite(y)) {
-              return {
-                ok: false,
-                error: "computer_use fallback click needs viewport x/y or element label/frame",
-                computerUse: true,
-              };
-            }
-            const hit = await clickWithVisibleCursor(page, x, y, { delayMs: 40 });
-            return {
-              ok: true,
-              action: "click",
-              fallback: "playwright",
-              via,
-              x,
-              y,
-              computerUse: true,
-              cursorMoved: hit.cursorMoved,
-              overlayMoved: hit.overlayMoved,
-              screenX: hit.screenX,
-              screenY: hit.screenY,
-            };
-          }
-          if (kind === "type") {
-            const text = String(action.text ?? "");
-            await page.keyboard.type(text, { delay: action.human_type === true ? 12 : 0 });
-            if (action.submit) await page.keyboard.press("Enter");
-            return {
-              ok: true,
-              action: "type",
-              fallback: "playwright",
-              textLength: text.length,
-              computerUse: true,
-            };
-          }
-          if (kind === "key") {
-            const keys = String(action.keys || action.key || "Enter");
-            await page.keyboard.press(keys);
-            return { ok: true, action: "key", keys, fallback: "playwright", computerUse: true };
-          }
-          if (kind === "scroll") {
-            const dir = String(action.direction || "down").toLowerCase();
-            const amount = Math.max(100, Number(action.amount) || 600);
-            await page.mouse.wheel(0, dir === "up" ? -amount : amount);
-            return { ok: true, action: "scroll", fallback: "playwright", computerUse: true };
-          }
-          return { ok: false, error: `unknown computer_use action: ${kind}`, computerUse: true };
-        }
-
-        if (!actionsApi) {
-          return pwFallback(sub);
-        }
-
         try {
           if (sub === "click") {
-            const hasElement = action.element != null || action.element_index != null;
-            const hasXY = action.x != null && action.y != null;
-            // Viewport x/y from the screenshot → Playwright (MCP window coords miss).
-            if (!hasElement && hasXY) {
-              return pwFallback("click");
-            }
-            const r = await actionsApi.click({
+            return await actionsApi.click({
               element: action.element ?? action.element_index,
               x: action.x,
               y: action.y,
               button: action.button,
-              page,
             });
-            if (!r.ok) {
-              const fb = await pwFallback("click");
-              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
-            }
-            return r;
           }
           if (sub === "type" || sub === "type_text") {
-            const r = await actionsApi.typeText({ text: String(action.text ?? ""), page });
-            if (!r.ok) {
-              const fb = await pwFallback("type");
-              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
-            }
-            if (action.submit) {
-              await actionsApi.key({ keys: "Enter" }).catch(() => page.keyboard.press("Enter"));
+            const r = await actionsApi.typeText({ text: String(action.text ?? "") });
+            if (r.ok && action.submit) {
+              await actionsApi.key({ keys: "Enter" });
             }
             return r;
           }
           if (sub === "key" || sub === "keypress" || sub === "press_key") {
-            const r = await actionsApi.key({
+            return await actionsApi.key({
               keys: String(action.keys || action.key || ""),
             });
-            if (!r.ok) {
-              const fb = await pwFallback("key");
-              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
-            }
-            return r;
           }
           if (sub === "scroll") {
-            const r = await actionsApi.scroll({
+            return await actionsApi.scroll({
               direction: action.direction,
               amount: action.amount,
               element: action.element ?? action.element_index,
               x: action.x,
               y: action.y,
             });
-            if (!r.ok) {
-              const fb = await pwFallback("scroll");
-              return { ...fb, mcpError: r.error, via: r.via || "mcp_then_pw" };
-            }
-            return r;
           }
           return { ok: false, error: `unknown computer_use action: ${sub}`, computerUse: true };
         } catch (err) {
-          const fb = await pwFallback(sub).catch(() => null);
-          if (fb) return { ...fb, mcpError: String(err?.message || err) };
-          return { ok: false, error: String(err?.message || err), computerUse: true };
+          return {
+            ok: false,
+            error: String(err?.message || err),
+            computerUse: true,
+            via: "hermes_python",
+          };
         }
       }
       default:
