@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 14:00] LLM owns REPLY vs QUEUE_GOAL (classifier hint)
+
+- **Prompt Provided:** Give the live-computer decision to the LLM so it understands question vs start computer more clearly.
+- **Architectural Flow:** Stop force-queuing on URL/domain. Auto system prompt gets an explicit DECISION frame; every model turn gets `[AUTO DECISION HINT]` from `classifyMessageIntent`. LLM chooses REPLY vs QUEUE_GOAL. Hard vetoes remain: day-history forced dayLogs answer, memory-store / day-history force-REPLY if model mis-queues, send-email/peer still force-queue.
+- **Impacted Files:** chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 13:55] “Did we open nseindia.com today?” stays in dayLogs chat
 
 - **Prompt Provided:** “did we opened nseindia.com today ?” started the computer.

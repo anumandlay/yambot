@@ -26,7 +26,7 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "reply",
       description:
-        "Answer the user in chat from memory, profile, or stable knowledge. Do NOT use for browsing, opening sites, or messaging peer agents.",
+        "Answer in chat from memory, day history, profile, or knowledge. Use for questions (including past browse: did we open X today?), memory-store, and capability asks. Do NOT use when the user wants a live browse/run right now.",
       parameters: {
         type: "object",
         properties: {
@@ -44,7 +44,7 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "queue_goal",
       description:
-        "Queue a cloud computer / peer-agent goal (Playwright or message_agent). Use when the user needs browsing, live web work, fan-out, soft-wait, or handoff.",
+        "Start the cloud computer / peer workers for a LIVE job NOW (open a site, click/fill, send mail, message peers). Do NOT use for past-work questions (did we open X today?), memory-store, or capability questions — use reply instead.",
       parameters: {
         type: "object",
         properties: {
@@ -1041,24 +1041,75 @@ export function parseAutoTurnOutput(raw, userText = "") {
 
 /**
  * Whether Auto should skip the model and queue the computer immediately.
- * Why (Hermes-style): the model normally decides reply vs queue_goal. Only force-queue
- * when the user already named a concrete browse/peer/mail job — never for capability Qs.
+ * Why (Hermes-style): the LLM normally decides reply vs queue_goal. Only force-queue
+ * for send-mail / peer fan-out — URL/domain / browse verbs go to the model with a hint.
+ * Hard chat vetoes (day-history, memory-store) still run earlier in runChatAutoTurn.
  * @param {string} text
  * @returns {"queue_goal"|"model"}
  */
 export function autoTurnHeuristicGate(text) {
   const c = classifyMessageIntent(text, {});
-  // Why: teach-prefs dumps often include https://… — never force-queue those.
+  // Why: teach-prefs / day-history / vague — model path (or earlier forced chat), never skip-to-queue.
   if (c.reason === "memory_store_request") return "model";
   if (c.reason === "day_history_or_status" || c.reason === "vague_chat_followup") return "model";
+  // Why: send + peer are unambiguous worker jobs — skip LLM latency.
   if (c.reason === "send_email_from_context") return "queue_goal";
   if (c.reason === "peer_a2a_or_fanout" || c.reason === "peer_a2a_overrides_ask") {
     return "queue_goal";
   }
-  if (c.reason === "has_url_or_domain") return "queue_goal";
-  if (c.reason === "explicit_task") return "queue_goal";
-  // Why: action_verbs / question_shaped_but_actionable / capability_question → model chooses.
+  // Why: has_url_or_domain / explicit_task used to force-queue and mis-fired on
+  // “did we open nseindia.com today?” — LLM decides with classifier hint instead.
   return "model";
+}
+
+/**
+ * Soft classifier note injected into the Auto user message so the LLM sees the gate signal.
+ * Why: heuristics alone mis-routed; the model needs an explicit REPLY vs QUEUE_GOAL checklist.
+ * @param {string} text
+ * @returns {string}
+ */
+export function formatAutoClassifierHint(text) {
+  const c = classifyMessageIntent(text, {});
+  const reason = String(c.reason || "unknown");
+  const intent = String(c.intent || "unknown");
+  /** @type {string[]} */
+  const lines = [
+    "[AUTO DECISION HINT — not user text]",
+    `classifier_intent=${intent}; classifier_reason=${reason}`,
+  ];
+  if (reason === "day_history_or_status" || reason === "vague_chat_followup") {
+    lines.push(
+      "Prefer REPLY. This looks like a past-work / status question — answer from day history or chat. Do NOT start a live computer."
+    );
+  } else if (reason === "memory_store_request") {
+    lines.push(
+      "Prefer REPLY. User is teaching preferences/facts (URLs in the list are credentials/bookmarks, not a browse job)."
+    );
+  } else if (reason === "has_url_or_domain" || reason === "explicit_task") {
+    lines.push(
+      "A URL/domain or task verb was detected. QUEUE_GOAL only if they want a live browse/run RIGHT NOW (open/go to/check this site, click, fill, submit).",
+      "Prefer REPLY if they ask about the past (did we open… today?), capability, planning, or memory — naming a domain is not enough to start Chromium."
+    );
+  } else if (reason === "capability_question") {
+    lines.push("Prefer REPLY — capability/policy question; do not queue until they name a concrete live job.");
+  } else {
+    lines.push(
+      "YOU decide: REPLY = answer in chat; QUEUE_GOAL = start cloud computer / peers. Prefer REPLY when unsure."
+    );
+  }
+  lines.push("[END AUTO DECISION HINT]");
+  return lines.join("\n");
+}
+
+/**
+ * User payload for Auto LLM: classifier hint + real message.
+ * @param {string} text
+ * @returns {string}
+ */
+export function buildAutoUserContent(text) {
+  const body = String(text || "").trim().slice(0, 4000);
+  const hint = formatAutoClassifierHint(body);
+  return `${hint}\n\nUSER MESSAGE:\n${body}`;
 }
 
 /**
@@ -1117,24 +1168,24 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "You are NOT controlling the browser in this turn. Queuing starts a cloud computer / A2A workers.",
     "",
-    "Use queue_goal / QUEUE_GOAL when the user wants a concrete job done now:",
-    "- open/navigate a specific site or URL, or click/fill/submit on a live page",
-    "- message/ask peers, fan-out, soft-wait, handoff (message_agent)",
-    "- live research that needs browsing right now",
-    "- change something external (send mail, download, submit forms)",
-    "- send / deliver emails already drafted or listed in THIS CHAT — queue_goal with send_email instructions; NEVER turn an email address into a https:// URL",
+    "=== DECISION: REPLY vs QUEUE_GOAL (you own this choice) ===",
+    "Read the [AUTO DECISION HINT] on the user message, then decide.",
     "",
-    "Use reply / REPLY when you can answer from conversation, profile, memory, or stable knowledge:",
-    "- greetings, thanks, status from memory",
-    "- explanations, code examples, planning advice",
-    "- capability / policy questions (can you open websites?, do you use a computer?, what if…) — answer in chat; do NOT queue until they name a specific site or task",
-    "- MEMORY STORE: user asks you to remember/store preferences or facts (even if the list includes https:// URLs or domains) and/or says do not start the computer — REPLY with a short ack; do NOT queue_goal. Mem0/chat ingest will persist facts.",
-    "- DAY HISTORY / STATUS: “what we did today”, “with timestamps”, “day history”, “status”, or vague “what” follow-ups — REPLY from day history / chat memory; do NOT queue_goal or invent a login/browse goal from earlier context.",
-    "- questions that do not require opening a site or peers right now",
-    "- draft / write / compose emails or messages from THIS CHAT’s recent results — put the full draft in REPLY; do NOT queue unless they ask you to send it",
-    "- follow-ups that refer to prior results (“above emails”, “for them”) — answer using RECENT MESSAGES",
+    "QUEUE_GOAL / queue_goal — only when they want a LIVE computer or peers NOW:",
+    "- Imperative browse: open/go to/navigate/visit a site, click, fill, submit, log in (now)",
+    "- Live research that needs browsing this turn",
+    "- Peer message / fan-out / handoff",
+    "- Send/deliver mail, download, change something external",
+    "- NEVER turn an email address into a https:// URL",
     "",
-    "Hermes-style rule: YOU decide reply vs queue_goal for this turn. Prefer reply when unsure.",
+    "REPLY / reply — answer in chat (no Chromium):",
+    "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
+    "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
+    "- Capability / policy (“can you open websites?”) — do not queue until they name a concrete live job",
+    "- Greetings, explanations, planning, drafts (draft=REPLY; send=QUEUE_GOAL)",
+    "- Naming a domain in a question is NOT enough — only start the computer for a live action",
+    "",
+    "Hermes-style: YOU decide. Prefer REPLY when unsure. A domain/URL alone ≠ start computer.",
     "",
     "SEND MAIL RULES:",
     "- Draft = REPLY. Send/deliver = QUEUE_GOAL.",
@@ -1206,7 +1257,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
       role: "system",
       content: buildAutoSystemPrompt(snapshot, agentName, thread, "text"),
     },
-    { role: "user", content: text.slice(0, 4000) },
+    { role: "user", content: buildAutoUserContent(text) },
   ];
 
   const llmOpts = {
@@ -1399,7 +1450,7 @@ export async function runChatAutoTurn(opts) {
       role: "system",
       content: buildAutoSystemPrompt(snapshot, agentName, thread, "tools"),
     },
-    { role: "user", content: text.slice(0, 4000) },
+    { role: "user", content: buildAutoUserContent(text) },
   ];
 
   try {

@@ -9,7 +9,9 @@ import assert from "node:assert/strict";
 import { classifyMessageIntent } from "../src/utils/messageIntent.js";
 import {
   autoTurnHeuristicGate,
+  buildAutoUserContent,
   extractAfterLastReplyMarker,
+  formatAutoClassifierHint,
   parseAutoTurnOutput,
   sanitizeAutoReplyContent,
 } from "../src/utils/chatAutoTurn.js";
@@ -22,11 +24,22 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(autoTurnHeuristicGate("can you also open webistes for me"), "model");
   });
 
-  it("still queues when a concrete URL/site is named", () => {
-    assert.equal(autoTurnHeuristicGate("open https://vughy.com and register"), "queue_goal");
+  it("concrete URL browse jobs go to the LLM (not silent force-queue)", () => {
+    // Why: LLM + classifier hint decides; only send-mail / peer still force-queue.
+    assert.equal(autoTurnHeuristicGate("open https://vughy.com and register"), "model");
     const c = classifyMessageIntent("can you open gmail.com and check inbox");
     assert.equal(c.intent, "goal");
-    assert.equal(autoTurnHeuristicGate("can you open gmail.com and check inbox"), "queue_goal");
+    assert.equal(autoTurnHeuristicGate("can you open gmail.com and check inbox"), "model");
+  });
+
+  it("classifier hint steers past-domain vs live open", () => {
+    const past = formatAutoClassifierHint("did we opened nseindia.com today ?");
+    assert.match(past, /Prefer REPLY|day_history|past-work/i);
+    const live = formatAutoClassifierHint("open https://nseindia.com and tell me the title");
+    assert.match(live, /QUEUE_GOAL only if|live browse/i);
+    const packed = buildAutoUserContent("open https://vughy.com");
+    assert.match(packed, /USER MESSAGE:/);
+    assert.match(packed, /AUTO DECISION HINT/);
   });
 
   it("lets the model decide action_verbs without a URL (Hermes-style)", () => {
@@ -53,10 +66,13 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(autoTurnHeuristicGate(msg), "model");
   });
 
-  it("open URL + do work still queues (not a memory store)", () => {
+  it("open URL + do work still classifies as goal (LLM decides queue)", () => {
+    const c = classifyMessageIntent("Open https://vughy.com/admin and tell me the page title");
+    assert.equal(c.intent, "goal");
+    assert.equal(c.reason, "has_url_or_domain");
     assert.equal(
       autoTurnHeuristicGate("Open https://vughy.com/admin and tell me the page title"),
-      "queue_goal"
+      "model"
     );
   });
 
@@ -74,7 +90,7 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(c.intent, "question");
     assert.equal(c.reason, "day_history_or_status");
     assert.equal(autoTurnHeuristicGate(msg), "model");
-    assert.equal(autoTurnHeuristicGate("open https://nseindia.com and tell me the title"), "queue_goal");
+    assert.equal(autoTurnHeuristicGate("open https://nseindia.com and tell me the title"), "model");
   });
 
   it("vague 'what' is chat follow-up, not a computer goal", () => {
