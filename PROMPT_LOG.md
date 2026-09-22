@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 11:55] Chat: one run-details bubble + fix scroll-up
+
+- **Prompt Provided:** Cannot scroll up for earlier messages; replace inline ops chips with one bubble that opens a modal of all chips for that run.
+- **Architectural Flow:** `RunOpsIconRow` collapses consecutive ops into a single “Run details · N events” bubble; modal lists every event and drills into detail. Group by taskId so retries stay separate. Chat thread: Load earlier button, lower stick-to-bottom threshold, touch/wheel unstick so polls don’t pin the viewport.
+- **Impacted Files:** RunOpsIconRow.jsx, ChatDetailPage.jsx, FloatingChatWidget.jsx, PROMPT_LOG
+
 ## [2026-09-22 11:45] Fewer steps — skill intent gate + ask_user guards
 
 - **Prompt Provided:** Register-on-Vughy run showed huge chip/step spam; user said “lets go” on skill-gate + no CUA-permission/password ask_user.

@@ -1,10 +1,10 @@
 /**
- * @fileoverview Compact run-status icons for operational chat messages.
- * Purpose: Replace noisy agent/system run logs with small icon chips; click opens full content in a popup.
+ * @fileoverview Compact run-status bubble for operational chat messages.
+ * Purpose: Collapse noisy O/LLM/step chips into one bubble; click opens a modal of all events.
  * Downstream: ChatDetailPage, FloatingChatWidget.
  */
 
-import { useCallback, useEffect, useId, useState } from "react";
+import { useCallback, useEffect, useId, useMemo, useState } from "react";
 import { createPortal } from "react-dom";
 import { formatChatMessageTime } from "../lib/formatDateTime.js";
 
@@ -145,22 +145,44 @@ export function opsIconMeta(message) {
   if (kind === "skill_learned" || /^Skill (learned|updated)/i.test(content)) {
     return { icon: "S+", label: "Skill+" };
   }
+  if (kind === "human_handoff" || /^Cloud agent:/i.test(content)) {
+    return { icon: "🙋", label: "Handoff" };
+  }
+  if (kind === "info") {
+    return { icon: "i", label: "Info" };
+  }
   if (/^Thinking/i.test(content)) return { icon: "…", label: "Thinking" };
   if (/^Opening /i.test(content)) return { icon: "↗", label: "Navigate" };
   return { icon: "•", label: "Status" };
 }
 
 /**
- * Full-content popup for one ops icon message.
+ * @param {object[]} messages
+ * @returns {string}
+ */
+function summarizeOpsKinds(messages) {
+  /** @type {Map<string, number>} */
+  const counts = new Map();
+  for (const m of messages || []) {
+    const { label } = opsIconMeta(m);
+    counts.set(label, (counts.get(label) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, 5)
+    .map(([label, n]) => (n > 1 ? `${label}×${n}` : label))
+    .join(" · ");
+}
+
+/**
+ * Full-content panel for one ops message (used inside the run modal).
  * @param {{
  *   message: object,
  *   label: string,
  *   icon: string,
- *   onClose: () => void,
  * }} props
  */
-function OpsIconPopup({ message, label, icon, onClose }) {
-  const titleId = useId();
+function OpsEventDetail({ message, label, icon }) {
   const curated = message?.meta?.kind === "curated_pull" ? message.meta?.curatedMemory : null;
   const saved = message?.meta?.kind === "curated_save" ? message.meta?.curatedSave : null;
   const siteMem = message?.meta?.kind === "site_memory_pull" ? message.meta?.siteMemory : null;
@@ -168,9 +190,75 @@ function OpsIconPopup({ message, label, icon, onClose }) {
     message?.meta?.kind === "skill_learned" ? message.meta?.skillLearned : null;
   const body = String(message?.content || "").trim() || label;
 
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="flex items-center gap-2 text-xs text-teal-800/70">
+        <span
+          className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-[0.625rem] text-teal-900"
+          aria-hidden="true"
+        >
+          {icon}
+        </span>
+        <span className="font-semibold text-teal-950">{label}</span>
+        {message?.createdAt ? (
+          <time dateTime={new Date(message.createdAt).toISOString()}>
+            {formatChatMessageTime(message.createdAt)}
+          </time>
+        ) : null}
+      </div>
+      {curated ? (
+        <CuratedPullDetails curated={curated} fallbackContent={body} />
+      ) : saved ? (
+        <div className="flex flex-col gap-3 text-sm text-teal-950">
+          <p className="text-xs text-teal-800/70">
+            Durable facts written to this agent’s MEMORY after the run (
+            {saved.count || (saved.facts || []).length}).
+          </p>
+          <PulledList
+            title="Saved to agent MEMORY"
+            rows={(saved.facts || []).map((content, i) => ({
+              rank: i + 1,
+              content,
+            }))}
+            empty="No facts saved."
+          />
+        </div>
+      ) : siteMem ? (
+        <SiteMemoryPullDetails site={siteMem} fallbackContent={body} />
+      ) : skillLearned ? (
+        <SkillLearnedDetails learned={skillLearned} fallbackContent={body} />
+      ) : (
+        <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-teal-950">
+          {body}
+        </pre>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Modal listing every ops event for a run segment.
+ * @param {{
+ *   messages: object[],
+ *   onClose: () => void,
+ * }} props
+ */
+function RunOpsModal({ messages, onClose }) {
+  const titleId = useId();
+  const list = Array.isArray(messages) ? messages : [];
+  const [selectedId, setSelectedId] = useState(/** @type {string|null} */ (null));
+
+  const selected = useMemo(() => {
+    if (!selectedId) return null;
+    return list.find((m) => String(m._id) === selectedId) || null;
+  }, [list, selectedId]);
+
   useEffect(() => {
     function onKey(e) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        if (selectedId) setSelectedId(null);
+        else onClose();
+      }
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -179,7 +267,9 @@ function OpsIconPopup({ message, label, icon, onClose }) {
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, selectedId]);
+
+  const selectedMeta = selected ? opsIconMeta(selected) : null;
 
   return createPortal(
     <div
@@ -191,25 +281,29 @@ function OpsIconPopup({ message, label, icon, onClose }) {
         role="dialog"
         aria-modal="true"
         aria-labelledby={titleId}
-        className="flex max-h-[min(85dvh,36rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-teal-100 bg-white shadow-xl sm:rounded-2xl"
+        className="flex max-h-[min(90dvh,40rem)] w-full max-w-lg flex-col overflow-hidden rounded-t-2xl border border-teal-100 bg-white shadow-xl sm:rounded-2xl"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center gap-2 border-b border-teal-100 px-4 py-3">
-          <span
-            className="inline-flex h-5 min-w-5 items-center justify-center rounded-full border border-teal-100 bg-teal-50 text-[0.625rem] text-teal-900"
-            aria-hidden="true"
-          >
-            {icon}
-          </span>
+          {selectedId ? (
+            <button
+              type="button"
+              onClick={() => setSelectedId(null)}
+              className="inline-flex min-h-11 min-w-11 items-center justify-center rounded-xl border border-teal-100 text-sm font-bold text-teal-900"
+              aria-label="Back to event list"
+            >
+              ←
+            </button>
+          ) : null}
           <div className="min-w-0 flex-1">
             <h2 id={titleId} className="truncate text-sm font-bold text-teal-950">
-              {label}
+              {selectedMeta ? selectedMeta.label : `Run details · ${list.length} events`}
             </h2>
-            {message?.createdAt ? (
-              <p className="text-xs text-teal-900/60">
-                {formatChatMessageTime(message.createdAt)}
-              </p>
-            ) : null}
+            <p className="truncate text-xs text-teal-900/60">
+              {selectedMeta
+                ? String(selected?.content || "").replace(/\s+/g, " ").slice(0, 80)
+                : summarizeOpsKinds(list)}
+            </p>
           </div>
           <button
             type="button"
@@ -220,32 +314,53 @@ function OpsIconPopup({ message, label, icon, onClose }) {
             ×
           </button>
         </div>
-        <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-          {curated ? (
-            <CuratedPullDetails curated={curated} fallbackContent={body} />
-          ) : saved ? (
-            <div className="flex flex-col gap-3 text-sm text-teal-950">
-              <p className="text-xs text-teal-800/70">
-                Durable facts written to this agent’s MEMORY after the run (
-                {saved.count || (saved.facts || []).length}).
-              </p>
-              <PulledList
-                title="Saved to agent MEMORY"
-                rows={(saved.facts || []).map((content, i) => ({
-                  rank: i + 1,
-                  content,
-                }))}
-                empty="No facts saved."
-              />
-            </div>
-          ) : siteMem ? (
-            <SiteMemoryPullDetails site={siteMem} fallbackContent={body} />
-          ) : skillLearned ? (
-            <SkillLearnedDetails learned={skillLearned} fallbackContent={body} />
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-3 py-3 sm:px-4">
+          {selected && selectedMeta ? (
+            <OpsEventDetail
+              message={selected}
+              label={selectedMeta.label}
+              icon={selectedMeta.icon}
+            />
           ) : (
-            <pre className="whitespace-pre-wrap break-words font-mono text-xs leading-relaxed text-teal-950">
-              {body}
-            </pre>
+            <ul className="flex flex-col gap-1.5">
+              {list.map((m, i) => {
+                const { icon, label } = opsIconMeta(m);
+                const tip = String(m.content || label).replace(/\s+/g, " ").slice(0, 140);
+                const id = String(m._id || `ops-${i}`);
+                return (
+                  <li key={id}>
+                    <button
+                      type="button"
+                      onClick={() => setSelectedId(id)}
+                      className="flex w-full min-h-11 items-start gap-2 rounded-xl border border-teal-50 bg-teal-50/40 px-2.5 py-2 text-left transition hover:bg-teal-100/70 focus:outline-none focus:ring-2 focus:ring-teal-500/40"
+                    >
+                      <span
+                        className="yb-ops-chip mt-0.5 inline-flex shrink-0 items-center justify-center rounded-full border border-teal-100 bg-white text-teal-900"
+                        aria-hidden="true"
+                      >
+                        <span>{icon}</span>
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="flex items-baseline justify-between gap-2">
+                          <span className="text-xs font-semibold text-teal-950">{label}</span>
+                          {m.createdAt ? (
+                            <time
+                              dateTime={new Date(m.createdAt).toISOString()}
+                              className="shrink-0 text-[0.65rem] tabular-nums text-teal-800/55"
+                            >
+                              {formatChatMessageTime(m.createdAt)}
+                            </time>
+                          ) : null}
+                        </span>
+                        <span className="mt-0.5 line-clamp-2 text-[0.7rem] leading-snug text-teal-900/75">
+                          {tip}
+                        </span>
+                      </span>
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
           )}
         </div>
       </div>
@@ -256,8 +371,6 @@ function OpsIconPopup({ message, label, icon, onClose }) {
 
 /**
  * Ranked memory facts pulled into this run's prompt.
- * Why: agent MEMORY and USER prefs are separate — an empty agent store must not look like
- * “nothing injected” when USER facts were actually included.
  * @param {{ curated: object, fallbackContent?: string }} props
  */
 function CuratedPullDetails({ curated, fallbackContent = "" }) {
@@ -266,7 +379,6 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
   let agentRows = Array.isArray(agent.pulled) ? agent.pulled : [];
   let userRows = Array.isArray(user.pulled) ? user.pulled : [];
 
-  // Why: older / truncated clients may lack meta.pulled — recover from the message body.
   if (!agentRows.length && !userRows.length && fallbackContent) {
     const parsed = parsePulledFromContent(fallbackContent);
     agentRows = parsed.agent;
@@ -298,11 +410,6 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
           </>
         ) : null}
       </p>
-      <p className="rounded-lg border border-teal-50 bg-teal-50/50 px-2.5 py-1.5 text-[0.7rem] leading-snug text-teal-800/75">
-        Curated MEMORY only. Domain <span className="font-semibold">Site memory</span> (vughy.com
-        flows, etc.) injects later when the browser lands on that site — look for the{" "}
-        <span className="font-semibold">Site</span> chip.
-      </p>
       <PulledList
         title="Agent MEMORY"
         rows={agentRows}
@@ -326,7 +433,6 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
 }
 
 /**
- * Domain SiteProfile injected into the browser LLM system prompt.
  * @param {{ site: object, fallbackContent?: string }} props
  */
 function SiteMemoryPullDetails({ site, fallbackContent = "" }) {
@@ -386,7 +492,6 @@ function SiteMemoryPullDetails({ site, fallbackContent = "" }) {
 }
 
 /**
- * Skill learned/updated from a successful run.
  * @param {{ learned: object, fallbackContent?: string }} props
  */
 function SkillLearnedDetails({ learned, fallbackContent = "" }) {
@@ -400,10 +505,6 @@ function SkillLearnedDetails({ learned, fallbackContent = "" }) {
         </span>
         {learned?.name ? ` · ${learned.name}` : ""}
         {learned?.slug ? ` · /${learned.slug}` : ""}
-      </p>
-      <p className="rounded-lg border border-teal-50 bg-teal-50/50 px-2.5 py-1.5 text-[0.7rem] leading-snug text-teal-800/75">
-        Saved as a reusable workflow (named clicks/URLs, not ephemeral element ids). Next similar
-        goals can match this skill and inject the procedure. Also listed under Skills.
       </p>
       {triggers.length ? (
         <div>
@@ -429,7 +530,6 @@ function SkillLearnedDetails({ learned, fallbackContent = "" }) {
 }
 
 /**
- * Recover ranked lists from the curated_pull message body when meta.pulled is missing.
  * @param {string} content
  * @returns {{ agent: object[], user: object[] }}
  */
@@ -490,81 +590,61 @@ function PulledList({ title, rows, empty }) {
 }
 
 /**
- * Renders one or more operational messages as a compact icon row.
- * Click an icon to open the full message content in a popup.
+ * One bubble for a whole run segment of ops messages — click opens the event modal.
  * @param {{ messages: object[] }} props
  */
 export function RunOpsIconRow({ messages }) {
   const list = Array.isArray(messages) ? messages : [];
-  const [openMsg, setOpenMsg] = useState(/** @type {object|null} */ (null));
-  const close = useCallback(() => setOpenMsg(null), []);
+  const [open, setOpen] = useState(false);
+  const close = useCallback(() => setOpen(false), []);
 
   if (!list.length) return null;
 
-  const openMeta = openMsg ? opsIconMeta(openMsg) : null;
+  const n = list.length;
+  const summary = summarizeOpsKinds(list);
+  const previewIcons = [...new Set(list.map((m) => opsIconMeta(m).icon))].slice(0, 6);
+  const firstAt = list[0]?.createdAt;
+  const lastAt = list[list.length - 1]?.createdAt;
 
   return (
     <>
-      <div
-        className="flex flex-wrap items-center gap-1 self-start px-0.5 py-0.5"
-        role="group"
-        aria-label="Run status"
+      <button
+        type="button"
+        onClick={() => setOpen(true)}
+        title="Open run details"
+        aria-label={`Run details, ${n} events. ${summary}`}
+        className="group flex max-w-[95%] flex-col gap-1 self-start rounded-xl border border-teal-100 bg-teal-50/70 px-3 py-2 text-left text-sm text-teal-950 shadow-sm transition hover:border-teal-200 hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-500/40 sm:max-w-[85%]"
       >
-        {list.map((m) => {
-          const { icon, label } = opsIconMeta(m);
-          const tip = String(m.content || label).slice(0, 120);
-          const memoryChip = m.meta?.kind === "curated_pull";
-          const savedChip =
-            m.meta?.kind === "curated_save" || /^Memory saved/i.test(String(m.content || ""));
-          const siteChip =
-            m.meta?.kind === "site_memory_pull" || /^Site memory/i.test(String(m.content || ""));
-          const skillPlusChip =
-            m.meta?.kind === "skill_learned" ||
-            /^Skill (learned|updated)/i.test(String(m.content || ""));
-          const llmChip =
-            m.meta?.kind === "llm_request" ||
-            m.meta?.kind === "llm_response" ||
-            /^→ Sent to LLM|^← Received from LLM|^← LLM error/i.test(String(m.content || ""));
-          const chipLabel = memoryChip
-            ? "Memory"
-            : savedChip
-              ? "Saved"
-              : siteChip
-                ? "Site"
-                : skillPlusChip
-                  ? "Skill+"
-                  : llmChip
-                    ? m.meta?.kind === "llm_response"
-                      ? "LLM↓"
-                      : "LLM"
-                    : null;
-          return (
-            <button
-              key={m._id || `${label}-${tip.slice(0, 12)}`}
-              type="button"
-              title={`${label} — tap for details`}
-              aria-label={`${label}: ${tip}`}
-              onClick={() => setOpenMsg(m)}
-              className={`yb-ops-chip inline-flex shrink-0 cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95 ${
-                chipLabel ? "yb-ops-chip--label font-semibold" : ""
-              }`}
-            >
-              <span aria-hidden="true" className="leading-none">
-                {icon}
+        <span className="flex items-center gap-2">
+          <span className="flex items-center gap-0.5" aria-hidden="true">
+            {previewIcons.map((icon, i) => (
+              <span
+                key={`${icon}-${i}`}
+                className="yb-ops-chip inline-flex items-center justify-center rounded-full border border-teal-100 bg-white text-teal-900"
+              >
+                <span>{icon}</span>
               </span>
-              {chipLabel ? <span className="leading-none">{chipLabel}</span> : null}
-            </button>
-          );
-        })}
-      </div>
-      {openMsg && openMeta ? (
-        <OpsIconPopup
-          message={openMsg}
-          label={openMeta.label}
-          icon={openMeta.icon}
-          onClose={close}
-        />
-      ) : null}
+            ))}
+          </span>
+          <span className="font-semibold text-teal-950">
+            Run details · {n} event{n === 1 ? "" : "s"}
+          </span>
+          <span className="ml-auto text-[0.7rem] font-medium text-teal-700/70 group-hover:text-teal-900">
+            Open
+          </span>
+        </span>
+        {summary ? (
+          <span className="line-clamp-2 text-[0.7rem] leading-snug text-teal-800/70">{summary}</span>
+        ) : null}
+        {firstAt || lastAt ? (
+          <span className="text-[0.65rem] tabular-nums text-teal-800/50">
+            {firstAt ? formatChatMessageTime(firstAt) : ""}
+            {firstAt && lastAt && String(firstAt) !== String(lastAt) ? " – " : ""}
+            {lastAt && String(firstAt) !== String(lastAt) ? formatChatMessageTime(lastAt) : ""}
+          </span>
+        ) : null}
+      </button>
+      {open ? <RunOpsModal messages={list} onClose={close} /> : null}
     </>
   );
 }

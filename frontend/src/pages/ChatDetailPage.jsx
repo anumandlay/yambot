@@ -332,14 +332,13 @@ export function ChatDetailPage() {
     const el = threadRef.current;
     if (!el) return;
     const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
-    // Why: hysteresis — rubber-band / tiny upward nudges near the bottom must not keep
-    // stick=true (polls would yank back and shake) or flip every frame.
+    // Why: leave stick as soon as the user scrolls away from the bottom — polls must not yank them back.
     if (stickToBottomRef.current) {
-      if (gap > 120) stickToBottomRef.current = false;
-    } else if (gap < 40) {
+      if (gap > 48) stickToBottomRef.current = false;
+    } else if (gap < 24) {
       stickToBottomRef.current = true;
     }
-    if (el.scrollTop < 80) {
+    if (el.scrollTop < 120) {
       void loadOlder();
     }
   }
@@ -1431,12 +1430,32 @@ export function ChatDetailPage() {
           <div
             ref={threadRef}
             onScroll={onThreadScroll}
-            className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
+            onWheel={(e) => {
+              // Why: any upward wheel means the user is reading history — stop auto-stick immediately.
+              if (e.deltaY < 0) stickToBottomRef.current = false;
+            }}
+            onTouchStart={() => {
+              // Why: touch scroll on mobile often never exceeds the old 120px gap before polls re-stick.
+              const el = threadRef.current;
+              if (!el) return;
+              const gap = el.scrollHeight - el.scrollTop - el.clientHeight;
+              if (gap > 24) stickToBottomRef.current = false;
+            }}
+            className="flex min-h-0 min-w-0 flex-1 flex-col gap-3 overflow-y-auto overscroll-contain touch-pan-y rounded-2xl border border-teal-100 bg-white p-3 shadow-sm sm:p-4"
           >
             {loadingOlder ? (
               <p className="text-center text-xs text-teal-900/60">Loading earlier messages…</p>
             ) : hasOlderMessages ? (
-              <p className="text-center text-xs text-teal-900/50">Scroll up for earlier messages</p>
+              <div className="flex flex-col items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() => void loadOlder()}
+                  className="min-h-11 rounded-xl border border-teal-200 bg-teal-50 px-4 text-sm font-semibold text-teal-900 hover:bg-teal-100"
+                >
+                  Load earlier messages
+                </button>
+                <p className="text-center text-xs text-teal-900/50">Or scroll up</p>
+              </div>
             ) : messages.length > 0 ? (
               <p className="text-center text-xs text-teal-900/40">Beginning of this chat</p>
             ) : null}
@@ -1446,21 +1465,26 @@ export function ChatDetailPage() {
               </p>
             ) : null}
             {(() => {
-              /** @type {{ kind: "ops", items: object[] } | { kind: "msg", item: object }}[] */
+              /** @type {{ kind: "ops", items: object[], taskKey: string } | { kind: "msg", item: object }}[] */
               const rows = [];
               for (const m of messages) {
                 if (isOpsIconMessage(m)) {
+                  const taskKey = String(m.meta?.taskId || m.meta?.task || "");
                   const last = rows[rows.length - 1];
-                  if (last?.kind === "ops") last.items.push(m);
-                  else rows.push({ kind: "ops", items: [m] });
+                  // Why: split bubbles per task so retries don't merge into one giant run log.
+                  if (last?.kind === "ops" && last.taskKey === taskKey) {
+                    last.items.push(m);
+                  } else {
+                    rows.push({ kind: "ops", items: [m], taskKey });
+                  }
                 } else {
                   rows.push({ kind: "msg", item: m });
                 }
               }
               return rows.map((row) => {
                 if (row.kind === "ops") {
-                  const key = row.items.map((m) => m._id).join("-");
-                  return <RunOpsIconRow key={key || "ops"} messages={row.items} />;
+                  const key = row.items.map((m) => m._id).join("-") || `ops-${row.taskKey}`;
+                  return <RunOpsIconRow key={key} messages={row.items} />;
                 }
                 const m = row.item;
                 const agentLabel = messageAgentLabel(m);

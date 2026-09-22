@@ -108,52 +108,68 @@ export function FloatingChatWidget({ chatId, className = "" }) {
           {!recent.length && !error ? (
             <p className="text-xs text-white/50">No messages yet.</p>
           ) : null}
-          {recent.map((m) => {
-            if (isOpsIconMessage(m)) {
-              return <RunOpsIconRow key={m._id} messages={[m]} />;
+          {(() => {
+            /** @type {{ kind: "ops", items: object[], taskKey: string } | { kind: "msg", item: object }}[] */
+            const rows = [];
+            for (const m of recent) {
+              if (isOpsIconMessage(m)) {
+                const taskKey = String(m.meta?.taskId || m.meta?.task || "");
+                const last = rows[rows.length - 1];
+                if (last?.kind === "ops" && last.taskKey === taskKey) last.items.push(m);
+                else rows.push({ kind: "ops", items: [m], taskKey });
+              } else {
+                rows.push({ kind: "msg", item: m });
+              }
             }
-            const skillPick =
-              m.meta?.kind === "skill_selected" && m.meta?.skillPick
-                ? m.meta.skillPick
-                : skillPickFromMessage(m);
-            const speaker =
-              m.role === "user"
-                ? String(m.meta?.senderName || userDisplayName).trim() || userDisplayName
-                : m.role === "assistant" || m.role === "agent"
-                  ? String(m.meta?.agentName || agentName || "Agent").trim() || "Agent"
-                  : m.role;
-            return (
-              <article
-                key={m._id}
-                className={`rounded-xl px-2.5 py-2 text-[0.7rem] leading-snug ${
-                  m.role === "user"
-                    ? "bg-teal-800/80 text-teal-50"
-                    : m.role === "assistant"
-                      ? "bg-teal-900/50 text-teal-50"
-                      : "bg-white/5 text-white/80"
-                }`}
-              >
-                <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] opacity-60">
-                  <span className="font-semibold normal-case">{speaker}</span>
-                  {m.createdAt ? (
-                    <time dateTime={new Date(m.createdAt).toISOString()}>
-                      {formatChatMessageTime(m.createdAt)}
-                    </time>
-                  ) : null}
-                </div>
-                <>
-                  {m.role === "user" && skillPick ? (
-                    <div className="mb-1.5 [&_.rounded-xl]:border-white/20 [&_.rounded-xl]:bg-black/20 [&_.rounded-xl]:text-white">
-                      <SkillPickNotice pick={skillPick} />
-                    </div>
-                  ) : null}
-                  <p className="whitespace-pre-wrap break-words">
-                    {humanizeGoalOrMessage(m.content, m.meta)}
-                  </p>
-                </>
-              </article>
-            );
-          })}
+            return rows.map((row) => {
+              if (row.kind === "ops") {
+                const key = row.items.map((m) => m._id).join("-") || `ops-${row.taskKey}`;
+                return <RunOpsIconRow key={key} messages={row.items} />;
+              }
+              const m = row.item;
+              const skillPick =
+                m.meta?.kind === "skill_selected" && m.meta?.skillPick
+                  ? m.meta.skillPick
+                  : skillPickFromMessage(m);
+              const speaker =
+                m.role === "user"
+                  ? String(m.meta?.senderName || userDisplayName).trim() || userDisplayName
+                  : m.role === "assistant" || m.role === "agent"
+                    ? String(m.meta?.agentName || agentName || "Agent").trim() || "Agent"
+                    : m.role;
+              return (
+                <article
+                  key={m._id}
+                  className={`rounded-xl px-2.5 py-2 text-[0.7rem] leading-snug ${
+                    m.role === "user"
+                      ? "bg-teal-800/80 text-teal-50"
+                      : m.role === "assistant"
+                        ? "bg-teal-900/50 text-teal-50"
+                        : "bg-white/5 text-white/80"
+                  }`}
+                >
+                  <div className="mb-0.5 flex items-center justify-between gap-2 text-[0.6rem] opacity-60">
+                    <span className="font-semibold normal-case">{speaker}</span>
+                    {m.createdAt ? (
+                      <time dateTime={new Date(m.createdAt).toISOString()}>
+                        {formatChatMessageTime(m.createdAt)}
+                      </time>
+                    ) : null}
+                  </div>
+                  <>
+                    {m.role === "user" && skillPick ? (
+                      <div className="mb-1.5 [&_.rounded-xl]:border-white/20 [&_.rounded-xl]:bg-black/20 [&_.rounded-xl]:text-white">
+                        <SkillPickNotice pick={skillPick} />
+                      </div>
+                    ) : null}
+                    <p className="whitespace-pre-wrap break-words">
+                      {humanizeGoalOrMessage(m.content, m.meta)}
+                    </p>
+                  </>
+                </article>
+              );
+            });
+          })()}
         </div>
       ) : null}
     </div>
