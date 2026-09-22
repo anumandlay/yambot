@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 14:45] Live screen follows the open agent chat (not stuck on Trial India)
+
+- **Prompt Provided:** On /grok/:chatId the agent screen stayed on Trial Expiry even after switching agents.
+- **Architectural Flow:** ChatDetailPage stays mounted across chatId changes; `watchAgentId` stuck on the previous agent and won over `chat.agent`. Fix: agent-bound chats always use the bound agent for LiveScreen; clear watch on chatId change; Watch-agent auto-pick only in common chat; remount/clear LiveScreen on agentId change.
+- **Impacted Files:** ChatDetailPage.jsx, LiveScreen.jsx, PROMPT_LOG
+
 ## [2026-09-22 14:40] Plug Mem0 into group rooms
 
 - **Prompt Provided:** Wire Mem0 into rooms (e.g. Website Ops) like 1:1 agent chats.

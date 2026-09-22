@@ -242,6 +242,21 @@ export function LiveScreen({
     controlOnRef.current = controlOn;
   }, [controlOn]);
 
+  // Why: clear stale JPEG / noVNC when switching agents (same LiveScreen instance or remount race).
+  useEffect(() => {
+    setLive(null);
+    setError(null);
+    setControlOn(false);
+    setViewSrc("");
+    setViewError("");
+    setDesktopSrc("");
+    setDesktopError("");
+    setDesktopSessionKey(0);
+    setZoomed(false);
+    setStatus("");
+    autoZoomStartedRef.current = false;
+  }, [agentId]);
+
   useEffect(() => {
     if (!agentId) return undefined;
     let cancelled = false;

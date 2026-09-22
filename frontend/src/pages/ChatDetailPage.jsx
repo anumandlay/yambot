@@ -470,13 +470,17 @@ export function ChatDetailPage() {
     setDispatchAgentId(mentionPreview.agentId);
   }, [isCommon, mentionPreview?.agentId, mentionPreview?.matched]);
 
-  /** Bound agent for agent chats; follow active run / watch picker when @mention delegated. */
+  /** Bound agent for agent chats; follow active run / watch picker only in common (multi-agent) chat. */
   const liveAgentId = (() => {
+    // Why: agent-bound /grok/:chatId must always show THAT agent’s screen — watchAgentId used to
+    // stick across navigations and keep showing Trial India’s computer on every other chat.
+    if (!isCommon) {
+      return chat?.agent?._id || chat?.agent || null;
+    }
     if (watchAgentId) return watchAgentId;
     const fromRun = activeRun?.agent?._id || activeRun?.agent;
     if (fromRun) return fromRun;
-    if (isCommon) return dispatchAgentId || null;
-    return chat?.agent?._id || chat?.agent || null;
+    return dispatchAgentId || null;
   })();
 
   const liveAgentMode = useMemo(() => {
@@ -541,7 +545,14 @@ export function ChatDetailPage() {
       .catch(() => setOpsTriggerChats([]));
   }, [chatId, isCommon, isOpsTriggerChat, liveAgentId]);
 
+  // Why: ChatDetailPage stays mounted under /grok/:chatId — clear watch when the thread changes.
   useEffect(() => {
+    setWatchAgentId("");
+  }, [chatId]);
+
+  useEffect(() => {
+    // Why: “Watch agent” picker is for common chat only (parallel runs).
+    if (!isCommon) return;
     if (!activeRuns.length) return;
     const currentWatch = watchAgentId;
     const stillValid = activeRuns.some(
@@ -551,7 +562,7 @@ export function ChatDetailPage() {
       const next = activeRuns[0]?.agent?._id || activeRuns[0]?.agent;
       if (next) setWatchAgentId(String(next));
     }
-  }, [activeRuns, watchAgentId]);
+  }, [activeRuns, watchAgentId, isCommon]);
 
   const liveAgentName =
     agents.find((a) => String(a._id) === String(liveAgentId))?.name ||
@@ -941,6 +952,7 @@ export function ChatDetailPage() {
           </p>
         ) : liveAgentId ? (
           <LiveScreen
+            key={String(liveAgentId)}
             agentId={String(liveAgentId)}
             agentName={liveAgentName || ""}
             taskId={watchedRun?._id ? String(watchedRun._id) : activeRun?._id ? String(activeRun._id) : undefined}
