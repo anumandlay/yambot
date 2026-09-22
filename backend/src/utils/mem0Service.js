@@ -141,9 +141,56 @@ export async function getMem0Memory(opts = {}) {
     const collectionName = String(
       process.env.MEM0_COLLECTION || env.MEM0_COLLECTION || "yambot_memories"
     ).trim();
+    // Why: MiniMax (and many OpenAI-compatible chat APIs) have no /embeddings —
+    // FastEmbed runs locally so Mem0 works with Settings chat keys alone.
+    const embedProvider = String(
+      process.env.MEM0_EMBEDDER_PROVIDER || env.MEM0_EMBEDDER_PROVIDER || "fastembed"
+    )
+      .trim()
+      .toLowerCase();
+    const embedDims = Math.max(
+      64,
+      Number(
+        process.env.MEM0_EMBEDDING_DIMS ||
+          env.MEM0_EMBEDDING_DIMS ||
+          (embedProvider === "fastembed" ? 384 : llm.embedDims)
+      ) || (embedProvider === "fastembed" ? 384 : 1536)
+    );
+    const embedModel =
+      embedProvider === "fastembed"
+        ? String(
+            process.env.MEM0_EMBEDDER_MODEL ||
+              env.MEM0_EMBEDDER_MODEL ||
+              "fast-bge-small-en-v1.5"
+          ).trim()
+        : llm.embedModel;
 
     try {
       const { Memory } = await import("mem0ai/oss");
+      const { QdrantClient } = await import("@qdrant/js-client-rest");
+      // Why: compose may run a slightly older Qdrant image than the JS client — skip hard fail.
+      const qdrantClient = new QdrantClient({
+        url: qdrantUrl,
+        checkCompatibility: false,
+      });
+      const embedder =
+        embedProvider === "openai"
+          ? {
+              provider: "openai",
+              config: {
+                apiKey: llm.apiKey,
+                model: embedModel,
+                baseURL: llm.baseURL || undefined,
+                embeddingDims: embedDims,
+              },
+            }
+          : {
+              provider: "fastembed",
+              config: {
+                model: embedModel,
+                embeddingDims: embedDims,
+              },
+            };
       const instance = new Memory({
         // Why: avoid better-sqlite3 native build in slim Docker images.
         disableHistory: true,
@@ -156,27 +203,20 @@ export async function getMem0Memory(opts = {}) {
             temperature: 0.1,
           },
         },
-        embedder: {
-          provider: "openai",
-          config: {
-            apiKey: llm.apiKey,
-            model: llm.embedModel,
-            baseURL: llm.baseURL || undefined,
-            embeddingDims: llm.embedDims,
-          },
-        },
+        embedder,
         vectorStore: {
           provider: "qdrant",
           config: {
+            client: qdrantClient,
             url: qdrantUrl,
             collectionName,
-            embeddingModelDims: llm.embedDims,
+            embeddingModelDims: embedDims,
           },
         },
       });
       memorySingleton = instance;
       console.log(
-        `[mem0] ready · qdrant=${qdrantUrl} · collection=${collectionName} · base=${llm.baseURL || "default"}`
+        `[mem0] ready · qdrant=${qdrantUrl} · collection=${collectionName} · embed=${embedProvider}/${embedModel} · dims=${embedDims} · llm=${llm.baseURL || "default"}`
       );
       return instance;
     } catch (err) {

@@ -10,7 +10,8 @@ services:
 
   # Why: Mem0 OSS vector store — keeps long-term memory on our VPS (not mem0 cloud).
   qdrant:
-    image: qdrant/qdrant:v1.13.2
+    # Why: keep near JS client 1.19 (compose previously used 1.13 → hard incompat).
+    image: qdrant/qdrant:v1.14.1
     restart: unless-stopped
     volumes:
       - yambot_qdrant:/qdrant/storage
@@ -54,7 +55,9 @@ services:
       MEM0_LLM_API_KEY: ${MEM0_LLM_API_KEY:-}
       MEM0_LLM_BASE_URL: ${MEM0_LLM_BASE_URL:-}
       MEM0_LLM_MODEL: ${MEM0_LLM_MODEL:-}
-      MEM0_EMBEDDER_MODEL: ${MEM0_EMBEDDER_MODEL:-text-embedding-3-small}
+      MEM0_EMBEDDER_MODEL: ${MEM0_EMBEDDER_MODEL:-fast-bge-small-en-v1.5}
+      MEM0_EMBEDDER_PROVIDER: ${MEM0_EMBEDDER_PROVIDER:-fastembed}
+      MEM0_EMBEDDING_DIMS: ${MEM0_EMBEDDING_DIMS:-384}
     ports:
       - "4010:4000"
     depends_on:

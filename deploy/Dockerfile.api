@@ -1,10 +1,20 @@
 # Production API image — build from repo root
 # LIVE_BOS secrets arrive via deploy/.env (compose env_file), not baked into the image.
+# Why: Mem0 FastEmbed needs onnxruntime-node native binaries (install scripts).
 FROM node:24-bookworm-slim
 WORKDIR /app
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ca-certificates \
+  && rm -rf /var/lib/apt/lists/*
 COPY backend/package.json backend/package-lock.json ./
-RUN npm ci --omit=dev
+# Why: allow onnxruntime-node postinstall so FastEmbed (local Mem0 embeddings) works.
+RUN npm ci --omit=dev --ignore-scripts=false \
+  && npm rebuild onnxruntime-node || true
 COPY backend/src ./src
 ENV NODE_ENV=production
+# Why: first FastEmbed init downloads the model into this cache dir.
+ENV HF_HOME=/app/.cache/huggingface
+ENV FASTEMBED_CACHE_PATH=/app/.cache/fastembed
+RUN mkdir -p /app/.cache/fastembed /app/.cache/huggingface
 EXPOSE 4000
 CMD ["node", "src/index.js"]

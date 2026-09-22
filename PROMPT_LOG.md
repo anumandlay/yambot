@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 12:40] Mem0 FastEmbed + Qdrant compat (live example)
+
+- **Prompt Provided:** Test Mem0 with an example.
+- **Architectural Flow:** First run: no site LLM key → Settings fallback. Second: MiniMax has no `/embeddings` (all models failed); Qdrant 1.13 vs client 1.19. Switch default embedder to local FastEmbed (`fast-bge-small-en-v1.5`, 384-d); Qdrant client `checkCompatibility: false`; bump image toward 1.14; Dockerfile rebuilds onnxruntime-node. Live add→search example script ready.
+- **Impacted Files:** mem0Service.js, Dockerfile.api, docker-compose.yml, .env.example, package.json, PROMPT_LOG
+
 ## [2026-09-22 12:35] Mem0 falls back to Settings LLM when site key empty
 
 - **Prompt Provided:** Test Mem0 with an example — first run failed (`no LLM API key`).
