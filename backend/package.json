@@ -29,7 +29,6 @@
     "stripe": "^17.7.0"
   },
   "allowScripts": {
-    "onnxruntime-node@1.21.0": true,
-    "better-sqlite3@12.11.1": true
+    "onnxruntime-node@1.21.0": true
   }
 }
