@@ -4,15 +4,14 @@
 FROM node:24-bookworm-slim
 WORKDIR /app
 RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates \
+  && apt-get install -y --no-install-recommends ca-certificates python3 make g++ \
   && rm -rf /var/lib/apt/lists/*
 COPY backend/package.json backend/package-lock.json ./
-# Why: allow onnxruntime-node postinstall so FastEmbed (local Mem0 embeddings) works.
-RUN npm ci --omit=dev --ignore-scripts=false \
+# Why: install full lockfile (not a cached broken layer); onnxruntime postinstall for FastEmbed.
+RUN npm ci --omit=dev \
   && npm rebuild onnxruntime-node || true
 COPY backend/src ./src
 ENV NODE_ENV=production
-# Why: first FastEmbed init downloads the model into this cache dir.
 ENV HF_HOME=/app/.cache/huggingface
 ENV FASTEMBED_CACHE_PATH=/app/.cache/fastembed
 RUN mkdir -p /app/.cache/fastembed /app/.cache/huggingface
