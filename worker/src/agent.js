@@ -1024,13 +1024,17 @@ export function createCloudAgent({ api, config, log = console.log }) {
   /**
    * Blocks the LLM loop while the dashboard user has taken mouse/keyboard control.
    * Why: CAPTCHA/recovery must not race agent clicks; heartbeats still apply remote inputs.
+   * Never captures a JPEG here — that was adding ~10–20s after the model already chose finish.
    * @param {{ taskId?: string|null }} [opts]
    */
   async function waitWhileHumanControl(opts = {}) {
     const taskId = opts.taskId || null;
     for (;;) {
       if (taskId && (await isTaskCancelled(taskId))) return;
-      const status = await pushLiveScreen(opts).catch(() => ({ humanControl: false }));
+      // Why: humanControl flag comes from heartbeat metadata — no viewport screenshot needed.
+      const status = await pushLiveScreen({ taskId, screenshot: false }).catch(() => ({
+        humanControl: false,
+      }));
       if (status?.humanControl) {
         trackHumanBrowsingSession();
         log(`[${config.workerName}] paused — human has control`);
@@ -2945,18 +2949,25 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
 
         // Why: skip JPEG during mid-batch fills; one screen push after the last action.
+        // Why: finish/ask_user — no screenshot (task is done; JPEG was delaying the result bubble ~10–20s).
+        const skipShotOnStop =
+          actionToRun.type === "finish" || actionToRun.type === "ask_user";
         await pushLiveScreen({
           taskId,
-          screenshot: isLastInBatch || BATCH_STOP_TYPES.has(actionToRun.type),
+          screenshot:
+            !skipShotOnStop &&
+            (isLastInBatch || BATCH_STOP_TYPES.has(actionToRun.type)),
         }).catch(() => {});
 
         if (result?.finished) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
-          // Why: after signup, auto-save typed email/password into View memory vault (no chat prompt).
+          // Why: post chat result FIRST — save-login can run after (was delaying the user bubble).
+          await complete(taskId, { success, summary, history, siteDomain, llmUsage });
+          log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           if (success && !saveLoginOffered) {
             saveLoginOffered = true;
-            await maybeOfferSaveLoginAfterSignup({
+            void maybeOfferSaveLoginAfterSignup({
               taskId,
               agentId: String(agentSnapshot?.id || task.agent || ""),
               goal,
@@ -2970,8 +2981,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
               );
             });
           }
-          await complete(taskId, { success, summary, history, siteDomain, llmUsage });
-          log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           finishedTask = true;
           break;
         }

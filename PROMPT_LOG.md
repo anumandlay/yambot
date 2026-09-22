@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 14:22] Faster finish → chat result (skip JPEG / post bubble early)
+
+- **Prompt Provided:** After open example.com the page loaded quickly but the final chat message lagged ~16s.
+- **Architectural Flow:** Post-LLM `waitWhileHumanControl` was taking a full live-screen JPEG; finish also screenshotted before `/complete`. Fix: human-control wait uses screenshot:false; finish/ask_user skip JPEG; `complete` posts the result Message right after task.save; curated MEMORY extract is fire-and-forget. Same early-result pattern for API agent finalize.
+- **Impacted Files:** worker/src/agent.js, backend/src/routes/worker.js, backend/src/utils/apiAgentRunner.js, PROMPT_LOG
+
 ## [2026-09-22 14:00] LLM owns REPLY vs QUEUE_GOAL (classifier hint)
 
 - **Prompt Provided:** Give the live-computer decision to the LLM so it understands question vs start computer more clearly.

@@ -627,6 +627,19 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
       payload: { success, summary, error },
     });
     await task.save();
+
+    // Why: show the result bubble immediately — dayLogs / curated LLM extract must not delay chat.
+    await Message.create({
+      chat: task.chat,
+      role: "assistant",
+      content: stripModelThinking(summary || (success ? "Done." : error || "Failed.")),
+      meta: { taskId: task._id, kind: "result", success },
+    });
+
+    if (task.agent) {
+      await clearAgentNeedsAttention(task.agent);
+    }
+
     await unblockDependentTasks(req.userId);
 
     // Why: parent may have wait:false — finalize AgentMessage + fill pendingPeerResults without a poll.
@@ -650,17 +663,6 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
         triggerRef: task.triggerRef ? String(task.triggerRef) : null,
       },
     });
-
-    await Message.create({
-      chat: task.chat,
-      role: "assistant",
-      content: stripModelThinking(summary || (success ? "Done." : error || "Failed.")),
-      meta: { taskId: task._id, kind: "result", success },
-    });
-
-    if (task.agent) {
-      await clearAgentNeedsAttention(task.agent);
-    }
 
     if (task.agent && (summary || error)) {
       const agentDoc = await Agent.findOne({ _id: task.agent, user: req.userId });
@@ -702,20 +704,24 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
           sourceTask: task._id,
         });
         // Why: day logs are episodic; also distill durable facts into curated agent MEMORY for next-run top-k.
+        // Fire-and-forget so the worker HTTP complete returns without waiting on an extra LLM call.
         if (success && summary) {
-          const { persistCuratedMemoryFromRun } = await import("../utils/curatedMemoryExtract.js");
-          await persistCuratedMemoryFromRun({
-            userId: req.userId,
-            agentId: String(agentDoc._id),
-            chatId: task.chat ? String(task.chat) : null,
-            taskId: String(task._id),
-            goal: String(task.goal || ""),
-            summary,
-            trajectoryDigest: trajDigest,
-            success: true,
-          }).catch((err) =>
-            console.warn("[worker] curated memory extract failed", err?.message || err)
-          );
+          void import("../utils/curatedMemoryExtract.js")
+            .then(({ persistCuratedMemoryFromRun }) =>
+              persistCuratedMemoryFromRun({
+                userId: req.userId,
+                agentId: String(agentDoc._id),
+                chatId: task.chat ? String(task.chat) : null,
+                taskId: String(task._id),
+                goal: String(task.goal || ""),
+                summary,
+                trajectoryDigest: trajDigest,
+                success: true,
+              })
+            )
+            .catch((err) =>
+              console.warn("[worker] curated memory extract failed", err?.message || err)
+            );
         }
       }
     }

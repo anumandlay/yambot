@@ -907,6 +907,19 @@ async function finalizeApiTask(task, userId, result) {
     at: new Date(),
   });
   await task.save();
+
+  // Why: result bubble first — outcome routing / curated extract must not delay chat.
+  await Message.create({
+    chat: task.chat,
+    role: "assistant",
+    content: stripModelThinking(summary || (success ? "Done." : error || "Failed.")),
+    meta: { taskId: task._id, kind: "result", success, via: "api" },
+  }).catch(() => null);
+
+  if (task.agent) {
+    await clearAgentNeedsAttention(task.agent);
+  }
+
   await unblockDependentTasks(userId);
   await finalizeAgentMessagesForChildTask(userId, task).catch(() => null);
 
@@ -925,15 +938,7 @@ async function finalizeApiTask(task, userId, result) {
     },
   }).catch(() => null);
 
-  await Message.create({
-    chat: task.chat,
-    role: "assistant",
-    content: stripModelThinking(summary || (success ? "Done." : error || "Failed.")),
-    meta: { taskId: task._id, kind: "result", success, via: "api" },
-  }).catch(() => null);
-
   if (task.agent) {
-    await clearAgentNeedsAttention(task.agent);
     const agentDoc = await Agent.findOne({ _id: task.agent, user: userId });
     if (agentDoc && (summary || error)) {
       await appendAgentMemory(agentDoc, {
@@ -963,19 +968,22 @@ async function finalizeApiTask(task, userId, result) {
         sourceTask: task._id,
       });
       if (success && summary) {
-        const { persistCuratedMemoryFromRun } = await import("./curatedMemoryExtract.js");
-        await persistCuratedMemoryFromRun({
-          userId,
-          agentId: String(agentDoc._id),
-          chatId: task.chat ? String(task.chat) : null,
-          taskId: String(task._id),
-          goal: String(task.goal || ""),
-          summary,
-          trajectoryDigest: trajDigest,
-          success: true,
-        }).catch((err) =>
-          console.warn("[apiAgentRunner] curated memory extract failed", err?.message || err)
-        );
+        void import("./curatedMemoryExtract.js")
+          .then(({ persistCuratedMemoryFromRun }) =>
+            persistCuratedMemoryFromRun({
+              userId,
+              agentId: String(agentDoc._id),
+              chatId: task.chat ? String(task.chat) : null,
+              taskId: String(task._id),
+              goal: String(task.goal || ""),
+              summary,
+              trajectoryDigest: trajDigest,
+              success: true,
+            })
+          )
+          .catch((err) =>
+            console.warn("[apiAgentRunner] curated memory extract failed", err?.message || err)
+          );
       }
     }
   }
