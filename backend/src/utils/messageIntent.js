@@ -162,8 +162,10 @@ export function classifyMessageIntent(text, opts = {}) {
     /\b(draft|write)\b.+\b(for (them|these|those|above|the emails?))\b/i.test(lower) ||
     /\b(email draft|draft email)\b/i.test(lower)
   ) {
-    if (!/\b(send|email them|mail them|deliver)\b.+\b(email|mail|message)\b/i.test(lower) &&
-        !/\b(send (the |this |an )?email|send (it|mail)|actually send)\b/i.test(lower)) {
+    if (
+      !/\bsend\b/i.test(lower) &&
+      !/\b(email them|mail them|deliver)\b/i.test(lower)
+    ) {
       return {
         intent: "question",
         confidence: 0.94,
@@ -173,8 +175,27 @@ export function classifyMessageIntent(text, opts = {}) {
     }
   }
 
+  // Explicit send/deliver of emails from chat — computer goal (send_email / SMTP).
+  if (
+    /\bsend\b.+\b(them|these|those|the|above)?\s*(the\s+)?(emails?|mails?|reminders?)\b/i.test(lower) ||
+    /\b(email|mail)\s+(them|these|those|everyone|all)\b/i.test(lower) ||
+    /^send\s+(them|it|the\s+emails?)\b/i.test(lower)
+  ) {
+    return {
+      intent: "goal",
+      confidence: 0.95,
+      reason: "send_email_from_context",
+      text: cleaned,
+    };
+  }
+
   // Strong goal signals — always use the computer.
-  if (/https?:\/\//i.test(cleaned) || /\b[\w-]+\.(com|io|net|org|co|ai|app)\b/i.test(cleaned)) {
+  // Why: strip addresses first so "user@gmail.com" does not trip the bare-domain matcher.
+  const withoutEmails = cleaned.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, " ");
+  if (
+    /https?:\/\//i.test(withoutEmails) ||
+    /\b[\w-]+\.(com|io|net|org|co|ai|app)\b/i.test(withoutEmails)
+  ) {
     return { intent: "goal", confidence: 0.92, reason: "has_url_or_domain", text: cleaned };
   }
   if (

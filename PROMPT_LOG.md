@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-21 21:55] Harden Auto “send them the emails” → send_email
+
+- **Prompt Provided:** User will fill agent SMTP; harden Auto so send follow-ups don’t navigate to mangled address URLs.
+- **Architectural Flow:** Detect send-email requests; if SMTP missing, reply to configure; else build a concrete QUEUE_GOAL with recipients/subject/body from chat and mandate send_email only. Strip emails before domain intent match. Worker blocks navigate/open_tab that look like mangled local-parts when the goal is send_email.
+- **Impacted Files:** chatAutoTurn.js, messageIntent.js, worker agent.js, actions.js, PROMPT_LOG
+
 ## [2026-09-21 21:30] Fix Auto draft follow-ups wiped as “thinking”
 
 - **Prompt Provided:** Chat has context but “draft an email for above emails” returned “I am here…”. Do all fixes (sanitize, fallback, prompt, prefer results in context).

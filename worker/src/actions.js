@@ -150,6 +150,7 @@ Rules:
 - If a CAPTCHA / robot check / "type the characters" puzzle is visible (Amazon, etc.), call solve_captcha or ask_user immediately. Do NOT re-enter email/password in a loop.
 - Image/Amazon captchas cannot be solved automatically — ask_user so the human uses Take control on the live screen.
 - When EMAIL IDENTITY is configured, use send_email / check_email for verification codes and human-like mail (do not invent an inbox). Prefer send_email over Gmail web compose when SMTP is set.
+- If the goal lists Recipients and says send_email ONLY: call send_email for each address with the given subject/body. Never navigate to a URL derived from an email local-part (e.g. never open https://alex.parker.demo/).
 - COMPANY DATABASE: use search_entities / get_entity to find records in THIS agent's territory group; update_entity and add_entity_observation to persist CRM state; create_entity for new rows (name required; leads default status "new"). Types: lead|customer|vendor|product|process|document|ticket|custom. Use kind for segments (airlines) or custom tables (weather) with fields in attributes. Filter by status "new" for unworked leads. Threaded replies: pass inReplyTo from prior outbound messageId when replying.
 - TICKETS & STATE: use update_ticket for support queue; set_entity_status / assign_entity for CRM; update_enrollment after confirmed send_email; update_kpi to record goal progress (or include "KPI: name +1" in finish summary).
 `.trim();

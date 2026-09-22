@@ -3082,6 +3082,30 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (urlBlocked(action.url, settings.policy?.blockedUrlPatterns)) {
           throw new Error(`Navigation blocked by policy: ${action.url}`);
         }
+        // Why: Auto used to turn alex.parker.demo@example.com into https://alex.parker.demo/
+        const goalBlob = String(ctx?.goal || settings?.goal || agentSnapshot?.goal || "").slice(0, 8000);
+        let mangledHost = "";
+        try {
+          mangledHost = new URL(String(action.url)).hostname.toLowerCase();
+        } catch {
+          mangledHost = "";
+        }
+        const emailsInGoal =
+          goalBlob.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi) || [];
+        const mangledFromEmail = emailsInGoal.some((email) => {
+          const local = String(email).toLowerCase().split("@")[0] || "";
+          return local.length >= 5 && (mangledHost === local || mangledHost.startsWith(`${local}.`));
+        });
+        if (
+          mangledFromEmail ||
+          (/send_email|Recipients \(one send_email/i.test(goalBlob) &&
+            mangledHost &&
+            !/\.(com|io|net|org|co|ai|app|in|uk|us)$/i.test(mangledHost))
+        ) {
+          throw new Error(
+            `Blocked navigate to ${action.url} — looks like a mangled email address. Use send_email with the recipient address instead.`
+          );
+        }
         await safeGoto(action.url);
         return { ok: true, navigated: action.url };
       }
@@ -3100,6 +3124,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
       case "open_tab": {
         if (action.url && /^https?:\/\//i.test(action.url)) {
+          const goalBlob = String(ctx?.goal || settings?.goal || "").slice(0, 8000);
+          let host = "";
+          try {
+            host = new URL(String(action.url)).hostname.toLowerCase();
+          } catch {
+            host = "";
+          }
+          const emailsInGoal =
+            goalBlob.match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi) || [];
+          const mangled = emailsInGoal.some((email) => {
+            const local = String(email).toLowerCase().split("@")[0] || "";
+            return local.length >= 5 && (host === local || host.startsWith(`${local}.`));
+          });
+          if (mangled || (/send_email/i.test(goalBlob) && host && emailsInGoal.length)) {
+            throw new Error(
+              `Blocked open_tab to ${action.url} — use send_email for recipients, not navigate.`
+            );
+          }
           await safeGoto(action.url);
         }
         page = refreshActivePage() || page;

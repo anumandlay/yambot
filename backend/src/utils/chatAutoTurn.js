@@ -361,6 +361,161 @@ export function looksLikeWriteFromContextRequest(text) {
 }
 
 /**
+ * User asked to actually send mail (not just draft).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSendEmailRequest(text) {
+  const s = String(text || "").trim();
+  if (!s) return false;
+  if (looksLikeWriteFromContextRequest(s) && !/\bsend\b/i.test(s)) return false;
+  return (
+    /\bsend\b.+\b(them|these|those|the|above)?\s*(the\s+)?(emails?|mails?|reminders?)\b/i.test(s) ||
+    /\b(email|mail)\s+(them|these|those|everyone|all)\b/i.test(s) ||
+    /\bsend\b.+\b(reminder|expiration|expiry)\b.+\b(email|mail)\b/i.test(s) ||
+    /\bsend\b.+\b(email|mail)\b.+\b(to|them|these|those|recipients?)\b/i.test(s) ||
+    /^send\s+(them|it|the\s+emails?)\b/i.test(s)
+  );
+}
+
+/**
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function extractEmailsFromText(text) {
+  const found = String(text || "").match(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi) || [];
+  const out = [];
+  const seen = new Set();
+  for (const raw of found) {
+    const e = String(raw || "").trim().toLowerCase();
+    if (!e || seen.has(e)) continue;
+    seen.add(e);
+    out.push(e);
+  }
+  return out;
+}
+
+/**
+ * Pull the latest draft (Subject + body) from packed chat context if present.
+ * @param {string} chatContext
+ * @returns {{ subject: string, body: string, toLine: string }}
+ */
+export function extractEmailDraftFromChatContext(chatContext) {
+  const blob = String(chatContext || "");
+  if (!blob.trim()) return { subject: "", body: "", toLine: "" };
+  // Prefer the last ASSISTANT block that looks like a draft.
+  const chunks = blob.split(/(?=^(?:USER|ASSISTANT|AGENT|SYSTEM):)/im);
+  let subject = "";
+  let body = "";
+  let toLine = "";
+  for (let i = chunks.length - 1; i >= 0; i -= 1) {
+    const chunk = String(chunks[i] || "");
+    if (!/^ASSISTANT:/i.test(chunk.trim())) continue;
+    const text = chunk.replace(/^ASSISTANT:\s*/i, "").trim();
+    if (!/\bsubject\s*:/i.test(text) && !/\bdear\s+/i.test(text) && !/\bbest regards\b/i.test(text)) {
+      continue;
+    }
+    const toM = text.match(/\bto\s*:\s*([^\n]+)/i);
+    if (toM) toLine = String(toM[1] || "").trim();
+    const subM = text.match(/\bsubject\s*:\s*([^\n]+)/i);
+    if (subM) subject = String(subM[1] || "").trim();
+    let rest = text;
+    if (subM) {
+      rest = text.slice(text.toLowerCase().indexOf("subject:") + subM[0].length).trim();
+    }
+    rest = rest.replace(/^\s*to\s*:[^\n]*\n?/i, "").trim();
+    body = rest.slice(0, 4000);
+    break;
+  }
+  return { subject, body, toLine };
+}
+
+/**
+ * Build a worker goal that forces send_email and never navigates to mangled address-URLs.
+ * @param {{
+ *   userText?: string,
+ *   chatContext?: string,
+ *   fromAddress?: string,
+ * }} opts
+ * @returns {{ ok: true, goal: string, ack: string, recipients: string[] } | { ok: false, reason: string }}
+ */
+export function buildSendEmailGoalFromContext(opts = {}) {
+  const userText = String(opts.userText || "").trim();
+  const chatContext = String(opts.chatContext || "").trim();
+  const fromAddress = String(opts.fromAddress || "").trim().toLowerCase();
+  const draft = extractEmailDraftFromChatContext(chatContext);
+  const recipients = [
+    ...extractEmailsFromText(draft.toLine),
+    ...extractEmailsFromText(chatContext),
+    ...extractEmailsFromText(userText),
+  ].filter((e) => e && e !== fromAddress);
+  const uniq = [...new Set(recipients)];
+  if (!uniq.length) {
+    return { ok: false, reason: "no_recipients" };
+  }
+  const subject =
+    draft.subject ||
+    "Reminder: Your trial is expiring soon";
+  const body =
+    draft.body ||
+    [
+      "Hello,",
+      "",
+      "This is a friendly reminder that your trial subscription is approaching its expiration date.",
+      "Please review your account and select a suitable plan if you would like to continue without interruption.",
+      "",
+      "Best regards",
+    ].join("\n");
+  const recipientLines = uniq.map((e) => `- ${e}`).join("\n");
+  const goal = [
+    "Send outbound email using the send_email action ONLY (agent SMTP EMAIL IDENTITY).",
+    "Do NOT open a browser, do NOT navigate, and do NOT turn any email address into a website URL.",
+    "Never call navigate/open_tab for recipient addresses.",
+    "",
+    `Recipients (one send_email per address):`,
+    recipientLines,
+    "",
+    `Subject: ${subject}`,
+    "",
+    "Body:",
+    body,
+    "",
+    "After all sends succeed, finish with a short summary of who received the email.",
+  ].join("\n");
+  const ack =
+    uniq.length === 1
+      ? `On it — sending the email to ${uniq[0]} now.`
+      : `On it — sending the email to ${uniq.length} recipients now.`;
+  return { ok: true, goal, ack, recipients: uniq };
+}
+
+/**
+ * True when a navigate URL looks like a mangled email local-part (e.g. alex.parker.demo from an address).
+ * @param {string} url
+ * @param {string} [goalText]
+ * @returns {boolean}
+ */
+export function looksLikeMangledEmailNavigateUrl(url, goalText = "") {
+  let host = "";
+  try {
+    host = new URL(String(url || "")).hostname.toLowerCase();
+  } catch {
+    return false;
+  }
+  if (!host || host.includes(" ")) return false;
+  const emails = extractEmailsFromText(goalText);
+  for (const email of emails) {
+    const local = email.split("@")[0] || "";
+    if (local.length >= 5 && (host === local || host.startsWith(`${local}.`))) return true;
+  }
+  // Hostname that is only dotted labels with no common public suffix used as a real site here.
+  if (/^(?:[a-z0-9-]+\.){2,}[a-z0-9-]+$/i.test(host) && emails.length && /send_email|recipients?/i.test(goalText)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Pull the intended user-facing ack/reply out of a planning dump.
  * @param {string} text
  * @returns {string}
@@ -431,12 +586,21 @@ export function defaultQueueAck(goal, agentName = "Agent") {
  * Runtime validation after model proposes reply/queue_goal.
  * Why: never trust empty goals, leaked headers, or unknown actions.
  * @param {{ action?: string, content?: string, goal?: string, ack?: string, reason?: string, timing?: object }} result
- * @param {{ userText?: string, agentName?: string }} [ctx]
+ * @param {{
+ *   userText?: string,
+ *   agentName?: string,
+ *   chatContext?: string,
+ *   emailConfigured?: boolean,
+ *   fromAddress?: string,
+ * }} [ctx]
  * @returns {{ action: "reply"|"queue_goal", content: string, goal: string, ack: string, reason: string, timing?: object }}
  */
 export function ensureAutoTurnResult(result, ctx = {}) {
   const userText = String(ctx.userText || "").trim();
   const agentName = String(ctx.agentName || "Agent").trim() || "Agent";
+  const chatContext = String(ctx.chatContext || "").trim();
+  const emailConfigured = Boolean(ctx.emailConfigured);
+  const fromAddress = String(ctx.fromAddress || "").trim();
   const reason = String(result?.reason || "normalized").trim() || "normalized";
   let action =
     result?.action === "queue_goal" || result?.action === "goal" || result?.action === "run"
@@ -448,6 +612,41 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   let ack = sanitizeAutoReplyContent(result?.ack || "");
   // Why: never queue literal template text like "<exact instructions for the worker>" or "...".
   if (isPromptPlaceholder(goal) || goal.length < 8) goal = "";
+
+  // Why: "send them the emails" must become a concrete send_email goal — never browse mangled addresses.
+  if (looksLikeSendEmailRequest(userText)) {
+    if (!emailConfigured) {
+      return {
+        action: "reply",
+        content:
+          "I can’t send mail until this agent’s Email / SMTP settings are filled in (from address, SMTP host, user, password). Add them on the agent page, then ask me to send again.",
+        goal: "",
+        ack: "",
+        reason: `${reason}_send_email_smtp_missing`,
+        timing: result?.timing,
+      };
+    }
+    const built = buildSendEmailGoalFromContext({ userText, chatContext, fromAddress });
+    if (!built.ok) {
+      return {
+        action: "reply",
+        content:
+          "I don’t see recipient email addresses in this chat yet. Paste the addresses (or run the list again), then ask me to send.",
+        goal: "",
+        ack: "",
+        reason: `${reason}_send_email_no_recipients`,
+        timing: result?.timing,
+      };
+    }
+    return {
+      action: "queue_goal",
+      content: built.ack,
+      goal: built.goal,
+      ack: built.ack,
+      reason: `${reason}_send_email_hardened`,
+      timing: result?.timing,
+    };
+  }
 
   if (action === "queue_goal") {
     if (!goal) goal = userText;
@@ -771,6 +970,7 @@ export function parseAutoTurnOutput(raw, userText = "") {
  */
 export function autoTurnHeuristicGate(text) {
   const c = classifyMessageIntent(text, {});
+  if (c.reason === "send_email_from_context") return "queue_goal";
   if (
     c.reason === "peer_a2a_or_fanout" ||
     c.reason === "peer_a2a_overrides_ask" ||
@@ -840,6 +1040,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- message/ask peers, fan-out, soft-wait, handoff (message_agent)",
     "- live research that needs browsing right now",
     "- change something external (send mail, download, submit forms)",
+    "- send / deliver emails already drafted or listed in THIS CHAT — queue_goal with send_email instructions; NEVER turn an email address into a https:// URL",
     "",
     "Use reply / REPLY when you can answer from conversation, profile, memory, or stable knowledge:",
     "- greetings, thanks, status from memory",
@@ -848,6 +1049,11 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- hypothetical / policy questions (what if…, what would you do if…, if I don’t give details…) — answer from memory; do NOT queue the computer",
     "- draft / write / compose emails or messages from THIS CHAT’s recent results, lists, or addresses — put the full draft in REPLY; do NOT queue the computer unless they ask you to send it",
     "- follow-ups that refer to prior results (“above emails”, “for them”, “those accounts”) — answer using RECENT MESSAGES / EARLIER IN THIS CHAT",
+    "",
+    "SEND MAIL RULES:",
+    "- Draft = REPLY. Send/deliver = QUEUE_GOAL.",
+    "- When EMAIL IDENTITY / SMTP is configured, the worker must use send_email actions (to/subject/text) — not Gmail compose and not navigate.",
+    "- Copy recipient addresses from RECENT MESSAGES. Do not invent URLs from local-parts (e.g. never open https://alex.parker.demo/).",
     "",
     "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing or peers.",
     "USER PROFILE (Settings → Memory) is authoritative for tone/identity. If that block is empty or says none, ignore old tone prefs from chat history.",
@@ -961,7 +1167,13 @@ async function runChatAutoTurnTextFallback(opts, timing) {
   track.markDecision(parsed.action);
   const normalized = ensureAutoTurnResult(
     { ...parsed, reason: "model_auto_turn_text" },
-    { userText: text, agentName }
+    {
+      userText: text,
+      agentName,
+      chatContext: thread,
+      emailConfigured: Boolean(snapshot?.email?.configured),
+      fromAddress: String(snapshot?.email?.fromAddress || ""),
+    }
   );
   if (
     normalized.action === "reply" &&
@@ -1004,11 +1216,33 @@ export async function runChatAutoTurn(opts) {
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
   const track = createAutoTimingTracker();
   const delta = track.wrapOnDelta(onDelta);
+  const threadEarly = String(chatContext || snapshot?.chatContext || "").trim();
+  const ensureCtx = {
+    userText: text,
+    agentName,
+    chatContext: threadEarly,
+    emailConfigured: Boolean(snapshot?.email?.configured),
+    fromAddress: String(snapshot?.email?.fromAddress || ""),
+  };
   const finalize = (partial) =>
     ensureAutoTurnResult(
       { ...partial, timing: partial.timing || track.finish() },
-      { userText: text, agentName }
+      ensureCtx
     );
+
+  // Why: send-mail follow-ups skip the model and build a hardened send_email goal from chat.
+  if (looksLikeSendEmailRequest(text)) {
+    track.setPath("send_email_harden");
+    track.markDecision("queue_goal");
+    return finalize({
+      action: "queue_goal",
+      content: "",
+      goal: text,
+      ack: "",
+      reason: "send_email_request",
+      timing: track.finish(),
+    });
+  }
 
   if (autoTurnHeuristicGate(text) === "queue_goal") {
     track.setPath("heuristic");
