@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 10:00] Fix “yes” after open offer never starting computer
+
+- **Prompt Provided:** Chat: can you open example.com → Want me to? → yes → Got it. Nothing happens.
+- **Architectural Flow:** cheapChatReplyIfAny no longer swallows yes/ok/sure. Affirmative confirms recover the prior browse goal when the assistant offered to run. Concrete “can you open example.com” force-queues (question_shaped_but_actionable).
+- **Impacted Files:** chatAutoTurn.js, chats.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-23 09:55] Fix queue Delete 16MB BSON error
 
 - **Prompt Provided:** Delete on agent queue box → Server error “Resulting document after update is larger than 16777216”.

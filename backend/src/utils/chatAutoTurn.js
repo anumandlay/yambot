@@ -1070,6 +1070,16 @@ export function autoTurnHeuristicGate(text) {
   if (c.reason === "peer_a2a_or_fanout" || c.reason === "peer_a2a_overrides_ask") {
     return "queue_goal";
   }
+  // Why: concrete live browse/open jobs — queue now (avoid “Want me to?” then cheap “yes”).
+  // Day-history / memory-store already returned “model” above.
+  if (
+    c.intent === "goal" &&
+    (c.reason === "question_shaped_but_actionable" ||
+      c.reason === "has_url_or_domain" ||
+      c.reason === "explicit_task")
+  ) {
+    return "queue_goal";
+  }
   // Why: has_url_or_domain / explicit_task used to force-queue and mis-fired on
   // “did we open nseindia.com today?” — LLM decides with classifier hint instead.
   return "model";
@@ -1816,7 +1826,8 @@ export function formatDayHistoryChatAnswer(snapshot, question = "") {
 }
 
 /**
- * Instant replies for greetings / acknowledgements — skip LLM so “hi” is not a long Sending….
+ * Instant replies for greetings / thanks — skip LLM so “hi” is not a long Sending….
+ * Why: never cheap-ack yes/ok/sure — those often confirm “Want me to open …?” and must reach Auto.
  * @param {string} question
  * @returns {string|null}
  */
@@ -1831,11 +1842,86 @@ export function cheapChatReplyIfAny(question) {
   if (/^(thanks|thank you|thx|ty)([!?.\s]*)$/i.test(q)) {
     return "You're welcome.";
   }
-  if (/^(ok|okay|k|cool|nice|got it|sure|yep|yes|no|nope|later|wait)([!?.\s]*)$/i.test(q)) {
-    return "Got it.";
-  }
   if (/^(what|huh|hmm+)([!?.\s]*)$/i.test(q)) {
     return "Could you clarify what you mean?";
+  }
+  return null;
+}
+
+/**
+ * Short affirmation that often means “yes, run that” after an offer.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeAffirmativeConfirm(text) {
+  const q = String(text || "").trim();
+  if (!q || q.length > 48) return false;
+  return /^(yes|yep|yeah|yup|sure|ok|okay|k|do it|go ahead|please|please do|go|proceed|do that|yes please|yes do it)([!?.\s]*)$/i.test(
+    q
+  );
+}
+
+/**
+ * If the last assistant message offered to run a computer job, recover the prior user goal.
+ * @param {{ role?: string, content?: string, _id?: unknown }[]} messages
+ * @param {{ excludeIds?: string[] }} [opts]
+ * @returns {string|null}
+ */
+export function resolveConfirmComputerGoalFromMessages(messages, opts = {}) {
+  const exclude = new Set((opts.excludeIds || []).map((id) => String(id)));
+  const rows = (Array.isArray(messages) ? messages : []).filter(
+    (m) => m && !exclude.has(String(m._id || ""))
+  );
+  if (rows.length < 2) return null;
+
+  // Newest first (by _id when present).
+  const newestFirst = [...rows].sort((a, b) => {
+    const aid = String(a._id || "");
+    const bid = String(b._id || "");
+    if (aid && bid) return bid.localeCompare(aid);
+    return 0;
+  });
+
+  let lastAssistant = "";
+  let priorUser = "";
+  for (const m of newestFirst) {
+    const role = String(m?.role || "");
+    const content = String(m?.content || "").trim();
+    if (!content) continue;
+    if (!lastAssistant && (role === "assistant" || role === "agent")) {
+      lastAssistant = content;
+      continue;
+    }
+    if (lastAssistant && role === "user") {
+      priorUser = content;
+      break;
+    }
+  }
+  if (!lastAssistant || !priorUser) return null;
+
+  const offered =
+    /\b(want me to|shall i|should i|do you want me to|ready for me to|i can open|i can (do|run|start)|open .+ for you)\b/i.test(
+      lastAssistant
+    ) ||
+    /\b(do that now|start (it|now|the (computer|browser|run))|queue (it|that|a goal))\b/i.test(
+      lastAssistant
+    );
+  if (!offered) return null;
+
+  // Prefer the prior concrete browse ask; strip leading can-you politeness.
+  const goal = String(priorUser)
+    .replace(/^(please\s+)?(can|could|would|will)\s+you\s+/i, "")
+    .replace(/^(please\s+)/i, "")
+    .trim();
+  if (!goal || goal.length < 4) return null;
+  // Must look like a live job, not pure chitchat.
+  const c = classifyMessageIntent(goal, {});
+  if (
+    c.intent === "goal" ||
+    c.reason === "question_shaped_but_actionable" ||
+    /\b(open|go to|navigate|visit|browse|check|log ?in)\b/i.test(goal)
+  ) {
+    return goal.slice(0, 2000);
   }
   return null;
 }

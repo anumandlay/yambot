@@ -25,7 +25,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages } from "../utils/chatAutoTurn.js";
 import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
@@ -1060,9 +1060,30 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let turn;
       let answerError = null;
       let qaCreds = null;
-      const cheapReply = cheapChatReplyIfAny(questionText);
+      /** @type {string|null} */
+      let confirmGoal = null;
+      if (looksLikeAffirmativeConfirm(questionText)) {
+        const recent = await Message.find({ chat: chat._id })
+          .sort({ _id: -1 })
+          .limit(10)
+          .select("role content _id")
+          .lean();
+        confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
+          excludeIds: [String(message._id)],
+        });
+      }
+      // Why: never cheap-ack a “yes” that confirms an offered computer job.
+      const cheapReply = confirmGoal ? null : cheapChatReplyIfAny(questionText);
       try {
-        if (cheapReply) {
+        if (confirmGoal) {
+          turn = {
+            action: "queue_goal",
+            content: "",
+            goal: confirmGoal,
+            ack: defaultQueueAck(confirmGoal, agentDoc.name),
+            reason: "confirm_prior_computer_offer",
+          };
+        } else if (cheapReply) {
           if (wantStream) writeNdjson({ type: "delta", text: cheapReply });
           turn = {
             action: "reply",

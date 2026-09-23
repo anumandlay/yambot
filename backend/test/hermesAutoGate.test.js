@@ -24,12 +24,17 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(autoTurnHeuristicGate("can you also open webistes for me"), "model");
   });
 
-  it("concrete URL browse jobs go to the LLM (not silent force-queue)", () => {
-    // Why: LLM + classifier hint decides; only send-mail / peer still force-queue.
-    assert.equal(autoTurnHeuristicGate("open https://vughy.com and register"), "model");
+  it("concrete URL browse jobs force-queue (no 'want me to?' dead-end)", () => {
+    // Why: concrete opens start the computer — not ask then ignore “yes”.
+    assert.equal(autoTurnHeuristicGate("open https://vughy.com and register"), "queue_goal");
     const c = classifyMessageIntent("can you open gmail.com and check inbox");
     assert.equal(c.intent, "goal");
-    assert.equal(autoTurnHeuristicGate("can you open gmail.com and check inbox"), "model");
+    assert.ok(
+      c.reason === "question_shaped_but_actionable" || c.reason === "has_url_or_domain",
+      c.reason
+    );
+    assert.equal(autoTurnHeuristicGate("can you open gmail.com and check inbox"), "queue_goal");
+    assert.equal(autoTurnHeuristicGate("can you open example.com"), "queue_goal");
   });
 
   it("classifier hint steers past-domain vs live open", () => {
@@ -66,13 +71,13 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(autoTurnHeuristicGate(msg), "model");
   });
 
-  it("open URL + do work still classifies as goal (LLM decides queue)", () => {
+  it("open URL + do work force-queues", () => {
     const c = classifyMessageIntent("Open https://vughy.com/admin and tell me the page title");
     assert.equal(c.intent, "goal");
     assert.equal(c.reason, "has_url_or_domain");
     assert.equal(
       autoTurnHeuristicGate("Open https://vughy.com/admin and tell me the page title"),
-      "model"
+      "queue_goal"
     );
   });
 
@@ -90,7 +95,7 @@ describe("capability questions vs concrete goals", () => {
     assert.equal(c.intent, "question");
     assert.equal(c.reason, "day_history_or_status");
     assert.equal(autoTurnHeuristicGate(msg), "model");
-    assert.equal(autoTurnHeuristicGate("open https://nseindia.com and tell me the title"), "model");
+    assert.equal(autoTurnHeuristicGate("open https://nseindia.com and tell me the title"), "queue_goal");
   });
 
   it("vague 'what' is chat follow-up, not a computer goal", () => {
@@ -207,5 +212,26 @@ describe("Auto reply scratchpad must not leak", () => {
       "We need answer. Capability question, no specific site. Per instructions, reply directly, don't queue. We can say yes.";
     const out = sanitizeAutoReplyContent(dump);
     assert.equal(/capability question|We need answer|Per instructions/i.test(out), false);
+  });
+});
+
+describe("confirm yes after computer offer", () => {
+  it("does not cheap-ack yes/sure", async () => {
+    const { cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages } =
+      await import("../src/utils/chatAutoTurn.js");
+    assert.equal(cheapChatReplyIfAny("yes"), null);
+    assert.equal(cheapChatReplyIfAny("sure"), null);
+    assert.equal(cheapChatReplyIfAny("hi"), "Hi — I'm here. Ask a question or send a computer goal.");
+    assert.equal(looksLikeAffirmativeConfirm("yes"), true);
+    const goal = resolveConfirmComputerGoalFromMessages([
+      { _id: "a1", role: "user", content: "can you open example.com" },
+      {
+        _id: "a2",
+        role: "assistant",
+        content: "Yes, I can open example.com for you. Want me to do that now?",
+      },
+      { _id: "a3", role: "user", content: "yes" },
+    ], { excludeIds: ["a3"] });
+    assert.match(String(goal || ""), /open example\.com/i);
   });
 });
