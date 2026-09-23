@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:45] Fix Gmail fetch choosing LIST_LABELS
+
+- **Prompt Provided:** Agent said Gmail disconnected / tools not enabled, but Composio Gmail was active.
+- **Architectural Flow:** Search query was too vague (only GMAIL_LIST_LABELS). Now search exact GMAIL_FETCH_EMAILS, try preferred slugs, use newer_than:1d, format sender/subject from Composio payload, skip LLM override when messages exist.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 16:40] Fix Grok “Provider returned error” on Gmail
 
 - **Prompt Provided:** Agent replied “I could not complete that turn. Provider returned error” on Gmail unread ask.

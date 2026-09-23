@@ -1154,9 +1154,12 @@ export function pickBestComposioGmailFetchTool(tools) {
     .filter((s) => s.startsWith("GMAIL_"))
     .map((s) => {
       let score = 0;
-      if (/FETCH|LIST|SEARCH|GET/.test(s)) score += 3;
+      if (/FETCH_EMAILS|LIST_MESSAGES|GET_EMAILS|SEARCH_MESSAGES/.test(s)) score += 6;
+      if (/FETCH|LIST|SEARCH|GET/.test(s)) score += 2;
       if (/EMAIL|MESSAGE|THREAD|INBOX/.test(s)) score += 2;
-      if (/SEND|CREATE|DELETE|REPLY|DRAFT/.test(s)) score -= 5;
+      if (/LABEL|PROFILE|CONTACT|PEOPLE|DRAFT|SEND|CREATE|DELETE|REPLY|FORWARD/.test(s)) {
+        score -= 8;
+      }
       return { s, score };
     })
     .sort((a, b) => b.score - a.score);
@@ -1169,14 +1172,10 @@ export function pickBestComposioGmailFetchTool(tools) {
  * @returns {Record<string, unknown>}
  */
 export function buildGmailUnreadToolArgs(userText = "") {
-  const now = new Date();
-  const y = now.getFullYear();
-  const m = String(now.getMonth() + 1).padStart(2, "0");
-  const d = String(now.getDate()).padStart(2, "0");
-  const ymdSlash = `${y}/${m}/${d}`;
-  const query = `is:unread after:${ymdSlash}`;
   const topMatch = String(userText || "").match(/\btop\s*(\d{1,2})\b/i);
   const max = Math.min(10, Math.max(1, Number(topMatch?.[1]) || 5));
+  // Why: Composio GMAIL_FETCH_EMAILS accepts Gmail search syntax; newer_than is more reliable than after:YYYY/MM/DD.
+  const query = "is:unread newer_than:1d";
   return {
     query,
     q: query,
@@ -1184,55 +1183,77 @@ export function buildGmailUnreadToolArgs(userText = "") {
     max_results: max,
     maxResults: max,
     limit: max,
-    label_ids: ["UNREAD"],
-    labelIds: ["UNREAD"],
   };
 }
 
 /**
  * Search + execute a Gmail fetch tool without waiting for the model.
+ * Why: vague search queries only return GMAIL_LIST_LABELS — try exact slug queries + hardcoded fallbacks.
  * @param {object} runtime
  * @param {string} userText
  * @returns {Promise<{ ok: boolean, tool?: string, resultText: string }>}
  */
 export async function autoExecuteGmailUnread(runtime, userText) {
-  const searchText = await executeAutoLookupTool("composio_search", runtime, {
-    query: "gmail fetch list unread emails messages inbox",
-  });
-  /** @type {any} */
-  let searchJson = null;
-  try {
-    searchJson = JSON.parse(searchText);
-  } catch {
-    searchJson = null;
+  const preferred = [
+    "GMAIL_FETCH_EMAILS",
+    "GMAIL_LIST_MESSAGES",
+    "GMAIL_GET_EMAILS",
+    "GMAIL_SEARCH_MESSAGES",
+  ];
+  /** @type {{ slug: string, name: string, description: string, toolkit: string }[]} */
+  let tools = [];
+  for (const q of [
+    "GMAIL_FETCH_EMAILS",
+    "fetch emails",
+    "list messages unread",
+  ]) {
+    const searchText = await executeAutoLookupTool("composio_search", runtime, { query: q });
+    try {
+      const searchJson = JSON.parse(searchText);
+      if (Array.isArray(searchJson?.tools)) tools.push(...searchJson.tools);
+      if (pickBestComposioGmailFetchTool(tools)) break;
+    } catch {
+      /* continue */
+    }
   }
-  const tool = pickBestComposioGmailFetchTool(searchJson?.tools || []);
-  if (!tool) {
-    return {
-      ok: false,
-      resultText: JSON.stringify({
-        ok: false,
-        search: searchJson || searchText.slice(0, 1500),
-        detail:
-          "No Gmail fetch/list tool found. Enable Gmail under Agent → Composio, or connect Gmail with composio_connect.",
-      }),
-    };
-  }
-  const resultText = await executeAutoLookupTool("composio_execute", runtime, {
-    tool,
-    arguments: buildGmailUnreadToolArgs(userText),
-  });
-  /** @type {any} */
-  let execJson = null;
-  try {
-    execJson = JSON.parse(resultText);
-  } catch {
-    execJson = null;
+
+  let tool = pickBestComposioGmailFetchTool(tools);
+  if (!tool) tool = preferred[0];
+
+  const args = buildGmailUnreadToolArgs(userText);
+  const tryTools = [tool, ...preferred.filter((t) => t !== tool)];
+  let lastText = "";
+  for (const candidate of tryTools) {
+    const resultText = await executeAutoLookupTool("composio_execute", runtime, {
+      tool: candidate,
+      arguments: args,
+    });
+    lastText = resultText;
+    /** @type {any} */
+    let execJson = null;
+    try {
+      execJson = JSON.parse(resultText);
+    } catch {
+      execJson = null;
+    }
+    if (execJson?.ok) {
+      return { ok: true, tool: candidate, resultText };
+    }
+    // Why: wrong tool (e.g. LIST_LABELS) — try next preferred slug.
+    const err = String(execJson?.error || "").toLowerCase();
+    if (/not connected|unauthorized|auth|no connected account/i.test(err)) {
+      return { ok: false, tool: candidate, resultText };
+    }
   }
   return {
-    ok: Boolean(execJson?.ok),
-    tool,
-    resultText,
+    ok: false,
+    tool: tryTools[0],
+    resultText:
+      lastText ||
+      JSON.stringify({
+        ok: false,
+        detail: "Gmail fetch failed for all known tool slugs.",
+      }),
   };
 }
 
@@ -1289,8 +1310,8 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
 
   const lines = rows.slice(0, 5).map((row, i) => {
     const from =
-      row?.from ||
       row?.sender ||
+      row?.from ||
       row?.from_email ||
       row?.fromEmail ||
       row?.payload?.headers?.find?.((h) => /from/i.test(h?.name || ""))?.value ||
@@ -1299,14 +1320,14 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
     const subject =
       row?.subject ||
       row?.Subject ||
-      row?.snippet ||
-      row?.preview ||
       row?.payload?.headers?.find?.((h) => /subject/i.test(h?.name || ""))?.value ||
       "(no subject)";
-    const gist = String(row?.snippet || row?.preview || row?.body || row?.text || "")
+    const gist = String(
+      row?.preview || row?.snippet || row?.messageText || row?.body || row?.text || ""
+    )
       .replace(/\s+/g, " ")
       .trim()
-      .slice(0, 120);
+      .slice(0, 140);
     return `${i + 1}. From: ${String(from).slice(0, 80)}\n   Subject: ${String(subject).slice(0, 120)}${
       gist ? `\n   ${gist}` : ""
     }`;
@@ -1316,8 +1337,9 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
 }
 
 /**
- * Deterministic Gmail unread path: Composio fetch first, optional LLM polish, never depends on tool_choice.
- * Why: Grok/xAI often returns “Provider returned error” when tool_choice forces a specific function.
+ * Deterministic Gmail unread path: Composio fetch first, format summary locally.
+ * Why: some LLM providers fail on forced tool_choice; also avoid LLM inventing “disconnected”
+ * when Composio already returned messages.
  * @param {{
  *   runtime: object,
  *   userText: string,
@@ -1332,59 +1354,58 @@ export async function runDeterministicGmailUnreadTurn(opts) {
   track.addLookup("composio_execute");
   track.setPath("composio_gmail_direct");
   const auto = await autoExecuteGmailUnread(runtime, userText);
-  const heuristic = formatGmailUnreadSummaryFromToolResult(auto.resultText, auto.tool || "");
+  let content = formatGmailUnreadSummaryFromToolResult(auto.resultText, auto.tool || "");
 
-  // Prefer a short LLM polish when credentials work; never fail the turn if polish fails.
-  try {
-    const polished = await llmChatCompletion({
-      apiKey: creds.apiKey,
-      baseUrl: creds.llmBaseUrl || "",
-      model: creds.llmModel || "",
-      openAiAccountId: creds.openAiAccountId,
-      temperature: 0.2,
-      maxTokens: 700,
-      timeoutMs: 45_000,
-      messages: [
-        {
-          role: "system",
-          content:
-            "Summarize unread Gmail for the user in plain prose. Use ONLY the JSON tool result. " +
-            "List up to 5: sender, subject, one-line gist. If not connected or empty, say so clearly. No ACTION: lines.",
-        },
-        {
-          role: "user",
-          content:
-            `User ask: ${String(userText || "").slice(0, 400)}\n\n` +
-            `Composio tool: ${auto.tool || "unknown"}\n` +
-            `Result JSON:\n${String(auto.resultText || "").slice(0, 3500)}`,
-        },
-      ],
-    });
-    const text = String(polished || "").trim();
-    if (text.length >= 12 && !looksLikeFakeComposioActionText(text) && !looksLikeComposioStallReply(text)) {
-      if (typeof onDelta === "function") onDelta(text);
-      track.markDecision("reply");
-      return {
-        action: "reply",
-        content: text,
-        goal: "",
-        ack: "",
-        reason: "composio_gmail_direct_llm",
-        timing: track.finish(),
-      };
+  // Why: only polish error / empty cases — never let the LLM override a real message list.
+  if (!auto.ok || !/^Top unread/i.test(content)) {
+    try {
+      const polished = await llmChatCompletion({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl || "",
+        model: creds.llmModel || "",
+        openAiAccountId: creds.openAiAccountId,
+        temperature: 0.2,
+        maxTokens: 700,
+        timeoutMs: 45_000,
+        messages: [
+          {
+            role: "system",
+            content:
+              "Explain the Gmail/Composio result to the user in plain prose. Use ONLY the JSON. " +
+              "If messages exist, list sender + subject. If ok:false with auth error, tell them to Connect Gmail. " +
+              "Do not invent that Gmail is disconnected when the JSON shows messages. No ACTION: lines.",
+          },
+          {
+            role: "user",
+            content:
+              `User ask: ${String(userText || "").slice(0, 400)}\n\n` +
+              `Composio tool: ${auto.tool || "unknown"}\n` +
+              `Result JSON:\n${String(auto.resultText || "").slice(0, 3500)}`,
+          },
+        ],
+      });
+      const text = String(polished || "").trim();
+      if (
+        text.length >= 12 &&
+        !looksLikeFakeComposioActionText(text) &&
+        !looksLikeComposioStallReply(text) &&
+        !/disconnected|not enabled/i.test(text)
+      ) {
+        content = text;
+      }
+    } catch (err) {
+      console.warn("[auto] gmail summarize polish failed:", err?.message || err);
     }
-  } catch (err) {
-    console.warn("[auto] gmail summarize polish failed:", err?.message || err);
   }
 
-  if (typeof onDelta === "function") onDelta(heuristic);
+  if (typeof onDelta === "function") onDelta(content);
   track.markDecision("reply");
   return {
     action: "reply",
-    content: heuristic,
+    content,
     goal: "",
     ack: "",
-    reason: "composio_gmail_direct",
+    reason: auto.ok ? "composio_gmail_direct" : "composio_gmail_direct_error",
     timing: track.finish(),
   };
 }
@@ -2229,7 +2250,7 @@ export async function runChatAutoTurn(opts) {
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
 
-  // Why: Grok/xAI often 500s on tool_choice={function:composio_*}; Gmail unread does not need the tool loop.
+  // Why: some LLM providers 500 on tool_choice={function:composio_*}; Gmail unread does not need the tool loop.
   if (looksLikeGmailInboxRequest(text) && runtime?.composioApiKey) {
     try {
       return finalize(
@@ -2271,7 +2292,7 @@ export async function runChatAutoTurn(opts) {
         timeoutMs: 60_000,
         messages,
         tools: AUTO_CHAT_TOOLS,
-        // Why: never force a named tool_choice — Grok returns “Provider returned error” for that.
+        // Why: never force a named tool_choice — some providers return “Provider returned error” for that.
         toolChoice: "auto",
       });
 
