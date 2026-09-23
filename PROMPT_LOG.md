@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 18:00] Gmail move-to-label via Composio (block ACTION: navigate)
+
+- **Prompt Provided:** “move all the emails from cursor to cursor label” → ACTION: navigate(gmail).
+- **Architectural Flow:** New gmail_label intent (list/create label → fetch from:sender → batch/add label); treat ACTION: navigate as fake inbox action; composio phrasing for move…label.
+- **Impacted Files:** composioAutoRuntime.js, messageIntent.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 17:55] Fix Composio Connect click doing nothing
 
 - **Prompt Provided:** Added more apps but Connect click does nothing.

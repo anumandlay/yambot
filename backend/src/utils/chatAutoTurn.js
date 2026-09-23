@@ -29,6 +29,7 @@ export {
   looksLikeSlackSendRequest,
   looksLikeSheetsReadRequest,
   looksLikeFakeInboxActionText,
+  looksLikeGmailLabelRequest,
   compactComposioExecuteResult,
   matchComposioIntent,
   buildGmailUnreadToolArgs,
@@ -1119,9 +1120,10 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
   if (!looksLikeFakeComposioActionText(raw) && !looksLikeFakeInboxActionText(raw)) {
     return raw;
   }
-  // Strip balanced ACTION: composio_*(…) and ACTION: check_email(…) spans.
+  // Strip balanced ACTION: composio_*(…) and ACTION: check_email(…) / navigate(…) spans.
   let cleaned = raw;
-  const headRe = /ACTION\s*:\s*(?:composio_\w+|check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail)\s*/gi;
+  const headRe =
+    /ACTION\s*:\s*(?:composio_\w+|check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail|navigate|goto|open_url|click|type)\s*/gi;
   let m;
   const cuts = [];
   while ((m = headRe.exec(raw)) !== null) {
@@ -1180,10 +1182,12 @@ export async function runDeterministicComposioIntentTurn(opts) {
 
   const looksStructured =
     /^Top unread/i.test(content) ||
+    /^Labeled /i.test(content) ||
+    /^No emails matched/i.test(content) ||
     /^Posted to Slack/i.test(content) ||
     /^Google Sheet/i.test(content) ||
     /^Connect /i.test(content) ||
-    /^To (post|read)/i.test(content);
+    /^To (post|read|label)/i.test(content);
   if (!ran.ok && !ran.needsConnect && !looksStructured) {
     try {
       const polished = await llmChatCompletion({
@@ -1753,7 +1757,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
     "- Flow: composio_search (find tool slug) → if needed composio_connect (paste redirectUrl) → composio_wait → composio_execute",
     "- Always include the full https connect URL in your reply when composio_connect returns redirectUrl",
-    "- Never write fake lines like ACTION: composio_list() or ACTION: check_email() — call native composio_* tools (or the runtime will), then reply in plain prose",
+    "- Never write fake lines like ACTION: composio_list(), ACTION: check_email(), or ACTION: navigate(url=…) — use Composio for Gmail/Slack (or the runtime will), then reply in plain prose",
     "",
     "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
     "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
@@ -2067,7 +2071,7 @@ export async function runChatAutoTurn(opts) {
   // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
   const wantsLookup =
     looksLikeComposioAppRequest(text) ||
-    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet|notion|github|hubspot|connect (gmail|slack|notion)|send (a )?(slack|email)|i connected|connected|unread)\b/i.test(
+    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet|notion|github|hubspot|connect (gmail|slack|notion)|send (a )?(slack|email)|i connected|connected|unread|label|labels)\b/i.test(
       text
     );
   if (stream && !wantsLookup) {

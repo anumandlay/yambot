@@ -56,13 +56,57 @@ export function looksLikeGmailInboxRequest(text) {
 }
 
 /**
- * True when the model printed a fake worker-style ACTION: check_email() line.
+ * Move / apply Gmail label asks (e.g. “move emails from cursor to cursor label”).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeGmailLabelRequest(text) {
+  const t = String(text || "").toLowerCase().trim();
+  if (!t) return false;
+  if (
+    /\b(open|go to|navigate|visit|launch)\b[\s\S]{0,40}\b(gmail\.com|mail\.google)\b/.test(t) ||
+    /\b(open|go to|navigate|visit)\b[\s\S]{0,20}\bhttps?:\/\/[^\s]*gmail/.test(t)
+  ) {
+    return false;
+  }
+  const hasMail = /\b(e-?mails?|mails?|messages?|gmail|inbox)\b/.test(t);
+  const hasLabel = /\blabels?\b/.test(t);
+  const hasMove = /\b(move|apply|add|put|file|tag|label)\b/.test(t);
+  return Boolean(hasMail && hasLabel && hasMove);
+}
+
+/**
+ * Parse sender + target label from a move-to-label ask.
+ * @param {string} userText
+ * @returns {{ from: string, label: string, query: string }}
+ */
+export function parseGmailLabelMoveRequest(userText = "") {
+  const raw = String(userText || "").trim();
+  let label = "";
+  let from = "";
+  const toLabel =
+    raw.match(/\bto\s+(?:the\s+)?["']?([a-z0-9][a-z0-9 _-]{0,60}?)["']?\s+labels?\b/i) ||
+    raw.match(/\b(?:into|under)\s+(?:the\s+)?["']?([a-z0-9][a-z0-9 _-]{0,60}?)["']?\s+labels?\b/i) ||
+    raw.match(/\blabels?\s+["']?([a-z0-9][a-z0-9 _-]{0,60}?)["']?\s*$/i);
+  if (toLabel?.[1]) label = toLabel[1].trim();
+  const fromMatch = raw.match(/\bfrom\s+["']?([a-z0-9@._+-]+)["']?/i);
+  if (fromMatch?.[1]) from = fromMatch[1].trim();
+  if (!label && from) label = from;
+  const query = from ? `from:${from}` : "";
+  return { from, label, query };
+}
+
+/**
+ * True when the model printed a fake worker-style ACTION: check_email() / navigate() line.
  * @param {string} content
  * @returns {boolean}
  */
 export function looksLikeFakeInboxActionText(content) {
-  return /ACTION\s*:\s*(check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail)\s*\(/i.test(
-    String(content || "")
+  const t = String(content || "");
+  return (
+    /ACTION\s*:\s*(check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail)\s*\(/i.test(
+      t
+    ) || /ACTION\s*:\s*(navigate|goto|open_url|click|type)\s*\(/i.test(t)
   );
 }
 
@@ -457,8 +501,258 @@ export function formatSheetsReadSummaryFromToolResult(resultText, tool = "") {
   return `Google Sheet${data?.range ? ` (${data.range})` : ""} — first rows:\n\n${lines.join("\n")}`;
 }
 
+/**
+ * @param {string} resultText
+ * @param {string} [tool]
+ * @returns {string}
+ */
+export function formatGmailLabelSummaryFromToolResult(resultText, tool = "") {
+  /** @type {any} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(resultText || ""));
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) return "I couldn’t parse the Gmail label response from Composio.";
+  if (parsed.ok === false) {
+    const err = String(parsed.error || parsed.detail || "Gmail label request failed");
+    if (/not connected|unauthorized|auth|connect/i.test(err)) {
+      return `Gmail isn’t connected yet. Open the Connect link, finish OAuth, then ask again.\n\n(${err})`;
+    }
+    return `Gmail label via Composio failed: ${err}`;
+  }
+  const data = parsed.data ?? parsed;
+  const labeled = Number(data?.labeledCount ?? data?.modified ?? 0);
+  const found = Number(data?.foundCount ?? data?.matched ?? 0);
+  const label = String(data?.labelName || data?.label || "").trim();
+  const from = String(data?.fromQuery || data?.from || "").trim();
+  if (found === 0) {
+    return `No emails matched${from ? ` from:${from}` : ""}${tool ? ` (${tool})` : ""}.`;
+  }
+  return `Labeled ${labeled} of ${found} email(s)${from ? ` from:${from}` : ""}${
+    label ? ` → label “${label}”` : ""
+  }.`;
+}
+
+/**
+ * Multi-step: list/create label → fetch matching messages → add label.
+ * @param {{
+ *   runtime: object,
+ *   userText: string,
+ *   executeLookup: (kind: string, runtime: object, args?: object) => Promise<string>,
+ * }} opts
+ */
+export async function runGmailLabelMove(opts) {
+  const { runtime, userText, executeLookup } = opts;
+  const parsed = parseGmailLabelMoveRequest(userText);
+  if (!parsed.label || !parsed.query) {
+    return {
+      ok: false,
+      resultText: JSON.stringify({
+        ok: false,
+        detail: "Need a sender and a label, e.g. move emails from cursor to cursor label.",
+      }),
+      content:
+        "To label Gmail messages I need a sender and a label name. Example: move emails from cursor to cursor label.",
+    };
+  }
+
+  /** @param {string} tool @param {Record<string, unknown>} args */
+  async function exec(tool, args) {
+    return executeLookup("composio_execute", runtime, { tool, arguments: args });
+  }
+
+  /** @param {string} resultText */
+  function parseOk(resultText) {
+    try {
+      return JSON.parse(String(resultText || ""));
+    } catch {
+      return null;
+    }
+  }
+
+  const listText = await exec("GMAIL_LIST_LABELS", {});
+  if (composioResultNeedsConnect(listText)) {
+    const connectText = await executeLookup("composio_connect", runtime, { toolkit: "gmail" });
+    /** @type {any} */
+    let connectJson = null;
+    try {
+      connectJson = JSON.parse(connectText);
+    } catch {
+      connectJson = null;
+    }
+    const url = String(connectJson?.redirectUrl || "").trim();
+    return {
+      ok: false,
+      tool: "GMAIL_LIST_LABELS",
+      resultText: connectText,
+      needsConnect: true,
+      content: url
+        ? `Connect Gmail first, then send the same request again:\n${url}`
+        : String(connectJson?.error || "Connect Gmail under Agents → Composio, then try again."),
+    };
+  }
+
+  const listJson = parseOk(listText);
+  /** @type {any[]} */
+  const labels =
+    listJson?.data?.labels ||
+    listJson?.data?.items ||
+    listJson?.labels ||
+    (Array.isArray(listJson?.data) ? listJson.data : []) ||
+    [];
+  const want = parsed.label.toLowerCase();
+  let labelId = "";
+  let labelName = parsed.label;
+  for (const row of labels) {
+    const name = String(row?.name || row?.label || row?.labelName || "").trim();
+    const id = String(row?.id || row?.labelId || row?.label_id || "").trim();
+    if (name && name.toLowerCase() === want && id) {
+      labelId = id;
+      labelName = name;
+      break;
+    }
+  }
+
+  if (!labelId) {
+    const createText = await exec("GMAIL_CREATE_LABEL", {
+      name: parsed.label,
+      label_name: parsed.label,
+      labelName: parsed.label,
+    });
+    const createJson = parseOk(createText);
+    labelId = String(
+      createJson?.data?.id ||
+        createJson?.data?.labelId ||
+        createJson?.data?.label?.id ||
+        createJson?.id ||
+        ""
+    ).trim();
+    if (!labelId) {
+      return {
+        ok: false,
+        tool: "GMAIL_CREATE_LABEL",
+        resultText: createText,
+        content: `Could not find or create Gmail label “${parsed.label}”. ${String(
+          createJson?.error || createJson?.detail || ""
+        )}`.trim(),
+      };
+    }
+  }
+
+  const fetchText = await exec("GMAIL_FETCH_EMAILS", {
+    query: parsed.query,
+    q: parsed.query,
+    max_results: 50,
+    maxResults: 50,
+    limit: 50,
+  });
+  const fetchJson = parseOk(fetchText);
+  if (!fetchJson?.ok) {
+    return {
+      ok: false,
+      tool: "GMAIL_FETCH_EMAILS",
+      resultText: fetchText,
+      content: formatGmailLabelSummaryFromToolResult(fetchText, "GMAIL_FETCH_EMAILS"),
+    };
+  }
+  const messages = Array.isArray(fetchJson?.data?.messages)
+    ? fetchJson.data.messages
+    : Array.isArray(fetchJson?.data?.emails)
+      ? fetchJson.data.emails
+      : [];
+  const ids = messages
+    .map((m) => String(m?.messageId || m?.id || m?.message_id || "").trim())
+    .filter(Boolean);
+
+  if (!ids.length) {
+    const empty = {
+      ok: true,
+      data: {
+        labeledCount: 0,
+        foundCount: 0,
+        labelName,
+        fromQuery: parsed.from,
+      },
+    };
+    return {
+      ok: true,
+      tool: "GMAIL_FETCH_EMAILS",
+      resultText: JSON.stringify(empty),
+      content: formatGmailLabelSummaryFromToolResult(JSON.stringify(empty)),
+    };
+  }
+
+  let labeled = 0;
+  /** @type {string[]} */
+  const errors = [];
+  // Prefer batch when available; fall back to per-message.
+  const batchText = await exec("GMAIL_BATCH_MODIFY_MESSAGES", {
+    ids,
+    messageIds: ids,
+    message_ids: ids,
+    addLabelIds: [labelId],
+    add_label_ids: [labelId],
+    labelIds: [labelId],
+    label_ids: [labelId],
+  });
+  const batchJson = parseOk(batchText);
+  if (batchJson?.ok) {
+    labeled = ids.length;
+  } else {
+    for (const id of ids.slice(0, 40)) {
+      const addText = await exec("GMAIL_ADD_LABEL_TO_EMAIL", {
+        message_id: id,
+        messageId: id,
+        id,
+        label_ids: [labelId],
+        labelIds: [labelId],
+        addLabelIds: [labelId],
+      });
+      const addJson = parseOk(addText);
+      if (addJson?.ok) labeled += 1;
+      else errors.push(String(addJson?.error || addJson?.detail || "add_label_failed").slice(0, 80));
+    }
+  }
+
+  const summary = {
+    ok: labeled > 0,
+    data: {
+      labeledCount: labeled,
+      foundCount: ids.length,
+      labelName,
+      labelId,
+      fromQuery: parsed.from,
+      errors: errors.slice(0, 3),
+    },
+    error: labeled ? undefined : errors[0] || "No messages were labeled.",
+  };
+  return {
+    ok: labeled > 0,
+    tool: labeled === ids.length ? "GMAIL_BATCH_MODIFY_MESSAGES" : "GMAIL_ADD_LABEL_TO_EMAIL",
+    resultText: JSON.stringify(summary),
+    content: formatGmailLabelSummaryFromToolResult(JSON.stringify(summary)),
+  };
+}
+
 /** @type {ComposioIntentSpec[]} */
 export const COMPOSIO_INTENT_SPECS = [
+  {
+    id: "gmail_label",
+    toolkit: "gmail",
+    label: "Gmail label",
+    preferredTools: [
+      "GMAIL_ADD_LABEL_TO_EMAIL",
+      "GMAIL_BATCH_MODIFY_MESSAGES",
+      "GMAIL_CREATE_LABEL",
+      "GMAIL_LIST_LABELS",
+    ],
+    searchQueries: ["GMAIL_ADD_LABEL_TO_EMAIL", "GMAIL_CREATE_LABEL"],
+    buildArgs: (userText) => parseGmailLabelMoveRequest(userText),
+    formatOk: formatGmailLabelSummaryFromToolResult,
+    match: looksLikeGmailLabelRequest,
+  },
   {
     id: "gmail_unread",
     toolkit: "gmail",
@@ -544,6 +838,12 @@ export function composioResultNeedsConnect(resultText) {
  */
 export async function runComposioIntentExecute(opts) {
   const { runtime, userText, spec, executeLookup } = opts;
+
+  // Why: label moves need list/create/fetch/add — not a single preferred tool.
+  if (spec.id === "gmail_label") {
+    return runGmailLabelMove({ runtime, userText, executeLookup });
+  }
+
   /** @type {{ slug: string }[]} */
   let tools = [];
   for (const q of spec.searchQueries) {
