@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 09:40] Jev lab A/B page (dual threads under /grok)
+
+- **Prompt Provided:** Put a toggle on grok-style page, or a test page with one message box and two chat thread viewers.
+- **Architectural Flow:** New dry-run `POST /api/agents/:id/jev-lab` with `jevMode=on|off` (no chat write / no task enqueue). `runChatAutoTurn` accepts per-request `jevMode`. Frontend `/grok/jev-lab` sends one message to both paths in parallel and shows two threads. Linked from grok rail as “Jev lab (A/B)”.
+- **Impacted Files:** jevEvaluate.js, chatAutoTurn.js, agents.js, JevLabPage.jsx, GrokStylePage.jsx, App.jsx, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-23 09:25] Jev via Vercel AI Gateway for Auto REPLY vs QUEUE_GOAL
 
 - **Prompt Provided:** Use Jev with the user’s Vercel AI Gateway API key in YamBot.

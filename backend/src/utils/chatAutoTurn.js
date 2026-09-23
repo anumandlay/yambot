@@ -1376,6 +1376,7 @@ export async function runChatAutoTurn(opts) {
     stream = false,
     onDelta,
     runtime = {},
+    jevMode = "auto",
   } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -1389,11 +1390,16 @@ export async function runChatAutoTurn(opts) {
     emailConfigured: Boolean(snapshot?.email?.configured),
     fromAddress: String(snapshot?.email?.fromAddress || ""),
   };
-  const finalize = (partial) =>
-    ensureAutoTurnResult(
+  const finalize = (partial) => {
+    const out = ensureAutoTurnResult(
       { ...partial, timing: partial.timing || track.finish() },
       ensureCtx
     );
+    // Why: lab A/B needs the raw Jev decision alongside the normalized turn.
+    if (partial?.jev) out.jev = partial.jev;
+    out.jevMode = String(jevMode || "auto");
+    return out;
+  };
 
   // Why: send-mail follow-ups skip the model and build a hardened send_email goal from chat.
   if (looksLikeSendEmailRequest(text)) {
@@ -1448,12 +1454,11 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: Jev (System One via AI Gateway) owns REPLY vs QUEUE_GOAL when confident.
-  // Uncertain / missing key / Gateway errors fall through to Hermes Auto LLM.
+  const jevModeNorm = String(jevMode || "auto").trim().toLowerCase() || "auto";
   /** @type {Awaited<ReturnType<typeof classifyAutoActionWithJev>>|null} */
   let jevDecision = null;
-  if (isJevEnabled()) {
-    jevDecision = await classifyAutoActionWithJev(text);
+  if (isJevEnabled(jevModeNorm)) {
+    jevDecision = await classifyAutoActionWithJev(text, { jevMode: jevModeNorm });
     if (jevDecision.action === "queue_goal") {
       track.setPath("jev");
       track.markDecision("queue_goal");
@@ -1464,6 +1469,7 @@ export async function runChatAutoTurn(opts) {
         ack: "",
         reason: `jev_queue_goal:${Number(jevDecision.confidence || 0).toFixed(2)}`,
         timing: track.finish(),
+        jev: jevDecision,
       });
     }
     if (jevDecision.action === "reply") {
@@ -1483,9 +1489,19 @@ export async function runChatAutoTurn(opts) {
         ack: "",
         reason: `jev_reply:${Number(jevDecision.confidence || 0).toFixed(2)}`,
         timing: track.finish(),
+        jev: jevDecision,
       });
     }
     // uncertain — keep jevDecision for classifier hint on the LLM path
+  } else if (jevModeNorm === "off") {
+    jevDecision = {
+      ok: false,
+      action: "uncertain",
+      choice: "",
+      confidence: 0,
+      probabilities: {},
+      reason: "jev_disabled",
+    };
   }
 
   // Why: when the client wants a live bubble, stream REPLY/QUEUE_GOAL text immediately.

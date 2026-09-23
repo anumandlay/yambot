@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention, decryptAgentCredentials, encryptCredentialPassword } from "../models/Agent.js";
+import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention, decryptAgentCredentials, encryptCredentialPassword, toAgentSnapshot } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
 import { AgentMessage } from "../models/AgentMessage.js";
@@ -42,6 +42,17 @@ import { env } from "../utils/env.js";
 import { normalizeLlmBaseUrl, normalizeLlmModel } from "../utils/llmDefaults.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import { probeLlmConnection } from "../utils/llmTest.js";
+import {
+  runChatAutoTurn,
+  cheapChatReplyIfAny,
+  defaultQueueAck,
+} from "../utils/chatAutoTurn.js";
+import {
+  buildChatContextPrompt,
+  withChatContext,
+} from "../utils/chatContext.js";
+import { isJevEnabled } from "../utils/jevEvaluate.js";
+import { ensureAgentChat } from "../utils/enqueueTask.js";
 
 export const agentsRouter = Router();
 
@@ -1886,6 +1897,150 @@ agentsRouter.delete("/:id/site-profiles/:domain", async (req, res, next) => {
       .toLowerCase();
     await SiteProfile.deleteOne({ agent: agent._id, user: req.userId, domain });
     res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/jev-lab — dry-run Auto turn with forced Jev on/off (no chat write, no task enqueue).
+ * Why: A/B compare page sends the same message twice and shows both threads side-by-side.
+ */
+agentsRouter.post("/:id/jev-lab", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+
+    const content = String(req.body?.content || req.body?.question || "").trim();
+    if (!content) {
+      res.status(400).json({
+        ok: false,
+        title: "Empty message",
+        detail: "Type a message to compare With Jev vs Without Jev.",
+      });
+      return;
+    }
+
+    const rawMode = String(req.body?.jevMode || "on").trim().toLowerCase();
+    const jevMode = rawMode === "off" ? "off" : "on";
+    const wantStream =
+      Boolean(req.body?.stream) || String(req.query?.stream || "") === "1";
+
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+
+    const creds = await resolveLlmCredentialsForAgent(user, agent);
+    if (!creds.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "LLM not configured",
+        detail: "Add an LLM key in Settings (or an agent LLM profile) before using Jev lab.",
+      });
+      return;
+    }
+
+    const chat = await ensureAgentChat(req.userId, agent._id);
+    const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
+      creds,
+    });
+    const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
+    const curated = await resolveCuratedMemoryForPrompt({
+      userEntries: user?.curatedMemory?.entries,
+      agentEntries: agent.curatedMemory?.entries,
+      goal: content,
+      creds,
+      userId: String(req.userId),
+      agentId: String(agent._id),
+    });
+    const snapshot = withChatContext(
+      toAgentSnapshot(agent, {
+        goal: content,
+        userCuratedEntries: curated.userCuratedEntries,
+        agentCuratedEntries: curated.agentCuratedEntries,
+      }),
+      chatContextBlock
+    );
+
+    /** @type {null | ((obj: object) => void)} */
+    let writeNdjson = null;
+    const startNdjson = () => {
+      if (writeNdjson) return;
+      res.status(200);
+      res.setHeader("Content-Type", "application/x-ndjson; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.setHeader("X-Accel-Buffering", "no");
+      if (typeof res.flushHeaders === "function") res.flushHeaders();
+      writeNdjson = (obj) => {
+        if (res.writableEnded) return;
+        res.write(`${JSON.stringify(obj)}\n`);
+        if (typeof res.flush === "function") res.flush();
+      };
+    };
+
+    if (wantStream) startNdjson();
+
+    const t0 = Date.now();
+    const cheap = cheapChatReplyIfAny(content);
+    /** @type {object} */
+    let turn;
+    if (cheap) {
+      turn = {
+        action: "reply",
+        content: cheap,
+        goal: "",
+        ack: "",
+        reason: "cheap_greeting",
+        jevMode,
+        jev: null,
+        timing: { totalMs: Date.now() - t0, path: "cheap" },
+      };
+      if (wantStream && writeNdjson) {
+        writeNdjson({ type: "delta", text: cheap });
+      }
+    } else {
+      turn = await runChatAutoTurn({
+        question: content,
+        snapshot,
+        creds,
+        chatContext: chatContextBlock,
+        stream: wantStream,
+        onDelta: wantStream
+          ? (chunk) => writeNdjson?.({ type: "delta", text: chunk })
+          : undefined,
+        jevMode,
+      });
+    }
+
+    if (turn.action === "queue_goal") {
+      // Why: lab never enqueues — surface what Auto would do.
+      turn.ack = turn.ack || defaultQueueAck(agent.name);
+      turn.lab = { dryRun: true, wouldEnqueue: true };
+    } else {
+      turn.lab = { dryRun: true, wouldEnqueue: false };
+    }
+
+    const payload = {
+      ok: true,
+      type: "result",
+      jevMode,
+      jevAvailable: isJevEnabled("on"),
+      agent: { _id: String(agent._id), name: agent.name },
+      turn,
+      elapsedMs: Date.now() - t0,
+    };
+
+    if (wantStream && writeNdjson) {
+      writeNdjson(payload);
+      res.end();
+      return;
+    }
+    res.json(payload);
   } catch (err) {
     next(err);
   }

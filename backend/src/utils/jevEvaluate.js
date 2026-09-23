@@ -13,12 +13,17 @@ const DEFAULT_MODEL = "typesafe-ai/jev";
 export const JEV_CONFIDENT_MIN = 0.72;
 
 /**
+ * @param {"auto"|"on"|"off"|string|undefined|null} [mode]
  * @returns {boolean}
  */
-export function isJevEnabled() {
+export function isJevEnabled(mode = "auto") {
+  const m = String(mode || "auto").trim().toLowerCase();
+  if (m === "off" || m === "0" || m === "false" || m === "no") return false;
+  const hasKey = Boolean(String(env.AI_GATEWAY_API_KEY || "").trim());
+  if (m === "on" || m === "1" || m === "true" || m === "yes") return hasKey;
   const flag = String(env.JEV_ENABLED || "").trim().toLowerCase();
   if (flag === "0" || flag === "false" || flag === "off" || flag === "no") return false;
-  return Boolean(String(env.AI_GATEWAY_API_KEY || "").trim());
+  return hasKey;
 }
 
 /**
@@ -87,6 +92,7 @@ export async function jevEvaluate(opts) {
 /**
  * Ask Jev whether this Auto message should REPLY in chat or QUEUE_GOAL a computer/peer job.
  * @param {string} text
+ * @param {{ jevMode?: "auto"|"on"|"off" }} [opts]
  * @returns {Promise<{
  *   ok: boolean,
  *   action: "reply"|"queue_goal"|"uncertain",
@@ -97,7 +103,7 @@ export async function jevEvaluate(opts) {
  *   error?: string,
  * }>}
  */
-export async function classifyAutoActionWithJev(text) {
+export async function classifyAutoActionWithJev(text, opts = {}) {
   const body = String(text || "").trim().slice(0, 4000);
   if (!body) {
     return {
@@ -109,7 +115,7 @@ export async function classifyAutoActionWithJev(text) {
       reason: "empty",
     };
   }
-  if (!isJevEnabled()) {
+  if (!isJevEnabled(opts.jevMode)) {
     return {
       ok: false,
       action: "uncertain",
