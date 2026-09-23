@@ -20,6 +20,7 @@ import { chatCompletion } from "./llm.js";
 import { stepTiming } from "./stepTiming.js";
 import { getFastModeProfile } from "./fastMode.js";
 import { createStepMetrics } from "./stepMetrics.js";
+import { matchSimpleOpenGoal } from "./simpleOpen.js";
 import {
   drainTeachRecorderSteps,
   extensionLaunchArgs,
@@ -196,7 +197,14 @@ function extractUrlFromGoalText(goal) {
     // Why: "bots@vughy.com" must not open https://vughy.com as start URL.
     if (domainStart > 0 && text[domainStart - 1] === "@") continue;
     if (!/\.[a-z]{2,}(\/|$)/i.test(raw)) continue;
-    if (/^(?:e\.g|eg|etc|example\.com)$/i.test(raw)) continue;
+    // Why: skip e.g./etc placeholders — allow example.com when the user said open/go to it.
+    if (/^(?:e\.g|eg|etc)$/i.test(raw)) continue;
+    if (
+      /^example\.com$/i.test(raw) &&
+      !/\b(open|go\s+to|navigate|visit|browse|load)\b/i.test(g)
+    ) {
+      continue;
+    }
     return applySignupPathHint(`https://${raw}`, g);
   }
   return "";
@@ -1876,6 +1884,67 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
       if (computerUse.isActive()) {
         await activateComputerUse("explicit");
+      }
+
+      // Why: “open example.com” / “go to vughy.com” must not burn 5 LLM rounds (~3 min).
+      const simpleOpen = matchSimpleOpenGoal(goal);
+      if (simpleOpen?.url) {
+        const target = simpleOpen.url;
+        await mirror(taskId, "started", {
+          status: "running",
+          payload: {
+            goal,
+            worker: config.workerName,
+            startUrl: target,
+            fastPath: "simple_open",
+          },
+          appendMessage: `Opening ${target} (fast path)…`,
+        }).catch(() => {});
+        await safeGoto(target, { waitUntil: "domcontentloaded", timeout: 45000 });
+        await pushLiveScreen({ taskId }).catch(() => {});
+        let title = "";
+        let finalUrl = target;
+        try {
+          refreshActivePage();
+          title = String((await page?.title?.()) || "").trim();
+          finalUrl = safePageUrl(page) || target;
+        } catch {
+          /* ignore */
+        }
+        let host = "";
+        try {
+          host = new URL(finalUrl).hostname.replace(/^www\./i, "");
+        } catch {
+          host = "";
+        }
+        const summary = title
+          ? `Opened ${finalUrl} successfully. Page title: “${title}”.`
+          : `Opened ${finalUrl} successfully.`;
+        history.push({
+          at: Date.now(),
+          step: 1,
+          thought: "simple_open_fast_path",
+          action: { type: "navigate", url: target },
+          result: { ok: true, url: finalUrl, title },
+        });
+        await mirror(taskId, "step", {
+          payload: {
+            step: 1,
+            action: { type: "navigate", url: target },
+            thought: "Simple open — navigate and finish (no LLM loop)",
+            result: { ok: true, url: finalUrl, title, fastPath: true },
+          },
+          appendMessage: summary,
+        }).catch(() => {});
+        await complete(taskId, {
+          success: true,
+          summary,
+          history,
+          siteDomain: host,
+          llmUsage,
+        });
+        log(`[${config.workerName}] simple_open_fast_path done → ${finalUrl}`);
+        return;
       }
 
       const settings = await getSettings();

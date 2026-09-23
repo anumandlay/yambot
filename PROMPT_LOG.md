@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 10:15] Fast path for simple open/go-to URL goals
+
+- **Prompt Provided:** Why so long for open example.com / open vughy.com — speed up “just open”.
+- **Architectural Flow:** Worker detects simple open/visit goals (`matchSimpleOpenGoal`), navigates once, reports title, completes — skips LLM observe/think loop (~3 min → ~seconds). Also allow extracting example.com when user said open/go to.
+- **Impacted Files:** worker/src/simpleOpen.js, worker/src/agent.js, worker/test/simpleOpen.test.js, PROMPT_LOG
+
 ## [2026-09-23 10:00] Fix “yes” after open offer never starting computer
 
 - **Prompt Provided:** Chat: can you open example.com → Want me to? → yes → Got it. Nothing happens.
