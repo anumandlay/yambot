@@ -1258,6 +1258,75 @@ export async function autoExecuteGmailUnread(runtime, userText) {
 }
 
 /**
+ * Shrink Composio execute payloads so chat tools stay under size limits.
+ * Why: GMAIL_FETCH_EMAILS returns ~250KB of messageText; a 4k slice breaks JSON and drops sender/subject.
+ * @param {any} result
+ * @param {string} [toolSlug]
+ * @returns {any}
+ */
+export function compactComposioExecuteResult(result, toolSlug = "") {
+  if (!result || typeof result !== "object") return result;
+  const data = result.data ?? result;
+  const messages = Array.isArray(data?.messages)
+    ? data.messages
+    : Array.isArray(data?.emails)
+      ? data.emails
+      : Array.isArray(data?.items)
+        ? data.items
+        : null;
+  if (!messages) {
+    // Still drop huge nested blobs on non-list tools.
+    try {
+      const raw = JSON.stringify(result);
+      if (raw.length <= 12_000) return result;
+    } catch {
+      return result;
+    }
+    return {
+      ok: result.ok,
+      error: result.error,
+      sessionId: result.sessionId,
+      detail: "Result too large; truncated.",
+      dataPreview: String(JSON.stringify(result.data ?? result)).slice(0, 2000),
+    };
+  }
+
+  const compactMsgs = messages.slice(0, 10).map((m) => {
+    if (!m || typeof m !== "object") return m;
+    const previewRaw = m.preview ?? m.snippet ?? m.messageText ?? m.body ?? m.text ?? "";
+    let preview = "";
+    if (typeof previewRaw === "string") preview = previewRaw;
+    else if (previewRaw && typeof previewRaw === "object") {
+      preview = String(
+        previewRaw.body || previewRaw.text || previewRaw.snippet || previewRaw.preview || ""
+      );
+    }
+    return {
+      sender: m.sender || m.from || m.from_email || m.fromEmail || null,
+      subject: m.subject || m.Subject || null,
+      preview: preview.replace(/\s+/g, " ").trim().slice(0, 180),
+      messageId: m.messageId || m.id || m.message_id || null,
+      threadId: m.threadId || m.thread_id || null,
+      display_url: m.display_url || m.displayUrl || null,
+      labelIds: Array.isArray(m.labelIds) ? m.labelIds.slice(0, 8) : undefined,
+      messageTimestamp: m.messageTimestamp || m.internalDate || null,
+    };
+  });
+
+  return {
+    ok: result.ok !== false,
+    error: result.error,
+    sessionId: result.sessionId,
+    tool: toolSlug || undefined,
+    data: {
+      messages: compactMsgs,
+      nextPageToken: data?.nextPageToken || null,
+      resultSizeEstimate: data?.resultSizeEstimate ?? compactMsgs.length,
+    },
+  };
+}
+
+/**
  * Best-effort prose summary from a Composio Gmail execute JSON blob (no LLM).
  * @param {string} resultText
  * @param {string} [tool]
@@ -1269,6 +1338,7 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
   try {
     parsed = JSON.parse(String(resultText || ""));
   } catch {
+    // Why: legacy truncated blobs — try to salvage message objects if any.
     parsed = null;
   }
   if (!parsed) {
@@ -1322,15 +1392,20 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
       row?.Subject ||
       row?.payload?.headers?.find?.((h) => /subject/i.test(h?.name || ""))?.value ||
       "(no subject)";
-    const gist = String(
-      row?.preview || row?.snippet || row?.messageText || row?.body || row?.text || ""
-    )
+    let gistRaw = row?.preview ?? row?.snippet ?? row?.messageText ?? row?.body ?? row?.text ?? "";
+    if (gistRaw && typeof gistRaw === "object") {
+      gistRaw = gistRaw.body || gistRaw.text || gistRaw.snippet || "";
+    }
+    const gist = String(gistRaw || "")
       .replace(/\s+/g, " ")
       .trim()
       .slice(0, 140);
+    const idOnly = (!row?.sender && !row?.from && !row?.subject && (row?.id || row?.messageId))
+      ? `   (id: ${row.id || row.messageId})`
+      : "";
     return `${i + 1}. From: ${String(from).slice(0, 80)}\n   Subject: ${String(subject).slice(0, 120)}${
       gist ? `\n   ${gist}` : ""
-    }`;
+    }${idOnly && !gist ? `\n${idOnly}` : ""}`;
   });
 
   return `Top unread from Gmail today:\n\n${lines.join("\n\n")}`;
@@ -1611,17 +1686,18 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         if (result.sessionId && typeof runtime.saveComposioSessionId === "function") {
           await runtime.saveComposioSessionId(result.sessionId).catch(() => {});
         }
-        const errText = String(result.error || "").toLowerCase();
+        const compact = compactComposioExecuteResult(result, toolSlug);
+        const errText = String(compact.error || result.error || "").toLowerCase();
         if (
           !result.ok &&
           /not connected|unauthorized|auth|no connected account|connect/i.test(errText)
         ) {
           return JSON.stringify({
-            ...result,
+            ...compact,
             hint: "App may not be connected. Call composio_connect for that toolkit, then composio_wait, then retry.",
-          }).slice(0, 4000);
+          }).slice(0, 8000);
         }
-        return JSON.stringify(result).slice(0, 4000);
+        return JSON.stringify(compact).slice(0, 8000);
       }
     }
   } catch (err) {
