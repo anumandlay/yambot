@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 19:10] Fix Sheets list tool slug (SEARCH only + Drive fallback)
+
+- **Prompt Provided:** list spreadsheets → Tool GOOGLESHEETS_LIST_SPREADSHEETS not found.
+- **Architectural Flow:** That slug does not exist — use only GOOGLESHEETS_SEARCH_SPREADSHEETS; dedicated runSheetsList; Drive FIND/LIST files fallback for spreadsheet mime.
+- **Impacted Files:** composioAutoRuntime.js, PROMPT_LOG
+
 ## [2026-09-23 19:00] Allow Sheets tools when Google Drive is enabled
 
 - **Prompt Provided:** list spreadsheets using composio → tool not in enabled apps (agent had googledrive, not googlesheets).

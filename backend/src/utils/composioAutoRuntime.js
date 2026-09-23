@@ -578,6 +578,9 @@ export function formatSheetsListSummaryFromToolResult(resultText, tool = "") {
     if (/not connected|unauthorized|auth|connect/i.test(err)) {
       return `Google Sheets isn’t connected yet. Open the Connect link, finish OAuth, then ask again.\n\n(${err})`;
     }
+    if (/not found|list_spreadsheets/i.test(err)) {
+      return `Could not list spreadsheets via Composio. Enable + Connect Google Sheets under Agent → Composio, then try again.\n\n(${err})`;
+    }
     return `Google Sheets list via Composio failed: ${err}`;
   }
   const data = parsed.data ?? parsed;
@@ -587,17 +590,26 @@ export function formatSheetsListSummaryFromToolResult(resultText, tool = "") {
       ? data.files
       : Array.isArray(data?.items)
         ? data.items
-        : [];
+        : Array.isArray(data?.results)
+          ? data.results
+          : [];
   if (!rows.length) {
     return `No spreadsheets found${tool ? ` (${tool})` : ""}.`;
   }
   const lines = rows.slice(0, 12).map((row, i) => {
-    const name = String(row?.name || row?.title || "Untitled").slice(0, 80);
-    const id = String(row?.id || row?.spreadsheetId || row?.spreadsheet_id || "").slice(0, 60);
-    const when = String(row?.modifiedTime || row?.modified_time || "").slice(0, 24);
+    const name = String(row?.name || row?.title || row?.properties?.title || "Untitled").slice(
+      0,
+      80
+    );
+    const id = String(
+      row?.id || row?.spreadsheetId || row?.spreadsheet_id || row?.fileId || ""
+    ).slice(0, 60);
+    const when = String(
+      row?.modifiedTime || row?.modified_time || row?.updatedAt || row?.modifiedTime || ""
+    ).slice(0, 24);
     return `${i + 1}. ${name}${id ? ` · id ${id}` : ""}${when ? ` · ${when}` : ""}`;
   });
-  return `Google Spreadsheets (${rows.length} shown):\n\n${lines.join("\n")}`;
+  return `Google Spreadsheets (${Math.min(rows.length, 12)} shown):\n\n${lines.join("\n")}`;
 }
 
 /**
@@ -877,15 +889,10 @@ export const COMPOSIO_INTENT_SPECS = [
     id: "sheets_list",
     toolkit: "googlesheets",
     label: "Sheets list",
-    preferredTools: [
-      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
-      "GOOGLESHEETS_FIND_SPREADSHEET",
-      "GOOGLESHEETS_LIST_SPREADSHEETS",
-    ],
+    preferredTools: ["GOOGLESHEETS_SEARCH_SPREADSHEETS"],
     searchQueries: [
       "GOOGLESHEETS_SEARCH_SPREADSHEETS",
       "search spreadsheets",
-      "list spreadsheets",
     ],
     buildArgs: buildSheetsListToolArgs,
     formatOk: formatSheetsListSummaryFromToolResult,
@@ -980,6 +987,132 @@ export function composioResultNeedsConnect(resultText) {
 }
 
 /**
+ * List spreadsheets via the real Composio slug only (SEARCH), with Drive mime fallback.
+ * Why: GOOGLESHEETS_LIST_SPREADSHEETS does not exist — retrying it only produces “not found”.
+ * @param {{
+ *   runtime: object,
+ *   userText: string,
+ *   executeLookup: (kind: string, runtime: object, args?: object) => Promise<string>,
+ * }} opts
+ */
+export async function runSheetsList(opts) {
+  const { runtime, userText, executeLookup } = opts;
+  const args = buildSheetsListToolArgs(userText);
+
+  /** @param {string} resultText */
+  function parseOk(resultText) {
+    try {
+      return JSON.parse(String(resultText || ""));
+    } catch {
+      return null;
+    }
+  }
+
+  /**
+   * @param {string} toolkit
+   * @returns {Promise<{ ok: boolean, tool?: string, resultText: string, content: string, needsConnect?: boolean }>}
+   */
+  async function connectLadder(toolkit) {
+    const connectText = await executeLookup("composio_connect", runtime, { toolkit });
+    /** @type {any} */
+    let connectJson = null;
+    try {
+      connectJson = JSON.parse(connectText);
+    } catch {
+      connectJson = null;
+    }
+    const url = String(connectJson?.redirectUrl || "").trim();
+    const label = toolkit === "googledrive" ? "Google Drive" : "Google Sheets";
+    const content = url
+      ? `Connect ${label} first, then send the same request again:\n${url}`
+      : String(
+          connectJson?.userMessage ||
+            connectJson?.error ||
+            `Connect ${label} under Agents → Composio, then try again.`
+        );
+    return {
+      ok: false,
+      tool: undefined,
+      resultText: connectText,
+      content,
+      needsConnect: true,
+    };
+  }
+
+  const primary = "GOOGLESHEETS_SEARCH_SPREADSHEETS";
+  const searchText = await executeLookup("composio_execute", runtime, {
+    tool: primary,
+    arguments: args,
+  });
+  const searchJson = parseOk(searchText);
+  if (searchJson?.ok) {
+    return {
+      ok: true,
+      tool: primary,
+      resultText: searchText,
+      content: formatSheetsListSummaryFromToolResult(searchText, primary),
+    };
+  }
+  if (composioResultNeedsConnect(searchText)) {
+    return connectLadder("googlesheets");
+  }
+
+  const err = String(searchJson?.error || searchJson?.detail || "").toLowerCase();
+  // Why: Sheets tool missing / not in session — try Drive file search for spreadsheet mime.
+  if (/not found|not in this agent|not allowed|toolkit/i.test(err) || !searchJson?.ok) {
+    const driveArgs = {
+      query: args.query
+        ? `${args.query} mimeType='application/vnd.google-apps.spreadsheet'`
+        : "mimeType='application/vnd.google-apps.spreadsheet'",
+      q: args.query
+        ? `${args.query} and mimeType='application/vnd.google-apps.spreadsheet'`
+        : "mimeType='application/vnd.google-apps.spreadsheet'",
+      pageSize: args.max_results || 10,
+      page_size: args.max_results || 10,
+      max_results: args.max_results || 10,
+    };
+    for (const driveTool of [
+      "GOOGLEDRIVE_FIND_FILE",
+      "GOOGLEDRIVE_LIST_FILES",
+      "GOOGLEDRIVE_SEARCH_FILES",
+    ]) {
+      const driveText = await executeLookup("composio_execute", runtime, {
+        tool: driveTool,
+        arguments: driveArgs,
+      });
+      const driveJson = parseOk(driveText);
+      if (driveJson?.ok) {
+        return {
+          ok: true,
+          tool: driveTool,
+          resultText: driveText,
+          content: formatSheetsListSummaryFromToolResult(driveText, driveTool),
+        };
+      }
+      if (composioResultNeedsConnect(driveText)) {
+        return connectLadder("googledrive");
+      }
+    }
+  }
+
+  const content = formatSheetsListSummaryFromToolResult(
+    searchText ||
+      JSON.stringify({
+        ok: false,
+        detail:
+          "Could not list spreadsheets. Connect Google Sheets under Agent → Composio, then try again.",
+      }),
+    primary
+  );
+  return {
+    ok: false,
+    tool: primary,
+    resultText: searchText,
+    content,
+  };
+}
+
+/**
  * Run preferred tools for an intent; on auth failure return connect URL text.
  * @param {{
  *   runtime: object,
@@ -995,6 +1128,10 @@ export async function runComposioIntentExecute(opts) {
   // Why: label moves need list/create/fetch/add — not a single preferred tool.
   if (spec.id === "gmail_label") {
     return runGmailLabelMove({ runtime, userText, executeLookup });
+  }
+  // Why: only SEARCH_SPREADSHEETS exists — never invent LIST_SPREADSHEETS.
+  if (spec.id === "sheets_list") {
+    return runSheetsList({ runtime, userText, executeLookup });
   }
 
   /** @type {{ slug: string }[]} */
@@ -1038,7 +1175,22 @@ export async function runComposioIntentExecute(opts) {
     };
   }
 
-  const tryTools = [tool, ...spec.preferredTools.filter((t) => t !== tool)];
+  // Why: only retry preferred tools that search confirmed (plus the primary slug).
+  const found = new Set(
+    tools.map((t) => String(t?.slug || t?.name || "").trim().toUpperCase()).filter(Boolean)
+  );
+  const tryTools = [];
+  for (const candidate of [tool, ...spec.preferredTools]) {
+    const up = String(candidate || "").trim().toUpperCase();
+    if (!up || tryTools.includes(up)) continue;
+    if (found.size && !found.has(up) && up !== String(spec.preferredTools[0] || "").toUpperCase()) {
+      continue;
+    }
+    tryTools.push(up);
+  }
+  if (!tryTools.length && spec.preferredTools[0]) {
+    tryTools.push(String(spec.preferredTools[0]).toUpperCase());
+  }
   let lastText = "";
   for (const candidate of tryTools) {
     const resultText = await executeLookup("composio_execute", runtime, {
