@@ -121,6 +121,9 @@ export async function llmChatCompletionMessage(opts) {
     const text = await response.text();
     if (!response.ok) {
       const detail = extractLlmApiMessage(text) || text.slice(0, 300) || `HTTP ${response.status}`;
+      console.warn(
+        `[llm] chat.completions failed status=${response.status} model=${model} detail=${String(detail).slice(0, 200)}`
+      );
       const err = Object.assign(new Error(detail), {
         title: `LLM request failed (${response.status})`,
         hint: hintForLlmStatus(response.status, text),

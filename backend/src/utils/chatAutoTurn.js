@@ -1237,6 +1237,159 @@ export async function autoExecuteGmailUnread(runtime, userText) {
 }
 
 /**
+ * Best-effort prose summary from a Composio Gmail execute JSON blob (no LLM).
+ * @param {string} resultText
+ * @param {string} [tool]
+ * @returns {string}
+ */
+export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
+  /** @type {any} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(resultText || ""));
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) {
+    return "I couldn’t parse the Gmail response from Composio. Try again, or Connect Gmail under this agent.";
+  }
+  if (parsed.ok === false) {
+    const err = String(parsed.error || parsed.detail || "Gmail request failed");
+    if (/not connected|unauthorized|auth|connect/i.test(err)) {
+      return (
+        `Gmail isn’t connected for this agent yet. Open Agents → edit → Composio → Connect Gmail, finish OAuth, then ask again.\n\n(${err})`
+      );
+    }
+    return `Gmail via Composio failed: ${err}`;
+  }
+
+  const data = parsed.data ?? parsed;
+  /** @type {any[]} */
+  let rows = [];
+  if (Array.isArray(data)) rows = data;
+  else if (Array.isArray(data?.messages)) rows = data.messages;
+  else if (Array.isArray(data?.emails)) rows = data.emails;
+  else if (Array.isArray(data?.data)) rows = data.data;
+  else if (Array.isArray(data?.items)) rows = data.items;
+  else if (Array.isArray(data?.threads)) rows = data.threads;
+  else if (data && typeof data === "object") {
+    for (const v of Object.values(data)) {
+      if (Array.isArray(v) && v.length && typeof v[0] === "object") {
+        rows = v;
+        break;
+      }
+    }
+  }
+
+  if (!rows.length) {
+    return tool
+      ? `No unread emails came back from ${tool} (inbox may be empty for today).`
+      : "No unread emails found for today.";
+  }
+
+  const lines = rows.slice(0, 5).map((row, i) => {
+    const from =
+      row?.from ||
+      row?.sender ||
+      row?.from_email ||
+      row?.fromEmail ||
+      row?.payload?.headers?.find?.((h) => /from/i.test(h?.name || ""))?.value ||
+      row?.messageSender ||
+      "Unknown sender";
+    const subject =
+      row?.subject ||
+      row?.Subject ||
+      row?.snippet ||
+      row?.preview ||
+      row?.payload?.headers?.find?.((h) => /subject/i.test(h?.name || ""))?.value ||
+      "(no subject)";
+    const gist = String(row?.snippet || row?.preview || row?.body || row?.text || "")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 120);
+    return `${i + 1}. From: ${String(from).slice(0, 80)}\n   Subject: ${String(subject).slice(0, 120)}${
+      gist ? `\n   ${gist}` : ""
+    }`;
+  });
+
+  return `Top unread from Gmail today:\n\n${lines.join("\n\n")}`;
+}
+
+/**
+ * Deterministic Gmail unread path: Composio fetch first, optional LLM polish, never depends on tool_choice.
+ * Why: Grok/xAI often returns “Provider returned error” when tool_choice forces a specific function.
+ * @param {{
+ *   runtime: object,
+ *   userText: string,
+ *   creds: object,
+ *   onDelta?: (chunk: string) => void,
+ *   track: ReturnType<typeof createAutoTimingTracker>,
+ * }} opts
+ */
+export async function runDeterministicGmailUnreadTurn(opts) {
+  const { runtime, userText, creds, onDelta, track } = opts;
+  track.addLookup("composio_search");
+  track.addLookup("composio_execute");
+  track.setPath("composio_gmail_direct");
+  const auto = await autoExecuteGmailUnread(runtime, userText);
+  const heuristic = formatGmailUnreadSummaryFromToolResult(auto.resultText, auto.tool || "");
+
+  // Prefer a short LLM polish when credentials work; never fail the turn if polish fails.
+  try {
+    const polished = await llmChatCompletion({
+      apiKey: creds.apiKey,
+      baseUrl: creds.llmBaseUrl || "",
+      model: creds.llmModel || "",
+      openAiAccountId: creds.openAiAccountId,
+      temperature: 0.2,
+      maxTokens: 700,
+      timeoutMs: 45_000,
+      messages: [
+        {
+          role: "system",
+          content:
+            "Summarize unread Gmail for the user in plain prose. Use ONLY the JSON tool result. " +
+            "List up to 5: sender, subject, one-line gist. If not connected or empty, say so clearly. No ACTION: lines.",
+        },
+        {
+          role: "user",
+          content:
+            `User ask: ${String(userText || "").slice(0, 400)}\n\n` +
+            `Composio tool: ${auto.tool || "unknown"}\n` +
+            `Result JSON:\n${String(auto.resultText || "").slice(0, 3500)}`,
+        },
+      ],
+    });
+    const text = String(polished || "").trim();
+    if (text.length >= 12 && !looksLikeFakeComposioActionText(text) && !looksLikeComposioStallReply(text)) {
+      if (typeof onDelta === "function") onDelta(text);
+      track.markDecision("reply");
+      return {
+        action: "reply",
+        content: text,
+        goal: "",
+        ack: "",
+        reason: "composio_gmail_direct_llm",
+        timing: track.finish(),
+      };
+    }
+  } catch (err) {
+    console.warn("[auto] gmail summarize polish failed:", err?.message || err);
+  }
+
+  if (typeof onDelta === "function") onDelta(heuristic);
+  track.markDecision("reply");
+  return {
+    action: "reply",
+    content: heuristic,
+    goal: "",
+    ack: "",
+    reason: "composio_gmail_direct",
+    timing: track.finish(),
+  };
+}
+
+/**
  * True when the model “replied” with a stall / filler instead of a real Composio result summary.
  * Why: “Hold on while I pull the unread…” was returned as the final chat answer.
  * @param {string} content
@@ -2075,6 +2228,25 @@ export async function runChatAutoTurn(opts) {
   }
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
+
+  // Why: Grok/xAI often 500s on tool_choice={function:composio_*}; Gmail unread does not need the tool loop.
+  if (looksLikeGmailInboxRequest(text) && runtime?.composioApiKey) {
+    try {
+      return finalize(
+        await runDeterministicGmailUnreadTurn({
+          runtime,
+          userText: text,
+          creds,
+          onDelta: stream ? delta : undefined,
+          track,
+        })
+      );
+    } catch (err) {
+      console.warn("[auto] deterministic gmail failed:", err?.message || err);
+      // Fall through to tools / text paths with a useful Composio error if possible.
+    }
+  }
+
   /** @type {object[]} */
   const messages = [
     {
@@ -2099,18 +2271,8 @@ export async function runChatAutoTurn(opts) {
         timeoutMs: 60_000,
         messages,
         tools: AUTO_CHAT_TOOLS,
-        // Why: Gmail/Slack asks — force search first, then execute so the model cannot stall or print ACTION:.
-        toolChoice: (() => {
-          if (!composioIntent) return "auto";
-          const steps = summarizeComposioLookups(track.getLookups());
-          if (round === 0 || !steps.searched) {
-            return { type: "function", function: { name: "composio_search" } };
-          }
-          if (!steps.executed) {
-            return { type: "function", function: { name: "composio_execute" } };
-          }
-          return "auto";
-        })(),
+        // Why: never force a named tool_choice — Grok returns “Provider returned error” for that.
+        toolChoice: "auto",
       });
 
       /**
@@ -2454,12 +2616,31 @@ export async function runChatAutoTurn(opts) {
   } catch (err) {
     const status = Number(err?.status) || 0;
     const detail = String(err?.message || err || "");
+    console.warn("[auto] tools path failed:", status, detail.slice(0, 240));
     const toolsUnsupported =
       status === 400 ||
       status === 404 ||
+      status === 500 ||
       /tool/i.test(detail) ||
       /function/i.test(detail) ||
-      /not support/i.test(detail);
+      /not support/i.test(detail) ||
+      /provider returned error/i.test(detail);
+    // Why: Gmail unread can still succeed via Composio without LLM tools.
+    if (looksLikeGmailInboxRequest(text) && runtime?.composioApiKey) {
+      try {
+        return finalize(
+          await runDeterministicGmailUnreadTurn({
+            runtime,
+            userText: text,
+            creds,
+            onDelta: stream ? delta : undefined,
+            track,
+          })
+        );
+      } catch (err2) {
+        console.warn("[auto] gmail fallback after tools fail:", err2?.message || err2);
+      }
+    }
     if (!toolsUnsupported && status >= 500) throw err;
   }
 

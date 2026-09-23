@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:40] Fix Grok “Provider returned error” on Gmail
+
+- **Prompt Provided:** Agent replied “I could not complete that turn. Provider returned error” on Gmail unread ask.
+- **Architectural Flow:** Skip LLM tool_choice for Gmail unread — deterministic Composio fetch + optional LLM polish / heuristic summary. Stop forcing named tool_choice (Grok 500). Log LLM failures; fallback to direct Gmail on tools path errors.
+- **Impacted Files:** chatAutoTurn.js, llmChat.js, PROMPT_LOG
+
 ## [2026-09-23 16:30] Fix Composio “couldn’t finish… send once more”
 
 - **Prompt Provided:** Agent replied “I couldn’t finish that Composio step cleanly — please send the same request once more” after Gmail unread ask.
