@@ -105,9 +105,27 @@ export const AUTO_CHAT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "composio_search",
+      description:
+        "Search Composio tools for this agent’s enabled apps (e.g. query \"send email\" or \"create issue\"). Returns tool slugs to pass to composio_execute. Prefer this over guessing GMAIL_* / SLACK_* names.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "What the user wants to do, in plain English",
+          },
+        },
+        required: ["query"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "composio_connect",
       description:
-        "Start Composio OAuth for one app enabled on this agent. Returns a redirectUrl the user must open to authorize. toolkit is a Composio slug (e.g. gmail, slack, github).",
+        "Start Composio OAuth for one app enabled on this agent. Returns redirectUrl — paste that URL in your reply so the user can click it. After they authorize, call composio_wait then retry.",
       parameters: {
         type: "object",
         properties: {
@@ -123,15 +141,33 @@ export const AUTO_CHAT_TOOLS = [
   {
     type: "function",
     function: {
+      name: "composio_wait",
+      description:
+        "Poll until a toolkit finishes OAuth (ACTIVE). Call after the user opens the connect link or says they connected. Then retry composio_execute.",
+      parameters: {
+        type: "object",
+        properties: {
+          toolkit: {
+            type: "string",
+            description: "Toolkit slug to wait for (e.g. gmail)",
+          },
+        },
+        required: ["toolkit"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
       name: "composio_execute",
       description:
-        "Run one Composio tool for a connected app enabled on this agent. tool must match an enabled toolkit prefix (e.g. GMAIL_*, SLACK_*). Pass JSON arguments for that tool. Prefer composio_list first; if not connected, use composio_connect.",
+        "Run one Composio tool for a connected app enabled on this agent. Prefer composio_search first for the tool slug. If not connected, use composio_connect then composio_wait.",
       parameters: {
         type: "object",
         properties: {
           tool: {
             type: "string",
-            description: "Composio tool slug, e.g. GMAIL_SEND_EMAIL or SLACK_SENDS_A_MESSAGE",
+            description: "Composio tool slug from composio_search, e.g. GMAIL_SEND_EMAIL",
           },
           arguments: {
             type: "object",
@@ -145,7 +181,7 @@ export const AUTO_CHAT_TOOLS = [
 ];
 
 /** Max model↔tool rounds in one Auto message (lookups + final reply/queue). */
-export const AUTO_CHAT_MAX_TOOL_ROUNDS = 4;
+export const AUTO_CHAT_MAX_TOOL_ROUNDS = 6;
 
 /**
  * @returns {{
@@ -946,7 +982,7 @@ export function parseAutoToolCalls(toolCalls) {
 /**
  * Classify the first tool call in a batch.
  * @param {{ id: string, name: string, arguments: string }} tc
- * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"composio_list"|"composio_connect"|"composio_execute"|"unknown"}
+ * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"composio_list"|"composio_search"|"composio_connect"|"composio_wait"|"composio_execute"|"unknown"}
  */
 export function classifyAutoToolName(tc) {
   const name = String(tc?.name || "")
@@ -961,7 +997,9 @@ export function classifyAutoToolName(tc) {
     return "list_peer_agents";
   }
   if (name === "composio_list" || name === "composio_status") return "composio_list";
+  if (name === "composio_search" || name === "composio_find_tools") return "composio_search";
   if (name === "composio_connect" || name === "composio_authorize") return "composio_connect";
+  if (name === "composio_wait" || name === "composio_wait_connect") return "composio_wait";
   if (name === "composio_execute" || name === "composio_run") return "composio_execute";
   return "unknown";
 }
@@ -998,7 +1036,13 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
       const data = await runtime.listPeerAgents();
       return typeof data === "string" ? data : JSON.stringify(data);
     }
-    if (kind === "composio_list" || kind === "composio_connect" || kind === "composio_execute") {
+    if (
+      kind === "composio_list" ||
+      kind === "composio_search" ||
+      kind === "composio_connect" ||
+      kind === "composio_wait" ||
+      kind === "composio_execute"
+    ) {
       // Why: product is agent-only Composio — chat uses the agent’s encrypted key only.
       const apiKey = String(runtime.composioApiKey || "").trim();
       if (!apiKey) {
@@ -1030,6 +1074,16 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         });
         return JSON.stringify(data).slice(0, 4000);
       }
+      if (kind === "composio_search") {
+        const { composioSearchTools } = await import("./composioService.js");
+        const data = await composioSearchTools({
+          apiKey,
+          query: args.query || args.q || args.search || "",
+          toolkitSlugs,
+          limit: 12,
+        });
+        return JSON.stringify(data).slice(0, 4000);
+      }
       if (kind === "composio_connect") {
         const { composioAuthorizeToolkit } = await import("./composioService.js");
         const result = await composioAuthorizeToolkit({
@@ -1045,9 +1099,20 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         return JSON.stringify({
           ...result,
           hint: result.ok
-            ? "Tell the user to open redirectUrl in their browser to finish connecting, then retry the action."
+            ? "Include redirectUrl as a plain URL in your reply so the user can click it. Then call composio_wait after they connect."
             : undefined,
         }).slice(0, 4000);
+      }
+      if (kind === "composio_wait") {
+        const { composioWaitForToolkit } = await import("./composioService.js");
+        const result = await composioWaitForToolkit({
+          userId,
+          apiKey,
+          toolkit: args.toolkit || args.app || args.slug,
+          toolkitSlugs,
+          timeoutMs: Number(args.timeoutMs) || 25_000,
+        });
+        return JSON.stringify(result).slice(0, 4000);
       }
       if (kind === "composio_execute") {
         const { composioExecuteTool } = await import("./composioService.js");
@@ -1067,6 +1132,16 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         });
         if (result.sessionId && typeof runtime.saveComposioSessionId === "function") {
           await runtime.saveComposioSessionId(result.sessionId).catch(() => {});
+        }
+        const errText = String(result.error || "").toLowerCase();
+        if (
+          !result.ok &&
+          /not connected|unauthorized|auth|no connected account|connect/i.test(errText)
+        ) {
+          return JSON.stringify({
+            ...result,
+            hint: "App may not be connected. Call composio_connect for that toolkit, then composio_wait, then retry.",
+          }).slice(0, 4000);
         }
         return JSON.stringify(result).slice(0, 4000);
       }
@@ -1354,6 +1429,8 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "REPLY / reply — answer in chat (no Chromium):",
     "- Questions, memory, capability, planning",
     "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
+    "- Flow: composio_list → composio_search (find tool slug) → if needed composio_connect (paste redirectUrl for the user) → composio_wait → composio_execute",
+    "- Always include the full https connect URL in your reply when composio_connect returns redirectUrl",
     "",
     "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
     "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
@@ -1656,7 +1733,7 @@ export async function runChatAutoTurn(opts) {
   // Native tools are non-streaming and left “Sending…” blank for the whole LLM wait.
   // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
   const wantsLookup =
-    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet)\b/i.test(
+    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet|notion|github|hubspot|connect (gmail|slack|notion)|send (a )?(slack|email)|i connected|connected)\b/i.test(
       text
     );
   if (stream && !wantsLookup) {
@@ -1723,7 +1800,9 @@ export async function runChatAutoTurn(opts) {
           kind === "check_run_status" ||
           kind === "list_peer_agents" ||
           kind === "composio_list" ||
+          kind === "composio_search" ||
           kind === "composio_connect" ||
+          kind === "composio_wait" ||
           kind === "composio_execute"
         );
       });

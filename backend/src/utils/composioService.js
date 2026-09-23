@@ -266,6 +266,150 @@ export async function getOrCreateComposioSession(opts) {
 }
 
 /**
+ * Search Composio tools for enabled toolkits (Phase 2 discovery).
+ * @param {{
+ *   apiKey: string,
+ *   query: string,
+ *   toolkitSlugs?: string[],
+ *   limit?: number,
+ * }} opts
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   tools: { slug: string, name: string, description: string, toolkit: string }[],
+ *   error?: string,
+ * }>}
+ */
+export async function composioSearchTools(opts) {
+  const apiKey = String(opts.apiKey || "").trim();
+  const query = String(opts.query || "").trim();
+  if (!apiKey) return { ok: false, tools: [], error: "missing_api_key" };
+  if (!query) return { ok: false, tools: [], error: "query required" };
+
+  const allowed = (Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  const client = await getClient(apiKey);
+  if (!client) return { ok: false, tools: [], error: "client_unavailable" };
+
+  const limit = Math.min(25, Math.max(1, Number(opts.limit) || 12));
+
+  try {
+    /** @type {any} */
+    let raw = null;
+    const listParams = {
+      search: query,
+      limit,
+      ...(allowed.length ? { toolkits: allowed } : {}),
+    };
+    if (typeof client.tools?.getRawComposioTools === "function") {
+      raw = await client.tools.getRawComposioTools(listParams);
+    } else if (typeof client.tools?.get === "function") {
+      raw = await client.tools.get("default", listParams);
+    }
+
+    const items = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : Array.isArray(raw?.tools)
+            ? raw.tools
+            : [];
+
+    /** @type {{ slug: string, name: string, description: string, toolkit: string }[]} */
+    const tools = [];
+    const seen = new Set();
+    for (const row of items) {
+      const slug = String(
+        row?.slug || row?.name || row?.function?.name || row?.tool_slug || ""
+      ).trim();
+      if (!slug || seen.has(slug)) continue;
+      if (allowed.length && !isToolAllowedForToolkits(slug, allowed)) continue;
+      seen.add(slug);
+      const toolkit = normalizeToolkitSlug(
+        row?.toolkit?.slug ||
+          row?.toolkit ||
+          row?.appName ||
+          slug.split("_")[0] ||
+          ""
+      );
+      tools.push({
+        slug,
+        name: String(row?.displayName || row?.name || slug).trim(),
+        description: String(
+          row?.description || row?.function?.description || ""
+        )
+          .trim()
+          .slice(0, 240),
+        toolkit,
+      });
+      if (tools.length >= limit) break;
+    }
+
+    return { ok: true, tools };
+  } catch (err) {
+    console.warn("[composio] search failed:", err?.message || err);
+    return {
+      ok: false,
+      tools: [],
+      error: String(err?.message || err || "search_failed"),
+    };
+  }
+}
+
+/**
+ * Poll until a toolkit shows as connected (ACTIVE), or timeout.
+ * @param {{
+ *   userId: string,
+ *   apiKey: string,
+ *   toolkit: string,
+ *   toolkitSlugs?: string[],
+ *   timeoutMs?: number,
+ * }} opts
+ */
+export async function composioWaitForToolkit(opts) {
+  const toolkit = normalizeToolkitSlug(opts.toolkit);
+  if (!toolkit) return { ok: false, connected: false, error: "toolkit required" };
+  const timeoutMs = Math.min(60_000, Math.max(3_000, Number(opts.timeoutMs) || 25_000));
+  const started = Date.now();
+  let last = null;
+  while (Date.now() - started < timeoutMs) {
+    last = await composioListStatus({
+      userId: opts.userId,
+      apiKey: opts.apiKey,
+      toolkitSlugs: opts.toolkitSlugs?.length ? opts.toolkitSlugs : [toolkit],
+    });
+    const hit = (last.connections || []).find((c) => {
+      const tk = normalizeToolkitSlug(c.toolkit);
+      const st = String(c.status || "").toLowerCase();
+      return (
+        tk === toolkit &&
+        (st === "active" || st === "connected" || st === "success" || st === "enabled")
+      );
+    });
+    if (hit) {
+      return {
+        ok: true,
+        connected: true,
+        toolkit,
+        connection: hit,
+        waitedMs: Date.now() - started,
+      };
+    }
+    await new Promise((r) => setTimeout(r, 2000));
+  }
+  return {
+    ok: false,
+    connected: false,
+    toolkit,
+    error: `Timed out waiting for ${toolkit} to connect. Finish OAuth in the browser, then try again.`,
+    connections: last?.connections || [],
+    waitedMs: Date.now() - started,
+  };
+}
+
+/**
  * Start OAuth / connect link for a toolkit.
  * @param {{
  *   userId: string,
@@ -273,6 +417,7 @@ export async function getOrCreateComposioSession(opts) {
  *   toolkit: string,
  *   sessionId?: string|null,
  *   toolkitSlugs?: string[],
+ *   callbackUrl?: string,
  * }} opts
  */
 export async function composioAuthorizeToolkit(opts) {
@@ -294,18 +439,30 @@ export async function composioAuthorizeToolkit(opts) {
   if (!sess.ok || !sess.session) return { ok: false, error: sess.error || "no_session" };
 
   try {
-    const request = await sess.session.authorize(toolkit);
+    const authOpts = {};
+    const cb = String(opts.callbackUrl || "").trim();
+    if (cb) authOpts.callbackUrl = cb;
+    const request = Object.keys(authOpts).length
+      ? await sess.session.authorize(toolkit, authOpts)
+      : await sess.session.authorize(toolkit);
     const redirectUrl = String(
       request?.redirectUrl || request?.redirect_url || request?.url || ""
     ).trim();
     if (!redirectUrl) {
       return { ok: false, error: "No connect URL returned from Composio.", sessionId: sess.sessionId };
     }
+    const connectionRequestId = String(
+      request?.id || request?.connectionId || request?.connectedAccountId || ""
+    ).trim();
     return {
       ok: true,
       redirectUrl,
       sessionId: sess.sessionId,
       toolkit,
+      connectionRequestId: connectionRequestId || null,
+      userMessage: `Open this link to connect ${toolkit}, finish authorizing, then reply “connected” (or wait) so I can continue:\n${redirectUrl}`,
+      nextStep:
+        "After the user finishes OAuth, call composio_wait with the same toolkit, then composio_search / composio_execute.",
     };
   } catch (err) {
     return {

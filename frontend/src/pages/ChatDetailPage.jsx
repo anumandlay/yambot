@@ -30,6 +30,7 @@ import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
+import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 export function ChatDetailPage() {
@@ -1517,9 +1518,7 @@ export function ChatDetailPage() {
                           <SkillPickNotice pick={skillPick} />
                         </div>
                       ) : null}
-                      <div className="whitespace-pre-wrap break-words">
-                        {humanizeGoalOrMessage(m.content, m.meta)}
-                      </div>
+                      <ChatMessageBody text={humanizeGoalOrMessage(m.content, m.meta)} />
                     </>
                   </article>
                 );

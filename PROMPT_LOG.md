@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 15:55] Composio Phase 2 — search, wait, connect UX
+
+- **Prompt Provided:** Let’s do Phase 2 (in-chat connect, tool search, agent Connect/Disconnect).
+- **Architectural Flow:** composio_search + composio_wait Auto tools; authorize returns userMessage/redirectUrl; agent routes status/connect/wait/disconnect; Agent edit Connect per app; ChatMessageBody linkifies URLs + Connect app button.
+- **Impacted Files:** composioService.js, chatAutoTurn.js, agents.js, AgentEditPage.jsx, ChatDetailPage.jsx, ChatMessageBody.jsx, chatMessageLinks.js, PROMPT_LOG
+
 ## [2026-09-23 15:45] Remove Settings → Composio (agent-only)
 
 - **Prompt Provided:** Remove /settings/composio — configure Composio based on agent only.

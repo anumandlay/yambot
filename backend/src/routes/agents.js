@@ -2081,6 +2081,194 @@ agentsRouter.delete("/:id/site-profiles/:domain", async (req, res, next) => {
 });
 
 /**
+ * Resolve agent + decrypted Composio key for agent-scoped Composio routes.
+ * @param {string} userId
+ * @param {string} agentId
+ * @returns {Promise<{ agent: import("mongoose").Document, apiKey: string }|null>}
+ */
+async function loadAgentComposioContext(userId, agentId) {
+  const agent = await Agent.findOne({ _id: agentId, user: userId });
+  if (!agent) return null;
+  const { decryptAgentComposioApiKey } = await import("../utils/composioService.js");
+  return { agent, apiKey: decryptAgentComposioApiKey(agent) };
+}
+
+/**
+ * GET /api/agents/:id/composio/status — connection status for enabled toolkits.
+ */
+agentsRouter.get("/:id/composio/status", async (req, res, next) => {
+  try {
+    const ctx = await loadAgentComposioContext(req.userId, req.params.id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!ctx.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "API key required",
+        detail: "Save a Composio API key on this agent first.",
+        toolkits: [],
+        connections: [],
+      });
+      return;
+    }
+    const { composioListStatus } = await import("../utils/composioService.js");
+    const status = await composioListStatus({
+      userId: req.userId,
+      apiKey: ctx.apiKey,
+      toolkitSlugs: Array.isArray(ctx.agent.composio?.toolkitSlugs)
+        ? ctx.agent.composio.toolkitSlugs
+        : [],
+    });
+    res.json({
+      ok: true,
+      enabled: Boolean(ctx.agent.composio?.enabled),
+      toolkitSlugs: status.toolkits?.map((t) => t.slug) || [],
+      connections: status.connections || [],
+      error: status.error || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/composio/connect — start OAuth for one enabled toolkit.
+ * Body: { toolkit: string }
+ */
+agentsRouter.post("/:id/composio/connect", async (req, res, next) => {
+  try {
+    const ctx = await loadAgentComposioContext(req.userId, req.params.id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!ctx.agent.composio?.enabled) {
+      res.status(400).json({
+        ok: false,
+        title: "Composio disabled",
+        detail: "Enable Composio on this agent first.",
+      });
+      return;
+    }
+    if (!ctx.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "API key required",
+        detail: "Save a Composio API key on this agent first.",
+      });
+      return;
+    }
+    const { composioAuthorizeToolkit } = await import("../utils/composioService.js");
+    const result = await composioAuthorizeToolkit({
+      userId: req.userId,
+      apiKey: ctx.apiKey,
+      toolkit: req.body?.toolkit,
+      sessionId: ctx.agent.composio?.sessionId,
+      toolkitSlugs: Array.isArray(ctx.agent.composio?.toolkitSlugs)
+        ? ctx.agent.composio.toolkitSlugs
+        : [],
+    });
+    if (!result.ok) {
+      res.status(400).json({
+        ok: false,
+        title: "Connect failed",
+        detail: result.error || "unknown",
+      });
+      return;
+    }
+    if (result.sessionId && result.sessionId !== ctx.agent.composio?.sessionId) {
+      ctx.agent.composio = ctx.agent.composio || {};
+      ctx.agent.composio.sessionId = result.sessionId;
+      ctx.agent.markModified("composio");
+      await ctx.agent.save();
+    }
+    res.json({
+      ok: true,
+      toolkit: result.toolkit,
+      redirectUrl: result.redirectUrl,
+      sessionId: result.sessionId,
+      message: "Open the connect URL to authorize this app, then Refresh status.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/composio/wait — poll until toolkit is connected.
+ * Body: { toolkit: string, timeoutMs?: number }
+ */
+agentsRouter.post("/:id/composio/wait", async (req, res, next) => {
+  try {
+    const ctx = await loadAgentComposioContext(req.userId, req.params.id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!ctx.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "API key required",
+        detail: "Save a Composio API key on this agent first.",
+      });
+      return;
+    }
+    const { composioWaitForToolkit } = await import("../utils/composioService.js");
+    const result = await composioWaitForToolkit({
+      userId: req.userId,
+      apiKey: ctx.apiKey,
+      toolkit: req.body?.toolkit,
+      toolkitSlugs: Array.isArray(ctx.agent.composio?.toolkitSlugs)
+        ? ctx.agent.composio.toolkitSlugs
+        : [],
+      timeoutMs: Number(req.body?.timeoutMs) || 25_000,
+    });
+    res.status(result.ok ? 200 : 408).json(result);
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/composio/connections/:connId — revoke a connected account.
+ */
+agentsRouter.delete("/:id/composio/connections/:connId", async (req, res, next) => {
+  try {
+    const ctx = await loadAgentComposioContext(req.userId, req.params.id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!ctx.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "API key required",
+        detail: "Save a Composio API key on this agent first.",
+      });
+      return;
+    }
+    const { composioDisconnectAccount } = await import("../utils/composioService.js");
+    const result = await composioDisconnectAccount({
+      apiKey: ctx.apiKey,
+      connectedAccountId: req.params.connId,
+    });
+    if (!result.ok) {
+      res.status(400).json({
+        ok: false,
+        title: "Disconnect failed",
+        detail: result.error || "unknown",
+      });
+      return;
+    }
+    res.json({ ok: true, message: "Disconnected." });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/agents/:id/llm/test — probe this agent's resolved LLM (profile or Settings).
  */
 agentsRouter.post("/:id/llm/test", async (req, res, next) => {

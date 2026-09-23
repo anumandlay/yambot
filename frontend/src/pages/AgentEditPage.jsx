@@ -163,6 +163,11 @@ export function AgentEditPage() {
   const [composioCatalogError, setComposioCatalogError] = useState("");
   const [composioAppFilter, setComposioAppFilter] = useState("");
   const [composioDropdownOpen, setComposioDropdownOpen] = useState(false);
+  /** @type {[Array<{id:string,toolkit:string,status:string,label:string}>, Function]} */
+  const [composioConnections, setComposioConnections] = useState([]);
+  const [composioStatusBusy, setComposioStatusBusy] = useState(false);
+  const [composioConnectBusy, setComposioConnectBusy] = useState("");
+
 
   useEffect(() => {
     if (!isNew) return;
@@ -298,6 +303,14 @@ export function AgentEditPage() {
       }
     })();
   }, [agentId, isNew]);
+
+  // Why: show Connected / Connect for selected Composio apps after the agent is saved.
+  useEffect(() => {
+    if (isNew || !agentId) return;
+    if (!form.composio?.enabled || !form.composio?.hasApiKey) return;
+    void refreshComposioStatus();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when enable/key flags change
+  }, [agentId, isNew, form.composio?.enabled, form.composio?.hasApiKey]);
 
   // Why: worker reports sizes on heartbeat — poll live so the Clear section stays current.
   useEffect(() => {
@@ -471,6 +484,83 @@ export function AgentEditPage() {
     } finally {
       setComposioCatalogBusy(false);
     }
+  }
+
+  /**
+   * Refresh OAuth connection status for selected toolkits.
+   */
+  async function refreshComposioStatus() {
+    if (isNew || !agentId) return;
+    setComposioStatusBusy(true);
+    try {
+      const data = await api(`/api/agents/${agentId}/composio/status`);
+      setComposioConnections(Array.isArray(data.connections) ? data.connections : []);
+    } catch {
+      setComposioConnections([]);
+    } finally {
+      setComposioStatusBusy(false);
+    }
+  }
+
+  /**
+   * @param {string} toolkit
+   */
+  async function connectComposioToolkit(toolkit) {
+    if (isNew || !agentId) return;
+    setComposioConnectBusy(toolkit);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api(`/api/agents/${agentId}/composio/connect`, {
+        method: "POST",
+        body: JSON.stringify({ toolkit }),
+      });
+      const url = String(data.redirectUrl || "").trim();
+      if (url) {
+        window.open(url, "_blank", "noopener,noreferrer");
+        setOkMsg(
+          data.message ||
+            "Opened the connect page. Finish authorizing, then click Refresh status."
+        );
+      } else {
+        setOkMsg(data.message || "Connect started.");
+      }
+    } catch (err) {
+      setError(err);
+    } finally {
+      setComposioConnectBusy("");
+    }
+  }
+
+  /**
+   * @param {string} connectionId
+   */
+  async function disconnectComposioConnection(connectionId) {
+    if (isNew || !agentId || !connectionId) return;
+    if (!window.confirm("Disconnect this Composio app?")) return;
+    setError(null);
+    try {
+      await api(
+        `/api/agents/${agentId}/composio/connections/${encodeURIComponent(connectionId)}`,
+        { method: "DELETE" }
+      );
+      setOkMsg("Disconnected.");
+      await refreshComposioStatus();
+    } catch (err) {
+      setError(err);
+    }
+  }
+
+  /**
+   * @param {string} slug
+   * @returns {object|null}
+   */
+  function composioConnectionFor(slug) {
+    const s = String(slug || "").toLowerCase();
+    return (
+      composioConnections.find((c) => String(c.toolkit || "").toLowerCase() === s) ||
+      null
+    );
   }
 
   /**
@@ -1486,8 +1576,8 @@ export function AgentEditPage() {
             Composio apps
           </SectionTitle>
           <p className="text-xs text-teal-900/70">
-            Paste a Composio API key for this agent, then pick which apps Auto chat may use (Gmail,
-            Slack, GitHub, …). OAuth tokens stay in Composio — connect when the agent asks.
+            Paste a Composio API key, pick apps, then Connect each app (OAuth). In Auto chat the agent
+            can search tools, send connect links, wait for OAuth, and execute — without the browser.
           </p>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
@@ -1538,12 +1628,73 @@ export function AgentEditPage() {
                 <p className="mt-1 text-xs text-amber-800">{composioCatalogError}</p>
               ) : null}
               {(form.composio?.toolkitSlugs || []).length > 0 ? (
-                <p className="mt-2 text-xs text-teal-900/80">
-                  Selected:{" "}
-                  <span className="font-semibold">
-                    {(form.composio.toolkitSlugs || []).join(", ")}
-                  </span>
-                </p>
+                <div className="mt-3 flex flex-col gap-2">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <p className="text-xs font-semibold text-teal-900">Selected apps</p>
+                    {!isNew ? (
+                      <button
+                        type="button"
+                        disabled={composioStatusBusy || !form.composio?.enabled}
+                        onClick={() => void refreshComposioStatus()}
+                        className="rounded-lg border border-teal-200 bg-white px-2 py-1 text-xs font-semibold text-teal-900 disabled:opacity-50"
+                      >
+                        {composioStatusBusy ? "Refreshing…" : "Refresh status"}
+                      </button>
+                    ) : null}
+                  </div>
+                  <ul className="flex flex-col gap-2">
+                    {(form.composio.toolkitSlugs || []).map((slug) => {
+                      const conn = composioConnectionFor(slug);
+                      const connected =
+                        conn &&
+                        /active|connected|success|enabled/i.test(String(conn.status || ""));
+                      return (
+                        <li
+                          key={slug}
+                          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm"
+                        >
+                          <div>
+                            <span className="font-semibold text-teal-950">{slug}</span>
+                            <span className="ml-2 text-xs text-teal-900/60">
+                              {connected
+                                ? `Connected (${conn.status})`
+                                : conn
+                                  ? `Status: ${conn.status}`
+                                  : "Not connected"}
+                            </span>
+                          </div>
+                          {!isNew && form.composio?.enabled ? (
+                            <div className="flex flex-wrap gap-2">
+                              <button
+                                type="button"
+                                disabled={Boolean(composioConnectBusy)}
+                                onClick={() => void connectComposioToolkit(slug)}
+                                className="min-h-9 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white disabled:opacity-50"
+                              >
+                                {composioConnectBusy === slug
+                                  ? "Opening…"
+                                  : connected
+                                    ? "Reconnect"
+                                    : "Connect"}
+                              </button>
+                              {conn?.id ? (
+                                <button
+                                  type="button"
+                                  onClick={() => void disconnectComposioConnection(conn.id)}
+                                  className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
+                                >
+                                  Disconnect
+                                </button>
+                              ) : null}
+                            </div>
+                          ) : (
+                            <span className="text-xs text-teal-900/50">Save agent to connect</span>
+                          )}
+                        </li>
+                      );
+                    })}
+                  </ul>
+                </div>
               ) : (
                 <p className="mt-2 text-xs text-teal-900/60">
                   No apps selected yet — load the catalog and check the ones you want.
