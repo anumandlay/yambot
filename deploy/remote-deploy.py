@@ -147,6 +147,9 @@ def main() -> int:
     ai_gateway_key = os.environ.get("AI_GATEWAY_API_KEY") or keep("AI_GATEWAY_API_KEY", "")
     jev_enabled = os.environ.get("JEV_ENABLED") or keep("JEV_ENABLED", "")
     jev_model = os.environ.get("JEV_MODEL") or keep("JEV_MODEL", "typesafe-ai/jev")
+    # Why: Composio Phase-1 — keep server key across deploys; optional local override.
+    composio_api_key = os.environ.get("COMPOSIO_API_KEY") or keep("COMPOSIO_API_KEY", "")
+    composio_enabled = os.environ.get("COMPOSIO_ENABLED") or keep("COMPOSIO_ENABLED", "")
     superadmin_email = keep("SUPERADMIN_BOOTSTRAP_EMAIL", "")
     superadmin_password = keep("SUPERADMIN_BOOTSTRAP_PASSWORD", "")
     superadmin_name = keep("SUPERADMIN_BOOTSTRAP_NAME", "Platform Admin")
@@ -189,6 +192,8 @@ def main() -> int:
         f"AI_GATEWAY_API_KEY={ai_gateway_key}\n"
         f"JEV_ENABLED={jev_enabled}\n"
         f"JEV_MODEL={jev_model}\n"
+        f"COMPOSIO_API_KEY={composio_api_key}\n"
+        f"COMPOSIO_ENABLED={composio_enabled}\n"
         f"SUPERADMIN_BOOTSTRAP_EMAIL={superadmin_email}\n"
         f"SUPERADMIN_BOOTSTRAP_PASSWORD={superadmin_password}\n"
         f"SUPERADMIN_BOOTSTRAP_NAME={superadmin_name}\n"
