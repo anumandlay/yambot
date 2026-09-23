@@ -25,7 +25,6 @@ import {
   publicComposioSummary,
   normalizeToolkitSlug,
   composioListCatalog,
-  resolveComposioApiKey,
   COMPOSIO_DEFAULT_TOOLKITS,
 } from "../utils/composioService.js";
 import { computeAgentReadiness } from "../utils/agentReadiness.js";
@@ -530,7 +529,7 @@ agentsRouter.post("/draft-from-brief", async (req, res, next) => {
 
 /**
  * POST /api/agents/composio/catalog — list Composio apps for the agent settings dropdown.
- * Body: { apiKey?: string, agentId?: string } — posted key, else agent’s saved key, else server.
+ * Body: { apiKey?: string, agentId?: string } — posted key or the agent’s saved key.
  */
 agentsRouter.post("/composio/catalog", async (req, res, next) => {
   try {
@@ -544,12 +543,12 @@ agentsRouter.post("/composio/catalog", async (req, res, next) => {
         agentKey = decryptAgentComposioApiKey(doc);
       }
     }
-    const apiKey = resolveComposioApiKey({ agentApiKey: posted || agentKey });
+    const apiKey = posted || agentKey;
     if (!apiKey) {
       res.status(400).json({
         ok: false,
         title: "API key required",
-        detail: "Paste a Composio API key on the agent, or set COMPOSIO_API_KEY on the server.",
+        detail: "Paste a Composio API key on this agent, then Load apps.",
         toolkits: COMPOSIO_DEFAULT_TOOLKITS.map((t) => ({ ...t })),
       });
       return;

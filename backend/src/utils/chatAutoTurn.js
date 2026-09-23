@@ -999,17 +999,13 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
       return typeof data === "string" ? data : JSON.stringify(data);
     }
     if (kind === "composio_list" || kind === "composio_connect" || kind === "composio_execute") {
-      const {
-        resolveComposioApiKey,
-      } = await import("./composioService.js");
-      const apiKey = resolveComposioApiKey({
-        agentApiKey: runtime.composioApiKey,
-      });
+      // Why: product is agent-only Composio — chat uses the agent’s encrypted key only.
+      const apiKey = String(runtime.composioApiKey || "").trim();
       if (!apiKey) {
         return JSON.stringify({
           ok: false,
           detail:
-            "No Composio API key. Add one under Agents → edit → Composio (or set COMPOSIO_API_KEY on the server).",
+            "No Composio API key on this agent. Open Agents → edit → Composio, paste a key, enable apps, and save.",
         });
       }
       if (runtime.composioEnabled === false) {

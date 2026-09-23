@@ -709,7 +709,7 @@ export const HELP = {
     title: "Composio apps",
     body: helpBody(
       "Lets this agent connect third-party apps (Gmail, Slack, GitHub, …) via Composio OAuth. Paste an API key from app.composio.dev, load the catalog, and check the apps Auto chat may use.",
-      "OAuth tokens stay in Composio. Server COMPOSIO_API_KEY remains an optional fallback."
+      "OAuth tokens stay in Composio. Configure per agent only — there is no Settings → Composio page."
     ),
   },
   "agent.composio.apiKey": {

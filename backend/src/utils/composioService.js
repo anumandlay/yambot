@@ -2,7 +2,7 @@
  * @fileoverview Composio integration — per-agent API key + selected toolkits.
  * Purpose: Agents connect apps via Composio OAuth; Auto chat can list/connect/execute
  * without loading the full 1500-app catalog into every prompt.
- * Downstream: agent edit Settings, settings/composio routes, chatAutoTurn lookup tools.
+ * Downstream: Agent edit UI, agents composio catalog route, chatAutoTurn lookup tools.
  */
 
 import { env } from "./env.js";

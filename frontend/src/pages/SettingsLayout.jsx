@@ -38,9 +38,6 @@ export function SettingsLayout() {
         <NavLink to="/settings/memory" className={tabClass}>
           Memory
         </NavLink>
-        <NavLink to="/settings/composio" className={tabClass}>
-          Composio
-        </NavLink>
       </nav>
 
       <Outlet />

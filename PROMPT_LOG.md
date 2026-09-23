@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 15:45] Remove Settings → Composio (agent-only)
+
+- **Prompt Provided:** Remove /settings/composio — configure Composio based on agent only.
+- **Architectural Flow:** Deleted SettingsComposioPage + nav/route; removed /api/settings/composio*. Chat + catalog use the agent’s encrypted key/session only (no user Settings session / server-key chat path).
+- **Impacted Files:** SettingsComposioPage.jsx (deleted), App.jsx, SettingsLayout.jsx, settings.js, chats.js, agents.js, chatAutoTurn.js, composioService.js, helpContent.js, PROMPT_LOG
+
 ## [2026-09-23 15:30] Agent settings — Composio API key + apps dropdown
 
 - **Prompt Provided:** Add a section to add API key in agent settings, and a dropdown to select apps from Composio.
