@@ -683,12 +683,19 @@ export async function composioExecuteTool(opts) {
     };
   }
 
-  // Why: old sessions lock toolkits — recreate when Drive→Sheets expansion adds googlesheets.
+  // Why: stale sessions often return empty Sheets/Drive lists even when accounts are connected.
   const expandedExtra = expandedSlugs.some((s) => !originalSlugs.includes(s));
+  const needsFreshSession =
+    Boolean(opts.forceNewSession) ||
+    expandedExtra ||
+    /GOOGLESHEETS_SEARCH_SPREADSHEETS|GOOGLEDRIVE_FIND_FILE|GOOGLEDRIVE_LIST_FILES/i.test(
+      tool
+    );
   const sess = await getOrCreateComposioSession({
     ...opts,
     toolkitSlugs: expandedSlugs,
-    forceNewSession: Boolean(opts.forceNewSession) || expandedExtra,
+    forceNewSession: needsFreshSession,
+    sessionId: needsFreshSession ? null : opts.sessionId,
   });
   if (!sess.ok || !sess.session) return { ok: false, error: sess.error || "no_session" };
 

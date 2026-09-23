@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 19:35] Fresh session for Sheets list + email the list
+
+- **Prompt Provided:** list spreadsheets + send to email → No spreadsheets found (SEARCH) despite live API returning sheets.
+- **Architectural Flow:** Stale Composio session returned empty lists — force fresh session for SEARCH/FIND_FILE. After a successful list, if the ask includes send/email + address, send via GMAIL_SEND_EMAIL.
+- **Impacted Files:** composioService.js, composioAutoRuntime.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 19:20] Fix empty Sheets list — strip “using composio” from query
 
 - **Prompt Provided:** list spreadsheets using composio → No spreadsheets found (GOOGLEDRIVE_FIND_FILE).

@@ -1238,6 +1238,7 @@ export async function runDeterministicComposioIntentTurn(opts) {
     /^Google Sheet/i.test(content) ||
     /^Google Spreadsheets/i.test(content) ||
     /^No spreadsheets found/i.test(content) ||
+    /Also emailed this list/i.test(content) ||
     /^Connect /i.test(content) ||
     /^To (post|read|label)/i.test(content);
   if (!ran.ok && !ran.needsConnect && !looksStructured) {

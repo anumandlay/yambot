@@ -1010,6 +1010,27 @@ export function composioResultNeedsConnect(resultText) {
 }
 
 /**
+ * @param {string} text
+ * @returns {string}
+ */
+export function parseEmailRecipient(text) {
+  const m = String(text || "").match(/\b([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,})\b/i);
+  return m?.[1] ? m[1].trim() : "";
+}
+
+/**
+ * List spreadsheets and optionally email the list (compound Auto ask).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSheetsListEmailRequest(text) {
+  const t = String(text || "");
+  if (!looksLikeSheetsListRequest(t)) return false;
+  if (!/\b(send|email|e-?mail|mail)\b/i.test(t)) return false;
+  return Boolean(parseEmailRecipient(t));
+}
+
+/**
  * List spreadsheets via the real Composio slug only (SEARCH), with Drive mime fallback.
  * Why: GOOGLESHEETS_LIST_SPREADSHEETS does not exist — retrying it only produces “not found”.
  * @param {{
@@ -1062,6 +1083,74 @@ export async function runSheetsList(opts) {
     };
   }
 
+  /**
+   * @param {{ ok: boolean, tool?: string, resultText: string, content: string, needsConnect?: boolean }} listResult
+   */
+  async function maybeEmailList(listResult) {
+    const to = parseEmailRecipient(userText);
+    const wantsEmail =
+      Boolean(to) && /\b(send|email|e-?mail|mail)\b/i.test(String(userText || ""));
+    if (!listResult.ok || !wantsEmail || !to) return listResult;
+
+    const body = String(listResult.content || "").trim();
+    const subject = "Your spreadsheet list";
+    const sendText = await executeLookup("composio_execute", runtime, {
+      tool: "GMAIL_SEND_EMAIL",
+      arguments: {
+        recipient_email: to,
+        recipientEmail: to,
+        to,
+        subject,
+        body,
+        message_body: body,
+        messageBody: body,
+        is_html: false,
+      },
+    });
+    const sendJson = parseOk(sendText);
+    if (composioResultNeedsConnect(sendText)) {
+      const connect = await connectLadder("gmail");
+      return {
+        ...connect,
+        content: `${body}\n\nCould not email this list yet — connect Gmail first:\n${connect.content}`,
+      };
+    }
+    if (sendJson?.ok) {
+      return {
+        ok: true,
+        tool: listResult.tool,
+        resultText: listResult.resultText,
+        content: `${body}\n\nAlso emailed this list to ${to}.`,
+      };
+    }
+    // Try alternate send slug once
+    const altText = await executeLookup("composio_execute", runtime, {
+      tool: "GMAIL_SEND_EMAIL",
+      arguments: {
+        to,
+        recipient_email: to,
+        subject,
+        body,
+      },
+    });
+    const altJson = parseOk(altText);
+    if (altJson?.ok) {
+      return {
+        ok: true,
+        tool: listResult.tool,
+        resultText: listResult.resultText,
+        content: `${body}\n\nAlso emailed this list to ${to}.`,
+      };
+    }
+    const err = String(sendJson?.error || sendJson?.detail || altJson?.error || "send failed");
+    return {
+      ok: true,
+      tool: listResult.tool,
+      resultText: listResult.resultText,
+      content: `${body}\n\nListed spreadsheets, but emailing ${to} failed: ${err}`,
+    };
+  }
+
   const primary = "GOOGLESHEETS_SEARCH_SPREADSHEETS";
   const searchText = await executeLookup("composio_execute", runtime, {
     tool: primary,
@@ -1069,18 +1158,18 @@ export async function runSheetsList(opts) {
   });
   const searchJson = parseOk(searchText);
   if (searchJson?.ok && extractSpreadsheetRows(searchJson.data ?? searchJson).length) {
-    return {
+    return maybeEmailList({
       ok: true,
       tool: primary,
       resultText: searchText,
       content: formatSheetsListSummaryFromToolResult(searchText, primary),
-    };
+    });
   }
   if (composioResultNeedsConnect(searchText)) {
     return connectLadder("googlesheets");
   }
 
-  // Why: empty Sheets search or tool/session issues — list via Drive mime filter (no leftover “composio” text).
+  // Why: empty Sheets search or tool/session issues — list via Drive mime filter.
   const mimeQ = "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
   const driveQ = args.query
     ? `(name contains '${String(args.query).replace(/'/g, "\\'")}') and ${mimeQ}`
@@ -1110,17 +1199,16 @@ export async function runSheetsList(opts) {
     if (driveJson?.ok) {
       const rows = extractSpreadsheetRows(driveJson.data ?? driveJson);
       if (rows.length) {
-        return {
+        return maybeEmailList({
           ok: true,
           tool: driveTool,
           resultText: driveText,
           content: formatSheetsListSummaryFromToolResult(driveText, driveTool),
-        };
+        });
       }
     }
   }
 
-  // Prefer Sheets connect when primary Sheets call failed and Drive found nothing.
   const sheetsErr = String(searchJson?.error || searchJson?.detail || "").toLowerCase();
   if (/not connected|unauthorized|auth|no connected|not found|toolkit/i.test(sheetsErr)) {
     return connectLadder("googlesheets");
