@@ -1,7 +1,7 @@
 /**
- * @fileoverview Agent memory viewer — curated MEMORY, day history, notes, credentials.
- * Purpose: Inspect Hermes-style curated notes plus day logs and site logins.
- * Downstream: GET/POST `/api/agents/:id/memory`, curated-memory, credentials.
+ * @fileoverview Agent memory viewer — curated MEMORY, Mem0 facts, day history, notes, credentials.
+ * Purpose: Inspect Mongo curated notes plus Mem0/Qdrant agent facts from chat “remember”.
+ * Downstream: GET/POST `/api/agents/:id/memory`, curated-memory, curated-memory/mem0, credentials.
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
@@ -98,6 +98,9 @@ export function AgentMemoryPage() {
   const [curatedUsage, setCuratedUsage] = useState("");
   const [curatedUpdatedAt, setCuratedUpdatedAt] = useState(null);
   const [curatedDraft, setCuratedDraft] = useState("");
+  const [mem0Items, setMem0Items] = useState([]);
+  const [mem0Enabled, setMem0Enabled] = useState(false);
+  const [mem0Open, setMem0Open] = useState(false);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState({});
   const [credForm, setCredForm] = useState(EMPTY_CRED);
@@ -127,6 +130,8 @@ export function AgentMemoryPage() {
       setCuratedEntries(items.map((i) => i.content));
       setCuratedUsage(data.curatedMemory?.usage || "");
       setCuratedUpdatedAt(data.curatedMemory?.updatedAt || null);
+      setMem0Enabled(Boolean(data.mem0Enabled));
+      setMem0Items(Array.isArray(data.mem0Items) ? data.mem0Items : []);
       setError(null);
     } catch (err) {
       setError(err);
@@ -139,11 +144,18 @@ export function AgentMemoryPage() {
     load();
   }, [load]);
 
-  // Why: History "Curated memory" links with #curated; section mounts after load finishes.
+  // Why: History links use #curated / #mem0; section mounts after load finishes.
   useEffect(() => {
     if (busy) return;
     if (typeof window === "undefined") return;
-    if (window.location.hash !== "#curated") return;
+    const hash = window.location.hash;
+    if (hash === "#mem0") {
+      setMem0Open(true);
+      const el = document.getElementById("mem0");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+      return;
+    }
+    if (hash !== "#curated") return;
     const el = document.getElementById("curated");
     if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [busy]);
@@ -155,6 +167,10 @@ export function AgentMemoryPage() {
   const filteredCurated = useMemo(
     () => curatedItems.filter((item) => textMatches(filter, item.content)),
     [curatedItems, filter]
+  );
+  const filteredMem0 = useMemo(
+    () => mem0Items.filter((item) => textMatches(filter, item.content)),
+    [mem0Items, filter]
   );
   const filteredCreds = useMemo(
     () => credentials.filter((c) => credMatches(filter, c)),
@@ -343,6 +359,66 @@ export function AgentMemoryPage() {
     }
   }
 
+  /**
+   * @param {string} id
+   */
+  async function onRemoveMem0(id) {
+    if (!agentId || !window.confirm("Remove this Mem0 agent fact?")) return;
+    setCuratedBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api(
+        `/api/agents/${agentId}/curated-memory/mem0/${encodeURIComponent(id)}`,
+        { method: "DELETE" }
+      );
+      setMem0Items(Array.isArray(data.mem0Items) ? data.mem0Items : []);
+      setOkMsg(data.message || "Mem0 entry removed.");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setCuratedBusy(false);
+    }
+  }
+
+  async function onClearMem0() {
+    if (
+      !agentId ||
+      !window.confirm("Clear all Mem0 facts for this agent? Mongo curated MEMORY is kept.")
+    ) {
+      return;
+    }
+    setCuratedBusy(true);
+    setError(null);
+    setOkMsg("");
+    try {
+      const data = await api(`/api/agents/${agentId}/curated-memory?mem0Only=1`, {
+        method: "DELETE",
+      });
+      setMem0Items([]);
+      setOkMsg(data.message || "Mem0 agent facts cleared.");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setCuratedBusy(false);
+    }
+  }
+
+  function openMem0Section() {
+    setMem0Open(true);
+    if (typeof window !== "undefined") {
+      window.history.replaceState(
+        null,
+        "",
+        `${window.location.pathname}${window.location.search}#mem0`
+      );
+    }
+    requestAnimationFrame(() => {
+      const el = document.getElementById("mem0");
+      if (el) el.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
+
   return (
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-wrap items-center gap-2">
@@ -380,10 +456,29 @@ export function AgentMemoryPage() {
       </div>
 
       <p className="text-sm text-teal-900/70">
-        Curated MEMORY (durable facts, 20,000 char cap). Each run injects the top facts
-        relevant to that goal (semantic when your LLM supports embeddings). Day history and
-        episodic notes stay separate. Account USER prefs live under Settings → Memory.
+        Curated MEMORY (durable facts, 20,000 char cap). Chat “remember …” and Auto ingest also
+        write Mem0 agent facts (separate store — use View Mem0 below). Day history and episodic
+        notes stay separate. Account USER prefs live under Settings → Memory.
       </p>
+
+      {!busy ? (
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={openMem0Section}
+            className="inline-flex min-h-11 items-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-sm font-semibold text-amber-950"
+          >
+            View Mem0
+            {mem0Enabled ? ` (${mem0Items.length})` : " (off)"}
+          </button>
+          <a
+            href="#curated"
+            className="inline-flex min-h-11 items-center rounded-xl border border-teal-100 bg-white px-3 text-sm font-semibold text-teal-900"
+          >
+            Jump to curated
+          </a>
+        </div>
+      ) : null}
 
       {!busy ? (
         <input
@@ -491,6 +586,84 @@ export function AgentMemoryPage() {
                 </button>
               </div>
             </form>
+          </section>
+
+          <section
+            id="mem0"
+            className="scroll-mt-4 rounded-2xl border border-amber-100 bg-amber-50/40 p-4 shadow-sm"
+          >
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <SectionTitle className="mb-0">
+                Mem0 agent facts
+                {mem0Enabled ? ` (${mem0Items.length})` : " (off)"}
+              </SectionTitle>
+              <button
+                type="button"
+                onClick={() => setMem0Open((o) => !o)}
+                className="min-h-9 rounded-lg border border-amber-200 bg-white px-3 text-xs font-semibold text-amber-950"
+              >
+                {mem0Open ? "Hide" : "Show"}
+              </button>
+            </div>
+            <p className="mb-3 text-xs text-teal-800/80">
+              Semantic store for this agent (chat remember / Auto ingest). Not the same as Mongo
+              curated MEMORY above. Account-wide Mem0 USER prefs: Settings → Memory.
+            </p>
+            {!mem0Open ? (
+              <p className="text-sm text-teal-900/60">
+                Hidden — click Show or View Mem0 to list facts
+                {mem0Enabled && mem0Items.length ? ` (${mem0Items.length} stored)` : ""}.
+              </p>
+            ) : !mem0Enabled ? (
+              <p className="text-sm text-teal-900/60">Mem0 is disabled on this server.</p>
+            ) : (
+              <>
+                <ul className="mb-3 space-y-2">
+                  {filteredMem0.length === 0 ? (
+                    <li className="text-sm text-teal-900/60">
+                      {mem0Items.length === 0
+                        ? "No Mem0 agent facts yet."
+                        : "No Mem0 facts match this search."}
+                    </li>
+                  ) : (
+                    filteredMem0.map((item) => (
+                      <li
+                        key={item.id}
+                        className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-100 bg-white px-3 py-2 text-sm"
+                      >
+                        <div className="min-w-0 flex-1">
+                          {item.createdAt ? (
+                            <div className="text-[0.7rem] font-semibold text-amber-900/60">
+                              {fmtWhen(item.createdAt)}
+                              {item.source ? ` · ${item.source}` : ""}
+                            </div>
+                          ) : null}
+                          <span className="mt-0.5 block whitespace-pre-wrap text-teal-950">
+                            {item.content}
+                          </span>
+                        </div>
+                        <button
+                          type="button"
+                          disabled={curatedBusy}
+                          onClick={() => onRemoveMem0(item.id)}
+                          className="min-h-9 shrink-0 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-800"
+                        >
+                          Remove
+                        </button>
+                      </li>
+                    ))
+                  )}
+                </ul>
+                <button
+                  type="button"
+                  disabled={curatedBusy || mem0Items.length === 0}
+                  onClick={() => void onClearMem0()}
+                  className="min-h-10 rounded-xl border border-rose-200 bg-white px-3 text-sm font-semibold text-rose-800 disabled:opacity-50"
+                >
+                  Clear Mem0 agent facts
+                </button>
+              </>
+            )}
           </section>
 
           <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 15:00] Agent Memory — View Mem0 agent facts
+
+- **Prompt Provided:** Show a view button for Mem0 on Agents → Memory / Curated (Mongo-only before).
+- **Architectural Flow:** GET agent memory returns mem0Items; DELETE mem0/:id and ?mem0Only=1; AgentMemoryPage View Mem0 + list/remove/clear; History “View Mem0” → #mem0.
+- **Impacted Files:** agents.js, AgentMemoryPage.jsx, HistoryPage.jsx, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-23 14:52] Remove user-visible “Hermes” wording
 
 - **Prompt Provided:** remove words hermes — Answered in chat (Hermes Auto — no computer)…

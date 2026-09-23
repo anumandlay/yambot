@@ -434,7 +434,7 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
         <p className="text-[0.7rem] text-amber-900/80">
           Includes {curated.mem0.userMerged} Mem0 USER fact
           {curated.mem0.userMerged === 1 ? "" : "s"} — manage under Settings → Memory → Mem0
-          USER prefs.
+          USER prefs. Agent Mem0: Agents → View memory → View Mem0.
         </p>
       ) : null}    </div>
   );

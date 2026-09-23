@@ -1555,6 +1555,23 @@ agentsRouter.get("/:id/memory", async (req, res, next) => {
     );
     const curatedMemory = getAgentCuratedMemoryPublic(agent);
     const curatedUser = await getUserCuratedMemory(req.userId);
+    // Why: chat “remember …” lands in Mem0 agent scope; Mongo curated UI alone looked empty.
+    let mem0Items = [];
+    let mem0Enabled = false;
+    try {
+      const { isMem0Enabled, mem0ListFacts } = await import("../utils/mem0Service.js");
+      mem0Enabled = isMem0Enabled();
+      if (mem0Enabled) {
+        mem0Items = await mem0ListFacts({
+          userId: req.userId,
+          agentId: String(agent._id),
+          scope: "agent",
+          limit: 100,
+        });
+      }
+    } catch (err) {
+      console.warn("[agents] mem0 list failed:", err?.message || err);
+    }
     res.json({
       ok: true,
       agent: { id: String(agent._id), name: agent.name || "Agent" },
@@ -1564,6 +1581,8 @@ agentsRouter.get("/:id/memory", async (req, res, next) => {
       credentials,
       curatedMemory,
       curatedUser,
+      mem0Enabled,
+      mem0Items,
     });
   } catch (err) {
     next(err);
@@ -1620,18 +1639,109 @@ agentsRouter.put("/:id/curated-memory", async (req, res, next) => {
 });
 
 /**
+ * DELETE /api/agents/:id/curated-memory/mem0/:mem0Id — remove one Mem0 agent fact.
+ * Why: chat ingest + Memory chip write agent-scoped vectors; operators need delete parity with Settings USER Mem0.
+ */
+agentsRouter.delete("/:id/curated-memory/mem0/:mem0Id", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("_id")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    const { mem0DeleteFact, mem0ListFacts, isMem0Enabled } = await import(
+      "../utils/mem0Service.js"
+    );
+    if (!isMem0Enabled()) {
+      res.status(400).json({
+        ok: false,
+        title: "Mem0 disabled",
+        detail: "Long-term Mem0 store is not enabled on this server.",
+      });
+      return;
+    }
+    const result = await mem0DeleteFact({ userId: req.userId, id: req.params.mem0Id });
+    if (!result.ok) {
+      const status = result.skipped === "forbidden" ? 403 : 404;
+      res.status(status).json({
+        ok: false,
+        title: "Delete failed",
+        detail: result.skipped || "unknown",
+      });
+      return;
+    }
+    const mem0Items = await mem0ListFacts({
+      userId: req.userId,
+      agentId: String(agent._id),
+      scope: "agent",
+      limit: 100,
+    });
+    res.json({ ok: true, message: "Mem0 entry removed.", mem0Items });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * DELETE /api/agents/:id/curated-memory — clear agent MEMORY store (not day logs).
+ * Query: ?mem0=1 also clears Mem0 agent vectors; ?mem0Only=1 clears only Mem0.
  */
 agentsRouter.delete("/:id/curated-memory", async (req, res, next) => {
   try {
-    const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
-    const result = await setCuratedMemoryEntries({
-      userId: req.userId,
-      agentId: req.params.id,
-      target: "memory",
-      entries: [],
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId })
+      .select("_id")
+      .lean();
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+
+    const mem0Only =
+      req.query?.mem0Only === "1" ||
+      req.query?.mem0Only === "true" ||
+      req.body?.mem0Only === true;
+    const clearMem0 =
+      mem0Only ||
+      req.query?.mem0 === "1" ||
+      req.query?.mem0 === "true" ||
+      req.body?.clearMem0 === true;
+
+    let mongoResult = { success: true, message: "skipped" };
+    if (!mem0Only) {
+      const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
+      mongoResult = await setCuratedMemoryEntries({
+        userId: req.userId,
+        agentId: req.params.id,
+        target: "memory",
+        entries: [],
+      });
+    }
+
+    let mem0Cleared = false;
+    if (clearMem0 || mem0Only) {
+      const { mem0ClearScope } = await import("../utils/mem0Service.js");
+      const r = await mem0ClearScope({
+        userId: req.userId,
+        agentId: String(agent._id),
+        scope: "agent",
+      });
+      mem0Cleared = Boolean(r.ok);
+    }
+
+    res.json({
+      ok: true,
+      ...mongoResult,
+      mem0Cleared,
+      message: mem0Only
+        ? mem0Cleared
+          ? "Mem0 agent facts cleared."
+          : "Mem0 clear failed or disabled."
+        : clearMem0
+          ? "Agent MEMORY cleared (Mongo + Mem0)."
+          : mongoResult.message || "Agent MEMORY cleared.",
     });
-    res.json({ ok: true, ...result });
   } catch (err) {
     next(err);
   }

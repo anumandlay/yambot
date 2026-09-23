@@ -79,6 +79,12 @@ function HistoryRow({ agent, archived, busy, onRestore }) {
         >
           Curated memory
         </Link>
+        <Link
+          to={`/history/agents/${agent.id}/memory#mem0`}
+          className="inline-flex min-h-10 items-center rounded-xl border border-amber-200 bg-amber-50 px-3 text-xs font-semibold text-amber-950"
+        >
+          View Mem0
+        </Link>
         {!archived && agent.primaryChatId ? (
           <Link
             to={`/chats/${agent.primaryChatId}`}
