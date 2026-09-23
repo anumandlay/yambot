@@ -1278,6 +1278,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
         }
         assistantContent = sanitizeFakeComposioActionReply(assistantContent);
+        if (!String(assistantContent || "").trim()) {
+          assistantContent =
+            "I couldn’t finish the Gmail/Composio step. Check Agent → Composio (API key, Gmail enabled + connected), then send the same request again.";
+        }
         autoTiming = turn.timing || null;
         const timingLine = formatAutoTimingSummary(autoTiming);
         const assistantMessage = await Message.create({
@@ -1493,6 +1497,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
       }
       assistantContent = sanitizeFakeComposioActionReply(String(assistantContent || ""));
+      if (!String(assistantContent || "").trim()) {
+        assistantContent =
+          "I couldn’t finish the Gmail/Composio step. Check Agent → Composio (API key, Gmail enabled + connected), then send the same request again.";
+      }
 
       const assistantMessage = await Message.create({
         chat: chat._id,

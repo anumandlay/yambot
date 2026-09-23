@@ -1007,6 +1007,29 @@ export function looksLikeFakeComposioActionText(content) {
 }
 
 /**
+ * Extract args inside the first balanced `(…)` after `from` (handles nested JSON).
+ * Why: naive [^)]* truncates ACTION: composio_execute(tool=X, arguments={…}).
+ * @param {string} raw
+ * @param {number} from
+ * @returns {{ args: string, end: number }|null}
+ */
+function extractBalancedParenArgs(raw, from) {
+  const s = String(raw || "");
+  const open = s.indexOf("(", from);
+  if (open < 0) return null;
+  let depth = 0;
+  for (let i = open; i < s.length; i++) {
+    const ch = s[i];
+    if (ch === "(") depth += 1;
+    else if (ch === ")") {
+      depth -= 1;
+      if (depth === 0) return { args: s.slice(open + 1, i), end: i + 1 };
+    }
+  }
+  return null;
+}
+
+/**
  * Parse fake ACTION: composio_list() / composio_search(query="…") lines into lookup specs.
  * @param {string} content
  * @returns {{ kind: string, args: object }[]}
@@ -1015,9 +1038,9 @@ export function parseFakeComposioActionText(content) {
   const raw = String(content || "");
   /** @type {{ kind: string, args: object }[]} */
   const out = [];
-  const re = /ACTION\s*:\s*(composio_\w+)\s*\(([^)]*)\)/gi;
+  const headRe = /ACTION\s*:\s*(composio_\w+)\s*/gi;
   let m;
-  while ((m = re.exec(raw)) !== null) {
+  while ((m = headRe.exec(raw)) !== null) {
     const name = String(m[1] || "").trim().toLowerCase();
     const kind = classifyAutoToolName({ name });
     if (
@@ -1029,7 +1052,9 @@ export function parseFakeComposioActionText(content) {
     ) {
       continue;
     }
-    const argStr = String(m[2] || "").trim();
+    const balanced = extractBalancedParenArgs(raw, m.index + m[0].length - 1);
+    const argStr = String(balanced?.args || "").trim();
+    if (balanced) headRe.lastIndex = Math.max(headRe.lastIndex, balanced.end);
     /** @type {Record<string, unknown>} */
     const args = {};
     if (argStr) {
@@ -1050,6 +1075,11 @@ export function parseFakeComposioActionText(content) {
       if (tool && !args.tool) args.tool = tool[1].trim();
       const toolkit = argStr.match(/(?:toolkit|app)\s*[=:]\s*["']?([A-Za-z0-9_-]+)["']?/i);
       if (toolkit && !args.toolkit) args.toolkit = toolkit[1].trim();
+      // Why: models put tool slug as first positional: composio_execute(GMAIL_FETCH_EMAILS, …)
+      if (!args.tool && kind === "composio_execute") {
+        const pos = argStr.match(/^\s*["']?([A-Z][A-Z0-9_]{3,})["']?\s*(?:,|$)/);
+        if (pos) args.tool = pos[1].trim();
+      }
     }
     // Why: bare composio_search() with no query — use the user text if we have it later.
     out.push({ kind, args });
@@ -1059,6 +1089,7 @@ export function parseFakeComposioActionText(content) {
 
 /**
  * Strip leftover fake ACTION: composio_* lines from a user-visible reply.
+ * Why: never show the old “send the same request once more” dead-end — empty means keep looping upstream.
  * @param {string} content
  * @param {string} [fallback]
  * @returns {string}
@@ -1066,14 +1097,143 @@ export function parseFakeComposioActionText(content) {
 export function sanitizeFakeComposioActionReply(content, fallback) {
   const raw = String(content || "").trim();
   if (!looksLikeFakeComposioActionText(raw)) return raw;
-  const cleaned = raw
-    .replace(/ACTION\s*:\s*composio_\w+\s*\([^)]*\)\s*/gi, "")
-    .trim();
+  // Strip balanced ACTION: composio_*(…) spans (nested parens OK).
+  let cleaned = raw;
+  const headRe = /ACTION\s*:\s*composio_\w+\s*/gi;
+  let m;
+  const cuts = [];
+  while ((m = headRe.exec(raw)) !== null) {
+    const start = m.index;
+    const balanced = extractBalancedParenArgs(raw, m.index + m[0].length - 1);
+    const end = balanced ? balanced.end : Math.min(raw.length, start + m[0].length);
+    cuts.push([start, end]);
+    if (balanced) headRe.lastIndex = Math.max(headRe.lastIndex, end);
+  }
+  for (let i = cuts.length - 1; i >= 0; i--) {
+    cleaned = cleaned.slice(0, cuts[i][0]) + cleaned.slice(cuts[i][1]);
+  }
+  cleaned = cleaned.replace(/\n{3,}/g, "\n\n").trim();
   if (cleaned.length >= 8) return cleaned;
-  return String(
-    fallback ||
-      "I couldn’t finish that Composio step cleanly — please send the same request once more."
-  ).trim();
+  return String(fallback || "").trim();
+}
+
+/**
+ * Gmail inbox / unread summarize asks (deterministic Composio path).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeGmailInboxRequest(text) {
+  const t = String(text || "").toLowerCase();
+  if (!/\b(gmail|google\s*mail|inbox)\b/.test(t)) return false;
+  return /\b(unread|emails?|messages?|inbox|summarize|top\s*\d+)\b/.test(t);
+}
+
+/**
+ * Pick the best Composio Gmail list/fetch tool from search hits.
+ * @param {{ slug?: string, name?: string, description?: string }[]} tools
+ * @returns {string}
+ */
+export function pickBestComposioGmailFetchTool(tools) {
+  const rows = Array.isArray(tools) ? tools : [];
+  const preferred = [
+    "GMAIL_FETCH_EMAILS",
+    "GMAIL_LIST_MESSAGES",
+    "GMAIL_GET_EMAILS",
+    "GMAIL_SEARCH_MESSAGES",
+    "GMAIL_LIST_THREADS",
+    "GMAIL_FETCH_MESSAGES",
+    "GMAIL_GET_MESSAGES",
+  ];
+  const slugs = rows
+    .map((r) => String(r?.slug || r?.name || "").trim().toUpperCase())
+    .filter(Boolean);
+  for (const p of preferred) {
+    if (slugs.includes(p)) return p;
+  }
+  const scored = slugs
+    .filter((s) => s.startsWith("GMAIL_"))
+    .map((s) => {
+      let score = 0;
+      if (/FETCH|LIST|SEARCH|GET/.test(s)) score += 3;
+      if (/EMAIL|MESSAGE|THREAD|INBOX/.test(s)) score += 2;
+      if (/SEND|CREATE|DELETE|REPLY|DRAFT/.test(s)) score -= 5;
+      return { s, score };
+    })
+    .sort((a, b) => b.score - a.score);
+  return scored[0]?.score > 0 ? scored[0].s : "";
+}
+
+/**
+ * Gmail search query + common arg aliases for unread-from-today.
+ * @param {string} [userText]
+ * @returns {Record<string, unknown>}
+ */
+export function buildGmailUnreadToolArgs(userText = "") {
+  const now = new Date();
+  const y = now.getFullYear();
+  const m = String(now.getMonth() + 1).padStart(2, "0");
+  const d = String(now.getDate()).padStart(2, "0");
+  const ymdSlash = `${y}/${m}/${d}`;
+  const query = `is:unread after:${ymdSlash}`;
+  const topMatch = String(userText || "").match(/\btop\s*(\d{1,2})\b/i);
+  const max = Math.min(10, Math.max(1, Number(topMatch?.[1]) || 5));
+  return {
+    query,
+    q: query,
+    search: query,
+    max_results: max,
+    maxResults: max,
+    limit: max,
+    label_ids: ["UNREAD"],
+    labelIds: ["UNREAD"],
+  };
+}
+
+/**
+ * Search + execute a Gmail fetch tool without waiting for the model.
+ * @param {object} runtime
+ * @param {string} userText
+ * @returns {Promise<{ ok: boolean, tool?: string, resultText: string }>}
+ */
+export async function autoExecuteGmailUnread(runtime, userText) {
+  const searchText = await executeAutoLookupTool("composio_search", runtime, {
+    query: "gmail fetch list unread emails messages inbox",
+  });
+  /** @type {any} */
+  let searchJson = null;
+  try {
+    searchJson = JSON.parse(searchText);
+  } catch {
+    searchJson = null;
+  }
+  const tool = pickBestComposioGmailFetchTool(searchJson?.tools || []);
+  if (!tool) {
+    return {
+      ok: false,
+      resultText: JSON.stringify({
+        ok: false,
+        search: searchJson || searchText.slice(0, 1500),
+        detail:
+          "No Gmail fetch/list tool found. Enable Gmail under Agent → Composio, or connect Gmail with composio_connect.",
+      }),
+    };
+  }
+  const resultText = await executeAutoLookupTool("composio_execute", runtime, {
+    tool,
+    arguments: buildGmailUnreadToolArgs(userText),
+  });
+  /** @type {any} */
+  let execJson = null;
+  try {
+    execJson = JSON.parse(resultText);
+  } catch {
+    execJson = null;
+  }
+  return {
+    ok: Boolean(execJson?.ok),
+    tool,
+    resultText,
+  };
 }
 
 /**
@@ -1250,18 +1410,28 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
       }
       if (kind === "composio_execute") {
         const { composioExecuteTool } = await import("./composioService.js");
-        const toolArgs =
-          args.arguments && typeof args.arguments === "object"
+        const toolSlug = String(args.tool || args.slug || args.action || "").trim();
+        let toolArgs =
+          args.arguments && typeof args.arguments === "object" && !Array.isArray(args.arguments)
             ? args.arguments
-            : args.params && typeof args.params === "object"
+            : args.params && typeof args.params === "object" && !Array.isArray(args.params)
               ? args.params
-              : {};
+              : null;
+        // Why: fake ACTION / flat tool calls put query/max_results on the top-level args object.
+        if (!toolArgs) {
+          toolArgs = { ...args };
+          delete toolArgs.tool;
+          delete toolArgs.slug;
+          delete toolArgs.action;
+          delete toolArgs.arguments;
+          delete toolArgs.params;
+        }
         const result = await composioExecuteTool({
           userId,
           apiKey,
           sessionId: runtime.composioSessionId,
           toolkitSlugs,
-          tool: args.tool || args.slug || args.action,
+          tool: toolSlug,
           arguments: toolArgs,
         });
         if (result.sessionId && typeof runtime.saveComposioSessionId === "function") {
@@ -1929,11 +2099,18 @@ export async function runChatAutoTurn(opts) {
         timeoutMs: 60_000,
         messages,
         tools: AUTO_CHAT_TOOLS,
-        // Why: first round for Gmail/Slack asks — force composio_search so the model cannot stall with “hold on…”.
-        toolChoice:
-          composioIntent && round === 0
-            ? { type: "function", function: { name: "composio_search" } }
-            : "auto",
+        // Why: Gmail/Slack asks — force search first, then execute so the model cannot stall or print ACTION:.
+        toolChoice: (() => {
+          if (!composioIntent) return "auto";
+          const steps = summarizeComposioLookups(track.getLookups());
+          if (round === 0 || !steps.searched) {
+            return { type: "function", function: { name: "composio_search" } };
+          }
+          if (!steps.executed) {
+            return { type: "function", function: { name: "composio_execute" } };
+          }
+          return "auto";
+        })(),
       });
 
       /**
@@ -1967,7 +2144,7 @@ export async function runChatAutoTurn(opts) {
       }
 
       /**
-       * If the model tries to end with a stall / filler, run search or nudge execute.
+       * If the model tries to end with a stall / ACTION: / filler, run search/execute or nudge.
        * @param {string} replyText
        * @returns {Promise<boolean>} true if the loop should continue
        */
@@ -1975,8 +2152,21 @@ export async function runChatAutoTurn(opts) {
         if (!composioIntent) return false;
         const steps = summarizeComposioLookups(track.getLookups());
         const stall = looksLikeComposioStallReply(replyText);
-        if (steps.executed && !stall) return false;
-        if (!steps.executed && (stall || !steps.searched)) {
+        const fakeAction = looksLikeFakeComposioActionText(replyText);
+        const cleaned = fakeAction
+          ? sanitizeFakeComposioActionReply(replyText, "")
+          : String(replyText || "").trim();
+        const emptyOrActionOnly = !cleaned || cleaned.length < 8;
+
+        // Real prose summary after execute — allow through.
+        if (steps.executed && !stall && !fakeAction && cleaned.length >= 8) return false;
+
+        if (fakeAction) {
+          const ran = await runFakeComposioActionsFromText(replyText);
+          if (ran) return true;
+        }
+
+        if (!steps.executed) {
           if (!steps.searched) {
             track.addLookup("composio_search");
             const resultText = await executeAutoLookupTool("composio_search", runtime, {
@@ -1987,22 +2177,38 @@ export async function runChatAutoTurn(opts) {
               content:
                 `[COMPOSIO TOOL RESULT for composio_search]\n${resultText.slice(0, 3500)}\n\n` +
                 "Now call composio_execute with the best GMAIL_* (or matching) tool slug and arguments, " +
-                "then reply with a real summary of unread emails. Do not say hold on.",
+                "then reply with a real summary of unread emails. Do not say hold on. Never print ACTION: lines.",
+            });
+            return true;
+          }
+          // Why: searched but model still stalls / ACTION-only — run Gmail fetch ourselves.
+          if (looksLikeGmailInboxRequest(text)) {
+            track.addLookup("composio_search");
+            track.addLookup("composio_execute");
+            const auto = await autoExecuteGmailUnread(runtime, text);
+            messages.push({
+              role: "user",
+              content:
+                `[COMPOSIO TOOL RESULT for composio_execute${auto.tool ? ` (${auto.tool})` : ""}]\n` +
+                `${String(auto.resultText || "").slice(0, 3500)}\n\n` +
+                "Using ONLY this JSON, reply in plain prose with the top unread emails (sender + subject + one-line gist). " +
+                "If not connected, tell the user to Connect Gmail. Never say hold on. Never print ACTION: lines.",
             });
             return true;
           }
           messages.push({
             role: "user",
             content:
-              "[SYSTEM] Do not stall with “hold on / I’ll dig”. Call composio_execute now using a tool slug from the search results, then summarize the unread emails in plain prose for the user.",
+              "[SYSTEM] Do not stall or print ACTION: lines. Call composio_execute now using a tool slug from the search results, then summarize in plain prose.",
           });
           return true;
         }
-        if (stall && steps.executed) {
+
+        if (stall || emptyOrActionOnly || fakeAction) {
           messages.push({
             role: "user",
             content:
-              "[SYSTEM] You already ran composio_execute. Reply now with the actual summary (senders/subjects) — no filler.",
+              "[SYSTEM] You already ran composio_execute. Reply now with the actual summary (senders/subjects) — no filler, no ACTION: lines.",
           });
           return true;
         }
@@ -2050,10 +2256,19 @@ export async function runChatAutoTurn(opts) {
         if (terminal.action === "reply" && (await rejectPrematureComposioReply(terminal.content))) {
           continue;
         }
+        const finalContent = sanitizeFakeComposioActionReply(terminal.content || "", "");
+        // Why: never surface empty / ACTION-stripped dead-end to the user.
+        if (
+          terminal.action === "reply" &&
+          composioIntent &&
+          (!finalContent || finalContent.length < 8)
+        ) {
+          if (await rejectPrematureComposioReply(terminal.content || "")) continue;
+        }
         track.markDecision(terminal.action);
         const out = finalize({
           ...terminal,
-          content: sanitizeFakeComposioActionReply(terminal.content || ""),
+          content: finalContent || terminal.content || "",
           reason: round === 0 ? "model_auto_tool_call" : "model_auto_tool_loop",
           timing: track.finish(),
         });
@@ -2109,6 +2324,33 @@ export async function runChatAutoTurn(opts) {
           if (kind === "composio_search" && !toolArgs.query) {
             toolArgs = { ...toolArgs, query: text };
           }
+          // Why: forced composio_execute often arrives with empty tool slug — finish Gmail ourselves.
+          if (
+            kind === "composio_execute" &&
+            !(toolArgs.tool || toolArgs.slug || toolArgs.action) &&
+            looksLikeGmailInboxRequest(text)
+          ) {
+            const auto = await autoExecuteGmailUnread(runtime, text);
+            track.addLookup("composio_search");
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCallId,
+              content: String(auto.resultText || "").slice(0, 4000),
+            });
+            continue;
+          }
+          if (kind === "composio_execute" && !(toolArgs.tool || toolArgs.slug || toolArgs.action)) {
+            messages.push({
+              role: "tool",
+              tool_call_id: toolCallId,
+              content: JSON.stringify({
+                ok: false,
+                detail:
+                  "composio_execute requires a tool slug from composio_search (e.g. GMAIL_FETCH_EMAILS). Call composio_search first, then retry with tool + arguments.",
+              }),
+            });
+            continue;
+          }
           const resultText = await executeAutoLookupTool(kind, runtime, toolArgs);
           messages.push({
             role: "tool",
@@ -2133,10 +2375,14 @@ export async function runChatAutoTurn(opts) {
         if (!parsed.content && !parsed.goal) {
           parsed = recoverMalformedAutoOutput(msg.content, text);
         }
+        const finalContent = sanitizeFakeComposioActionReply(parsed.content || "", "");
+        if (composioIntent && (!finalContent || finalContent.length < 8)) {
+          if (await rejectPrematureComposioReply(msg.content)) continue;
+        }
         track.markDecision(parsed.action);
         const out = finalize({
           ...parsed,
-          content: sanitizeFakeComposioActionReply(parsed.content || ""),
+          content: finalContent || parsed.content || "",
           reason: "model_auto_turn_after_tools",
           timing: track.finish(),
         });

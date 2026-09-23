@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:30] Fix Composio “couldn’t finish… send once more”
+
+- **Prompt Provided:** Agent replied “I couldn’t finish that Composio step cleanly — please send the same request once more” after Gmail unread ask.
+- **Architectural Flow:** Nested-paren ACTION parser; never surface ACTION-stripped dead-end; force search then execute; autoExecuteGmailUnread when model stalls/empty after search; flat execute args; chats.js empty fallback.
+- **Impacted Files:** chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-23 16:20] Fix Composio stall “Hold on while I pull the unread”
 
 - **Prompt Provided:** Agent replied “Fine, I'll dig through your inbox… Hold on while I pull the unread” instead of summarizing Gmail.
