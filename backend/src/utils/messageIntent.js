@@ -172,7 +172,7 @@ export function looksLikeComposioAppRequest(text) {
   }
   // Phrases that almost always mean API inbox/app, not “open the site”.
   if (
-    /\b(unread (emails?|mail|messages?)|summarize .{0,40}(inbox|emails?)|list .{0,40}(inbox|emails?)|send (a )?slack|post (to|in) (slack|#))\b/i.test(
+    /\b(unread\s+(e-?mails?|mail|messages?)|(e-?mails?|mail|messages?)\s+unread|last\s+\d+\s+(e-?mails?|mails?|messages?)|summarize .{0,40}(inbox|e-?mails?)|list .{0,40}(inbox|e-?mails?)|send (a )?slack|post (to|in) (slack|#))\b/i.test(
       lower
     )
   ) {

@@ -18,13 +18,52 @@
  */
 
 /**
+ * Gmail / inbox unread list asks (deterministic Composio path).
+ * Why: users often say “last 5 emails unread” without the word Gmail.
  * @param {string} text
  * @returns {boolean}
  */
 export function looksLikeGmailInboxRequest(text) {
-  const t = String(text || "").toLowerCase();
-  if (!/\b(gmail|google\s*mail|inbox)\b/.test(t)) return false;
-  return /\b(unread|emails?|messages?|inbox|summarize|top\s*\d+)\b/.test(t);
+  const t = String(text || "").toLowerCase().trim();
+  if (!t) return false;
+  // Explicit browse of the Gmail website → computer job, not Composio.
+  if (
+    /\b(open|go to|navigate|visit|launch)\b[\s\S]{0,40}\b(gmail\.com|mail\.google)\b/.test(t) ||
+    /\b(open|go to|navigate|visit)\b[\s\S]{0,20}\bhttps?:\/\/[^\s]*gmail/.test(t)
+  ) {
+    return false;
+  }
+
+  const hasMail =
+    /\b(gmail|google\s*mail|inbox|e-?mails?|mails?|messages?)\b/.test(t) ||
+    /\bcomposio\b/.test(t);
+  const hasUnread = /\bunread\b/.test(t);
+  const hasListCue =
+    /\b(last|top|recent|latest)\s+\d+\b/.test(t) ||
+    /\b(summarize|list|give\s+me|show\s+me|fetch|get|find|search|pull)\b/.test(t);
+
+  // unread + mail words in either order
+  if (hasUnread && /\b(e-?mails?|mails?|messages?|gmail|inbox)\b/.test(t)) return true;
+  // last/top N emails
+  if (/\b(last|top|recent|latest)\s+\d+\s+(e-?mails?|mails?|messages?)\b/.test(t)) return true;
+  // named gmail/inbox + list/unread cue
+  if (/\b(gmail|google\s*mail|inbox)\b/.test(t) && (hasUnread || hasListCue)) return true;
+  // “using composio” + mail + list/unread
+  if (/\bcomposio\b/.test(t) && hasMail && (hasUnread || hasListCue)) return true;
+  // give/get/show + emails + unread-ish
+  if (hasMail && hasListCue && (hasUnread || /\b(inbox|e-?mails?)\b/.test(t))) return true;
+  return false;
+}
+
+/**
+ * True when the model printed a fake worker-style ACTION: check_email() line.
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function looksLikeFakeInboxActionText(content) {
+  return /ACTION\s*:\s*(check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail)\s*\(/i.test(
+    String(content || "")
+  );
 }
 
 /**
@@ -56,8 +95,9 @@ export function looksLikeSheetsReadRequest(text) {
  * @returns {Record<string, unknown>}
  */
 export function buildGmailUnreadToolArgs(userText = "") {
-  const topMatch = String(userText || "").match(/\btop\s*(\d{1,2})\b/i);
-  const max = Math.min(10, Math.max(1, Number(topMatch?.[1]) || 5));
+  const raw = String(userText || "");
+  const nMatch = raw.match(/\b(?:top|last|recent|latest)\s*(\d{1,2})\b/i) || raw.match(/\b(\d{1,2})\s+(?:e-?mails?|mails?|messages?)\b/i);
+  const max = Math.min(10, Math.max(1, Number(nMatch?.[1]) || 5));
   const query = "is:unread newer_than:1d";
   return {
     query,

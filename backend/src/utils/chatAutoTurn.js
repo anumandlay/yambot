@@ -21,12 +21,14 @@ import {
   matchComposioIntent,
   compactComposioExecuteResult,
   runComposioIntentExecute,
+  looksLikeFakeInboxActionText,
 } from "./composioAutoRuntime.js";
 
 export {
   looksLikeGmailInboxRequest,
   looksLikeSlackSendRequest,
   looksLikeSheetsReadRequest,
+  looksLikeFakeInboxActionText,
   compactComposioExecuteResult,
   matchComposioIntent,
   buildGmailUnreadToolArgs,
@@ -1018,7 +1020,10 @@ export function parseAutoToolCalls(toolCalls) {
  * @returns {boolean}
  */
 export function looksLikeFakeComposioActionText(content) {
-  return /ACTION\s*:\s*composio_\w+\s*\(/i.test(String(content || ""));
+  const t = String(content || "");
+  return (
+    /ACTION\s*:\s*composio_\w+\s*\(/i.test(t) || looksLikeFakeInboxActionText(t)
+  );
 }
 
 /**
@@ -1111,10 +1116,12 @@ export function parseFakeComposioActionText(content) {
  */
 export function sanitizeFakeComposioActionReply(content, fallback) {
   const raw = String(content || "").trim();
-  if (!looksLikeFakeComposioActionText(raw)) return raw;
-  // Strip balanced ACTION: composio_*(…) spans (nested parens OK).
+  if (!looksLikeFakeComposioActionText(raw) && !looksLikeFakeInboxActionText(raw)) {
+    return raw;
+  }
+  // Strip balanced ACTION: composio_*(…) and ACTION: check_email(…) spans.
   let cleaned = raw;
-  const headRe = /ACTION\s*:\s*composio_\w+\s*/gi;
+  const headRe = /ACTION\s*:\s*(?:composio_\w+|check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail)\s*/gi;
   let m;
   const cuts = [];
   while ((m = headRe.exec(raw)) !== null) {
@@ -1746,7 +1753,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
     "- Flow: composio_search (find tool slug) → if needed composio_connect (paste redirectUrl) → composio_wait → composio_execute",
     "- Always include the full https connect URL in your reply when composio_connect returns redirectUrl",
-    "- Never write fake lines like ACTION: composio_list() — call the native composio_* tools instead, then reply in plain prose",
+    "- Never write fake lines like ACTION: composio_list() or ACTION: check_email() — call native composio_* tools (or the runtime will), then reply in plain prose",
     "",
     "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
     "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
@@ -2269,7 +2276,22 @@ export async function runChatAutoTurn(opts) {
           }
           continue;
         }
-        // Why: models reply with ACTION: composio_list() instead of native tool_calls.
+        // Why: models reply with ACTION: composio_*() or ACTION: check_email() instead of native tools.
+        if (terminal.action === "reply" && looksLikeFakeInboxActionText(terminal.content)) {
+          const mappedFake = matchComposioIntent(text) || matchComposioIntent("unread emails gmail");
+          if (mappedFake && runtime?.composioApiKey) {
+            return finalize(
+              await runDeterministicComposioIntentTurn({
+                runtime,
+                userText: text,
+                creds,
+                onDelta: typeof delta === "function" ? delta : undefined,
+                track,
+                spec: mappedFake,
+              })
+            );
+          }
+        }
         if (
           terminal.action === "reply" &&
           looksLikeFakeComposioActionText(terminal.content)
@@ -2284,9 +2306,22 @@ export async function runChatAutoTurn(opts) {
         // Why: never surface empty / ACTION-stripped dead-end to the user.
         if (
           terminal.action === "reply" &&
-          composioIntent &&
-          (!finalContent || finalContent.length < 8)
+          (!finalContent || finalContent.length < 8) &&
+          (composioIntent || looksLikeFakeInboxActionText(terminal.content || ""))
         ) {
+          const mappedEmpty = matchComposioIntent(text);
+          if (mappedEmpty && runtime?.composioApiKey) {
+            return finalize(
+              await runDeterministicComposioIntentTurn({
+                runtime,
+                userText: text,
+                creds,
+                onDelta: typeof delta === "function" ? delta : undefined,
+                track,
+                spec: mappedEmpty,
+              })
+            );
+          }
           if (await rejectPrematureComposioReply(terminal.content || "")) continue;
         }
         track.markDecision(terminal.action);
@@ -2392,7 +2427,22 @@ export async function runChatAutoTurn(opts) {
         continue;
       }
 
-      // Why: free-text "ACTION: composio_list()" with no tool_calls — run it for real.
+      // Why: free-text "ACTION: composio_*()" / "ACTION: check_email()" with no tool_calls.
+      if (msg.content && looksLikeFakeInboxActionText(msg.content)) {
+        const mappedFake = matchComposioIntent(text) || matchComposioIntent("unread emails gmail");
+        if (mappedFake && runtime?.composioApiKey) {
+          return finalize(
+            await runDeterministicComposioIntentTurn({
+              runtime,
+              userText: text,
+              creds,
+              onDelta: typeof delta === "function" ? delta : undefined,
+              track,
+              spec: mappedFake,
+            })
+          );
+        }
+      }
       if (msg.content && looksLikeFakeComposioActionText(msg.content)) {
         const ran = await runFakeComposioActionsFromText(msg.content);
         if (ran) continue;

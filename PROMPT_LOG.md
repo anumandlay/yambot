@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 17:25] Match “last 5 emails unread” + kill ACTION: check_email
+
+- **Prompt Provided:** “Give me last 5 emails unread” → ACTION: check_email; “using composio” → Provider returned error.
+- **Architectural Flow:** Broaden gmail_unread / composio intent match (emails unread either order, last N emails); parse last/top N into max_results; intercept ACTION: check_email → deterministic Composio fetch; strip fake inbox ACTION lines.
+- **Impacted Files:** composioAutoRuntime.js, messageIntent.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 17:10] Shared Composio intent runtime (Gmail/Slack/Sheets)
 
 - **Prompt Provided:** Implement the solution — intent → known tool → compact → reply for all apps, not Gmail-only.
