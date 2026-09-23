@@ -58,7 +58,6 @@ import { BotsRosterPage } from "./pages/BotsRosterPage.jsx";
 import { HistoryPage } from "./pages/HistoryPage.jsx";
 import { AgentChatHistoryPage } from "./pages/AgentChatHistoryPage.jsx";
 import { GrokStyleLayout, GrokStylePage } from "./pages/GrokStylePage.jsx";
-import { JevLabPage } from "./pages/JevLabPage.jsx";
 
 const COLLAPSE_KEY = "yambot.sidebar.collapsed";
 
@@ -239,7 +238,6 @@ export default function App() {
               <Route path="rooms" element={<RoomsPage />} />
               <Route path="rooms/:roomId" element={<RoomDetailPage />} />
               <Route path="bots" element={<BotsRosterPage />} />
-              <Route path="jev-lab" element={<JevLabPage />} />
               <Route path=":chatId" element={<ChatDetailPage />} />
             </Route>
           </Route>

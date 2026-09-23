@@ -73,7 +73,6 @@ export function GrokStylePage() {
   /** Why: rooms routes sit under /grok/rooms; treat that path as an active middle pane. */
   const onRooms = location.pathname.startsWith("/grok/rooms");
   const onBots = location.pathname.startsWith("/grok/bots");
-  const onJevLab = location.pathname.startsWith("/grok/jev-lab");
   const [agents, setAgents] = useState([]);
   const [groups, setGroups] = useState([]);
   const [chats, setChats] = useState([]);
@@ -340,17 +339,6 @@ export function GrokStylePage() {
           >
             Bots roster
           </Link>
-          <Link
-            to="/grok/jev-lab"
-            onClick={() => setAgentsOpen(false)}
-            className={`mb-2 flex min-h-9 w-full items-center rounded-lg px-2.5 text-left text-xs font-bold ${
-              onJevLab
-                ? "bg-emerald-700 text-white"
-                : "text-emerald-900 hover:bg-emerald-50"
-            }`}
-          >
-            Jev lab (A/B)
-          </Link>
           {rooms.length === 0 ? (
             <p className="px-1 py-2 text-xs text-teal-900/60">No rooms yet — tap + to create.</p>
           ) : (
@@ -437,7 +425,7 @@ export function GrokStylePage() {
     </aside>
   );
 
-  const showOutlet = Boolean(chatId) || onRooms || onBots || onJevLab;
+  const showOutlet = Boolean(chatId) || onRooms || onBots;
 
   return (
     <div className="relative flex h-full min-h-0 w-full flex-1 flex-col lg:flex-row">

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 09:52] Remove /grok/jev-lab A/B page
+
+- **Prompt Provided:** Remove /grok/jev-lab page.
+- **Architectural Flow:** Deleted JevLabPage, grok rail link, route, and dry-run POST /api/agents/:id/jev-lab. Production Auto Jev gate (AI Gateway) remains.
+- **Impacted Files:** App.jsx, GrokStylePage.jsx, JevLabPage.jsx (deleted), agents.js, PROMPT_LOG
+
 ## [2026-09-23 09:40] Jev lab A/B page (dual threads under /grok)
 
 - **Prompt Provided:** Put a toggle on grok-style page, or a test page with one message box and two chat thread viewers.
