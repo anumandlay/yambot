@@ -11,13 +11,13 @@ Web control plane + cloud browser agents (always-on Chromium per agent on the VP
 On a fresh **Ubuntu 22.04/24.04** (or Debian) machine with root/sudo:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/main/install.sh | bash
 ```
 
 With your domain + HTTPS (DNS A record → the VPS first):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/main/install.sh | bash -s -- \
   --domain bot.example.com \
   --email you@example.com
 ```
@@ -25,7 +25,7 @@ curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/instal
 Optional LLM seed:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/main/install.sh | bash -s -- \
   --domain bot.example.com \
   --email you@example.com \
   --llm-key "YOUR_LLM_API_KEY"

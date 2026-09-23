@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 13:20] Promote experiment → main; retire experiment branch
+
+- **Prompt Provided:** Delete main branch and make experiment branch as main.
+- **Architectural Flow:** Fast-forward remote `main` to former `experiment` tip; delete remote `experiment`; point install.sh/README at `main`.
+- **Impacted Files:** install.sh, README.md, deploy/README.md, deploy/.env.example, PROMPT_LOG; git branch rename on GitHub
+
 ## [2026-09-23 13:15] Fix type Illegal invocation in setNativeValue
 
 - **Prompt Provided:** Step 15 type failed — frame.evaluate TypeError: Illegal invocation at setNativeValue.

@@ -4,17 +4,17 @@
 # =============================================================================
 # Paste on a fresh Ubuntu/Debian VPS (root or sudo):
 #
-#   curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash
+#   curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/main/install.sh | bash
 #
 # With a public domain + HTTPS (Caddy / Let's Encrypt):
 #
-#   curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+#   curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/main/install.sh | bash -s -- \
 #     --domain bot.example.com --email you@example.com
 #
 # Options / env:
 #   --domain HOST          Public hostname (DNS A record → this VPS)
 #   --email EMAIL          Let's Encrypt + admin contact (with --domain)
-#   --branch NAME          Git branch to install (default: experiment)
+#   --branch NAME          Git branch to install (default: main)
 #   --dir PATH             Install directory (default: /opt/yambot)
 #   --no-caddy             Skip Caddy; expose http://IP:8080 only
 #   --llm-key KEY          Optional site-wide DEFAULT_LLM_API_KEY
@@ -38,7 +38,7 @@ BOLD='\033[1m'
 NC='\033[0m'
 
 REPO_HTTPS="${YAMBOT_REPO_URL:-https://github.com/anumandlay/yambot.git}"
-BRANCH="${YAMBOT_BRANCH:-experiment}"
+BRANCH="${YAMBOT_BRANCH:-main}"
 INSTALL_DIR="${YAMBOT_INSTALL_DIR:-/opt/yambot}"
 DOMAIN="${YAMBOT_DOMAIN:-}"
 EMAIL="${YAMBOT_EMAIL:-}"

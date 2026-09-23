@@ -3,7 +3,7 @@
 ## One-command install (new VPS)
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/main/install.sh | bash -s -- \
   --domain bot.example.com \
   --email you@example.com
 ```
