@@ -2,6 +2,8 @@
  * @fileoverview Hermes-style Auto chat turn — model picks from YamBot chat tools.
  * Purpose: reply / queue_goal (+ optional status/peer lookups); harden malformed output,
  * default queue acks, and stream→non-stream recovery. Downstream: chats.js Auto mode only.
+ * When AI_GATEWAY_API_KEY is set, Jev (Vercel AI Gateway) decides reply vs queue_goal first;
+ * confident choices short-circuit; uncertain falls through to the LLM with a Jev hint.
  */
 
 import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
@@ -13,6 +15,7 @@ import {
   looksLikeDayHistoryOrStatusRequest,
   looksLikeVagueChatFollowup,
 } from "./messageIntent.js";
+import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 
 /**
  * OpenAI-compatible tool schemas for Auto chat (YamBot-only surface).
@@ -1076,9 +1079,10 @@ export function autoTurnHeuristicGate(text) {
  * Soft classifier note injected into the Auto user message so the LLM sees the gate signal.
  * Why: heuristics alone mis-routed; the model needs an explicit REPLY vs QUEUE_GOAL checklist.
  * @param {string} text
+ * @param {{ jev?: { action?: string, choice?: string, confidence?: number, reason?: string }|null }} [opts]
  * @returns {string}
  */
-export function formatAutoClassifierHint(text) {
+export function formatAutoClassifierHint(text, opts = {}) {
   const c = classifyMessageIntent(text, {});
   const reason = String(c.reason || "unknown");
   const intent = String(c.intent || "unknown");
@@ -1087,6 +1091,19 @@ export function formatAutoClassifierHint(text) {
     "[AUTO DECISION HINT — not user text]",
     `classifier_intent=${intent}; classifier_reason=${reason}`,
   ];
+  const jev = opts.jev;
+  if (jev && (jev.action || jev.choice || jev.reason)) {
+    lines.push(
+      `jev_action=${String(jev.action || "uncertain")}; jev_choice=${String(jev.choice || "")}; jev_confidence=${Number(jev.confidence || 0).toFixed(2)}; jev_reason=${String(jev.reason || "")}`
+    );
+    if (jev.action === "reply") {
+      lines.push("Jev prefers REPLY — answer in chat unless the user clearly demands a live computer job.");
+    } else if (jev.action === "queue_goal") {
+      lines.push("Jev prefers QUEUE_GOAL — start the computer / peers if the message is a live job.");
+    } else if (jev.reason === "jev_error") {
+      lines.push("Jev unavailable — YOU decide REPLY vs QUEUE_GOAL. Prefer REPLY when unsure.");
+    }
+  }
   if (reason === "day_history_or_status" || reason === "vague_chat_followup") {
     lines.push(
       "Prefer REPLY. This looks like a past-work / status question — answer from day history or chat. Do NOT start a live computer."
@@ -1114,11 +1131,12 @@ export function formatAutoClassifierHint(text) {
 /**
  * User payload for Auto LLM: classifier hint + real message.
  * @param {string} text
+ * @param {{ jev?: object|null }} [opts]
  * @returns {string}
  */
-export function buildAutoUserContent(text) {
+export function buildAutoUserContent(text, opts = {}) {
   const body = String(text || "").trim().slice(0, 4000);
-  const hint = formatAutoClassifierHint(body);
+  const hint = formatAutoClassifierHint(body, opts);
   return `${hint}\n\nUSER MESSAGE:\n${body}`;
 }
 
@@ -1258,7 +1276,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
 async function runChatAutoTurnTextFallback(opts, timing) {
   const track = timing || createAutoTimingTracker();
   track.setPath("text_fallback");
-  const { question, snapshot, creds, chatContext = "", stream = false, onDelta } = opts;
+  const { question, snapshot, creds, chatContext = "", stream = false, onDelta, jev = null } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
@@ -1267,7 +1285,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
       role: "system",
       content: buildAutoSystemPrompt(snapshot, agentName, thread, "text"),
     },
-    { role: "user", content: buildAutoUserContent(text) },
+    { role: "user", content: buildAutoUserContent(text, { jev }) },
   ];
 
   const llmOpts = {
@@ -1430,6 +1448,46 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
+  // Why: Jev (System One via AI Gateway) owns REPLY vs QUEUE_GOAL when confident.
+  // Uncertain / missing key / Gateway errors fall through to Hermes Auto LLM.
+  /** @type {Awaited<ReturnType<typeof classifyAutoActionWithJev>>|null} */
+  let jevDecision = null;
+  if (isJevEnabled()) {
+    jevDecision = await classifyAutoActionWithJev(text);
+    if (jevDecision.action === "queue_goal") {
+      track.setPath("jev");
+      track.markDecision("queue_goal");
+      return finalize({
+        action: "queue_goal",
+        content: "",
+        goal: text,
+        ack: "",
+        reason: `jev_queue_goal:${Number(jevDecision.confidence || 0).toFixed(2)}`,
+        timing: track.finish(),
+      });
+    }
+    if (jevDecision.action === "reply") {
+      track.setPath("jev_reply");
+      track.markDecision("reply");
+      const content = await streamChatQuestion({
+        question: text,
+        snapshot,
+        creds,
+        chatContext,
+        onDelta: stream ? delta : undefined,
+      });
+      return finalize({
+        action: "reply",
+        content: content || "Got it.",
+        goal: "",
+        ack: "",
+        reason: `jev_reply:${Number(jevDecision.confidence || 0).toFixed(2)}`,
+        timing: track.finish(),
+      });
+    }
+    // uncertain — keep jevDecision for classifier hint on the LLM path
+  }
+
   // Why: when the client wants a live bubble, stream REPLY/QUEUE_GOAL text immediately.
   // Native tools are non-streaming and left “Sending…” blank for the whole LLM wait.
   // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
@@ -1447,6 +1505,7 @@ export async function runChatAutoTurn(opts) {
           chatContext,
           stream: true,
           onDelta,
+          jev: jevDecision,
         },
         track
       )
@@ -1460,7 +1519,7 @@ export async function runChatAutoTurn(opts) {
       role: "system",
       content: buildAutoSystemPrompt(snapshot, agentName, thread, "tools"),
     },
-    { role: "user", content: buildAutoUserContent(text) },
+    { role: "user", content: buildAutoUserContent(text, { jev: jevDecision }) },
   ];
 
   try {
@@ -1628,6 +1687,7 @@ export async function runChatAutoTurn(opts) {
       chatContext,
       stream,
       onDelta,
+      jev: jevDecision,
     },
     track
   );

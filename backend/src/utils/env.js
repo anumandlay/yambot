@@ -18,6 +18,9 @@
  * @property {string} DEFAULT_LLM_API_KEY
  * @property {string} DEFAULT_LLM_BASE_URL
  * @property {string} DEFAULT_LLM_MODEL
+ * @property {string} AI_GATEWAY_API_KEY
+ * @property {string} JEV_ENABLED
+ * @property {string} JEV_MODEL
  * @property {string} COMPUTER_MANAGER_URL
  * @property {string} MEM0_ENABLED
  * @property {string} MEM0_QDRANT_URL
@@ -52,6 +55,14 @@ export const env = {
   DEFAULT_LLM_API_KEY: process.env.DEFAULT_LLM_API_KEY || "",
   DEFAULT_LLM_BASE_URL: process.env.DEFAULT_LLM_BASE_URL || LLM_BASE,
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
+  /**
+   * Vercel AI Gateway key for Jev (System One) typed decisions.
+   * Why: Auto REPLY vs QUEUE_GOAL can skip a full chat LLM round when Jev is confident.
+   */
+  AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY || "",
+  /** Empty = on when AI_GATEWAY_API_KEY is set; set 0/false to force off. */
+  JEV_ENABLED: process.env.JEV_ENABLED || "",
+  JEV_MODEL: process.env.JEV_MODEL || "typesafe-ai/jev",
   /** Internal computer-manager HTTP (Compose network). */
   COMPUTER_MANAGER_URL: process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050",
   /**

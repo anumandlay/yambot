@@ -144,6 +144,9 @@ def main() -> int:
     llm_model = os.environ.get("DEFAULT_LLM_MODEL") or keep(
         "DEFAULT_LLM_MODEL", "MiniMax-M2.7"
     )
+    ai_gateway_key = os.environ.get("AI_GATEWAY_API_KEY") or keep("AI_GATEWAY_API_KEY", "")
+    jev_enabled = os.environ.get("JEV_ENABLED") or keep("JEV_ENABLED", "")
+    jev_model = os.environ.get("JEV_MODEL") or keep("JEV_MODEL", "typesafe-ai/jev")
     superadmin_email = keep("SUPERADMIN_BOOTSTRAP_EMAIL", "")
     superadmin_password = keep("SUPERADMIN_BOOTSTRAP_PASSWORD", "")
     superadmin_name = keep("SUPERADMIN_BOOTSTRAP_NAME", "Platform Admin")
@@ -183,6 +186,9 @@ def main() -> int:
         f"DEFAULT_LLM_BASE_URL={llm_base}\n"
         f"DEFAULT_LLM_MODEL={llm_model}\n"
         f"DEFAULT_LLM_API_KEY={llm_key}\n"
+        f"AI_GATEWAY_API_KEY={ai_gateway_key}\n"
+        f"JEV_ENABLED={jev_enabled}\n"
+        f"JEV_MODEL={jev_model}\n"
         f"SUPERADMIN_BOOTSTRAP_EMAIL={superadmin_email}\n"
         f"SUPERADMIN_BOOTSTRAP_PASSWORD={superadmin_password}\n"
         f"SUPERADMIN_BOOTSTRAP_NAME={superadmin_name}\n"

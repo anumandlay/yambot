@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 09:25] Jev via Vercel AI Gateway for Auto REPLY vs QUEUE_GOAL
+
+- **Prompt Provided:** Use Jev with the user’s Vercel AI Gateway API key in YamBot.
+- **Architectural Flow:** Auto calls `POST https://ai-gateway.vercel.sh/v1/evaluate` (model `typesafe-ai/jev`) before the Hermes LLM turn. Confident `reply` → Q&A stream; confident `queue_goal` → enqueue; uncertain/errors → existing Auto LLM with a Jev hint. Key lives in gitignored `deploy/.deploy.local.env` → VPS `deploy/.env` via remote-deploy.
+- **Impacted Files:** jevEvaluate.js, chatAutoTurn.js, env.js, docker-compose.yml, remote-deploy.py, .env examples, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-22 20:15] Mid-run messages: new API request, not inject into live LLM
 
 - **Prompt Provided:** When a task is running and I send a new message, instead of injecting into the next LLM call, send a new API request separately.
