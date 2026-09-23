@@ -43,8 +43,8 @@ services:
       NODE_ENV: production
       MONGODB_URI: mongodb://mongo:27017/yambot
       PORT: "4000"
-      PUBLIC_API_URL: https://bot.vughy.com
-      CORS_ORIGINS: https://bot.vughy.com,http://bot.vughy.com
+      PUBLIC_API_URL: ${PUBLIC_API_URL:-https://bot.vughy.com}
+      CORS_ORIGINS: ${CORS_ORIGINS:-https://bot.vughy.com,http://bot.vughy.com}
       DEFAULT_LLM_BASE_URL: ${DEFAULT_LLM_BASE_URL:-https://api.minimax.io/v1}
       DEFAULT_LLM_MODEL: ${DEFAULT_LLM_MODEL:-MiniMax-M2.7}
       DEFAULT_LLM_API_KEY: ${DEFAULT_LLM_API_KEY:-}

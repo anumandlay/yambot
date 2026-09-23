@@ -1,5 +1,15 @@
 # VPS deploy notes
 
+## One-command install (new VPS)
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+  --domain bot.example.com \
+  --email you@example.com
+```
+
+IP-only (no HTTPS): omit `--domain` → `http://YOUR_IP:8080`.
+
 ## Stack
 - `docker compose` in `deploy/`: Mongo + API (:4010) + Web (:80/:8080) + **computer-manager**
 - `computer-manager` watches Mongo and auto-starts one Playwright Chromium container per cloud agent

@@ -6,6 +6,35 @@ Web control plane + cloud browser agents (always-on Chromium per agent on the VP
 - **Backend:** Node.js 24 (ESM), Express, MongoDB/Mongoose  
 - **Cloud worker:** Playwright Chromium with a persistent profile (one container ≈ one agent “computer”)  
 
+## Install on a VPS (one command)
+
+On a fresh **Ubuntu 22.04/24.04** (or Debian) machine with root/sudo:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash
+```
+
+With your domain + HTTPS (DNS A record → the VPS first):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+  --domain bot.example.com \
+  --email you@example.com
+```
+
+Optional LLM seed:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/anumandlay/yambot/experiment/install.sh | bash -s -- \
+  --domain bot.example.com \
+  --email you@example.com \
+  --llm-key "YOUR_LLM_API_KEY"
+```
+
+That installs Docker, clones the repo to `/opt/yambot`, writes `deploy/.env` (secrets), builds the Compose stack, and optionally sets up Caddy. Without `--domain` it serves `http://YOUR_IP:8080`.
+
+See `install.sh --help` and `deploy/README.md`.
+
 ## Architecture
 
 ```

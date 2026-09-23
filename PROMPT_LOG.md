@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 13:10] One-command VPS install script
+
+- **Prompt Provided:** Installation script so other users paste one link on a new VPS and get the whole project running.
+- **Architectural Flow:** Root `install.sh` (curl|bash): install Docker → clone branch → generate `deploy/.env` secrets + public URL → optional Caddy HTTPS → `docker compose up -d --build`. Compose `PUBLIC_API_URL` / `CORS_ORIGINS` now read from `.env` so any domain works. Documented in README + deploy/README.
+- **Impacted Files:** install.sh, deploy/docker-compose.yml, deploy/.env.example, README.md, deploy/README.md, PROMPT_LOG
+
 ## [2026-09-23 10:15] Fast path for simple open/go-to URL goals
 
 - **Prompt Provided:** Why so long for open example.com / open vughy.com — speed up “just open”.
