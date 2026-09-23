@@ -34,6 +34,8 @@ import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybe
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
   decryptAgentComposioApiKey,
+  expandComposioToolkitSlugs,
+  normalizeToolkitSlug,
 } from "../utils/composioService.js";
 import {
   buildChatContextPrompt,
@@ -1203,9 +1205,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             userId: String(req.userId),
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
             composioApiKey: decryptAgentComposioApiKey(agentDoc),
-            composioToolkitSlugs: Array.isArray(agentDoc?.composio?.toolkitSlugs)
-              ? agentDoc.composio.toolkitSlugs
-              : [],
+            composioToolkitSlugs: expandComposioToolkitSlugs(
+              Array.isArray(agentDoc?.composio?.toolkitSlugs)
+                ? agentDoc.composio.toolkitSlugs
+                : []
+            ),
             composioSessionId: String(agentDoc?.composio?.sessionId || "").trim() || null,
             saveComposioSessionId: async (sessionId) => {
               const sid = String(sessionId || "").trim();
@@ -1218,6 +1222,21 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             },
           },
         });
+        // Why: Drive↔Sheets expansion — persist googlesheets on the agent so Connect UI shows it.
+        try {
+          const before = Array.isArray(agentDoc?.composio?.toolkitSlugs)
+            ? agentDoc.composio.toolkitSlugs.map((s) => normalizeToolkitSlug(s)).filter(Boolean)
+            : [];
+          const after = expandComposioToolkitSlugs(before);
+          if (after.length > before.length) {
+            agentDoc.composio = agentDoc.composio || {};
+            agentDoc.composio.toolkitSlugs = after;
+            agentDoc.markModified("composio");
+            await agentDoc.save();
+          }
+        } catch (persistErr) {
+          console.warn("[chats] composio toolkit expand persist failed:", persistErr?.message || persistErr);
+        }
         }
       } catch (err) {
         answerError = err;

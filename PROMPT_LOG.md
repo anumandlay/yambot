@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 19:00] Allow Sheets tools when Google Drive is enabled
+
+- **Prompt Provided:** list spreadsheets using composio → tool not in enabled apps (agent had googledrive, not googlesheets).
+- **Architectural Flow:** expandComposioToolkitSlugs mirrors Drive↔Sheets; allowlist + session recreate include googlesheets; persist expanded slugs on the agent.
+- **Impacted Files:** composioService.js, chats.js, PROMPT_LOG
+
 ## [2026-09-23 18:55] Small progress bar while Composio works
 
 - **Prompt Provided:** Can I have a small progress bar while composio is working.

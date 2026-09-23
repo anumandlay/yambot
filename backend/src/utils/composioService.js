@@ -225,9 +225,9 @@ export async function getOrCreateComposioSession(opts) {
   const client = await getClient(apiKey);
   if (!client) return { ok: false, error: "client_unavailable" };
 
-  const toolkitSlugs = (Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : [])
-    .map((s) => normalizeToolkitSlug(s))
-    .filter(Boolean);
+  const toolkitSlugs = expandComposioToolkitSlugs(
+    Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : []
+  );
   const toolkits =
     toolkitSlugs.length > 0
       ? toolkitSlugs
@@ -603,6 +603,23 @@ export async function composioListStatus(opts) {
 }
 
 /**
+ * Normalize + expand related Composio apps (Drive ↔ Sheets).
+ * Why: users often enable Google Drive but spreadsheet list/read uses GOOGLESHEETS_* tools.
+ * @param {string[]} toolkitSlugs
+ * @returns {string[]}
+ */
+export function expandComposioToolkitSlugs(toolkitSlugs) {
+  const out = new Set(
+    (Array.isArray(toolkitSlugs) ? toolkitSlugs : [])
+      .map((s) => normalizeToolkitSlug(s))
+      .filter(Boolean)
+  );
+  if (out.has("googledrive")) out.add("googlesheets");
+  if (out.has("googlesheets")) out.add("googledrive");
+  return [...out];
+}
+
+/**
  * @param {string} tool
  * @param {string[]} toolkitSlugs
  * @returns {boolean}
@@ -612,23 +629,32 @@ export function isToolAllowedForToolkits(tool, toolkitSlugs) {
     .trim()
     .toUpperCase();
   if (!upper) return false;
-  const slugs = (Array.isArray(toolkitSlugs) ? toolkitSlugs : [])
-    .map((s) =>
-      String(s || "")
-        .trim()
-        .toUpperCase()
-        .replace(/-/g, "_")
-    )
-    .filter(Boolean);
+  const slugs = expandComposioToolkitSlugs(toolkitSlugs).map((s) =>
+    String(s || "")
+      .trim()
+      .toUpperCase()
+      .replace(/-/g, "_")
+  );
   if (!slugs.length) {
     return (
       upper.startsWith("GMAIL_") ||
       upper.startsWith("SLACK_") ||
       upper.startsWith("GOOGLESHEETS_") ||
-      upper.startsWith("GOOGLE_SHEETS_")
+      upper.startsWith("GOOGLE_SHEETS_") ||
+      upper.startsWith("GOOGLEDRIVE_")
     );
   }
-  return slugs.some((s) => upper.startsWith(`${s}_`) || upper.startsWith(`${s.replace(/_/g, "")}_`));
+  return slugs.some((s) => {
+    if (upper.startsWith(`${s}_`)) return true;
+    const compact = s.replace(/_/g, "");
+    if (compact && upper.startsWith(`${compact}_`)) return true;
+    // Why: GOOGLESHEETS_* when agent only enabled googledrive (and vice versa).
+    if (s === "GOOGLEDRIVE" && /^(GOOGLESHEETS_|GOOGLE_SHEETS_)/.test(upper)) return true;
+    if ((s === "GOOGLESHEETS" || s === "GOOGLE_SHEETS") && upper.startsWith("GOOGLEDRIVE_")) {
+      return true;
+    }
+    return false;
+  });
 }
 
 /**
@@ -645,7 +671,11 @@ export function isToolAllowedForToolkits(tool, toolkitSlugs) {
 export async function composioExecuteTool(opts) {
   const tool = String(opts.tool || "").trim();
   if (!tool) return { ok: false, error: "tool slug required" };
-  if (!isToolAllowedForToolkits(tool, opts.toolkitSlugs || [])) {
+  const originalSlugs = (Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  const expandedSlugs = expandComposioToolkitSlugs(originalSlugs);
+  if (!isToolAllowedForToolkits(tool, expandedSlugs)) {
     return {
       ok: false,
       error:
@@ -653,7 +683,13 @@ export async function composioExecuteTool(opts) {
     };
   }
 
-  const sess = await getOrCreateComposioSession(opts);
+  // Why: old sessions lock toolkits — recreate when Drive→Sheets expansion adds googlesheets.
+  const expandedExtra = expandedSlugs.some((s) => !originalSlugs.includes(s));
+  const sess = await getOrCreateComposioSession({
+    ...opts,
+    toolkitSlugs: expandedSlugs,
+    forceNewSession: Boolean(opts.forceNewSession) || expandedExtra,
+  });
   if (!sess.ok || !sess.session) return { ok: false, error: sess.error || "no_session" };
 
   const args =
