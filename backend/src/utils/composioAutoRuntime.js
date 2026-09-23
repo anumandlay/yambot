@@ -217,14 +217,15 @@ export function buildSheetsListToolArgs(userText = "") {
   const nMatch = raw.match(/\b(?:top|last|recent|latest)\s*(\d{1,2})\b/i);
   const max = Math.min(25, Math.max(5, Number(nMatch?.[1]) || 10));
   // Strip filler; leftover words become a name search when useful.
+  // Why: “using composio” must not become the Drive/Sheets search query (it matched zero files).
   let query = raw
+    .replace(/\b(using|via|with|through)\s+composio\b/gi, " ")
+    .replace(/\bcomposio\b/gi, " ")
     .replace(/\b(list|show|find|search|check|get|give\s+me|all|my|the|a|an|recent|latest|created|spreadsheets?|google\s*sheets?|gsheets?|sheets?)\b/gi, " ")
     .replace(/\s+/g, " ")
     .trim();
-  if (query.length < 2 || /^(please|now|here)$/i.test(query)) query = "";
-  const orderBy = /\b(recent|latest|created|modified)\b/.test(t)
-    ? "modifiedTime desc"
-    : "modifiedTime desc";
+  if (query.length < 2 || /^(please|now|here|using|via|with)$/i.test(query)) query = "";
+  const orderBy = "modifiedTime desc";
   return {
     query,
     q: query,
@@ -234,6 +235,8 @@ export function buildSheetsListToolArgs(userText = "") {
     limit: max,
     order_by: orderBy,
     orderBy,
+    search_type: "name",
+    include_shared_drives: true,
   };
 }
 
@@ -560,6 +563,34 @@ export function formatSlackSendSummaryFromToolResult(resultText, tool = "") {
 }
 
 /**
+ * Pull spreadsheet/file rows out of nested Composio payloads.
+ * @param {any} data
+ * @returns {any[]}
+ */
+export function extractSpreadsheetRows(data) {
+  if (!data || typeof data !== "object") return [];
+  const candidates = [
+    data.spreadsheets,
+    data.files,
+    data.items,
+    data.results,
+    data.documents,
+    data.data?.spreadsheets,
+    data.data?.files,
+    data.data?.items,
+    data.data?.results,
+    data.response?.files,
+    data.response?.spreadsheets,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length) return c;
+  }
+  // Single file object
+  if (data.id && (data.name || data.title || data.mimeType)) return [data];
+  return [];
+}
+
+/**
  * @param {string} resultText
  * @param {string} [tool]
  * @returns {string}
@@ -584,15 +615,7 @@ export function formatSheetsListSummaryFromToolResult(resultText, tool = "") {
     return `Google Sheets list via Composio failed: ${err}`;
   }
   const data = parsed.data ?? parsed;
-  const rows = Array.isArray(data?.spreadsheets)
-    ? data.spreadsheets
-    : Array.isArray(data?.files)
-      ? data.files
-      : Array.isArray(data?.items)
-        ? data.items
-        : Array.isArray(data?.results)
-          ? data.results
-          : [];
+  const rows = extractSpreadsheetRows(data);
   if (!rows.length) {
     return `No spreadsheets found${tool ? ` (${tool})` : ""}.`;
   }
@@ -605,7 +628,7 @@ export function formatSheetsListSummaryFromToolResult(resultText, tool = "") {
       row?.id || row?.spreadsheetId || row?.spreadsheet_id || row?.fileId || ""
     ).slice(0, 60);
     const when = String(
-      row?.modifiedTime || row?.modified_time || row?.updatedAt || row?.modifiedTime || ""
+      row?.modifiedTime || row?.modified_time || row?.updatedAt || ""
     ).slice(0, 24);
     return `${i + 1}. ${name}${id ? ` · id ${id}` : ""}${when ? ` · ${when}` : ""}`;
   });
@@ -1045,7 +1068,7 @@ export async function runSheetsList(opts) {
     arguments: args,
   });
   const searchJson = parseOk(searchText);
-  if (searchJson?.ok) {
+  if (searchJson?.ok && extractSpreadsheetRows(searchJson.data ?? searchJson).length) {
     return {
       ok: true,
       tool: primary,
@@ -1057,31 +1080,36 @@ export async function runSheetsList(opts) {
     return connectLadder("googlesheets");
   }
 
-  const err = String(searchJson?.error || searchJson?.detail || "").toLowerCase();
-  // Why: Sheets tool missing / not in session — try Drive file search for spreadsheet mime.
-  if (/not found|not in this agent|not allowed|toolkit/i.test(err) || !searchJson?.ok) {
-    const driveArgs = {
-      query: args.query
-        ? `${args.query} mimeType='application/vnd.google-apps.spreadsheet'`
-        : "mimeType='application/vnd.google-apps.spreadsheet'",
-      q: args.query
-        ? `${args.query} and mimeType='application/vnd.google-apps.spreadsheet'`
-        : "mimeType='application/vnd.google-apps.spreadsheet'",
-      pageSize: args.max_results || 10,
-      page_size: args.max_results || 10,
-      max_results: args.max_results || 10,
-    };
-    for (const driveTool of [
-      "GOOGLEDRIVE_FIND_FILE",
-      "GOOGLEDRIVE_LIST_FILES",
-      "GOOGLEDRIVE_SEARCH_FILES",
-    ]) {
-      const driveText = await executeLookup("composio_execute", runtime, {
-        tool: driveTool,
-        arguments: driveArgs,
-      });
-      const driveJson = parseOk(driveText);
-      if (driveJson?.ok) {
+  // Why: empty Sheets search or tool/session issues — list via Drive mime filter (no leftover “composio” text).
+  const mimeQ = "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
+  const driveQ = args.query
+    ? `(name contains '${String(args.query).replace(/'/g, "\\'")}') and ${mimeQ}`
+    : mimeQ;
+  const driveArgs = {
+    q: driveQ,
+    query: driveQ,
+    pageSize: args.max_results || 15,
+    page_size: args.max_results || 15,
+    max_results: args.max_results || 15,
+    orderBy: "modifiedTime desc",
+    order_by: "modifiedTime desc",
+    includeItemsFromAllDrives: true,
+    supportsAllDrives: true,
+  };
+  let lastDriveText = "";
+  for (const driveTool of ["GOOGLEDRIVE_FIND_FILE", "GOOGLEDRIVE_LIST_FILES"]) {
+    const driveText = await executeLookup("composio_execute", runtime, {
+      tool: driveTool,
+      arguments: driveArgs,
+    });
+    lastDriveText = driveText;
+    const driveJson = parseOk(driveText);
+    if (composioResultNeedsConnect(driveText)) {
+      return connectLadder("googledrive");
+    }
+    if (driveJson?.ok) {
+      const rows = extractSpreadsheetRows(driveJson.data ?? driveJson);
+      if (rows.length) {
         return {
           ok: true,
           tool: driveTool,
@@ -1089,26 +1117,28 @@ export async function runSheetsList(opts) {
           content: formatSheetsListSummaryFromToolResult(driveText, driveTool),
         };
       }
-      if (composioResultNeedsConnect(driveText)) {
-        return connectLadder("googledrive");
-      }
     }
   }
 
-  const content = formatSheetsListSummaryFromToolResult(
+  // Prefer Sheets connect when primary Sheets call failed and Drive found nothing.
+  const sheetsErr = String(searchJson?.error || searchJson?.detail || "").toLowerCase();
+  if (/not connected|unauthorized|auth|no connected|not found|toolkit/i.test(sheetsErr)) {
+    return connectLadder("googlesheets");
+  }
+
+  const emptyText =
+    lastDriveText ||
     searchText ||
-      JSON.stringify({
-        ok: false,
-        detail:
-          "Could not list spreadsheets. Connect Google Sheets under Agent → Composio, then try again.",
-      }),
-    primary
-  );
+    JSON.stringify({
+      ok: false,
+      detail:
+        "No spreadsheets found. Connect Google Sheets under Agent → Composio, or create a Sheet and try again.",
+    });
   return {
     ok: false,
     tool: primary,
-    resultText: searchText,
-    content,
+    resultText: emptyText,
+    content: formatSheetsListSummaryFromToolResult(emptyText, primary),
   };
 }
 

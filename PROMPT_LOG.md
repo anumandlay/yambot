@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 19:20] Fix empty Sheets list — strip “using composio” from query
+
+- **Prompt Provided:** list spreadsheets using composio → No spreadsheets found (GOOGLEDRIVE_FIND_FILE).
+- **Architectural Flow:** Leftover “using composio” became the Drive search string. Strip composio filler; use proper mimeType Drive query; extract nested file rows; treat successful:false as execute failure.
+- **Impacted Files:** composioAutoRuntime.js, composioService.js, PROMPT_LOG
+
 ## [2026-09-23 19:10] Fix Sheets list tool slug (SEARCH only + Drive fallback)
 
 - **Prompt Provided:** list spreadsheets → Tool GOOGLESHEETS_LIST_SPREADSHEETS not found.

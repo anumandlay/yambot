@@ -699,9 +699,19 @@ export async function composioExecuteTool(opts) {
 
   try {
     const result = await sess.session.execute(tool, args);
+    const data = result?.data ?? result;
+    // Why: Composio often returns HTTP-ok with successful:false — treat as failure.
+    if (result?.successful === false || data?.successful === false) {
+      return {
+        ok: false,
+        error: String(result?.error || data?.error || data?.message || "execute_failed"),
+        data,
+        sessionId: sess.sessionId,
+      };
+    }
     return {
       ok: true,
-      data: result?.data ?? result,
+      data,
       sessionId: sess.sessionId,
     };
   } catch (err) {
@@ -713,9 +723,18 @@ export async function composioExecuteTool(opts) {
         arguments: args,
         version: "latest",
       });
+      const data = result?.data ?? result;
+      if (result?.successful === false || data?.successful === false) {
+        return {
+          ok: false,
+          error: String(result?.error || data?.error || data?.message || "execute_failed"),
+          data,
+          sessionId: sess.sessionId,
+        };
+      }
       return {
         ok: true,
-        data: result?.data ?? result,
+        data,
         sessionId: sess.sessionId,
       };
     } catch (err2) {
