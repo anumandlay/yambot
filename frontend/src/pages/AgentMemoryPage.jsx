@@ -100,7 +100,8 @@ export function AgentMemoryPage() {
   const [curatedDraft, setCuratedDraft] = useState("");
   const [mem0Items, setMem0Items] = useState([]);
   const [mem0Enabled, setMem0Enabled] = useState(false);
-  const [mem0Open, setMem0Open] = useState(false);
+  // Why: default open so “empty” is obvious (BMW lived in chat, not Mem0).
+  const [mem0Open, setMem0Open] = useState(true);
   const [filter, setFilter] = useState("");
   const [expanded, setExpanded] = useState({});
   const [credForm, setCredForm] = useState(EMPTY_CRED);
@@ -606,8 +607,9 @@ export function AgentMemoryPage() {
               </button>
             </div>
             <p className="mb-3 text-xs text-teal-800/80">
-              Semantic store for this agent (chat remember / Auto ingest). Not the same as Mongo
-              curated MEMORY above. Account-wide Mem0 USER prefs: Settings → Memory.
+              Semantic store for this agent (chat “remember …” now writes here). Not the same as
+              Mongo curated MEMORY above. Account-wide Mem0 USER prefs: Settings → Memory. If this
+              list is empty but chat still “knows” a fact, it is only in the chat transcript.
             </p>
             {!mem0Open ? (
               <p className="text-sm text-teal-900/60">
@@ -622,7 +624,7 @@ export function AgentMemoryPage() {
                   {filteredMem0.length === 0 ? (
                     <li className="text-sm text-teal-900/60">
                       {mem0Items.length === 0
-                        ? "No Mem0 agent facts yet."
+                        ? "No Mem0 agent facts yet — say “remember …” in chat to save one, or check Settings → Memory for USER prefs."
                         : "No Mem0 facts match this search."}
                     </li>
                   ) : (

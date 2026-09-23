@@ -94,13 +94,29 @@ export function looksLikeVagueChatFollowup(text) {
  * True when the user is teaching durable prefs/facts (often with URLs) and does not want a browser run.
  * Why: "Remember … https://vughy.com/admin … do not start a computer" used to match has_url_or_domain
  * and force-queue Chromium. Memory store stays chat/Mem0 ingest.
+ * Also: short lines like "remember i have bmw" (under 24 chars) must still count.
  * @param {string} text
  * @returns {boolean}
  */
 export function looksLikeMemoryStoreRequest(text) {
   const raw = String(text || "").trim();
-  if (!raw || raw.length < 24) return false;
+  if (!raw || raw.length < 10) return false;
   const lower = raw.toLowerCase();
+
+  // Explicit browse job — still a goal even if they also say "remember".
+  const browseJob =
+    /\b(go to|navigate to|open (the )?(site|page|url)|click|fill (out|in)|type into|sign in to|log ?in to)\b/i.test(
+      lower
+    ) || /\b(open|visit)\s+https?:\/\//i.test(lower);
+  if (browseJob) return false;
+
+  // Short personal remember: "remember i have bmw", "remember that my car is a BMW"
+  if (
+    /\bremember(?:\s+that)?\s+(?:i\s+(?:have|own|am|'m)|my\s+\w+)/i.test(raw) ||
+    /^\s*(?:please\s+)?remember\s+.+/i.test(raw)
+  ) {
+    return true;
+  }
 
   const storeCue =
     /\b(remember these|store these|save these|permanent preferences|preferences for this agent)\b/i.test(
@@ -119,17 +135,36 @@ export function looksLikeMemoryStoreRequest(text) {
     /\bjust acknowledge\b/i.test(lower) ||
     /\bdo not start a computer task\b/i.test(lower);
 
-  // Explicit browse job — still a goal even if they also say "remember".
-  const browseJob =
-    /\b(go to|navigate to|open (the )?(site|page|url)|click|fill (out|in)|type into|sign in to|log ?in to)\b/i.test(
-      lower
-    ) || /\b(open|visit)\s+https?:\/\//i.test(lower);
-
-  if (browseJob) return false;
   if (storeCue && noComputer) return true;
   // Numbered preference dump with store cue and no browse verb.
   if (storeCue && /\b\d+[).:]\s*\S/.test(raw) && raw.length >= 120) return true;
   return false;
+}
+
+/**
+ * Pull the durable fact string from a "remember …" user line.
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractRememberFact(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  let rest = raw
+    .replace(/^\s*(?:please\s+)?remember(?:\s+that)?\s+/i, "")
+    .replace(/^\s*(?:please\s+)?(?:store|save|memorize)\s+(?:this|that|it)?\s*:?\s*/i, "")
+    .trim();
+  if (!rest || rest.length < 3) return "";
+  rest = rest.replace(/[.!]+$/g, "").trim();
+  // Normalize "i have X" / "i own X" into a short profile fact.
+  const have = rest.match(/^\s*i\s+(?:have|own)\s+(.+)$/i);
+  if (have?.[1]) {
+    const thing = have[1].trim();
+    if (/^a\s+/i.test(thing) || /^an\s+/i.test(thing)) {
+      return `owns ${thing}`.slice(0, 320);
+    }
+    return `owns a ${thing}`.slice(0, 320);
+  }
+  return rest.slice(0, 320);
 }
 
 /**

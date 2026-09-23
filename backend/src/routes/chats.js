@@ -26,6 +26,10 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages } from "../utils/chatAutoTurn.js";
+import {
+  persistChatRememberFact,
+  sanitizeFakeMemoryActionReply,
+} from "../utils/chatRememberPersist.js";
 import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
@@ -1227,9 +1231,33 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         // Why: user message already saved — reuse it in the goal enqueue path.
         precreatedUserMessage = message;
       } else {
-        const assistantContent =
+        let assistantContent =
           String(turn.content || "").trim() ||
           "I am here — ask a question or send a computer goal.";
+        // Why: models emit fake ACTION: memory(...) — persist for real, then replace the ACTION text.
+        let rememberMeta = null;
+        try {
+          const saved = await persistChatRememberFact({
+            userId: req.userId,
+            agentId: String(agentDoc._id),
+            userText: questionText,
+          });
+          if (saved.ok) {
+            rememberMeta = { fact: saved.fact, targets: saved.targets };
+            assistantContent = sanitizeFakeMemoryActionReply(
+              assistantContent,
+              saved.reply
+            );
+            if (/^\s*ACTION\s*:\s*memory\s*\(/i.test(String(turn.content || ""))) {
+              assistantContent = saved.reply || assistantContent;
+            }
+          } else {
+            assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
+          }
+        } catch (err) {
+          console.warn("[chats] remember persist failed:", err?.message || err);
+          assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
+        }
         autoTiming = turn.timing || null;
         const timingLine = formatAutoTimingSummary(autoTiming);
         const assistantMessage = await Message.create({
@@ -1246,6 +1274,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             answeredWhileBusy: Boolean(busyRun),
             hermesAuto: true,
             hermesTiming: autoTiming || undefined,
+            rememberSaved: rememberMeta || undefined,
             error: answerError ? String(answerError.message || answerError) : undefined,
           },
         });
@@ -1420,6 +1449,30 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
       }
 
+      let rememberMeta = null;
+      try {
+        const saved = await persistChatRememberFact({
+          userId: req.userId,
+          agentId: String(agentDoc._id),
+          userText: questionText,
+        });
+        if (saved.ok) {
+          rememberMeta = { fact: saved.fact, targets: saved.targets };
+          assistantContent = sanitizeFakeMemoryActionReply(
+            String(assistantContent || ""),
+            saved.reply
+          );
+          if (/^\s*ACTION\s*:\s*memory\s*\(/i.test(String(assistantContent || ""))) {
+            assistantContent = saved.reply || assistantContent;
+          }
+        } else {
+          assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
+        }
+      } catch (err) {
+        console.warn("[chats] remember persist (legacy) failed:", err?.message || err);
+        assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
+      }
+
       const assistantMessage = await Message.create({
         chat: chat._id,
         role: "assistant",
@@ -1432,6 +1485,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentId: String(agentDoc._id),
           agentName: agentDoc.name,
           answeredWhileBusy: Boolean(busyRun),
+          rememberSaved: rememberMeta || undefined,
           error: answerError ? String(answerError.message || answerError) : undefined,
         },
       });

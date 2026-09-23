@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 15:10] Chat “remember …” actually persists + why View Mem0 was empty
+
+- **Prompt Provided:** View Mem0 empty but agent still answered BMW after “cleared history”.
+- **Architectural Flow:** VPS probe: BMW not in Mem0; still in chat messages. Persist remember facts via mutateCuratedMemory (agent + USER when personal); sanitize fake ACTION: memory replies; open Mem0 section by default with clearer empty copy.
+- **Impacted Files:** messageIntent.js, chatRememberPersist.js, chats.js, AgentMemoryPage.jsx, chatRememberPersist.test.js, PROMPT_LOG
+
 ## [2026-09-23 15:00] Agent Memory — View Mem0 agent facts
 
 - **Prompt Provided:** Show a view button for Mem0 on Agents → Memory / Curated (Mongo-only before).
