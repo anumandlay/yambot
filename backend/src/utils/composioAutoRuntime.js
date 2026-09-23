@@ -992,6 +992,387 @@ export function matchComposioIntent(userText) {
 }
 
 /**
+ * Split a compound Composio ask into clauses ("A and B", "A then B").
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function splitComposioClauses(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return [];
+  const parts = raw
+    .split(/\s+(?:and then|and also|, then|then|also|, and|and)\s+/i)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 3);
+  return parts.length ? parts : [raw];
+}
+
+/**
+ * @param {string} clause
+ * @returns {boolean}
+ */
+export function looksLikeSendEmailClause(clause) {
+  const t = String(clause || "");
+  if (!parseEmailRecipient(t)) return false;
+  return /\b(send|email|e-?mail|mail)\b/i.test(t);
+}
+
+/**
+ * @param {string} clause
+ * @returns {boolean}
+ */
+export function looksLikeSendSlackClause(clause) {
+  const t = String(clause || "");
+  if (!/\bslack\b/i.test(t) && !/#[a-z0-9_-]{2,}/i.test(t)) return false;
+  return /\b(send|post|message|notify|share|tell)\b/i.test(t);
+}
+
+/**
+ * @typedef {{
+ *   kind: "intent"|"send_email"|"send_slack",
+ *   label: string,
+ *   userText: string,
+ *   toolkit: string,
+ *   specId?: string,
+ *   to?: string,
+ *   usePriorContent?: boolean,
+ * }} ComposioPlanStep
+ */
+
+/**
+ * Build an ordered multi-step Composio plan from one user message.
+ * @param {string} userText
+ * @returns {ComposioPlanStep[]}
+ */
+export function planComposioMultiSteps(userText) {
+  const raw = String(userText || "").trim();
+  if (!raw) return [];
+  const clauses = splitComposioClauses(raw);
+  /** @type {ComposioPlanStep[]} */
+  const steps = [];
+
+  for (let i = 0; i < clauses.length; i++) {
+    const clause = clauses[i];
+    const priorExists = steps.length > 0;
+
+    if (looksLikeSendEmailClause(clause)) {
+      const to = parseEmailRecipient(clause);
+      const hasOwnBody =
+        /["“'][^"”']{3,}["”']/.test(clause) ||
+        /\b(saying|body|subject)\b/i.test(clause);
+      steps.push({
+        kind: "send_email",
+        label: `Email ${to}`,
+        userText: clause,
+        toolkit: "gmail",
+        to,
+        usePriorContent: priorExists && !hasOwnBody,
+      });
+      continue;
+    }
+
+    if (looksLikeSendSlackClause(clause)) {
+      const hasOwnBody = /["“'][^"”']{3,}["”']/.test(clause);
+      steps.push({
+        kind: "send_slack",
+        label: "Slack message",
+        userText: clause,
+        toolkit: "slack",
+        usePriorContent: priorExists && !hasOwnBody,
+      });
+      continue;
+    }
+
+    // Prefer matching the clause; fall back to clause + light context from the full ask.
+    let spec = matchComposioIntent(clause);
+    if (!spec && priorExists) {
+      spec = matchComposioIntent(`${clause} ${steps[steps.length - 1].userText}`);
+    }
+    if (!spec) continue;
+    steps.push({
+      kind: "intent",
+      label: spec.label,
+      userText: clause,
+      toolkit: spec.toolkit,
+      specId: spec.id,
+    });
+  }
+
+  // Deduplicate accidental double sheets_list+email when one clause already matched list only
+  return steps.slice(0, 6);
+}
+
+/**
+ * True when this ask should run the multi-step Composio runner.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeMultiStepComposioRequest(text) {
+  const plan = planComposioMultiSteps(text);
+  return plan.length >= 2;
+}
+
+/**
+ * Send prior step output (or clause body) via Gmail.
+ * @param {{
+ *   runtime: object,
+ *   step: ComposioPlanStep,
+ *   priorContent: string,
+ *   executeLookup: (kind: string, runtime: object, args?: object) => Promise<string>,
+ * }} opts
+ */
+async function runMultiStepSendEmail(opts) {
+  const { runtime, step, priorContent, executeLookup } = opts;
+  const to = String(step.to || parseEmailRecipient(step.userText) || "").trim();
+  if (!to) {
+    return {
+      ok: false,
+      content: "Need an email address to send to.",
+      needsConnect: false,
+    };
+  }
+  let body = "";
+  if (step.usePriorContent && priorContent) {
+    body = priorContent;
+  } else {
+    const quoted = String(step.userText || "").match(/["“']([^"”']{3,4000})["”']/);
+    body = quoted?.[1]?.trim() || priorContent || String(step.userText || "").trim();
+  }
+  body = String(body || "").trim().slice(0, 8000);
+  if (!body) {
+    return { ok: false, content: `Nothing to email to ${to}.`, needsConnect: false };
+  }
+  const subject = /spreadsheet/i.test(priorContent || step.userText)
+    ? "Your spreadsheet list"
+    : /unread|email|inbox/i.test(priorContent || step.userText)
+      ? "Your email summary"
+      : "Update from YamBot";
+
+  const sendText = await executeLookup("composio_execute", runtime, {
+    tool: "GMAIL_SEND_EMAIL",
+    arguments: {
+      recipient_email: to,
+      recipientEmail: to,
+      to,
+      subject,
+      body,
+      message_body: body,
+      messageBody: body,
+      is_html: false,
+    },
+  });
+  try {
+    const sendJson = JSON.parse(sendText);
+    if (composioResultNeedsConnect(sendText)) {
+      return {
+        ok: false,
+        content: `Connect Gmail to email ${to}.`,
+        needsConnect: true,
+        resultText: sendText,
+        toolkit: "gmail",
+      };
+    }
+    if (sendJson?.ok) {
+      return { ok: true, content: `Emailed the result to ${to}.`, resultText: sendText };
+    }
+    return {
+      ok: false,
+      content: `Could not email ${to}: ${String(sendJson?.error || sendJson?.detail || "send failed")}`,
+      resultText: sendText,
+    };
+  } catch {
+    return { ok: false, content: `Could not email ${to}.`, resultText: sendText };
+  }
+}
+
+/**
+ * Post prior step output (or clause body) to Slack.
+ * @param {{
+ *   runtime: object,
+ *   step: ComposioPlanStep,
+ *   priorContent: string,
+ *   executeLookup: (kind: string, runtime: object, args?: object) => Promise<string>,
+ * }} opts
+ */
+async function runMultiStepSendSlack(opts) {
+  const { runtime, step, priorContent, executeLookup } = opts;
+  const args = buildSlackSendToolArgs(step.userText);
+  if (step.usePriorContent && priorContent) {
+    args.text = priorContent.slice(0, 3000);
+    args.message = args.text;
+  }
+  if (!args.channel && !args.text) {
+    return {
+      ok: false,
+      content: "Need a Slack #channel (and a message, or a prior step result to share).",
+    };
+  }
+  if (!args.text && priorContent) {
+    args.text = priorContent.slice(0, 3000);
+    args.message = args.text;
+  }
+  const sendText = await executeLookup("composio_execute", runtime, {
+    tool: "SLACK_SEND_MESSAGE",
+    arguments: args,
+  });
+  try {
+    const sendJson = JSON.parse(sendText);
+    if (composioResultNeedsConnect(sendText)) {
+      return {
+        ok: false,
+        content: "Connect Slack to post that message.",
+        needsConnect: true,
+        resultText: sendText,
+        toolkit: "slack",
+      };
+    }
+    if (sendJson?.ok) {
+      return {
+        ok: true,
+        content: formatSlackSendSummaryFromToolResult(sendText, "SLACK_SEND_MESSAGE"),
+        resultText: sendText,
+      };
+    }
+    return {
+      ok: false,
+      content: formatSlackSendSummaryFromToolResult(sendText, "SLACK_SEND_MESSAGE"),
+      resultText: sendText,
+    };
+  } catch {
+    return { ok: false, content: "Slack send failed.", resultText: sendText };
+  }
+}
+
+/**
+ * Run a planned multi-step Composio workflow; each step can use the prior step’s text.
+ * @param {{
+ *   runtime: object,
+ *   userText: string,
+ *   executeLookup: (kind: string, runtime: object, args?: object) => Promise<string>,
+ *   onProgress?: (label: string, pct: number) => void,
+ *   plan?: ComposioPlanStep[],
+ * }} opts
+ * @returns {Promise<{ ok: boolean, content: string, needsConnect?: boolean, steps: object[], resultText: string }>}
+ */
+export async function runComposioMultiStep(opts) {
+  const plan = Array.isArray(opts.plan) ? opts.plan : planComposioMultiSteps(opts.userText);
+  const { runtime, executeLookup } = opts;
+  if (!plan.length) {
+    return {
+      ok: false,
+      content: "I could not map that to Composio app steps.",
+      steps: [],
+      resultText: "",
+    };
+  }
+
+  /** @type {string} */
+  let priorContent = "";
+  /** @type {{ label: string, ok: boolean, content: string }[]} */
+  const done = [];
+  let needsConnect = false;
+  let connectToolkit = "";
+
+  for (let i = 0; i < plan.length; i++) {
+    const step = plan[i];
+    const pct = Math.min(92, 12 + Math.round(((i + 1) / plan.length) * 75));
+    opts.onProgress?.(`Step ${i + 1}/${plan.length}: ${step.label}…`, pct);
+
+    /** @type {{ ok: boolean, content: string, needsConnect?: boolean, resultText?: string, toolkit?: string }} */
+    let ran;
+    if (step.kind === "send_email") {
+      ran = await runMultiStepSendEmail({
+        runtime,
+        step,
+        priorContent,
+        executeLookup,
+      });
+    } else if (step.kind === "send_slack") {
+      ran = await runMultiStepSendSlack({
+        runtime,
+        step,
+        priorContent,
+        executeLookup,
+      });
+    } else {
+      const spec =
+        COMPOSIO_INTENT_SPECS.find((s) => s.id === step.specId) ||
+        matchComposioIntent(step.userText);
+      if (!spec) {
+        ran = { ok: false, content: `Could not run step: ${step.label}` };
+      } else {
+        // Why: avoid double-email when a later send_email step will deliver the list.
+        const hasLaterEmail = plan.slice(i + 1).some((s) => s.kind === "send_email");
+        const stepText =
+          hasLaterEmail && spec.id === "sheets_list"
+            ? String(step.userText || "").replace(
+                /\b(and\s+)?(send|email|e-?mail|mail)\b[\s\S]*$/i,
+                ""
+              )
+            : step.userText;
+        const intentRan = await runComposioIntentExecute({
+          runtime,
+          userText: stepText || step.userText,
+          spec,
+          executeLookup,
+        });
+        ran = {
+          ok: intentRan.ok,
+          content: intentRan.content,
+          needsConnect: intentRan.needsConnect,
+          resultText: intentRan.resultText,
+          toolkit: spec.toolkit,
+        };
+      }
+    }
+
+    done.push({ label: step.label, ok: Boolean(ran.ok), content: String(ran.content || "") });
+    if (ran.content) priorContent = String(ran.content);
+    if (ran.needsConnect) {
+      needsConnect = true;
+      connectToolkit = ran.toolkit || step.toolkit || "";
+      // Offer connect and stop — later steps need the connection too.
+      const connectText = await executeLookup("composio_connect", runtime, {
+        toolkit: connectToolkit || step.toolkit,
+      });
+      /** @type {any} */
+      let connectJson = null;
+      try {
+        connectJson = JSON.parse(connectText);
+      } catch {
+        connectJson = null;
+      }
+      const url = String(connectJson?.redirectUrl || "").trim();
+      const lines = done.map(
+        (d, idx) => `${idx + 1}. ${d.label}: ${d.ok ? d.content : `Failed — ${d.content}`}`
+      );
+      const connectLine = url
+        ? `Connect ${connectToolkit || step.toolkit} to continue:\n${url}`
+        : ran.content;
+      return {
+        ok: false,
+        needsConnect: true,
+        content: `${lines.join("\n\n")}\n\n${connectLine}`,
+        steps: done,
+        resultText: connectText,
+      };
+    }
+  }
+
+  opts.onProgress?.("Finishing multi-step…", 96);
+  const allOk = done.every((d) => d.ok);
+  const content = done
+    .map((d, idx) => `${idx + 1}. ${d.label}\n${d.content}`)
+    .join("\n\n");
+  return {
+    ok: allOk,
+    content,
+    steps: done,
+    resultText: JSON.stringify({ ok: allOk, steps: done }),
+    needsConnect: false,
+  };
+}
+
+/**
  * True when execute JSON looks like a missing OAuth connection.
  * @param {string} resultText
  * @returns {boolean}

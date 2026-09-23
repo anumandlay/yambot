@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 19:40] General multi-step Composio (plan → execute → pass prior result)
+
+- **Prompt Provided:** Let’s do multistep composio — not only list+email.
+- **Architectural Flow:** Split compound asks on and/then; plan steps (known intents + send email/Slack); run sequentially, later steps can use prior step text; progress per step; connect ladder stops the chain with a link.
+- **Impacted Files:** composioAutoRuntime.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 19:35] Fresh session for Sheets list + email the list
 
 - **Prompt Provided:** list spreadsheets + send to email → No spreadsheets found (SEARCH) despite live API returning sheets.

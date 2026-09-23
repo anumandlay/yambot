@@ -22,6 +22,9 @@ import {
   compactComposioExecuteResult,
   runComposioIntentExecute,
   looksLikeFakeInboxActionText,
+  looksLikeMultiStepComposioRequest,
+  planComposioMultiSteps,
+  runComposioMultiStep,
 } from "./composioAutoRuntime.js";
 
 export {
@@ -30,6 +33,8 @@ export {
   looksLikeSheetsReadRequest,
   looksLikeFakeInboxActionText,
   looksLikeGmailLabelRequest,
+  looksLikeMultiStepComposioRequest,
+  planComposioMultiSteps,
   compactComposioExecuteResult,
   matchComposioIntent,
   buildGmailUnreadToolArgs,
@@ -1200,6 +1205,39 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
  */
 export async function runDeterministicComposioIntentTurn(opts) {
   const { runtime, userText, creds, onDelta, track } = opts;
+
+  // Why: “list … and send to …” / “unread then Slack …” — run sequenced Composio steps.
+  const multiPlan = planComposioMultiSteps(userText);
+  if (multiPlan.length >= 2 && runtime?.composioApiKey) {
+    track.setPath("composio_multistep");
+    track.emitProgress?.(`Multi-step (${multiPlan.length})…`, 10);
+    track.addLookup("composio_execute");
+    const multi = await runComposioMultiStep({
+      runtime,
+      userText,
+      plan: multiPlan,
+      executeLookup: executeAutoLookupTool,
+      onProgress: (label, pct) => track.emitProgress?.(label, pct),
+    });
+    if (multi.needsConnect) track.addLookup("composio_connect");
+    track.emitProgress?.(multi.ok ? "Finishing…" : "Need connection…", 95);
+    let content = String(multi.content || "").trim();
+    if (typeof onDelta === "function") onDelta(content);
+    track.markDecision("reply");
+    return {
+      action: "reply",
+      content,
+      goal: "",
+      ack: "",
+      reason: multi.ok
+        ? "composio_multistep"
+        : multi.needsConnect
+          ? "composio_multistep_connect"
+          : "composio_multistep_error",
+      timing: track.finish(),
+    };
+  }
+
   const spec = opts.spec || matchComposioIntent(userText);
   if (!spec) {
     return {
@@ -1239,6 +1277,7 @@ export async function runDeterministicComposioIntentTurn(opts) {
     /^Google Spreadsheets/i.test(content) ||
     /^No spreadsheets found/i.test(content) ||
     /Also emailed this list/i.test(content) ||
+    /^\d+\.\s+/m.test(content) ||
     /^Connect /i.test(content) ||
     /^To (post|read|label)/i.test(content);
   if (!ran.ok && !ran.needsConnect && !looksStructured) {
@@ -1809,6 +1848,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- Questions, memory, capability, planning",
     "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
     "- Flow: composio_search (find tool slug) → if needed composio_connect (paste redirectUrl) → composio_wait → composio_execute",
+    "- Multi-step: users may chain apps in one message (list Sheets and email the list; unread then Slack #channel). Prefer finishing each step before the next.",
     "- Always include the full https connect URL in your reply when composio_connect returns redirectUrl",
     "- Never write fake lines like ACTION: composio_list(), ACTION: check_email(), or ACTION: navigate(url=…) — use Composio for Gmail/Slack (or the runtime will), then reply in plain prose",
     "",
@@ -2149,10 +2189,14 @@ export async function runChatAutoTurn(opts) {
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
 
   // Why: some LLM providers 500 on tool_choice={function:composio_*}; mapped intents skip the tool loop.
+  const multiComposio = looksLikeMultiStepComposioRequest(text);
   const mappedComposio = matchComposioIntent(text);
-  if (mappedComposio && runtime?.composioApiKey) {
+  if ((multiComposio || mappedComposio) && runtime?.composioApiKey) {
     try {
-      track.emitProgress(`Working with ${mappedComposio.label}…`, 12);
+      track.emitProgress(
+        multiComposio ? "Planning Composio steps…" : `Working with ${mappedComposio?.label || "apps"}…`,
+        12
+      );
       return finalize(
         await runDeterministicComposioIntentTurn({
           runtime,
@@ -2160,7 +2204,7 @@ export async function runChatAutoTurn(opts) {
           creds,
           onDelta: stream ? delta : undefined,
           track,
-          spec: mappedComposio,
+          spec: mappedComposio || undefined,
         })
       );
     } catch (err) {
