@@ -705,6 +705,25 @@ export const HELP = {
       "Credentials encrypted at rest. Prefer app passwords for Gmail/Outlook."
     ),
   },
+  "agent.composio.enabled": {
+    title: "Composio apps",
+    body: helpBody(
+      "Lets this agent connect third-party apps (Gmail, Slack, GitHub, …) via Composio OAuth. Paste an API key from app.composio.dev, load the catalog, and check the apps Auto chat may use.",
+      "OAuth tokens stay in Composio. Server COMPOSIO_API_KEY remains an optional fallback."
+    ),
+  },
+  "agent.composio.apiKey": {
+    title: "Composio API key",
+    body: helpBody(
+      "Stored encrypted on this agent. Leave blank on save to keep the existing key. Get a key from the Composio dashboard."
+    ),
+  },
+  "agent.composio.apps": {
+    title: "Enabled Composio apps",
+    body: helpBody(
+      "Only selected toolkit slugs can be listed, connected, or executed in Auto chat. Load apps after pasting a valid API key."
+    ),
+  },
   "agent.llm.useCustom": {
     title: "Per-agent LLM",
     body: helpBody(

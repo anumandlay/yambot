@@ -1,30 +1,22 @@
 /**
- * @fileoverview Composio Phase-1 integration — Gmail / Slack / Google Sheets.
- * Purpose: Per-user OAuth via Composio sessions; Auto chat can connect + execute
- * a small allowlisted tool surface without loading 1500 app schemas.
- * Downstream: settings/composio routes, chatAutoTurn lookup tools.
+ * @fileoverview Composio integration — per-agent API key + selected toolkits.
+ * Purpose: Agents connect apps via Composio OAuth; Auto chat can list/connect/execute
+ * without loading the full 1500-app catalog into every prompt.
+ * Downstream: agent edit Settings, settings/composio routes, chatAutoTurn lookup tools.
  */
 
 import { env } from "./env.js";
+import { decryptSecret } from "./crypto.js";
 
-/** Phase-1 apps only — expand later behind the same Settings + tool gate. */
-export const COMPOSIO_PHASE1_TOOLKITS = [
-  {
-    slug: "gmail",
-    label: "Gmail",
-    blurb: "Read and send email via Gmail.",
-  },
-  {
-    slug: "slack",
-    label: "Slack",
-    blurb: "Post messages and read channels.",
-  },
-  {
-    slug: "googlesheets",
-    label: "Google Sheets",
-    blurb: "Read and update spreadsheets.",
-  },
+/** Default starter apps when an agent has not chosen yet. */
+export const COMPOSIO_DEFAULT_TOOLKITS = [
+  { slug: "gmail", label: "Gmail", blurb: "Read and send email via Gmail." },
+  { slug: "slack", label: "Slack", blurb: "Post messages and read channels." },
+  { slug: "googlesheets", label: "Google Sheets", blurb: "Read and update spreadsheets." },
 ];
+
+/** @deprecated use COMPOSIO_DEFAULT_TOOLKITS */
+export const COMPOSIO_PHASE1_TOOLKITS = COMPOSIO_DEFAULT_TOOLKITS;
 
 /** Stable Composio user id for a YamBot account. */
 export function composioUserId(userId) {
@@ -33,49 +25,212 @@ export function composioUserId(userId) {
 }
 
 /**
+ * Server-wide key (optional fallback when agent has none).
+ * @returns {string}
+ */
+export function serverComposioApiKey() {
+  return String(process.env.COMPOSIO_API_KEY || env.COMPOSIO_API_KEY || "").trim();
+}
+
+/**
  * @returns {boolean}
  */
-export function isComposioEnabled() {
+export function isComposioServerEnabled() {
   const flag = String(process.env.COMPOSIO_ENABLED || env.COMPOSIO_ENABLED || "")
     .trim()
     .toLowerCase();
   if (flag === "0" || flag === "false" || flag === "off" || flag === "no") return false;
-  const key = String(process.env.COMPOSIO_API_KEY || env.COMPOSIO_API_KEY || "").trim();
+  const key = serverComposioApiKey();
   if (flag === "1" || flag === "true" || flag === "on" || flag === "yes") return Boolean(key);
   return Boolean(key);
 }
 
+/** @deprecated prefer isComposioServerEnabled or resolveComposioApiKey */
+export function isComposioEnabled() {
+  return isComposioServerEnabled();
+}
+
 /**
+ * Resolve which Composio API key to use (agent first, then server).
+ * @param {{ agentApiKey?: string|null }} [opts]
  * @returns {string}
  */
-function composioApiKey() {
-  return String(process.env.COMPOSIO_API_KEY || env.COMPOSIO_API_KEY || "").trim();
+export function resolveComposioApiKey(opts = {}) {
+  const agentKey = String(opts.agentApiKey || "").trim();
+  if (agentKey) return agentKey;
+  return serverComposioApiKey();
 }
 
-/** @type {import("@composio/core").Composio|null} */
-let clientSingleton = null;
+/**
+ * Safe Composio summary for agent API responses (never returns the raw key).
+ * @param {object} agent
+ * @returns {{
+ *   enabled: boolean,
+ *   hasApiKey: boolean,
+ *   apiKeyMasked: string,
+ *   toolkitSlugs: string[],
+ *   configured: boolean,
+ * }}
+ */
+export function publicComposioSummary(agent) {
+  const c = agent?.composio || {};
+  const hasApiKey = Boolean(c.apiKeyEnc);
+  const toolkitSlugs = (Array.isArray(c.toolkitSlugs) ? c.toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  return {
+    enabled: Boolean(c.enabled),
+    hasApiKey,
+    apiKeyMasked: hasApiKey ? "••••••••" : "",
+    toolkitSlugs,
+    configured: Boolean(c.enabled && hasApiKey && toolkitSlugs.length > 0),
+  };
+}
 
 /**
+ * Decrypt agent-stored Composio API key (empty if missing/invalid).
+ * @param {object} agent
+ * @returns {string}
+ */
+export function decryptAgentComposioApiKey(agent) {
+  const enc = String(agent?.composio?.apiKeyEnc || "").trim();
+  if (!enc) return "";
+  try {
+    return String(decryptSecret(enc) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * @param {string} [apiKey]
  * @returns {Promise<import("@composio/core").Composio|null>}
  */
-async function getClient() {
-  if (!isComposioEnabled()) return null;
-  if (clientSingleton) return clientSingleton;
+async function getClient(apiKey) {
+  const key = String(apiKey || "").trim();
+  if (!key) return null;
   const { Composio } = await import("@composio/core");
-  clientSingleton = new Composio({ apiKey: composioApiKey() });
-  return clientSingleton;
+  return new Composio({ apiKey: key });
 }
 
 /**
- * Create or reuse a Composio session for this YamBot user (Phase-1 toolkits only).
- * @param {{ userId: string, sessionId?: string|null }} opts
+ * @param {string} raw
+ * @returns {string}
+ */
+export function normalizeToolkitSlug(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "")
+    .replace(/_/g, "");
+  const aliases = {
+    googlesheets: "googlesheets",
+    sheets: "googlesheets",
+    googlesheet: "googlesheets",
+    gmail: "gmail",
+    slack: "slack",
+    github: "github",
+    notion: "notion",
+  };
+  if (aliases[s]) return aliases[s];
+  // Why: allow any toolkit slug from Composio catalog once the agent picks it.
+  const cleaned = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9_-]/g, "");
+  return cleaned.slice(0, 80);
+}
+
+/**
+ * List toolkits from Composio for the dropdown (uses provided API key).
+ * @param {{ apiKey: string, limit?: number }} opts
+ * @returns {Promise<{ ok: boolean, toolkits: { slug: string, label: string, blurb: string }[], error?: string }>}
+ */
+export async function composioListCatalog(opts) {
+  const key = String(opts.apiKey || "").trim();
+  if (!key) return { ok: false, toolkits: [], error: "apiKey required" };
+  const client = await getClient(key);
+  if (!client) return { ok: false, toolkits: [], error: "client_unavailable" };
+
+  try {
+    let raw = null;
+    if (typeof client.toolkits.get === "function") {
+      raw = await client.toolkits.get({ limit: Math.min(200, Number(opts.limit) || 100) });
+    } else if (typeof client.toolkits.getToolkits === "function") {
+      raw = await client.toolkits.getToolkits({
+        limit: Math.min(200, Number(opts.limit) || 100),
+      });
+    }
+
+    const items = Array.isArray(raw?.items)
+      ? raw.items
+      : Array.isArray(raw?.data)
+        ? raw.data
+        : Array.isArray(raw)
+          ? raw
+          : [];
+
+    /** @type {{ slug: string, label: string, blurb: string }[]} */
+    const toolkits = [];
+    const seen = new Set();
+    for (const row of items) {
+      const slug = normalizeToolkitSlug(
+        row?.slug || row?.key || row?.name || row?.toolkit_slug || ""
+      );
+      if (!slug || seen.has(slug)) continue;
+      seen.add(slug);
+      toolkits.push({
+        slug,
+        label: String(row?.name || row?.displayName || slug).trim() || slug,
+        blurb: String(row?.description || row?.meta?.description || "").trim().slice(0, 200),
+      });
+    }
+
+    if (!toolkits.length) {
+      return {
+        ok: true,
+        toolkits: COMPOSIO_DEFAULT_TOOLKITS.map((t) => ({ ...t })),
+        error: "Catalog empty — showing defaults. Check the API key.",
+      };
+    }
+
+    toolkits.sort((a, b) => a.label.localeCompare(b.label));
+    return { ok: true, toolkits };
+  } catch (err) {
+    console.warn("[composio] catalog failed:", err?.message || err);
+    return {
+      ok: false,
+      toolkits: COMPOSIO_DEFAULT_TOOLKITS.map((t) => ({ ...t })),
+      error: String(err?.message || err || "catalog_failed"),
+    };
+  }
+}
+
+/**
+ * Create or reuse a Composio session for this YamBot user.
+ * @param {{
+ *   userId: string,
+ *   apiKey: string,
+ *   sessionId?: string|null,
+ *   toolkitSlugs?: string[],
+ * }} opts
  * @returns {Promise<{ ok: boolean, session?: any, sessionId?: string, error?: string }>}
  */
 export async function getOrCreateComposioSession(opts) {
   const uid = composioUserId(opts.userId);
+  const apiKey = String(opts.apiKey || "").trim();
   if (!uid) return { ok: false, error: "missing_user" };
-  const client = await getClient();
-  if (!client) return { ok: false, error: "composio_disabled" };
+  if (!apiKey) return { ok: false, error: "missing_api_key" };
+  const client = await getClient(apiKey);
+  if (!client) return { ok: false, error: "client_unavailable" };
+
+  const toolkitSlugs = (Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  const toolkits =
+    toolkitSlugs.length > 0
+      ? toolkitSlugs
+      : COMPOSIO_DEFAULT_TOOLKITS.map((t) => t.slug);
 
   try {
     const existingId = String(opts.sessionId || "").trim();
@@ -95,7 +250,7 @@ export async function getOrCreateComposioSession(opts) {
     }
 
     const session = await client.create(uid, {
-      toolkits: COMPOSIO_PHASE1_TOOLKITS.map((t) => t.slug),
+      toolkits,
       manageConnections: false,
       sandbox: { enable: false },
     });
@@ -111,18 +266,30 @@ export async function getOrCreateComposioSession(opts) {
 }
 
 /**
- * Start OAuth / connect link for a Phase-1 toolkit.
- * @param {{ userId: string, toolkit: string, sessionId?: string|null }} opts
- * @returns {Promise<{ ok: boolean, redirectUrl?: string, sessionId?: string, toolkit?: string, error?: string }>}
+ * Start OAuth / connect link for a toolkit.
+ * @param {{
+ *   userId: string,
+ *   apiKey: string,
+ *   toolkit: string,
+ *   sessionId?: string|null,
+ *   toolkitSlugs?: string[],
+ * }} opts
  */
 export async function composioAuthorizeToolkit(opts) {
   const toolkit = normalizeToolkitSlug(opts.toolkit);
   if (!toolkit) {
+    return { ok: false, error: "toolkit slug required" };
+  }
+  const allowed = (Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  if (allowed.length && !allowed.includes(toolkit)) {
     return {
       ok: false,
-      error: `Unsupported toolkit. Phase 1: ${COMPOSIO_PHASE1_TOOLKITS.map((t) => t.slug).join(", ")}`,
+      error: `Toolkit "${toolkit}" is not enabled for this agent. Enable it in agent settings.`,
     };
   }
+
   const sess = await getOrCreateComposioSession(opts);
   if (!sess.ok || !sess.session) return { ok: false, error: sess.error || "no_session" };
 
@@ -150,49 +317,39 @@ export async function composioAuthorizeToolkit(opts) {
 }
 
 /**
- * @param {string} raw
- * @returns {string}
- */
-export function normalizeToolkitSlug(raw) {
-  const s = String(raw || "")
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, "");
-  const aliases = {
-    google_sheets: "googlesheets",
-    sheets: "googlesheets",
-    "google-sheets": "googlesheets",
-    gmail: "gmail",
-    slack: "slack",
-    googlesheets: "googlesheets",
-  };
-  const slug = aliases[s] || s;
-  return COMPOSIO_PHASE1_TOOLKITS.some((t) => t.slug === slug) ? slug : "";
-}
-
-/**
- * List connected accounts for this user (filtered to Phase-1 toolkits).
- * @param {{ userId: string }} opts
- * @returns {Promise<{ ok: boolean, enabled: boolean, toolkits: object[], connections: object[], error?: string }>}
+ * List connected accounts for this user.
+ * @param {{ userId: string, apiKey: string, toolkitSlugs?: string[] }} opts
  */
 export async function composioListStatus(opts) {
-  const enabled = isComposioEnabled();
+  const apiKey = String(opts.apiKey || "").trim();
+  const enabledToolkits = (Array.isArray(opts.toolkitSlugs) ? opts.toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  const catalog =
+    enabledToolkits.length > 0
+      ? enabledToolkits.map((slug) => ({
+          slug,
+          label: slug,
+          blurb: "",
+        }))
+      : COMPOSIO_DEFAULT_TOOLKITS.map((t) => ({ ...t }));
+
   const base = {
     ok: true,
-    enabled,
-    toolkits: COMPOSIO_PHASE1_TOOLKITS,
+    enabled: Boolean(apiKey),
+    toolkits: catalog,
     connections: [],
   };
-  if (!enabled) return { ...base, error: "Composio is not configured (COMPOSIO_API_KEY)." };
+  if (!apiKey) {
+    return { ...base, error: "No Composio API key on this agent (or server)." };
+  }
 
-  const client = await getClient();
+  const client = await getClient(apiKey);
   const uid = composioUserId(opts.userId);
   if (!client || !uid) return { ...base, error: "client_unavailable" };
 
   try {
-    const listed = await client.connectedAccounts.list({
-      userIds: [uid],
-    });
+    const listed = await client.connectedAccounts.list({ userIds: [uid] });
     const items = Array.isArray(listed?.items)
       ? listed.items
       : Array.isArray(listed?.data)
@@ -201,14 +358,16 @@ export async function composioListStatus(opts) {
           ? listed
           : [];
 
-    const phaseSlugs = new Set(COMPOSIO_PHASE1_TOOLKITS.map((t) => t.slug));
+    const allow = new Set(
+      enabledToolkits.length
+        ? enabledToolkits
+        : COMPOSIO_DEFAULT_TOOLKITS.map((t) => t.slug)
+    );
     const connections = items
       .map((row) => {
-        const toolkit = String(
+        const toolkit = normalizeToolkitSlug(
           row?.toolkit?.slug || row?.appName || row?.appUniqueId || row?.toolkitSlug || ""
-        )
-          .trim()
-          .toLowerCase();
+        );
         const status = String(row?.status || row?.connectionStatus || "").toLowerCase();
         return {
           id: String(row?.id || row?.connectedAccountId || ""),
@@ -217,7 +376,7 @@ export async function composioListStatus(opts) {
           label: String(row?.toolkit?.name || row?.appName || toolkit || ""),
         };
       })
-      .filter((c) => !c.toolkit || phaseSlugs.has(normalizeToolkitSlug(c.toolkit) || c.toolkit));
+      .filter((c) => !c.toolkit || allow.has(c.toolkit));
 
     return { ...base, connections };
   } catch (err) {
@@ -227,31 +386,53 @@ export async function composioListStatus(opts) {
 }
 
 /**
- * Execute one Composio tool as this user (must be connected).
+ * @param {string} tool
+ * @param {string[]} toolkitSlugs
+ * @returns {boolean}
+ */
+export function isToolAllowedForToolkits(tool, toolkitSlugs) {
+  const upper = String(tool || "")
+    .trim()
+    .toUpperCase();
+  if (!upper) return false;
+  const slugs = (Array.isArray(toolkitSlugs) ? toolkitSlugs : [])
+    .map((s) =>
+      String(s || "")
+        .trim()
+        .toUpperCase()
+        .replace(/-/g, "_")
+    )
+    .filter(Boolean);
+  if (!slugs.length) {
+    return (
+      upper.startsWith("GMAIL_") ||
+      upper.startsWith("SLACK_") ||
+      upper.startsWith("GOOGLESHEETS_") ||
+      upper.startsWith("GOOGLE_SHEETS_")
+    );
+  }
+  return slugs.some((s) => upper.startsWith(`${s}_`) || upper.startsWith(`${s.replace(/_/g, "")}_`));
+}
+
+/**
+ * Execute one Composio tool as this user.
  * @param {{
  *   userId: string,
+ *   apiKey: string,
  *   sessionId?: string|null,
+ *   toolkitSlugs?: string[],
  *   tool: string,
  *   arguments?: object,
  * }} opts
- * @returns {Promise<{ ok: boolean, data?: unknown, error?: string, sessionId?: string }>}
  */
 export async function composioExecuteTool(opts) {
   const tool = String(opts.tool || "").trim();
   if (!tool) return { ok: false, error: "tool slug required" };
-
-  // Why: keep Phase 1 blast radius small — only tools whose prefix matches allowed toolkits.
-  const upper = tool.toUpperCase();
-  const allowedPrefix =
-    upper.startsWith("GMAIL_") ||
-    upper.startsWith("SLACK_") ||
-    upper.startsWith("GOOGLESHEETS_") ||
-    upper.startsWith("GOOGLE_SHEETS_");
-  if (!allowedPrefix) {
+  if (!isToolAllowedForToolkits(tool, opts.toolkitSlugs || [])) {
     return {
       ok: false,
       error:
-        "Phase 1 only allows GMAIL_*, SLACK_*, or GOOGLESHEETS_* tools. Connect the app in Settings → Composio first.",
+        "That tool is not in this agent’s enabled Composio apps. Update Agent → Composio apps.",
     };
   }
 
@@ -271,9 +452,8 @@ export async function composioExecuteTool(opts) {
       sessionId: sess.sessionId,
     };
   } catch (err) {
-    // Fallback: direct tools.execute with userId (older path).
     try {
-      const client = await getClient();
+      const client = await getClient(opts.apiKey);
       if (!client?.tools?.execute) throw err;
       const result = await client.tools.execute(tool, {
         userId: composioUserId(opts.userId),
@@ -296,15 +476,13 @@ export async function composioExecuteTool(opts) {
 }
 
 /**
- * Revoke one connected account (best-effort).
- * @param {{ userId: string, connectedAccountId: string }} opts
- * @returns {Promise<{ ok: boolean, error?: string }>}
+ * @param {{ apiKey: string, connectedAccountId: string }} opts
  */
 export async function composioDisconnectAccount(opts) {
   const id = String(opts.connectedAccountId || "").trim();
   if (!id) return { ok: false, error: "connectedAccountId required" };
-  const client = await getClient();
-  if (!client) return { ok: false, error: "composio_disabled" };
+  const client = await getClient(opts.apiKey);
+  if (!client) return { ok: false, error: "missing_api_key" };
   try {
     if (typeof client.connectedAccounts.delete === "function") {
       await client.connectedAccounts.delete(id);

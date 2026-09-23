@@ -195,8 +195,9 @@ export function SettingsComposioPage() {
           </section>
 
           <p className="text-xs text-teal-900/60">
-            After connecting, try in Auto chat: “list my composio apps” or “send a Slack message to
-            #general saying hi” (app must be connected first).
+            Prefer Agents → edit → Composio for a per-agent API key and app picker. This page uses
+            the server COMPOSIO_API_KEY when set. After connecting, try in Auto chat: “list my
+            composio apps”.
           </p>
         </>
       )}

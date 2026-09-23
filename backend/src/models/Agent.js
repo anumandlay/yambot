@@ -254,6 +254,18 @@ const agentSchema = new mongoose.Schema(
       imapSecure: { type: Boolean, default: true },
     },
     /**
+     * Composio app automations for this agent (Phase-1+).
+     * API key encrypted at rest; OAuth tokens stay in Composio.
+     */
+    composio: {
+      enabled: { type: Boolean, default: false },
+      apiKeyEnc: { type: String, default: "" },
+      /** Toolkit slugs this agent may use (e.g. gmail, slack, github). */
+      toolkitSlugs: { type: [String], default: [] },
+      /** Reused Composio session id for this agent’s owner. */
+      sessionId: { type: String, default: "" },
+    },
+    /**
      * Execution target — always cloud (kept for legacy task snapshots).
      */
     runner: {

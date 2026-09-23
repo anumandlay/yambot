@@ -95,7 +95,7 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "composio_list",
       description:
-        "List Phase-1 Composio apps (Gmail, Slack, Google Sheets) and which ones this user has connected. Use before composio_execute. Does not start the browser.",
+        "List Composio apps enabled for this agent and which ones the user has connected. Use before composio_execute. Does not start the browser.",
       parameters: {
         type: "object",
         properties: {},
@@ -107,13 +107,13 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "composio_connect",
       description:
-        "Start Composio OAuth for one Phase-1 app. Returns a redirectUrl the user must open to authorize. toolkit: gmail | slack | googlesheets.",
+        "Start Composio OAuth for one app enabled on this agent. Returns a redirectUrl the user must open to authorize. toolkit is a Composio slug (e.g. gmail, slack, github).",
       parameters: {
         type: "object",
         properties: {
           toolkit: {
             type: "string",
-            description: "gmail, slack, or googlesheets",
+            description: "Composio toolkit slug from the agent’s enabled apps",
           },
         },
         required: ["toolkit"],
@@ -125,7 +125,7 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "composio_execute",
       description:
-        "Run one Composio tool for a connected Phase-1 app. tool must be a GMAIL_*, SLACK_*, or GOOGLESHEETS_* slug. Pass JSON arguments for that tool. Prefer composio_list first; if not connected, use composio_connect.",
+        "Run one Composio tool for a connected app enabled on this agent. tool must match an enabled toolkit prefix (e.g. GMAIL_*, SLACK_*). Pass JSON arguments for that tool. Prefer composio_list first; if not connected, use composio_connect.",
       parameters: {
         type: "object",
         properties: {
@@ -974,6 +974,9 @@ export function classifyAutoToolName(tc) {
  *   listPeerAgents?: () => Promise<object|string>,
  *   userId?: string,
  *   composioSessionId?: string|null,
+ *   composioApiKey?: string|null,
+ *   composioToolkitSlugs?: string[],
+ *   composioEnabled?: boolean,
  *   saveComposioSessionId?: (id: string) => Promise<void>,
  * }} [runtime]
  * @param {object} [args]
@@ -996,28 +999,49 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
       return typeof data === "string" ? data : JSON.stringify(data);
     }
     if (kind === "composio_list" || kind === "composio_connect" || kind === "composio_execute") {
-      const { isComposioEnabled } = await import("./composioService.js");
-      if (!isComposioEnabled()) {
+      const {
+        resolveComposioApiKey,
+      } = await import("./composioService.js");
+      const apiKey = resolveComposioApiKey({
+        agentApiKey: runtime.composioApiKey,
+      });
+      if (!apiKey) {
         return JSON.stringify({
           ok: false,
-          detail: "Composio is not configured on this server (COMPOSIO_API_KEY).",
+          detail:
+            "No Composio API key. Add one under Agents → edit → Composio (or set COMPOSIO_API_KEY on the server).",
+        });
+      }
+      if (runtime.composioEnabled === false) {
+        return JSON.stringify({
+          ok: false,
+          detail: "Composio is disabled for this agent. Enable it under Agents → Composio.",
         });
       }
       const userId = String(runtime.userId || "").trim();
       if (!userId) {
         return JSON.stringify({ ok: false, detail: "userId missing for Composio" });
       }
+      const toolkitSlugs = Array.isArray(runtime.composioToolkitSlugs)
+        ? runtime.composioToolkitSlugs
+        : [];
       if (kind === "composio_list") {
         const { composioListStatus } = await import("./composioService.js");
-        const data = await composioListStatus({ userId });
+        const data = await composioListStatus({
+          userId,
+          apiKey,
+          toolkitSlugs,
+        });
         return JSON.stringify(data).slice(0, 4000);
       }
       if (kind === "composio_connect") {
         const { composioAuthorizeToolkit } = await import("./composioService.js");
         const result = await composioAuthorizeToolkit({
           userId,
+          apiKey,
           toolkit: args.toolkit || args.app || args.slug,
           sessionId: runtime.composioSessionId,
+          toolkitSlugs,
         });
         if (result.sessionId && typeof runtime.saveComposioSessionId === "function") {
           await runtime.saveComposioSessionId(result.sessionId).catch(() => {});
@@ -1039,7 +1063,9 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
               : {};
         const result = await composioExecuteTool({
           userId,
+          apiKey,
           sessionId: runtime.composioSessionId,
+          toolkitSlugs,
           tool: args.tool || args.slug || args.action,
           arguments: toolArgs,
         });
@@ -1331,7 +1357,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "REPLY / reply — answer in chat (no Chromium):",
     "- Questions, memory, capability, planning",
-    "- Composio app actions (Gmail / Slack / Sheets) via composio_* tools — never invent a browser goal for those",
+    "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
     "",
     "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
     "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",

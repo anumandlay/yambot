@@ -99,6 +99,15 @@ const EMPTY = {
     hasSmtpPassword: false,
   },
   /**
+   * Composio — per-agent API key + selected apps (OAuth stays in Composio).
+   */
+  composio: {
+    enabled: false,
+    apiKey: "",
+    hasApiKey: false,
+    toolkitSlugs: [],
+  },
+  /**
    * Desktop engine is always Playwright Chromium (CUA removed from product UI).
    */
   computerEngine: "playwright",
@@ -148,6 +157,12 @@ export function AgentEditPage() {
   const [llmProfiles, setLlmProfiles] = useState([]);
   const [walletInfo, setWalletInfo] = useState({ balanceUsd: 0, agentPriceUsd: 0 });
   const [readiness, setReadiness] = useState(null);
+  /** @type {[Array<{slug:string,label:string,blurb?:string}>, Function]} */
+  const [composioCatalog, setComposioCatalog] = useState([]);
+  const [composioCatalogBusy, setComposioCatalogBusy] = useState(false);
+  const [composioCatalogError, setComposioCatalogError] = useState("");
+  const [composioAppFilter, setComposioAppFilter] = useState("");
+  const [composioDropdownOpen, setComposioDropdownOpen] = useState(false);
 
   useEffect(() => {
     if (!isNew) return;
@@ -262,6 +277,14 @@ export function AgentEditPage() {
               imapPort: a.email?.imapPort ?? 993,
               imapSecure: a.email?.imapSecure !== false,
               hasSmtpPassword: Boolean(a.email?.hasSmtpPassword),
+            },
+            composio: {
+              enabled: Boolean(a.composio?.enabled),
+              apiKey: "",
+              hasApiKey: Boolean(a.composio?.hasApiKey),
+              toolkitSlugs: Array.isArray(a.composio?.toolkitSlugs)
+                ? a.composio.toolkitSlugs
+                : [],
             },
             computerEngine: "playwright",
           });
@@ -395,6 +418,65 @@ export function AgentEditPage() {
    * @param {string} key
    * @param {unknown} value
    */
+  function updateComposio(key, value) {
+    setForm((prev) => ({
+      ...prev,
+      composio: { ...prev.composio, [key]: value },
+    }));
+  }
+
+  /**
+   * Toggle a Composio toolkit slug in the agent allow-list.
+   * @param {string} slug
+   */
+  function toggleComposioToolkit(slug) {
+    const s = String(slug || "").trim().toLowerCase();
+    if (!s) return;
+    setForm((prev) => {
+      const cur = Array.isArray(prev.composio?.toolkitSlugs)
+        ? [...prev.composio.toolkitSlugs]
+        : [];
+      const idx = cur.indexOf(s);
+      if (idx >= 0) cur.splice(idx, 1);
+      else cur.push(s);
+      return {
+        ...prev,
+        composio: { ...prev.composio, toolkitSlugs: cur },
+      };
+    });
+  }
+
+  /**
+   * Fetch Composio app catalog using the form key (or saved key via empty body + server fallback).
+   */
+  async function loadComposioCatalog() {
+    setComposioCatalogBusy(true);
+    setComposioCatalogError("");
+    try {
+      const body = {};
+      const key = String(form.composio?.apiKey || "").trim();
+      if (key) body.apiKey = key;
+      else if (!isNew && agentId) body.agentId = agentId;
+      const data = await api("/api/agents/composio/catalog", {
+        method: "POST",
+        body: JSON.stringify(body),
+      });
+      const list = Array.isArray(data.toolkits) ? data.toolkits : [];
+      setComposioCatalog(list);
+      if (data.error) setComposioCatalogError(String(data.error));
+      setComposioDropdownOpen(true);
+    } catch (err) {
+      setComposioCatalogError(err?.detail || err?.message || String(err));
+      setComposioCatalog([]);
+    } finally {
+      setComposioCatalogBusy(false);
+    }
+  }
+
+  /**
+   * @param {string} key
+   * @param {unknown} value
+   */
   function updateLlm(key, value) {
     setForm((prev) => ({
       ...prev,
@@ -467,6 +549,14 @@ export function AgentEditPage() {
         // Why: preserve pre-profile inline override until the user picks Default or a named profile.
         useCustom: Boolean(!form.llm?.profileId && form.llm?.useCustom),
       },
+      composio: {
+        enabled: Boolean(form.composio?.enabled),
+        apiKey: String(form.composio?.apiKey || "").trim(),
+        clearApiKey: false,
+        toolkitSlugs: Array.isArray(form.composio?.toolkitSlugs)
+          ? form.composio.toolkitSlugs
+          : [],
+      },
     };
     try {
       if (isNew) {
@@ -499,6 +589,16 @@ export function AgentEditPage() {
                 hasSmtpPassword: Boolean(data.agent.email.hasSmtpPassword),
               }
             : prev.email,
+          composio: data?.agent?.composio
+            ? {
+                enabled: Boolean(data.agent.composio.enabled),
+                apiKey: "",
+                hasApiKey: Boolean(data.agent.composio.hasApiKey),
+                toolkitSlugs: Array.isArray(data.agent.composio.toolkitSlugs)
+                  ? data.agent.composio.toolkitSlugs
+                  : [],
+              }
+            : prev.composio,
         }));
       }
     } catch (err) {
@@ -1379,6 +1479,134 @@ export function AgentEditPage() {
           ) : (
             <p className="text-xs text-teal-900/60">Save the agent first, then you can send a test email.</p>
           )}
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/70 p-3 sm:p-4">
+          <SectionTitle helpId="agent.composio.enabled" as="div" className="text-sm font-semibold text-teal-900">
+            Composio apps
+          </SectionTitle>
+          <p className="text-xs text-teal-900/70">
+            Paste a Composio API key for this agent, then pick which apps Auto chat may use (Gmail,
+            Slack, GitHub, …). OAuth tokens stay in Composio — connect when the agent asks.
+          </p>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(form.composio?.enabled)}
+              onChange={(e) => updateComposio("enabled", e.target.checked)}
+            />
+            <FieldLabel helpId="agent.composio.enabled">Enable Composio for this agent</FieldLabel>
+          </label>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <div className="sm:col-span-2">
+              <FieldLabel helpId="agent.composio.apiKey">Composio API key</FieldLabel>
+              <input
+                className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 text-sm"
+                type="password"
+                autoComplete="off"
+                value={form.composio?.apiKey || ""}
+                onChange={(e) => updateComposio("apiKey", e.target.value)}
+                placeholder={
+                  form.composio?.hasApiKey
+                    ? "Saved — leave blank to keep"
+                    : "ak_… from app.composio.dev"
+                }
+                disabled={!form.composio?.enabled}
+              />
+            </div>
+            <div className="sm:col-span-2">
+              <FieldLabel helpId="agent.composio.apps">Apps this agent can use</FieldLabel>
+              <div className="mt-1 flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={!form.composio?.enabled || composioCatalogBusy}
+                  onClick={() => loadComposioCatalog()}
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-200 bg-teal-50 px-3 text-sm font-semibold text-teal-900 disabled:opacity-50"
+                >
+                  {composioCatalogBusy ? "Loading apps…" : "Load apps from Composio"}
+                </button>
+                <button
+                  type="button"
+                  disabled={!form.composio?.enabled || !composioCatalog.length}
+                  onClick={() => setComposioDropdownOpen((o) => !o)}
+                  className="inline-flex min-h-11 items-center justify-center rounded-xl border border-teal-200 bg-white px-3 text-sm font-semibold text-teal-900 disabled:opacity-50"
+                >
+                  {composioDropdownOpen ? "Hide list" : "Show / pick apps"}
+                </button>
+              </div>
+              {composioCatalogError ? (
+                <p className="mt-1 text-xs text-amber-800">{composioCatalogError}</p>
+              ) : null}
+              {(form.composio?.toolkitSlugs || []).length > 0 ? (
+                <p className="mt-2 text-xs text-teal-900/80">
+                  Selected:{" "}
+                  <span className="font-semibold">
+                    {(form.composio.toolkitSlugs || []).join(", ")}
+                  </span>
+                </p>
+              ) : (
+                <p className="mt-2 text-xs text-teal-900/60">
+                  No apps selected yet — load the catalog and check the ones you want.
+                </p>
+              )}
+              {composioDropdownOpen && form.composio?.enabled ? (
+                <div className="mt-2 max-h-64 overflow-y-auto rounded-xl border border-teal-200 bg-white p-2">
+                  <input
+                    className="mb-2 w-full rounded-lg border border-teal-100 px-2 py-1.5 text-sm"
+                    type="search"
+                    placeholder="Filter apps…"
+                    value={composioAppFilter}
+                    onChange={(e) => setComposioAppFilter(e.target.value)}
+                  />
+                  <ul className="flex flex-col gap-1">
+                    {(composioCatalog.length
+                      ? composioCatalog
+                      : [
+                          { slug: "gmail", label: "Gmail", blurb: "" },
+                          { slug: "slack", label: "Slack", blurb: "" },
+                          { slug: "googlesheets", label: "Google Sheets", blurb: "" },
+                        ]
+                    )
+                      .filter((t) => {
+                        const q = composioAppFilter.trim().toLowerCase();
+                        if (!q) return true;
+                        return (
+                          String(t.slug || "")
+                            .toLowerCase()
+                            .includes(q) ||
+                          String(t.label || "")
+                            .toLowerCase()
+                            .includes(q)
+                        );
+                      })
+                      .map((t) => {
+                        const slug = String(t.slug || "").toLowerCase();
+                        const checked = (form.composio?.toolkitSlugs || []).includes(slug);
+                        return (
+                          <li key={slug}>
+                            <label className="flex cursor-pointer items-start gap-2 rounded-lg px-2 py-1.5 text-sm hover:bg-teal-50">
+                              <input
+                                type="checkbox"
+                                className="mt-1"
+                                checked={checked}
+                                onChange={() => toggleComposioToolkit(slug)}
+                              />
+                              <span>
+                                <span className="font-medium text-teal-950">{t.label || slug}</span>
+                                <span className="ml-1 text-xs text-teal-900/50">({slug})</span>
+                                {t.blurb ? (
+                                  <span className="block text-xs text-teal-900/60">{t.blurb}</span>
+                                ) : null}
+                              </span>
+                            </label>
+                          </li>
+                        );
+                      })}
+                  </ul>
+                </div>
+              ) : null}
+            </div>
+          </div>
         </fieldset>
 
         {!isNew && form.mode !== "api" ? (

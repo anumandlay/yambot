@@ -33,6 +33,9 @@ import {
 import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
 import {
+  decryptAgentComposioApiKey,
+} from "../utils/composioService.js";
+import {
   buildChatContextPrompt,
   refreshChatContextIfNeeded,
   withChatContext,
@@ -1189,10 +1192,36 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               };
             },
             userId: String(req.userId),
-            composioSessionId: String(userForLlm?.settings?.composioSessionId || "") || null,
+            composioEnabled: (() => {
+              const c = agentDoc?.composio;
+              const hasAgentKey = Boolean(c?.apiKeyEnc);
+              const hasSlugs = Array.isArray(c?.toolkitSlugs) && c.toolkitSlugs.length > 0;
+              // Why: agents with an explicit Composio section must opt in; others keep server-key Phase-1.
+              if (hasAgentKey || hasSlugs || c?.enabled === true || c?.enabled === false) {
+                return Boolean(c?.enabled);
+              }
+              return true;
+            })(),
+            composioApiKey: decryptAgentComposioApiKey(agentDoc),
+            composioToolkitSlugs: Array.isArray(agentDoc?.composio?.toolkitSlugs)
+              ? agentDoc.composio.toolkitSlugs
+              : [],
+            composioSessionId:
+              String(agentDoc?.composio?.sessionId || "").trim() ||
+              String(userForLlm?.settings?.composioSessionId || "").trim() ||
+              null,
             saveComposioSessionId: async (sessionId) => {
               const sid = String(sessionId || "").trim();
-              if (!sid || !userForLlm) return;
+              if (!sid) return;
+              if (agentDoc) {
+                agentDoc.composio = agentDoc.composio || {};
+                if (String(agentDoc.composio.sessionId || "") !== sid) {
+                  agentDoc.composio.sessionId = sid;
+                  agentDoc.markModified("composio");
+                  await agentDoc.save();
+                }
+              }
+              if (!userForLlm) return;
               if (String(userForLlm.settings?.composioSessionId || "") === sid) return;
               userForLlm.settings = userForLlm.settings || {};
               userForLlm.settings.composioSessionId = sid;

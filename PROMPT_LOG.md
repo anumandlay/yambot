@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 15:30] Agent settings — Composio API key + apps dropdown
+
+- **Prompt Provided:** Add a section to add API key in agent settings, and a dropdown to select apps from Composio.
+- **Architectural Flow:** Agent.composio stores encrypted apiKeyEnc + toolkitSlugs + sessionId. Agent edit UI loads catalog via POST /api/agents/composio/catalog (form key or saved agent key). Auto chat uses decryptAgentComposioApiKey + selected toolkits; Settings Composio remains server-key fallback.
+- **Impacted Files:** Agent.js, composioService.js, agents.js, chats.js, chatAutoTurn.js, settings.js, AgentEditPage.jsx, helpContent.js, SettingsComposioPage.jsx, PROMPT_LOG
+
 ## [2026-09-23 15:20] Composio Phase-1 (Gmail / Slack / Sheets)
 
 - **Prompt Provided:** Add Composio so users can automate apps — start Phase 1.

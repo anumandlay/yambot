@@ -650,14 +650,22 @@ settingsRouter.get("/composio", async (req, res, next) => {
     }
     const {
       composioListStatus,
-      isComposioEnabled,
+      isComposioServerEnabled,
+      serverComposioApiKey,
+      COMPOSIO_DEFAULT_TOOLKITS,
     } = await import("../utils/composioService.js");
-    const status = await composioListStatus({ userId: req.userId });
+    const apiKey = serverComposioApiKey();
+    const status = await composioListStatus({
+      userId: req.userId,
+      apiKey,
+      toolkitSlugs: COMPOSIO_DEFAULT_TOOLKITS.map((t) => t.slug),
+    });
     res.json({
       ok: true,
       ...status,
-      enabled: isComposioEnabled(),
+      enabled: isComposioServerEnabled(),
       sessionId: String(user.settings?.composioSessionId || "") || null,
+      hint: "Prefer Agent → Composio for a per-agent API key and app list. This page uses the server key when set.",
     });
   } catch (err) {
     next(err);
@@ -675,21 +683,27 @@ settingsRouter.post("/composio/connect", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
       return;
     }
-    const { composioAuthorizeToolkit, isComposioEnabled } = await import(
-      "../utils/composioService.js"
-    );
-    if (!isComposioEnabled()) {
+    const {
+      composioAuthorizeToolkit,
+      isComposioServerEnabled,
+      serverComposioApiKey,
+      COMPOSIO_DEFAULT_TOOLKITS,
+    } = await import("../utils/composioService.js");
+    if (!isComposioServerEnabled()) {
       res.status(400).json({
         ok: false,
         title: "Composio disabled",
-        detail: "Set COMPOSIO_API_KEY on the server to enable app automations.",
+        detail:
+          "Set COMPOSIO_API_KEY on the server, or add a Composio API key on an agent (Agents → edit → Composio).",
       });
       return;
     }
     const result = await composioAuthorizeToolkit({
       userId: req.userId,
+      apiKey: serverComposioApiKey(),
       toolkit: req.body?.toolkit,
       sessionId: user.settings?.composioSessionId,
+      toolkitSlugs: COMPOSIO_DEFAULT_TOOLKITS.map((t) => t.slug),
     });
     if (!result.ok) {
       res.status(400).json({
@@ -722,10 +736,12 @@ settingsRouter.post("/composio/connect", async (req, res, next) => {
  */
 settingsRouter.delete("/composio/connections/:id", async (req, res, next) => {
   try {
-    const { composioDisconnectAccount, isComposioEnabled } = await import(
-      "../utils/composioService.js"
-    );
-    if (!isComposioEnabled()) {
+    const {
+      composioDisconnectAccount,
+      isComposioServerEnabled,
+      serverComposioApiKey,
+    } = await import("../utils/composioService.js");
+    if (!isComposioServerEnabled()) {
       res.status(400).json({
         ok: false,
         title: "Composio disabled",
@@ -735,6 +751,7 @@ settingsRouter.delete("/composio/connections/:id", async (req, res, next) => {
     }
     const result = await composioDisconnectAccount({
       userId: req.userId,
+      apiKey: serverComposioApiKey(),
       connectedAccountId: req.params.id,
     });
     if (!result.ok) {

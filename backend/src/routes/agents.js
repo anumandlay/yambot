@@ -21,6 +21,13 @@ import {
   sendAgentEmail,
   checkAgentInbox,
 } from "../utils/agentEmail.js";
+import {
+  publicComposioSummary,
+  normalizeToolkitSlug,
+  composioListCatalog,
+  resolveComposioApiKey,
+  COMPOSIO_DEFAULT_TOOLKITS,
+} from "../utils/composioService.js";
 import { computeAgentReadiness } from "../utils/agentReadiness.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
@@ -108,6 +115,7 @@ function publicAgent(agent, ctx = {}) {
   };
   a.email = publicEmailSummary(a);
   a.llm = publicLlmSummary(a);
+  a.composio = publicComposioSummary(a);
   // Why: passwords live only on the dedicated memory/credentials endpoints (plaintext there by design).
   if (Array.isArray(a.credentials)) {
     a.credentials = a.credentials.map((c) => ({
@@ -464,6 +472,29 @@ function pickAgentFields(body, opts = {}) {
     }
     set("email", email);
   }
+  if (body.composio != null && typeof body.composio === "object") {
+    const c = body.composio;
+    const rawSlugs = Array.isArray(c.toolkitSlugs)
+      ? c.toolkitSlugs
+      : typeof c.toolkitSlugs === "string"
+        ? String(c.toolkitSlugs).split(/[\n,]/)
+        : [];
+    const toolkitSlugs = [
+      ...new Set(rawSlugs.map((s) => normalizeToolkitSlug(s)).filter(Boolean)),
+    ].slice(0, 40);
+    /** @type {object} */
+    const composio = {
+      enabled: Boolean(c.enabled),
+      toolkitSlugs,
+    };
+    const key = String(c.apiKey || "").trim();
+    if (key) {
+      composio.apiKeyEnc = encryptSecret(key);
+    } else if (c.clearApiKey) {
+      composio.apiKeyEnc = "";
+    }
+    set("composio", composio);
+  }
   if (body.group != null || body.groupId != null) {
     const gid = body.group ?? body.groupId;
     set("group", gid ? String(gid) : null);
@@ -492,6 +523,44 @@ agentsRouter.post("/draft-from-brief", async (req, res, next) => {
       return;
     }
     res.json({ ok: true, draft: result.draft });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/composio/catalog — list Composio apps for the agent settings dropdown.
+ * Body: { apiKey?: string, agentId?: string } — posted key, else agent’s saved key, else server.
+ */
+agentsRouter.post("/composio/catalog", async (req, res, next) => {
+  try {
+    const posted = String(req.body?.apiKey || "").trim();
+    let agentKey = "";
+    const agentId = String(req.body?.agentId || "").trim();
+    if (!posted && agentId) {
+      const doc = await Agent.findOne({ _id: agentId, user: req.userId }).select("composio");
+      if (doc?.composio?.apiKeyEnc) {
+        const { decryptAgentComposioApiKey } = await import("../utils/composioService.js");
+        agentKey = decryptAgentComposioApiKey(doc);
+      }
+    }
+    const apiKey = resolveComposioApiKey({ agentApiKey: posted || agentKey });
+    if (!apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "API key required",
+        detail: "Paste a Composio API key on the agent, or set COMPOSIO_API_KEY on the server.",
+        toolkits: COMPOSIO_DEFAULT_TOOLKITS.map((t) => ({ ...t })),
+      });
+      return;
+    }
+    const result = await composioListCatalog({ apiKey, limit: 150 });
+    res.json({
+      ok: result.ok,
+      toolkits: result.toolkits,
+      error: result.error || null,
+      defaults: COMPOSIO_DEFAULT_TOOLKITS.map((t) => ({ ...t })),
+    });
   } catch (err) {
     next(err);
   }
@@ -1505,6 +1574,17 @@ agentsRouter.put("/:id", async (req, res, next) => {
       agent.markModified("email");
       delete fields.email;
     }
+    if (fields.composio) {
+      // Why: blank API key in the form means keep the existing encrypted secret.
+      if (!fields.composio.apiKeyEnc) {
+        fields.composio.apiKeyEnc = agent.composio?.apiKeyEnc || "";
+      }
+      // Why: session id is written by chat/OAuth — never wipe it from the edit form.
+      fields.composio.sessionId = agent.composio?.sessionId || "";
+      agent.set("composio", fields.composio);
+      agent.markModified("composio");
+      delete fields.composio;
+    }
     if (fields.computerEngine) {
       agent.computer.engine = fields.computerEngine;
       agent.markModified("computer");
@@ -2183,6 +2263,15 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
         imapHost: src.email?.imapHost || "",
         imapPort: src.email?.imapPort || 993,
         imapSecure: src.email?.imapSecure !== false,
+      },
+      composio: {
+        enabled: Boolean(src.composio?.enabled),
+        apiKeyEnc: src.composio?.apiKeyEnc || "",
+        toolkitSlugs: Array.isArray(src.composio?.toolkitSlugs)
+          ? src.composio.toolkitSlugs.map((s) => normalizeToolkitSlug(s)).filter(Boolean)
+          : [],
+        // Why: new copy gets a fresh Composio session on first connect.
+        sessionId: "",
       },
       schedule: {
         enabled: scheduleEnabled,
