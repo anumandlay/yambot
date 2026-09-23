@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-22 20:15] Mid-run messages: new API request, not inject into live LLM
+
+- **Prompt Provided:** When a task is running and I send a new message, instead of injecting into the next LLM call, send a new API request separately.
+- **Architectural Flow:** ChatDetailPage no longer POSTs `/tasks/:id/inject` for Auto while running. Composer always uses the normal `/messages` stream (Hermes Auto reply or queue_goal pending behind the active run). Inject endpoint remains for explicit tooling; UI/help copy updated.
+- **Impacted Files:** ChatDetailPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-22 14:45] Live screen follows the open agent chat (not stuck on Trial India)
 
 - **Prompt Provided:** On /grok/:chatId the agent screen stayed on Trial Expiry even after switching agents.
