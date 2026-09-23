@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 18:30] Fix “using composio” hijacking Sheets into Gmail unread
+
+- **Prompt Provided:** Check last live chat — list spreadsheets using composio returned Gmail unread.
+- **Architectural Flow:** Stop treating bare “composio” as a mail cue; exclude spreadsheet asks from gmail_unread; prefer sheets_list/sheets_read before Gmail intents.
+- **Impacted Files:** composioAutoRuntime.js, PROMPT_LOG
+
 ## [2026-09-23 18:20] Sheets list via Composio + Gmail “do for all” follow-up
 
 - **Prompt Provided:** Spreadsheet asks opened Drive computer; “list spreadsheets” → Gmail error; “Do for all emails from cursor” → could not draft.

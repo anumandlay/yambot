@@ -33,10 +33,11 @@ export function looksLikeGmailInboxRequest(text) {
   ) {
     return false;
   }
+  // Why: “list spreadsheets using composio” must not become Gmail unread.
+  if (/\b(spreadsheets?|google\s*sheets?|gsheets?)\b/.test(t)) return false;
 
-  const hasMail =
-    /\b(gmail|google\s*mail|inbox|e-?mails?|mails?|messages?)\b/.test(t) ||
-    /\bcomposio\b/.test(t);
+  const hasMail = /\b(gmail|google\s*mail|inbox|e-?mails?|mails?|messages?)\b/.test(t);
+  const mentionsComposio = /\bcomposio\b/.test(t);
   const hasUnread = /\bunread\b/.test(t);
   const hasListCue =
     /\b(last|top|recent|latest)\s+\d+\b/.test(t) ||
@@ -48,8 +49,8 @@ export function looksLikeGmailInboxRequest(text) {
   if (/\b(last|top|recent|latest)\s+\d+\s+(e-?mails?|mails?|messages?)\b/.test(t)) return true;
   // named gmail/inbox + list/unread cue
   if (/\b(gmail|google\s*mail|inbox)\b/.test(t) && (hasUnread || hasListCue)) return true;
-  // “using composio” + mail + list/unread
-  if (/\bcomposio\b/.test(t) && hasMail && (hasUnread || hasListCue)) return true;
+  // “using composio” + real mail words + list/unread (composio alone is not mail)
+  if (mentionsComposio && hasMail && (hasUnread || hasListCue)) return true;
   // give/get/show + emails + unread-ish
   if (hasMail && hasListCue && (hasUnread || /\b(inbox|e-?mails?)\b/.test(t))) return true;
   return false;
@@ -873,6 +874,39 @@ export async function runGmailLabelMove(opts) {
 /** @type {ComposioIntentSpec[]} */
 export const COMPOSIO_INTENT_SPECS = [
   {
+    id: "sheets_list",
+    toolkit: "googlesheets",
+    label: "Sheets list",
+    preferredTools: [
+      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
+      "GOOGLESHEETS_FIND_SPREADSHEET",
+      "GOOGLESHEETS_LIST_SPREADSHEETS",
+    ],
+    searchQueries: [
+      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
+      "search spreadsheets",
+      "list spreadsheets",
+    ],
+    buildArgs: buildSheetsListToolArgs,
+    formatOk: formatSheetsListSummaryFromToolResult,
+    match: looksLikeSheetsListRequest,
+  },
+  {
+    id: "sheets_read",
+    toolkit: "googlesheets",
+    label: "Sheets read",
+    preferredTools: [
+      "GOOGLESHEETS_BATCH_GET",
+      "GOOGLESHEETS_GET_SHEET_NAMES",
+      "GOOGLESHEETS_VALUES_GET",
+      "GOOGLE_SHEETS_GET_VALUES",
+    ],
+    searchQueries: ["GOOGLESHEETS_BATCH_GET", "get sheet values", "read spreadsheet range"],
+    buildArgs: buildSheetsReadToolArgs,
+    formatOk: formatSheetsReadSummaryFromToolResult,
+    match: looksLikeSheetsReadRequest,
+  },
+  {
     id: "gmail_label",
     toolkit: "gmail",
     label: "Gmail label",
@@ -911,39 +945,6 @@ export const COMPOSIO_INTENT_SPECS = [
     buildArgs: buildSlackSendToolArgs,
     formatOk: formatSlackSendSummaryFromToolResult,
     match: looksLikeSlackSendRequest,
-  },
-  {
-    id: "sheets_list",
-    toolkit: "googlesheets",
-    label: "Sheets list",
-    preferredTools: [
-      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
-      "GOOGLESHEETS_FIND_SPREADSHEET",
-      "GOOGLESHEETS_LIST_SPREADSHEETS",
-    ],
-    searchQueries: [
-      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
-      "search spreadsheets",
-      "list spreadsheets",
-    ],
-    buildArgs: buildSheetsListToolArgs,
-    formatOk: formatSheetsListSummaryFromToolResult,
-    match: looksLikeSheetsListRequest,
-  },
-  {
-    id: "sheets_read",
-    toolkit: "googlesheets",
-    label: "Sheets read",
-    preferredTools: [
-      "GOOGLESHEETS_BATCH_GET",
-      "GOOGLESHEETS_GET_SHEET_NAMES",
-      "GOOGLESHEETS_VALUES_GET",
-      "GOOGLE_SHEETS_GET_VALUES",
-    ],
-    searchQueries: ["GOOGLESHEETS_BATCH_GET", "get sheet values", "read spreadsheet range"],
-    buildArgs: buildSheetsReadToolArgs,
-    formatOk: formatSheetsReadSummaryFromToolResult,
-    match: looksLikeSheetsReadRequest,
   },
 ];
 
