@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 18:20] Sheets list via Composio + Gmail “do for all” follow-up
+
+- **Prompt Provided:** Spreadsheet asks opened Drive computer; “list spreadsheets” → Gmail error; “Do for all emails from cursor” → could not draft.
+- **Architectural Flow:** sheets_list intent → GOOGLESHEETS_SEARCH_SPREADSHEETS; treat spreadsheet/recent as Composio (not Chromium); broaden gmail_label for “do for all emails from X”; generic empty Composio fallback.
+- **Impacted Files:** composioAutoRuntime.js, messageIntent.js, chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-23 18:05] Fix Connect white page + ToolkitNotAllowed for new apps
 
 - **Prompt Provided:** Connect opens a white page and nothing happens (Notion/Apollo after Gmail).

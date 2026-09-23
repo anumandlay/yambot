@@ -164,7 +164,7 @@ export function looksLikeComposioAppRequest(text) {
 
   if (/\bcomposio\b/i.test(lower)) return true;
   if (
-    /\b(gmail|google\s*mail|google\s*sheets?|slack|notion|github|hubspot|google\s*drive|googledrive)\b/i.test(
+    /\b(gmail|google\s*mail|google\s*sheets?|spreadsheets?|gsheets?|slack|notion|github|hubspot|google\s*drive|googledrive)\b/i.test(
       lower
     )
   ) {
@@ -172,7 +172,7 @@ export function looksLikeComposioAppRequest(text) {
   }
   // Phrases that almost always mean API inbox/app, not “open the site”.
   if (
-    /\b(unread\s+(e-?mails?|mail|messages?)|(e-?mails?|mail|messages?)\s+unread|last\s+\d+\s+(e-?mails?|mails?|messages?)|summarize .{0,40}(inbox|e-?mails?)|list .{0,40}(inbox|e-?mails?)|move .{0,60}(e-?mails?|messages?).{0,40}labels?|(e-?mails?|messages?).{0,40}to .{0,40}labels?|send (a )?slack|post (to|in) (slack|#))\b/i.test(
+    /\b(unread\s+(e-?mails?|mail|messages?)|(e-?mails?|mail|messages?)\s+unread|last\s+\d+\s+(e-?mails?|mails?|messages?)|summarize .{0,40}(inbox|e-?mails?)|list .{0,40}(inbox|e-?mails?)|move .{0,60}(e-?mails?|messages?).{0,40}labels?|(e-?mails?|messages?).{0,40}to .{0,40}labels?|do (it|that|this )?(for|to) all .{0,40}(e-?mails?|messages?)|all (the )?(e-?mails?|messages?) from|list .{0,40}spreadsheets?|recent .{0,40}spreadsheets?|send (a )?slack|post (to|in) (slack|#))\b/i.test(
       lower
     )
   ) {

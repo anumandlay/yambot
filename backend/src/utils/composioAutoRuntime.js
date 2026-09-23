@@ -72,7 +72,12 @@ export function looksLikeGmailLabelRequest(text) {
   const hasMail = /\b(e-?mails?|mails?|messages?|gmail|inbox)\b/.test(t);
   const hasLabel = /\blabels?\b/.test(t);
   const hasMove = /\b(move|apply|add|put|file|tag|label)\b/.test(t);
-  return Boolean(hasMail && hasLabel && hasMove);
+  if (hasMail && hasLabel && hasMove) return true;
+  // Follow-ups after a prior label move: “Do for all emails from cursor”
+  const hasFrom = /\bfrom\s+["']?[a-z0-9@._+-]+["']?/i.test(t);
+  const followAll =
+    /\b(do (it|that|this )?(for|to|again)|all|rest|remaining|same|continue)\b/.test(t);
+  return Boolean(hasMail && hasFrom && followAll);
 }
 
 /**
@@ -124,14 +129,33 @@ export function looksLikeSlackSendRequest(text) {
 }
 
 /**
- * Google Sheets read asks with a spreadsheet id or “sheet” + read/list.
+ * List / find / recent Google Spreadsheets (no spreadsheet id required).
+ * Why: “list all spreadsheets” / “check recent spreadsheet” must use Composio search, not Drive browser.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSheetsListRequest(text) {
+  const raw = String(text || "").trim();
+  const t = raw.toLowerCase();
+  if (!/\b(google\s*sheets?|spreadsheets?|gsheets?)\b/.test(t)) return false;
+  // Explicit read-by-id → sheets_read instead
+  if (/\bspreadsheet[_ ]?id\s*[=:]/i.test(raw)) return false;
+  if (/\b[a-zA-Z0-9-_]{35,}\b/.test(raw) && /\b(read|values|rows|cells|range)\b/.test(t)) {
+    return false;
+  }
+  return /\b(list|show|find|search|check|recent|latest|all|my|created)\b/.test(t);
+}
+
+/**
+ * Google Sheets read asks with a spreadsheet id or “sheet” + read values.
  * @param {string} text
  * @returns {boolean}
  */
 export function looksLikeSheetsReadRequest(text) {
   const t = String(text || "").toLowerCase();
-  if (!/\b(google\s*sheets?|spreadsheet|gsheet)\b/.test(t)) return false;
-  return /\b(read|list|get|show|fetch|values|rows|cells)\b/.test(t);
+  if (!/\b(google\s*sheets?|spreadsheets?|gsheets?)\b/.test(t)) return false;
+  if (looksLikeSheetsListRequest(text)) return false;
+  return /\b(read|get|show|fetch|values|rows|cells|range)\b/.test(t);
 }
 
 /**
@@ -179,6 +203,36 @@ export function buildSlackSendToolArgs(userText = "") {
     channelId: channel,
     text,
     message: text,
+  };
+}
+
+/**
+ * @param {string} userText
+ * @returns {Record<string, unknown>}
+ */
+export function buildSheetsListToolArgs(userText = "") {
+  const raw = String(userText || "");
+  const t = raw.toLowerCase();
+  const nMatch = raw.match(/\b(?:top|last|recent|latest)\s*(\d{1,2})\b/i);
+  const max = Math.min(25, Math.max(5, Number(nMatch?.[1]) || 10));
+  // Strip filler; leftover words become a name search when useful.
+  let query = raw
+    .replace(/\b(list|show|find|search|check|get|give\s+me|all|my|the|a|an|recent|latest|created|spreadsheets?|google\s*sheets?|gsheets?|sheets?)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (query.length < 2 || /^(please|now|here)$/i.test(query)) query = "";
+  const orderBy = /\b(recent|latest|created|modified)\b/.test(t)
+    ? "modifiedTime desc"
+    : "modifiedTime desc";
+  return {
+    query,
+    q: query,
+    search: query,
+    max_results: max,
+    maxResults: max,
+    limit: max,
+    order_by: orderBy,
+    orderBy,
   };
 }
 
@@ -303,6 +357,45 @@ export function compactComposioExecuteResult(result, toolSlug = "") {
         ts: data?.ts || data?.message?.ts || null,
         text: String(data?.message?.text || data?.text || "").slice(0, 500),
         permalink: data?.permalink || data?.message?.permalink || null,
+      },
+    };
+  }
+
+  // Sheets search / list shaped (before values branch)
+  if (
+    /SEARCH_SPREADSHEETS|LIST_SPREADSHEETS|FIND_SPREADSHEETS/i.test(tool) ||
+    Array.isArray(data?.spreadsheets) ||
+    Array.isArray(data?.files) ||
+    Array.isArray(data?.spreadsheetFiles)
+  ) {
+    const rows = Array.isArray(data?.spreadsheets)
+      ? data.spreadsheets
+      : Array.isArray(data?.files)
+        ? data.files
+        : Array.isArray(data?.spreadsheetFiles)
+          ? data.spreadsheetFiles
+          : Array.isArray(data?.items)
+            ? data.items
+            : [];
+    return {
+      ok: result.ok !== false,
+      error: result.error,
+      sessionId: result.sessionId,
+      tool: toolSlug || undefined,
+      data: {
+        spreadsheets: rows.slice(0, 20).map((row) => {
+          if (!row || typeof row !== "object") return { name: String(row) };
+          return {
+            id: String(row.id || row.spreadsheetId || row.spreadsheet_id || "").slice(0, 80),
+            name: String(row.name || row.title || row.properties?.title || "").slice(0, 120),
+            modifiedTime: String(row.modifiedTime || row.modified_time || row.updatedAt || "").slice(
+              0,
+              40
+            ),
+            webViewLink: String(row.webViewLink || row.web_view_link || row.url || "").slice(0, 200),
+          };
+        }),
+        count: rows.length,
       },
     };
   }
@@ -463,6 +556,47 @@ export function formatSlackSendSummaryFromToolResult(resultText, tool = "") {
   return `Posted to Slack${channel ? ` (#${String(channel).replace(/^#/, "")})` : ""}${
     ts ? ` · ts ${ts}` : ""
   }${text ? `\n“${text}”` : ""}${tool ? `\n(${tool})` : ""}`;
+}
+
+/**
+ * @param {string} resultText
+ * @param {string} [tool]
+ * @returns {string}
+ */
+export function formatSheetsListSummaryFromToolResult(resultText, tool = "") {
+  /** @type {any} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(resultText || ""));
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) return "I couldn’t parse the Sheets list response from Composio.";
+  if (parsed.ok === false) {
+    const err = String(parsed.error || parsed.detail || "Sheets list failed");
+    if (/not connected|unauthorized|auth|connect/i.test(err)) {
+      return `Google Sheets isn’t connected yet. Open the Connect link, finish OAuth, then ask again.\n\n(${err})`;
+    }
+    return `Google Sheets list via Composio failed: ${err}`;
+  }
+  const data = parsed.data ?? parsed;
+  const rows = Array.isArray(data?.spreadsheets)
+    ? data.spreadsheets
+    : Array.isArray(data?.files)
+      ? data.files
+      : Array.isArray(data?.items)
+        ? data.items
+        : [];
+  if (!rows.length) {
+    return `No spreadsheets found${tool ? ` (${tool})` : ""}.`;
+  }
+  const lines = rows.slice(0, 12).map((row, i) => {
+    const name = String(row?.name || row?.title || "Untitled").slice(0, 80);
+    const id = String(row?.id || row?.spreadsheetId || row?.spreadsheet_id || "").slice(0, 60);
+    const when = String(row?.modifiedTime || row?.modified_time || "").slice(0, 24);
+    return `${i + 1}. ${name}${id ? ` · id ${id}` : ""}${when ? ` · ${when}` : ""}`;
+  });
+  return `Google Spreadsheets (${rows.length} shown):\n\n${lines.join("\n")}`;
 }
 
 /**
@@ -777,6 +911,24 @@ export const COMPOSIO_INTENT_SPECS = [
     buildArgs: buildSlackSendToolArgs,
     formatOk: formatSlackSendSummaryFromToolResult,
     match: looksLikeSlackSendRequest,
+  },
+  {
+    id: "sheets_list",
+    toolkit: "googlesheets",
+    label: "Sheets list",
+    preferredTools: [
+      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
+      "GOOGLESHEETS_FIND_SPREADSHEET",
+      "GOOGLESHEETS_LIST_SPREADSHEETS",
+    ],
+    searchQueries: [
+      "GOOGLESHEETS_SEARCH_SPREADSHEETS",
+      "search spreadsheets",
+      "list spreadsheets",
+    ],
+    buildArgs: buildSheetsListToolArgs,
+    formatOk: formatSheetsListSummaryFromToolResult,
+    match: looksLikeSheetsListRequest,
   },
   {
     id: "sheets_read",

@@ -149,9 +149,9 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
             "Should YamBot answer in chat (reply) or start a live computer / peer task (queue_goal)?",
           criteria: {
             reply:
-              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy, OR connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Composio (search email, send Slack, etc.). Naming a domain in a question is not enough.",
+              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy, OR connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Composio (search email, list spreadsheets, send Slack, etc.). Naming a domain in a question is not enough.",
             queue_goal:
-              "Live browser/computer job now: open/go to/navigate/visit a website in Chromium, click, fill, submit, log in on a page, live browse research, or message_agent / peer fan-out. Do NOT choose queue_goal for Gmail/Slack/Composio API actions.",
+              "Live browser/computer job now: open/go to/navigate/visit a website in Chromium, click, fill, submit, log in on a page, live browse research, or message_agent / peer fan-out. Do NOT choose queue_goal for Gmail/Slack/Sheets/spreadsheet/Composio API actions.",
           },
         },
       },

@@ -1186,6 +1186,8 @@ export async function runDeterministicComposioIntentTurn(opts) {
     /^No emails matched/i.test(content) ||
     /^Posted to Slack/i.test(content) ||
     /^Google Sheet/i.test(content) ||
+    /^Google Spreadsheets/i.test(content) ||
+    /^No spreadsheets found/i.test(content) ||
     /^Connect /i.test(content) ||
     /^To (post|read|label)/i.test(content);
   if (!ran.ok && !ran.needsConnect && !looksStructured) {
