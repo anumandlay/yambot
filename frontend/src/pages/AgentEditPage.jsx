@@ -505,7 +505,9 @@ export function AgentEditPage() {
   }
 
   /**
-   * Start OAuth for one toolkit. Opens a tab synchronously so browsers don’t block the popup.
+   * Start OAuth for one toolkit.
+   * Why: do not open about:blank first (users saw a white tab when authorize failed or was slow).
+   * Fetch the URL, then open it — and always show a clickable fallback link.
    * @param {string} toolkit
    */
   async function connectComposioToolkit(toolkit) {
@@ -513,13 +515,6 @@ export function AgentEditPage() {
     setError(null);
     setOkMsg("");
     setComposioConnectUrl("");
-    // Why: window.open after await is blocked as a popup; open blank now, then navigate.
-    let popup = null;
-    try {
-      popup = window.open("about:blank", "_blank");
-    } catch {
-      popup = null;
-    }
     setComposioConnectBusy(toolkit);
     try {
       // Persist current app list so Connect works even if the user hasn’t clicked Save yet.
@@ -545,37 +540,29 @@ export function AgentEditPage() {
         body: JSON.stringify({ toolkit }),
       });
       const url = String(data.redirectUrl || "").trim();
-      if (url) {
-        setComposioConnectUrl(url);
-        if (popup && !popup.closed) {
-          try {
-            popup.location.href = url;
-          } catch {
-            popup.close();
-            window.open(url, "_blank", "noopener,noreferrer");
-          }
-        } else {
-          const opened = window.open(url, "_blank", "noopener,noreferrer");
-          if (!opened) {
-            setOkMsg(
-              "Popup blocked — use the Connect link below (or allow popups for this site)."
-            );
-            return;
-          }
-        }
+      if (!url) {
+        setError({
+          title: "No connect URL",
+          detail:
+            data.detail ||
+            data.message ||
+            "Composio did not return a redirect URL for this app. Try Save, then Connect again.",
+        });
+        return;
+      }
+      setComposioConnectUrl(url);
+      const opened = window.open(url, "_blank", "noopener,noreferrer");
+      if (!opened) {
+        setOkMsg(
+          "Popup blocked — click the Connect link below to authorize, then Refresh status."
+        );
+      } else {
         setOkMsg(
           data.message ||
             "Opened the connect page. Finish authorizing, then click Refresh status."
         );
-      } else {
-        if (popup && !popup.closed) popup.close();
-        setError({
-          title: "No connect URL",
-          detail: data.message || "Composio did not return a redirect URL for this app.",
-        });
       }
     } catch (err) {
-      if (popup && !popup.closed) popup.close();
       setError(err);
     } finally {
       setComposioConnectBusy("");
@@ -1694,12 +1681,20 @@ export function AgentEditPage() {
                   </div>
                   {composioConnectUrl ? (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
-                      <p className="font-semibold">Connect link (if the tab didn’t open):</p>
+                      <p className="font-semibold">Authorize this app</p>
                       <a
                         href={composioConnectUrl}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="mt-1 block break-all text-teal-800 underline"
+                        className="mt-2 inline-flex min-h-10 items-center rounded-lg bg-teal-700 px-3 text-sm font-semibold text-white"
+                      >
+                        Open connect page
+                      </a>
+                      <a
+                        href={composioConnectUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-2 block break-all text-teal-800 underline"
                       >
                         {composioConnectUrl}
                       </a>

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 18:05] Fix Connect white page + ToolkitNotAllowed for new apps
+
+- **Prompt Provided:** Connect opens a white page and nothing happens (Notion/Apollo after Gmail).
+- **Architectural Flow:** Composio sessions lock toolkits at create — recreate session with full app list on Connect; retry on ToolkitNotAllowed. Stop opening about:blank; show Open connect page button + URL after authorize succeeds.
+- **Impacted Files:** composioService.js, AgentEditPage.jsx, PROMPT_LOG
+
 ## [2026-09-23 18:00] Gmail move-to-label via Composio (block ACTION: navigate)
 
 - **Prompt Provided:** “move all the emails from cursor to cursor label” → ACTION: navigate(gmail).

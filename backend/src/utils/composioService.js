@@ -213,6 +213,7 @@ export async function composioListCatalog(opts) {
  *   apiKey: string,
  *   sessionId?: string|null,
  *   toolkitSlugs?: string[],
+ *   forceNewSession?: boolean,
  * }} opts
  * @returns {Promise<{ ok: boolean, session?: any, sessionId?: string, error?: string }>}
  */
@@ -233,7 +234,8 @@ export async function getOrCreateComposioSession(opts) {
       : COMPOSIO_DEFAULT_TOOLKITS.map((t) => t.slug);
 
   try {
-    const existingId = String(opts.sessionId || "").trim();
+    // Why: sessions lock toolkits at create time — forceNew when Connect adds apps (notion/apollo/etc).
+    const existingId = opts.forceNewSession ? "" : String(opts.sessionId || "").trim();
     if (existingId && typeof client.use === "function") {
       try {
         const session = await client.use(existingId);
@@ -435,19 +437,36 @@ export async function composioAuthorizeToolkit(opts) {
     };
   }
 
-  const sess = await getOrCreateComposioSession(opts);
+  // Why: sessions lock toolkits at create time. Always mint a session that includes
+  // the current agent app list so newly added apps (notion/apollo/…) can Connect.
+  let sess = await getOrCreateComposioSession({ ...opts, forceNewSession: true });
   if (!sess.ok || !sess.session) return { ok: false, error: sess.error || "no_session" };
 
   try {
     const authOpts = {};
     const cb = String(opts.callbackUrl || "").trim();
     if (cb) authOpts.callbackUrl = cb;
-    const request = Object.keys(authOpts).length
+    let request = Object.keys(authOpts).length
       ? await sess.session.authorize(toolkit, authOpts)
       : await sess.session.authorize(toolkit);
-    const redirectUrl = String(
+    let redirectUrl = String(
       request?.redirectUrl || request?.redirect_url || request?.url || ""
     ).trim();
+
+    // Why: stale sessions still reject new toolkits — recreate once and retry.
+    if (!redirectUrl) {
+      sess = await getOrCreateComposioSession({ ...opts, forceNewSession: true, sessionId: null });
+      if (!sess.ok || !sess.session) {
+        return { ok: false, error: sess.error || "no_session", sessionId: sess.sessionId };
+      }
+      request = Object.keys(authOpts).length
+        ? await sess.session.authorize(toolkit, authOpts)
+        : await sess.session.authorize(toolkit);
+      redirectUrl = String(
+        request?.redirectUrl || request?.redirect_url || request?.url || ""
+      ).trim();
+    }
+
     if (!redirectUrl) {
       return { ok: false, error: "No connect URL returned from Composio.", sessionId: sess.sessionId };
     }
@@ -465,9 +484,50 @@ export async function composioAuthorizeToolkit(opts) {
         "After the user finishes OAuth, call composio_wait with the same toolkit, then composio_search / composio_execute.",
     };
   } catch (err) {
+    const msg = String(err?.message || err || "authorize_failed");
+    // Why: ToolkitNotAllowed on an old session — one recreate + retry.
+    if (/ToolkitNotAllowed|not allowed for this session/i.test(msg)) {
+      try {
+        sess = await getOrCreateComposioSession({
+          ...opts,
+          forceNewSession: true,
+          sessionId: null,
+        });
+        if (!sess.ok || !sess.session) {
+          return { ok: false, error: sess.error || msg, sessionId: sess.sessionId };
+        }
+        const request = await sess.session.authorize(toolkit);
+        const redirectUrl = String(
+          request?.redirectUrl || request?.redirect_url || request?.url || ""
+        ).trim();
+        if (!redirectUrl) {
+          return {
+            ok: false,
+            error: "No connect URL returned from Composio after session refresh.",
+            sessionId: sess.sessionId,
+          };
+        }
+        return {
+          ok: true,
+          redirectUrl,
+          sessionId: sess.sessionId,
+          toolkit,
+          connectionRequestId: String(request?.id || "").trim() || null,
+          userMessage: `Open this link to connect ${toolkit}, finish authorizing, then reply “connected”:\n${redirectUrl}`,
+          nextStep:
+            "After the user finishes OAuth, call composio_wait with the same toolkit, then composio_search / composio_execute.",
+        };
+      } catch (err2) {
+        return {
+          ok: false,
+          error: String(err2?.message || err2 || msg),
+          sessionId: sess?.sessionId,
+        };
+      }
+    }
     return {
       ok: false,
-      error: String(err?.message || err || "authorize_failed"),
+      error: msg,
       sessionId: sess.sessionId,
     };
   }
