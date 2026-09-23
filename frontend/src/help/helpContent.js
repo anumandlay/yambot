@@ -170,7 +170,7 @@ export const HELP = {
   "nav.rooms": {
     title: "Group rooms",
     body: helpBody(
-      "Shared channels with a fixed set of agents (Hermes-style). Post once; members reply or PASS. @mention plus browse work can delegate to that agent’s worker.",
+      "Shared channels with a fixed set of agents. Post once; members reply or PASS. @mention plus browse work can delegate to that agent’s worker.",
       "Use rooms for recurring squads (e.g. Website Ops). One-off DMs still use agent chats or @peer asks."
     ),
   },
@@ -184,7 +184,7 @@ export const HELP = {
   "nav.history": {
     title: "History",
     body: helpBody(
-      "Current and archived agents. Deleting an agent from Agents retires it (soft delete) but keeps chats, tasks, and memory. Open View chat history for the transcript, View memory for day logs / notes / credentials, Curated memory for durable Hermes-style facts, or Restore to bring an archived agent back."
+      "Current and archived agents. Deleting an agent from Agents retires it (soft delete) but keeps chats, tasks, and memory. Open View chat history for the transcript, View memory for day logs / notes / credentials, Curated memory for durable facts, or Restore to bring an archived agent back."
     ),
   },
   "rooms.create": {
@@ -941,7 +941,7 @@ export const HELP = {
   "agent.memory": {
     title: "Agent memory notes",
     body: helpBody(
-      "Curated MEMORY (Hermes-style) holds durable agent notes with a 20,000 character cap. At task start YamBot injects the top facts relevant to the goal (semantic embeddings when your LLM supports /embeddings; otherwise keyword match). After a successful run, YamBot also extracts durable facts into this agent MEMORY (chat shows a Saved chip). Account USER prefs live under Settings → Memory.",
+      "Curated MEMORY holds durable agent notes with a 20,000 character cap. At task start YamBot injects the top facts relevant to the goal (semantic embeddings when your LLM supports /embeddings; otherwise keyword match). After a successful run, YamBot also extracts durable facts into this agent MEMORY (chat shows a Saved chip). Account USER prefs live under Settings → Memory.",
       "Open View memory for curated entries, day-by-day history, and the login vault."
     ),
   },
@@ -1938,7 +1938,7 @@ export const HELP = {
   "skills.edit": {
     title: "Edit skill",
     body: helpBody(
-      "Hermes-style SKILL.md playbook + triggers + replay steps. Set status to production when ready.",
+      "SKILL.md playbook + triggers + replay steps. Set status to production when ready.",
       "Use Describe the skill in plain English → Generate with AI to draft the playbook, or Export/import SKILL.md for sharing.",
       "Slash command must match what you type in chat."
     ),
@@ -1961,7 +1961,7 @@ export const HELP = {
   "skills.playbook": {
     title: "SKILL.md playbook",
     body: helpBody(
-      "Hermes-style markdown: When to use, Procedure, Pitfalls, Verification.",
+      "Markdown: When to use, Procedure, Pitfalls, Verification.",
       "Injected into the worker prompt when the skill is matched or slash-invoked."
     ),
   },

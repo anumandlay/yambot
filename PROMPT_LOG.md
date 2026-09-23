@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 14:52] Remove user-visible “Hermes” wording
+
+- **Prompt Provided:** remove words hermes — Answered in chat (Hermes Auto — no computer)…
+- **Architectural Flow:** Chat system copy uses Auto not Hermes Auto; help/SkillEdit placeholders scrubbed; CUA activation notes say Python MCP; meta reasons auto_* instead of hermes_auto_*.
+- **Impacted Files:** chats.js, chatAutoTurn.js, jevEvaluate.js, helpContent.js, SkillEditPage.jsx, skillDraftFromBrief.js, worker/src/agent.js, PROMPT_LOG
+
 ## [2026-09-23 14:25] Settings → Memory shows Mem0 USER prefs (delete)
 
 - **Prompt Provided:** Settings → Memory empty but Memory chip showed USER prefs / 16 facts.

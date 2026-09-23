@@ -1012,7 +1012,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
       const messageMeta = {
         intent: "auto",
-        intentReason: "hermes_auto_turn",
+        intentReason: "auto_turn",
         senderName: resolveHumanDisplayName(owner),
       };
       if (common || mentionMeta?.matched) {
@@ -1206,7 +1206,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         classification = {
           intent: "goal",
           confidence: 0.95,
-          reason: turn.reason || "hermes_auto_queue_goal",
+          reason: turn.reason || "auto_queue_goal",
           text: goalText,
         };
         autoTiming = turn.timing || null;
@@ -1239,7 +1239,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           meta: {
             kind: "chat_qa",
             intent: "question",
-            intentReason: turn.reason || "hermes_auto_reply",
+            intentReason: turn.reason || "auto_reply",
             intentConfidence: 0.9,
             agentId: String(agentDoc._id),
             agentName: agentDoc.name,
@@ -1265,8 +1265,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           role: "system",
           content: [
             busyRun
-              ? `Answered in chat (Hermes Auto — no computer). The current browser run continues.`
-              : `Answered in chat (Hermes Auto — no computer).`,
+              ? `Answered in chat (Auto — no computer). The current browser run continues.`
+              : `Answered in chat (Auto — no computer).`,
             timingLine ? `Timing: ${timingLine}` : null,
           ]
             .filter(Boolean)
@@ -1274,7 +1274,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           meta: {
             kind: "intent_question",
             ui: "icon",
-            intentReason: turn.reason || "hermes_auto_reply",
+            intentReason: turn.reason || "auto_reply",
             agentId: String(agentDoc._id),
             agentName: agentDoc.name,
             answeredWhileBusy: Boolean(busyRun),

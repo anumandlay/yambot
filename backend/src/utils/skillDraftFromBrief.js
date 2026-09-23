@@ -113,7 +113,7 @@ export async function draftSkillFromBrief(userId, brief) {
     "- name: short skill label (e.g. Login to Gmail, Save travel agency lead).",
     "- slug: lowercase kebab-case for /slash invoke (e.g. gmail-login). Letters, numbers, hyphens only.",
     "- description: one sentence when this skill should apply.",
-    "- playbookMd: Hermes-style markdown with EXACTLY these section headers:",
+    "- playbookMd: markdown with EXACTLY these section headers:",
     "  # When to use",
     "  ## Procedure",
     "  ## Pitfalls",

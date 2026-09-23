@@ -130,7 +130,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
     const result = await jevEvaluate({
       state: {
         product: "YamBot",
-        role: "Hermes-style Auto router",
+        role: "YamBot Auto router",
         user_message: body,
         rules: [
           "reply = answer in chat only (no Chromium / no peer fan-out this turn)",

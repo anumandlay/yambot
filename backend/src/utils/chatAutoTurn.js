@@ -1223,7 +1223,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- Greetings, explanations, planning, drafts (draft=REPLY; send=QUEUE_GOAL)",
     "- Naming a domain in a question is NOT enough — only start the computer for a live action",
     "",
-    "Hermes-style: YOU decide. Prefer REPLY when unsure. A domain/URL alone ≠ start computer.",
+    "Auto: YOU decide. Prefer REPLY when unsure. A domain/URL alone ≠ start computer.",
     "",
     "SEND MAIL RULES:",
     "- Draft = REPLY. Send/deliver = QUEUE_GOAL.",

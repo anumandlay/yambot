@@ -1795,8 +1795,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
         ? `cua-driver ready (${result.driver.version || "ok"})`
         : `cua-driver optional (${result.driver?.error || "unavailable"})`;
       const hermesBit = result.driver?.hermes
-        ? `Hermes Python MCP up${result.driver.target ? ` · Chrome pid=${result.driver.target.pid}` : ""}`
-        : `Hermes Python MCP unavailable (${result.driver?.hermesError || "start failed"})`;
+        ? `Python MCP up${result.driver.target ? ` · Chrome pid=${result.driver.target.pid}` : ""}`
+        : `Python MCP unavailable (${result.driver?.hermesError || "start failed"})`;
       const msg =
         reason === "fallback_after_fails"
           ? `CUA activated after ${CUA_ACTIVATE_AFTER_FAILS} failed locator attempts — ${driverBit}; ${hermesBit}.`
@@ -4310,7 +4310,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         if (!cuaActive || !actionsApi) {
           return {
             ok: false,
-            error: "computer_use requires CUA mode (Hermes Python sidecar)",
+            error: "computer_use requires CUA mode (Python MCP sidecar)",
             computerUse: true,
           };
         }

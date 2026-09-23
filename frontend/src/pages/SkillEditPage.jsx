@@ -352,7 +352,7 @@ export function SkillEditPage() {
               className="min-h-32 rounded-xl border border-teal-100 px-3 py-2 font-mono text-xs"
               value={importMd}
               onChange={(e) => setImportMd(e.target.value)}
-              placeholder="Paste Hermes-style SKILL.md…"
+              placeholder="Paste SKILL.md…"
             />
             <button
               type="button"
