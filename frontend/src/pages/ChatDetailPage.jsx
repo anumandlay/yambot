@@ -29,6 +29,7 @@ import { PeerStatusBadges } from "../components/PeerStatusBadges.jsx";
 import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
+import { MessageStatusChips } from "../components/MessageStatusChips.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
@@ -1519,6 +1520,9 @@ export function ChatDetailPage() {
                         </div>
                       ) : null}
                       <ChatMessageBody text={humanizeGoalOrMessage(m.content, m.meta)} />
+                      {m.role === "assistant" || m.role === "agent" ? (
+                        <MessageStatusChips message={m} tone="light" />
+                      ) : null}
                     </>
                   </article>
                 );

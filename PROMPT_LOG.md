@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:15] Show status chips on normal Auto messages
+
+- **Prompt Provided:** Also show the chips for normal messages too.
+- **Architectural Flow:** MessageStatusChips under assistant bubbles (Auto / Composio lookups / timing / Saved). RunOpsIconRow again shows per-event letter chips plus ≡ count.
+- **Impacted Files:** MessageStatusChips.jsx, ChatDetailPage.jsx, FloatingChatWidget.jsx, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-23 16:10] Fix fake ACTION: composio_list() replies
 
 - **Prompt Provided:** Agent replied `ACTION: composio_list()` instead of summarizing Gmail.

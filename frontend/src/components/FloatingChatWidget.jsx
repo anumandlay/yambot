@@ -12,6 +12,7 @@ import { useAuth } from "../context/AuthContext.jsx";
 import { SkillPickNotice } from "./SkillPickNotice.jsx";
 import { HelpTooltip } from "./HelpTooltip.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "./RunOpsIconRow.jsx";
+import { MessageStatusChips } from "./MessageStatusChips.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 /**
@@ -165,6 +166,9 @@ export function FloatingChatWidget({ chatId, className = "" }) {
                     <p className="whitespace-pre-wrap break-words">
                       {humanizeGoalOrMessage(m.content, m.meta)}
                     </p>
+                    {m.role === "assistant" || m.role === "agent" ? (
+                      <MessageStatusChips message={m} tone="dark" />
+                    ) : null}
                   </>
                 </article>
               );

@@ -241,12 +241,19 @@ function OpsEventDetail({ message, label, icon }) {
  * @param {{
  *   messages: object[],
  *   onClose: () => void,
+ *   initialSelectedId?: string|null,
  * }} props
  */
-function RunOpsModal({ messages, onClose }) {
+function RunOpsModal({ messages, onClose, initialSelectedId = null }) {
   const titleId = useId();
   const list = Array.isArray(messages) ? messages : [];
-  const [selectedId, setSelectedId] = useState(/** @type {string|null} */ (null));
+  const [selectedId, setSelectedId] = useState(
+    /** @type {string|null} */ (initialSelectedId ? String(initialSelectedId) : null)
+  );
+
+  useEffect(() => {
+    if (initialSelectedId) setSelectedId(String(initialSelectedId));
+  }, [initialSelectedId]);
 
   const selected = useMemo(() => {
     if (!selectedId) return null;
@@ -598,14 +605,18 @@ function PulledList({ title, rows, empty }) {
 }
 
 /**
- * Tiny chip for a whole run segment of ops messages — click opens the event modal.
- * Why: must not look like a chat thread bubble; just a control to open details.
+ * Tiny chips for a run segment of ops messages — click opens the event modal.
+ * Why: show per-event letter chips (Memory, LLM, …) and a count chip; not a chat bubble.
  * @param {{ messages: object[] }} props
  */
 export function RunOpsIconRow({ messages }) {
   const list = Array.isArray(messages) ? messages : [];
   const [open, setOpen] = useState(false);
-  const close = useCallback(() => setOpen(false), []);
+  const [focusId, setFocusId] = useState(/** @type {string|null} */ (null));
+  const close = useCallback(() => {
+    setOpen(false);
+    setFocusId(null);
+  }, []);
 
   if (!list.length) return null;
 
@@ -614,19 +625,45 @@ export function RunOpsIconRow({ messages }) {
 
   return (
     <>
-      <button
-        type="button"
-        onClick={() => setOpen(true)}
-        title={`Run log — ${n} events. ${summary}`}
-        aria-label={`Open run log, ${n} events`}
-        className="yb-ops-chip yb-ops-chip--label self-start inline-flex cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 font-semibold text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95"
-      >
-        <span aria-hidden="true" className="leading-none">
-          ≡
-        </span>
-        <span className="leading-none tabular-nums">{n}</span>
-      </button>
-      {open ? <RunOpsModal messages={list} onClose={close} /> : null}
+      <div className="flex max-w-full flex-wrap items-center gap-1 self-start">
+        {list.slice(0, 12).map((m, i) => {
+          const { icon, label } = opsIconMeta(m);
+          const id = String(m._id || `ops-${i}`);
+          return (
+            <button
+              key={id}
+              type="button"
+              title={`${label}: ${String(m.content || "").replace(/\s+/g, " ").slice(0, 100)}`}
+              aria-label={`Open ${label} details`}
+              onClick={() => {
+                setFocusId(id);
+                setOpen(true);
+              }}
+              className="yb-ops-chip inline-flex cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-white text-teal-900 transition hover:bg-teal-50 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95"
+            >
+              <span aria-hidden="true">{icon}</span>
+            </button>
+          );
+        })}
+        <button
+          type="button"
+          onClick={() => {
+            setFocusId(null);
+            setOpen(true);
+          }}
+          title={`Run log — ${n} events. ${summary}`}
+          aria-label={`Open run log, ${n} events`}
+          className="yb-ops-chip yb-ops-chip--label inline-flex cursor-pointer items-center justify-center rounded-full border border-teal-100 bg-teal-50/80 font-semibold text-teal-900 transition hover:bg-teal-100 focus:outline-none focus:ring-2 focus:ring-teal-500/40 active:scale-95"
+        >
+          <span aria-hidden="true" className="leading-none">
+            ≡
+          </span>
+          <span className="leading-none tabular-nums">{n}</span>
+        </button>
+      </div>
+      {open ? (
+        <RunOpsModal messages={list} onClose={close} initialSelectedId={focusId} />
+      ) : null}
     </>
   );
 }
