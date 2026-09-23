@@ -15,6 +15,7 @@
     "test:live-bos": "node --test --test-force-exit test/liveBos.test.js"
   },
   "dependencies": {
+    "@composio/core": "^0.20.0",
     "@qdrant/js-client-rest": "1.12.0",
     "bcryptjs": "^3.0.2",
     "cors": "^2.8.5",

@@ -90,10 +90,62 @@ export const AUTO_CHAT_TOOLS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "composio_list",
+      description:
+        "List Phase-1 Composio apps (Gmail, Slack, Google Sheets) and which ones this user has connected. Use before composio_execute. Does not start the browser.",
+      parameters: {
+        type: "object",
+        properties: {},
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "composio_connect",
+      description:
+        "Start Composio OAuth for one Phase-1 app. Returns a redirectUrl the user must open to authorize. toolkit: gmail | slack | googlesheets.",
+      parameters: {
+        type: "object",
+        properties: {
+          toolkit: {
+            type: "string",
+            description: "gmail, slack, or googlesheets",
+          },
+        },
+        required: ["toolkit"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "composio_execute",
+      description:
+        "Run one Composio tool for a connected Phase-1 app. tool must be a GMAIL_*, SLACK_*, or GOOGLESHEETS_* slug. Pass JSON arguments for that tool. Prefer composio_list first; if not connected, use composio_connect.",
+      parameters: {
+        type: "object",
+        properties: {
+          tool: {
+            type: "string",
+            description: "Composio tool slug, e.g. GMAIL_SEND_EMAIL or SLACK_SENDS_A_MESSAGE",
+          },
+          arguments: {
+            type: "object",
+            description: "Arguments object for the tool (provider-specific fields).",
+          },
+        },
+        required: ["tool"],
+      },
+    },
+  },
 ];
 
 /** Max model↔tool rounds in one Auto message (lookups + final reply/queue). */
-export const AUTO_CHAT_MAX_TOOL_ROUNDS = 3;
+export const AUTO_CHAT_MAX_TOOL_ROUNDS = 4;
 
 /**
  * @returns {{
@@ -894,7 +946,7 @@ export function parseAutoToolCalls(toolCalls) {
 /**
  * Classify the first tool call in a batch.
  * @param {{ id: string, name: string, arguments: string }} tc
- * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"unknown"}
+ * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"composio_list"|"composio_connect"|"composio_execute"|"unknown"}
  */
 export function classifyAutoToolName(tc) {
   const name = String(tc?.name || "")
@@ -908,6 +960,9 @@ export function classifyAutoToolName(tc) {
   if (name === "list_peer_agents" || name === "list_peers" || name === "peers") {
     return "list_peer_agents";
   }
+  if (name === "composio_list" || name === "composio_status") return "composio_list";
+  if (name === "composio_connect" || name === "composio_authorize") return "composio_connect";
+  if (name === "composio_execute" || name === "composio_run") return "composio_execute";
   return "unknown";
 }
 
@@ -917,10 +972,14 @@ export function classifyAutoToolName(tc) {
  * @param {{
  *   checkRunStatus?: () => Promise<object|string>,
  *   listPeerAgents?: () => Promise<object|string>,
+ *   userId?: string,
+ *   composioSessionId?: string|null,
+ *   saveComposioSessionId?: (id: string) => Promise<void>,
  * }} [runtime]
+ * @param {object} [args]
  * @returns {Promise<string>}
  */
-export async function executeAutoLookupTool(kind, runtime = {}) {
+export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
   try {
     if (kind === "check_run_status") {
       if (typeof runtime.checkRunStatus !== "function") {
@@ -935,6 +994,60 @@ export async function executeAutoLookupTool(kind, runtime = {}) {
       }
       const data = await runtime.listPeerAgents();
       return typeof data === "string" ? data : JSON.stringify(data);
+    }
+    if (kind === "composio_list" || kind === "composio_connect" || kind === "composio_execute") {
+      const { isComposioEnabled } = await import("./composioService.js");
+      if (!isComposioEnabled()) {
+        return JSON.stringify({
+          ok: false,
+          detail: "Composio is not configured on this server (COMPOSIO_API_KEY).",
+        });
+      }
+      const userId = String(runtime.userId || "").trim();
+      if (!userId) {
+        return JSON.stringify({ ok: false, detail: "userId missing for Composio" });
+      }
+      if (kind === "composio_list") {
+        const { composioListStatus } = await import("./composioService.js");
+        const data = await composioListStatus({ userId });
+        return JSON.stringify(data).slice(0, 4000);
+      }
+      if (kind === "composio_connect") {
+        const { composioAuthorizeToolkit } = await import("./composioService.js");
+        const result = await composioAuthorizeToolkit({
+          userId,
+          toolkit: args.toolkit || args.app || args.slug,
+          sessionId: runtime.composioSessionId,
+        });
+        if (result.sessionId && typeof runtime.saveComposioSessionId === "function") {
+          await runtime.saveComposioSessionId(result.sessionId).catch(() => {});
+        }
+        return JSON.stringify({
+          ...result,
+          hint: result.ok
+            ? "Tell the user to open redirectUrl in their browser to finish connecting, then retry the action."
+            : undefined,
+        }).slice(0, 4000);
+      }
+      if (kind === "composio_execute") {
+        const { composioExecuteTool } = await import("./composioService.js");
+        const toolArgs =
+          args.arguments && typeof args.arguments === "object"
+            ? args.arguments
+            : args.params && typeof args.params === "object"
+              ? args.params
+              : {};
+        const result = await composioExecuteTool({
+          userId,
+          sessionId: runtime.composioSessionId,
+          tool: args.tool || args.slug || args.action,
+          arguments: toolArgs,
+        });
+        if (result.sessionId && typeof runtime.saveComposioSessionId === "function") {
+          await runtime.saveComposioSessionId(result.sessionId).catch(() => {});
+        }
+        return JSON.stringify(result).slice(0, 4000);
+      }
     }
   } catch (err) {
     return JSON.stringify({ ok: false, detail: String(err?.message || err) });
@@ -1217,6 +1330,9 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- NEVER turn an email address into a https:// URL",
     "",
     "REPLY / reply — answer in chat (no Chromium):",
+    "- Questions, memory, capability, planning",
+    "- Composio app actions (Gmail / Slack / Sheets) via composio_* tools — never invent a browser goal for those",
+    "",
     "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
     "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
     "- Capability / policy (“can you open websites?”) — do not queue until they name a concrete live job",
@@ -1518,7 +1634,7 @@ export async function runChatAutoTurn(opts) {
   // Native tools are non-streaming and left “Sending…” blank for the whole LLM wait.
   // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
   const wantsLookup =
-    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers)\b/i.test(
+    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet)\b/i.test(
       text
     );
   if (stream && !wantsLookup) {
@@ -1581,7 +1697,13 @@ export async function runChatAutoTurn(opts) {
 
       const lookups = (msg.toolCalls || []).filter((tc) => {
         const kind = classifyAutoToolName(tc);
-        return kind === "check_run_status" || kind === "list_peer_agents";
+        return (
+          kind === "check_run_status" ||
+          kind === "list_peer_agents" ||
+          kind === "composio_list" ||
+          kind === "composio_connect" ||
+          kind === "composio_execute"
+        );
       });
 
       if (lookups.length) {
@@ -1613,7 +1735,11 @@ export async function runChatAutoTurn(opts) {
             tc.id ||
             assistantToolMessage.tool_calls?.[i]?.id ||
             `call_${round}_${i}`;
-          const resultText = await executeAutoLookupTool(kind, runtime);
+          const resultText = await executeAutoLookupTool(
+            kind,
+            runtime,
+            parseToolArgs(tc?.arguments)
+          );
           messages.push({
             role: "tool",
             tool_call_id: toolCallId,

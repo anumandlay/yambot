@@ -1188,6 +1188,17 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
                 peerBlockPreview: String(block || "").slice(0, 1200),
               };
             },
+            userId: String(req.userId),
+            composioSessionId: String(userForLlm?.settings?.composioSessionId || "") || null,
+            saveComposioSessionId: async (sessionId) => {
+              const sid = String(sessionId || "").trim();
+              if (!sid || !userForLlm) return;
+              if (String(userForLlm.settings?.composioSessionId || "") === sid) return;
+              userForLlm.settings = userForLlm.settings || {};
+              userForLlm.settings.composioSessionId = sid;
+              userForLlm.markModified("settings");
+              await userForLlm.save();
+            },
           },
         });
         }

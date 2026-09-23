@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 15:20] Composio Phase-1 (Gmail / Slack / Sheets)
+
+- **Prompt Provided:** Add Composio so users can automate apps — start Phase 1.
+- **Architectural Flow:** Server COMPOSIO_API_KEY gates feature. Settings → Composio connects Phase-1 toolkits via session.authorize. Auto chat tools composio_list / composio_connect / composio_execute (GMAIL_/SLACK_/GOOGLESHEETS_ only). Session id on User.settings; OAuth tokens stay in Composio.
+- **Impacted Files:** composioService.js, settings.js, chatAutoTurn.js, chats.js, User.js, env.js, SettingsComposioPage.jsx, SettingsLayout.jsx, App.jsx, docker-compose.yml, .env.example, package.json, PROMPT_LOG
+
 ## [2026-09-23 15:10] Chat “remember …” actually persists + why View Mem0 was empty
 
 - **Prompt Provided:** View Mem0 empty but agent still answered BMW after “cleared history”.

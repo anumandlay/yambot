@@ -77,6 +77,12 @@ export const env = {
   MEM0_LLM_MODEL: process.env.MEM0_LLM_MODEL || "",
   MEM0_EMBEDDER_MODEL: process.env.MEM0_EMBEDDER_MODEL || "text-embedding-3-small",
   MEM0_EMBEDDING_DIMS: process.env.MEM0_EMBEDDING_DIMS || "1536",
+  /**
+   * Composio (Phase-1: Gmail / Slack / Google Sheets). Empty key disables the feature.
+   * Set COMPOSIO_ENABLED=0 to force off even when a key is present.
+   */
+  COMPOSIO_API_KEY: process.env.COMPOSIO_API_KEY || "",
+  COMPOSIO_ENABLED: process.env.COMPOSIO_ENABLED || "",
   /** Public web app URL for Stripe redirects (defaults to first CORS origin). */
   PUBLIC_WEB_URL:
     process.env.PUBLIC_WEB_URL ||

@@ -637,3 +637,116 @@ settingsRouter.delete("/curated-memory/mem0/:id", async (req, res, next) => {
     next(err);
   }
 });
+
+/**
+ * GET /api/settings/composio — Phase-1 toolkit status + connections.
+ */
+settingsRouter.get("/composio", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId).select("settings.composioSessionId");
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    const {
+      composioListStatus,
+      isComposioEnabled,
+    } = await import("../utils/composioService.js");
+    const status = await composioListStatus({ userId: req.userId });
+    res.json({
+      ok: true,
+      ...status,
+      enabled: isComposioEnabled(),
+      sessionId: String(user.settings?.composioSessionId || "") || null,
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/settings/composio/connect — start OAuth for a Phase-1 toolkit.
+ * Body: { toolkit: "gmail"|"slack"|"googlesheets" }
+ */
+settingsRouter.post("/composio/connect", async (req, res, next) => {
+  try {
+    const user = await User.findById(req.userId);
+    if (!user) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "User missing" });
+      return;
+    }
+    const { composioAuthorizeToolkit, isComposioEnabled } = await import(
+      "../utils/composioService.js"
+    );
+    if (!isComposioEnabled()) {
+      res.status(400).json({
+        ok: false,
+        title: "Composio disabled",
+        detail: "Set COMPOSIO_API_KEY on the server to enable app automations.",
+      });
+      return;
+    }
+    const result = await composioAuthorizeToolkit({
+      userId: req.userId,
+      toolkit: req.body?.toolkit,
+      sessionId: user.settings?.composioSessionId,
+    });
+    if (!result.ok) {
+      res.status(400).json({
+        ok: false,
+        title: "Connect failed",
+        detail: result.error || "unknown",
+      });
+      return;
+    }
+    if (result.sessionId && result.sessionId !== user.settings?.composioSessionId) {
+      user.settings = user.settings || {};
+      user.settings.composioSessionId = result.sessionId;
+      user.markModified("settings");
+      await user.save();
+    }
+    res.json({
+      ok: true,
+      toolkit: result.toolkit,
+      redirectUrl: result.redirectUrl,
+      sessionId: result.sessionId,
+      message: "Open the connect URL to authorize this app, then return here.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/settings/composio/connections/:id — revoke a Composio connected account.
+ */
+settingsRouter.delete("/composio/connections/:id", async (req, res, next) => {
+  try {
+    const { composioDisconnectAccount, isComposioEnabled } = await import(
+      "../utils/composioService.js"
+    );
+    if (!isComposioEnabled()) {
+      res.status(400).json({
+        ok: false,
+        title: "Composio disabled",
+        detail: "Composio is not configured on this server.",
+      });
+      return;
+    }
+    const result = await composioDisconnectAccount({
+      userId: req.userId,
+      connectedAccountId: req.params.id,
+    });
+    if (!result.ok) {
+      res.status(400).json({
+        ok: false,
+        title: "Disconnect failed",
+        detail: result.error || "unknown",
+      });
+      return;
+    }
+    res.json({ ok: true, message: "Disconnected." });
+  } catch (err) {
+    next(err);
+  }
+});

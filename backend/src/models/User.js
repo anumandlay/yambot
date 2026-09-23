@@ -115,6 +115,11 @@ const settingsSchema = new mongoose.Schema(
     companyMonthlyBudgetUsd: { type: Number, default: 0 },
     maxCeoDecisionsPerHour: { type: Number, default: 20 },
     maxConcurrentExperiments: { type: Number, default: 3 },
+    /**
+     * Composio session id for this account (Phase-1 app automations).
+     * OAuth tokens stay in Composio; we only store the session handle.
+     */
+    composioSessionId: { type: String, default: "" },
   },
   { _id: false }
 );

@@ -19,6 +19,7 @@ import { SettingsPage } from "./pages/SettingsPage.jsx";
 import { SettingsOpenAiPage } from "./pages/SettingsOpenAiPage.jsx";
 import { SettingsLlmProfilesPage } from "./pages/SettingsLlmProfilesPage.jsx";
 import { SettingsMemoryPage } from "./pages/SettingsMemoryPage.jsx";
+import { SettingsComposioPage } from "./pages/SettingsComposioPage.jsx";
 import { AgentsPage } from "./pages/AgentsPage.jsx";
 import { AgentEditPage } from "./pages/AgentEditPage.jsx";
 import { AgentLivePage } from "./pages/AgentLivePage.jsx";
@@ -289,6 +290,7 @@ export default function App() {
             <Route path="llms" element={<SettingsLlmProfilesPage />} />
             <Route path="openai" element={<SettingsOpenAiPage />} />
             <Route path="memory" element={<SettingsMemoryPage />} />
+            <Route path="composio" element={<SettingsComposioPage />} />
           </Route>
           <Route path="/wallet" element={<WalletPage />} />
           <Route path="/system" element={<SystemPage />} />
