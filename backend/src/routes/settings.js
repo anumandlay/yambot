@@ -477,7 +477,28 @@ settingsRouter.get("/curated-memory", async (req, res, next) => {
   try {
     const { getUserCuratedMemory } = await import("../utils/curatedMemoryOps.js");
     const store = await getUserCuratedMemory(req.userId);
-    res.json({ ok: true, target: "user", ...store });
+    let mem0Items = [];
+    let mem0Enabled = false;
+    try {
+      const { isMem0Enabled, mem0ListFacts } = await import("../utils/mem0Service.js");
+      mem0Enabled = isMem0Enabled();
+      if (mem0Enabled) {
+        mem0Items = await mem0ListFacts({
+          userId: req.userId,
+          scope: "user",
+          limit: 100,
+        });
+      }
+    } catch (err) {
+      console.warn("[settings] mem0 list failed:", err?.message || err);
+    }
+    res.json({
+      ok: true,
+      target: "user",
+      ...store,
+      mem0Enabled,
+      mem0Items,
+    });
   } catch (err) {
     next(err);
   }
@@ -532,16 +553,86 @@ settingsRouter.put("/curated-memory", async (req, res, next) => {
 
 /**
  * DELETE /api/settings/curated-memory — clear USER store.
+ * Query: ?mem0=1 also clears Mem0 USER-profile vectors; ?mem0Only=1 clears only Mem0.
  */
 settingsRouter.delete("/curated-memory", async (req, res, next) => {
   try {
-    const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
-    const result = await setCuratedMemoryEntries({
-      userId: req.userId,
-      target: "user",
-      entries: [],
+    const mem0Only =
+      req.query?.mem0Only === "1" ||
+      req.query?.mem0Only === "true" ||
+      req.body?.mem0Only === true;
+    const clearMem0 =
+      mem0Only ||
+      req.query?.mem0 === "1" ||
+      req.query?.mem0 === "true" ||
+      req.body?.clearMem0 === true;
+
+    let mongoResult = { success: true, message: "skipped" };
+    if (!mem0Only) {
+      const { setCuratedMemoryEntries } = await import("../utils/curatedMemoryOps.js");
+      mongoResult = await setCuratedMemoryEntries({
+        userId: req.userId,
+        target: "user",
+        entries: [],
+      });
+    }
+
+    let mem0Cleared = false;
+    if (clearMem0 || mem0Only) {
+      const { mem0ClearScope } = await import("../utils/mem0Service.js");
+      const r = await mem0ClearScope({ userId: req.userId, scope: "user" });
+      mem0Cleared = Boolean(r.ok);
+    }
+
+    res.json({
+      ok: true,
+      ...mongoResult,
+      mem0Cleared,
+      message: mem0Only
+        ? mem0Cleared
+          ? "Mem0 USER prefs cleared."
+          : "Mem0 clear failed or disabled."
+        : clearMem0
+          ? "USER memory cleared (Mongo + Mem0)."
+          : mongoResult.message || "USER memory cleared.",
     });
-    res.json({ ok: true, ...result });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/settings/curated-memory/mem0/:id — remove one Mem0 USER-profile fact.
+ */
+settingsRouter.delete("/curated-memory/mem0/:id", async (req, res, next) => {
+  try {
+    const { mem0DeleteFact, mem0ListFacts, isMem0Enabled } = await import(
+      "../utils/mem0Service.js"
+    );
+    if (!isMem0Enabled()) {
+      res.status(400).json({
+        ok: false,
+        title: "Mem0 disabled",
+        detail: "Long-term Mem0 store is not enabled on this server.",
+      });
+      return;
+    }
+    const result = await mem0DeleteFact({ userId: req.userId, id: req.params.id });
+    if (!result.ok) {
+      const status = result.skipped === "forbidden" ? 403 : 404;
+      res.status(status).json({
+        ok: false,
+        title: "Delete failed",
+        detail: result.skipped || "unknown",
+      });
+      return;
+    }
+    const mem0Items = await mem0ListFacts({
+      userId: req.userId,
+      scope: "user",
+      limit: 100,
+    });
+    res.json({ ok: true, message: "Mem0 entry removed.", mem0Items });
   } catch (err) {
     next(err);
   }

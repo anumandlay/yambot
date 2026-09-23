@@ -311,6 +311,143 @@ export async function mem0AddFact(opts) {
 }
 
 /**
+ * List Mem0 facts for a user scope (USER profile or one agent).
+ * Why: Settings → Memory only showed Mongo curated; chip USER prefs can be Mem0-only.
+ * @param {{
+ *   userId: string,
+ *   scope?: "user"|"agent",
+ *   agentId?: string|null,
+ *   limit?: number,
+ * }} opts
+ * @returns {Promise<{ id: string, content: string, createdAt: string|null, source: string }[]>}
+ */
+export async function mem0ListFacts(opts) {
+  const userKey = mem0UserKey(opts.userId);
+  if (!userKey) return [];
+  if (!(await ensureCollection())) return [];
+  const client = await getQdrant();
+  if (!client) return [];
+
+  const scope = opts.scope === "agent" ? "agent" : "user";
+  const agentKey =
+    scope === "user" ? MEM0_USER_SCOPE_AGENT : mem0AgentKey(opts.agentId);
+  if (!agentKey) return [];
+
+  const { collection } = mem0StoreConfig();
+  const limit = Math.min(200, Math.max(1, Number(opts.limit) || 100));
+
+  try {
+    /** @type {{ id: string, content: string, createdAt: string|null, source: string }[]} */
+    const out = [];
+    let offset = null;
+    // Why: scroll pages until we hit limit or exhausted.
+    for (let page = 0; page < 20 && out.length < limit; page++) {
+      const res = await client.scroll(collection, {
+        limit: Math.min(64, limit - out.length),
+        offset: offset || undefined,
+        with_payload: true,
+        with_vector: false,
+        filter: {
+          must: [
+            { key: "user_id", match: { value: userKey } },
+            { key: "agent_id", match: { value: agentKey } },
+          ],
+        },
+      });
+      const points = Array.isArray(res?.points) ? res.points : [];
+      for (const p of points) {
+        const content = String(p.payload?.memory || p.payload?.data || "").trim();
+        if (!content) continue;
+        out.push({
+          id: String(p.id),
+          content,
+          createdAt: p.payload?.created_at ? String(p.payload.created_at) : null,
+          source: String(p.payload?.source || "mem0"),
+        });
+      }
+      offset = res?.next_page_offset;
+      if (offset == null || !points.length) break;
+    }
+    return out;
+  } catch (err) {
+    console.warn("[mem0] listFacts failed:", err?.message || err);
+    return [];
+  }
+}
+
+/**
+ * Delete one Mem0 point (must belong to this user).
+ * @param {{ userId: string, id: string }} opts
+ * @returns {Promise<{ ok: boolean, skipped?: string }>}
+ */
+export async function mem0DeleteFact(opts) {
+  const userKey = mem0UserKey(opts.userId);
+  const id = String(opts.id || "").trim();
+  if (!userKey || !id) return { ok: false, skipped: "missing" };
+  if (!(await ensureCollection())) return { ok: false, skipped: "disabled" };
+  const client = await getQdrant();
+  if (!client) return { ok: false, skipped: "disabled" };
+  const { collection } = mem0StoreConfig();
+
+  try {
+    const existing = await client.retrieve(collection, {
+      ids: [id],
+      with_payload: true,
+      with_vector: false,
+    });
+    const point = Array.isArray(existing) ? existing[0] : null;
+    if (!point) return { ok: false, skipped: "not_found" };
+    if (String(point.payload?.user_id || "") !== userKey) {
+      return { ok: false, skipped: "forbidden" };
+    }
+    await client.delete(collection, { wait: true, points: [id] });
+    return { ok: true };
+  } catch (err) {
+    console.warn("[mem0] deleteFact failed:", err?.message || err);
+    return { ok: false, skipped: "error" };
+  }
+}
+
+/**
+ * Clear all Mem0 facts for USER profile or one agent.
+ * @param {{
+ *   userId: string,
+ *   scope?: "user"|"agent",
+ *   agentId?: string|null,
+ * }} opts
+ * @returns {Promise<{ ok: boolean, deleted?: number, skipped?: string }>}
+ */
+export async function mem0ClearScope(opts) {
+  const userKey = mem0UserKey(opts.userId);
+  if (!userKey) return { ok: false, skipped: "missing" };
+  if (!(await ensureCollection())) return { ok: false, skipped: "disabled" };
+  const client = await getQdrant();
+  if (!client) return { ok: false, skipped: "disabled" };
+
+  const scope = opts.scope === "agent" ? "agent" : "user";
+  const agentKey =
+    scope === "user" ? MEM0_USER_SCOPE_AGENT : mem0AgentKey(opts.agentId);
+  if (!agentKey) return { ok: false, skipped: "no_agent" };
+
+  const { collection } = mem0StoreConfig();
+  try {
+    await client.delete(collection, {
+      wait: true,
+      filter: {
+        must: [
+          { key: "user_id", match: { value: userKey } },
+          { key: "agent_id", match: { value: agentKey } },
+        ],
+      },
+    });
+    return { ok: true, deleted: -1 };
+  } catch (err) {
+    console.warn("[mem0] clearScope failed:", err?.message || err);
+    return { ok: false, skipped: "error" };
+  }
+}
+
+/**
  * Extract durable facts from a chat turn via the user's Settings LLM, then store them.
  * @param {{
  *   userId: string,

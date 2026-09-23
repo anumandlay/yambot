@@ -11,6 +11,9 @@ import {
   mem0UserKey,
   mem0AgentKey,
   MEM0_USER_SCOPE_AGENT,
+  mem0ListFacts,
+  mem0DeleteFact,
+  mem0ClearScope,
 } from "../src/utils/mem0Service.js";
 
 describe("mem0Service helpers", () => {
@@ -18,6 +21,12 @@ describe("mem0Service helpers", () => {
     assert.equal(mem0UserKey("abc"), "yb_u_abc");
     assert.equal(mem0AgentKey("xyz"), "yb_a_xyz");
     assert.equal(MEM0_USER_SCOPE_AGENT, "yambot_user_profile");
+  });
+
+  it("exports list/delete/clear helpers", () => {
+    assert.equal(typeof mem0ListFacts, "function");
+    assert.equal(typeof mem0DeleteFact, "function");
+    assert.equal(typeof mem0ClearScope, "function");
   });
 
   it("normalizes search results and drops ephemeral if-rules", () => {

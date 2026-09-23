@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 14:25] Settings → Memory shows Mem0 USER prefs (delete)
+
+- **Prompt Provided:** Settings → Memory empty but Memory chip showed USER prefs / 16 facts.
+- **Architectural Flow:** Chip USER prefs merge Mem0 Qdrant vectors; Settings only listed Mongo curated. Added mem0ListFacts / delete / clearScope; GET curated-memory returns mem0Items; Settings UI Mem0 section with Remove / Clear; chip notes Mem0-sourced rows.
+- **Impacted Files:** mem0Service.js, settings.js, SettingsMemoryPage.jsx, RunOpsIconRow.jsx, PROMPT_LOG
+
 ## [2026-09-23 13:20] Promote experiment → main; retire experiment branch
 
 - **Prompt Provided:** Delete main branch and make experiment branch as main.

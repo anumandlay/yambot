@@ -423,12 +423,20 @@ function CuratedPullDetails({ curated, fallbackContent = "" }) {
         title="USER prefs"
         rows={userRows}
         empty={
-          userTotal === 0
-            ? "No account USER prefs on file (Settings → Memory)."
-            : "No USER prefs matched this goal."
+          userTotal === 0 && userRows.length === 0
+            ? "No account USER prefs on file (Settings → Memory: Mongo + Mem0)."
+            : userRows.length === 0
+              ? "No USER prefs matched this goal."
+              : "No USER prefs matched this goal."
         }
       />
-    </div>
+      {Number(curated?.mem0?.userMerged || 0) > 0 ? (
+        <p className="text-[0.7rem] text-amber-900/80">
+          Includes {curated.mem0.userMerged} Mem0 USER fact
+          {curated.mem0.userMerged === 1 ? "" : "s"} — manage under Settings → Memory → Mem0
+          USER prefs.
+        </p>
+      ) : null}    </div>
   );
 }
 
