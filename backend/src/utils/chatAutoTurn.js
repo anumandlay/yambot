@@ -17,6 +17,21 @@ import {
   looksLikeComposioAppRequest,
 } from "./messageIntent.js";
 import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
+import {
+  matchComposioIntent,
+  compactComposioExecuteResult,
+  runComposioIntentExecute,
+} from "./composioAutoRuntime.js";
+
+export {
+  looksLikeGmailInboxRequest,
+  looksLikeSlackSendRequest,
+  looksLikeSheetsReadRequest,
+  compactComposioExecuteResult,
+  matchComposioIntent,
+  buildGmailUnreadToolArgs,
+  formatGmailUnreadSummaryFromToolResult,
+} from "./composioAutoRuntime.js";
 
 /**
  * OpenAI-compatible tool schemas for Auto chat (YamBot-only surface).
@@ -1118,321 +1133,51 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
 }
 
 /**
- * Gmail inbox / unread summarize asks (deterministic Composio path).
- * @param {string} text
- * @returns {boolean}
- */
-export function looksLikeGmailInboxRequest(text) {
-  const t = String(text || "").toLowerCase();
-  if (!/\b(gmail|google\s*mail|inbox)\b/.test(t)) return false;
-  return /\b(unread|emails?|messages?|inbox|summarize|top\s*\d+)\b/.test(t);
-}
-
-/**
- * Pick the best Composio Gmail list/fetch tool from search hits.
- * @param {{ slug?: string, name?: string, description?: string }[]} tools
- * @returns {string}
- */
-export function pickBestComposioGmailFetchTool(tools) {
-  const rows = Array.isArray(tools) ? tools : [];
-  const preferred = [
-    "GMAIL_FETCH_EMAILS",
-    "GMAIL_LIST_MESSAGES",
-    "GMAIL_GET_EMAILS",
-    "GMAIL_SEARCH_MESSAGES",
-    "GMAIL_LIST_THREADS",
-    "GMAIL_FETCH_MESSAGES",
-    "GMAIL_GET_MESSAGES",
-  ];
-  const slugs = rows
-    .map((r) => String(r?.slug || r?.name || "").trim().toUpperCase())
-    .filter(Boolean);
-  for (const p of preferred) {
-    if (slugs.includes(p)) return p;
-  }
-  const scored = slugs
-    .filter((s) => s.startsWith("GMAIL_"))
-    .map((s) => {
-      let score = 0;
-      if (/FETCH_EMAILS|LIST_MESSAGES|GET_EMAILS|SEARCH_MESSAGES/.test(s)) score += 6;
-      if (/FETCH|LIST|SEARCH|GET/.test(s)) score += 2;
-      if (/EMAIL|MESSAGE|THREAD|INBOX/.test(s)) score += 2;
-      if (/LABEL|PROFILE|CONTACT|PEOPLE|DRAFT|SEND|CREATE|DELETE|REPLY|FORWARD/.test(s)) {
-        score -= 8;
-      }
-      return { s, score };
-    })
-    .sort((a, b) => b.score - a.score);
-  return scored[0]?.score > 0 ? scored[0].s : "";
-}
-
-/**
- * Gmail search query + common arg aliases for unread-from-today.
- * @param {string} [userText]
- * @returns {Record<string, unknown>}
- */
-export function buildGmailUnreadToolArgs(userText = "") {
-  const topMatch = String(userText || "").match(/\btop\s*(\d{1,2})\b/i);
-  const max = Math.min(10, Math.max(1, Number(topMatch?.[1]) || 5));
-  // Why: Composio GMAIL_FETCH_EMAILS accepts Gmail search syntax; newer_than is more reliable than after:YYYY/MM/DD.
-  const query = "is:unread newer_than:1d";
-  return {
-    query,
-    q: query,
-    search: query,
-    max_results: max,
-    maxResults: max,
-    limit: max,
-  };
-}
-
-/**
- * Search + execute a Gmail fetch tool without waiting for the model.
- * Why: vague search queries only return GMAIL_LIST_LABELS — try exact slug queries + hardcoded fallbacks.
- * @param {object} runtime
- * @param {string} userText
- * @returns {Promise<{ ok: boolean, tool?: string, resultText: string }>}
- */
-export async function autoExecuteGmailUnread(runtime, userText) {
-  const preferred = [
-    "GMAIL_FETCH_EMAILS",
-    "GMAIL_LIST_MESSAGES",
-    "GMAIL_GET_EMAILS",
-    "GMAIL_SEARCH_MESSAGES",
-  ];
-  /** @type {{ slug: string, name: string, description: string, toolkit: string }[]} */
-  let tools = [];
-  for (const q of [
-    "GMAIL_FETCH_EMAILS",
-    "fetch emails",
-    "list messages unread",
-  ]) {
-    const searchText = await executeAutoLookupTool("composio_search", runtime, { query: q });
-    try {
-      const searchJson = JSON.parse(searchText);
-      if (Array.isArray(searchJson?.tools)) tools.push(...searchJson.tools);
-      if (pickBestComposioGmailFetchTool(tools)) break;
-    } catch {
-      /* continue */
-    }
-  }
-
-  let tool = pickBestComposioGmailFetchTool(tools);
-  if (!tool) tool = preferred[0];
-
-  const args = buildGmailUnreadToolArgs(userText);
-  const tryTools = [tool, ...preferred.filter((t) => t !== tool)];
-  let lastText = "";
-  for (const candidate of tryTools) {
-    const resultText = await executeAutoLookupTool("composio_execute", runtime, {
-      tool: candidate,
-      arguments: args,
-    });
-    lastText = resultText;
-    /** @type {any} */
-    let execJson = null;
-    try {
-      execJson = JSON.parse(resultText);
-    } catch {
-      execJson = null;
-    }
-    if (execJson?.ok) {
-      return { ok: true, tool: candidate, resultText };
-    }
-    // Why: wrong tool (e.g. LIST_LABELS) — try next preferred slug.
-    const err = String(execJson?.error || "").toLowerCase();
-    if (/not connected|unauthorized|auth|no connected account/i.test(err)) {
-      return { ok: false, tool: candidate, resultText };
-    }
-  }
-  return {
-    ok: false,
-    tool: tryTools[0],
-    resultText:
-      lastText ||
-      JSON.stringify({
-        ok: false,
-        detail: "Gmail fetch failed for all known tool slugs.",
-      }),
-  };
-}
-
-/**
- * Shrink Composio execute payloads so chat tools stay under size limits.
- * Why: GMAIL_FETCH_EMAILS returns ~250KB of messageText; a 4k slice breaks JSON and drops sender/subject.
- * @param {any} result
- * @param {string} [toolSlug]
- * @returns {any}
- */
-export function compactComposioExecuteResult(result, toolSlug = "") {
-  if (!result || typeof result !== "object") return result;
-  const data = result.data ?? result;
-  const messages = Array.isArray(data?.messages)
-    ? data.messages
-    : Array.isArray(data?.emails)
-      ? data.emails
-      : Array.isArray(data?.items)
-        ? data.items
-        : null;
-  if (!messages) {
-    // Still drop huge nested blobs on non-list tools.
-    try {
-      const raw = JSON.stringify(result);
-      if (raw.length <= 12_000) return result;
-    } catch {
-      return result;
-    }
-    return {
-      ok: result.ok,
-      error: result.error,
-      sessionId: result.sessionId,
-      detail: "Result too large; truncated.",
-      dataPreview: String(JSON.stringify(result.data ?? result)).slice(0, 2000),
-    };
-  }
-
-  const compactMsgs = messages.slice(0, 10).map((m) => {
-    if (!m || typeof m !== "object") return m;
-    const previewRaw = m.preview ?? m.snippet ?? m.messageText ?? m.body ?? m.text ?? "";
-    let preview = "";
-    if (typeof previewRaw === "string") preview = previewRaw;
-    else if (previewRaw && typeof previewRaw === "object") {
-      preview = String(
-        previewRaw.body || previewRaw.text || previewRaw.snippet || previewRaw.preview || ""
-      );
-    }
-    return {
-      sender: m.sender || m.from || m.from_email || m.fromEmail || null,
-      subject: m.subject || m.Subject || null,
-      preview: preview.replace(/\s+/g, " ").trim().slice(0, 180),
-      messageId: m.messageId || m.id || m.message_id || null,
-      threadId: m.threadId || m.thread_id || null,
-      display_url: m.display_url || m.displayUrl || null,
-      labelIds: Array.isArray(m.labelIds) ? m.labelIds.slice(0, 8) : undefined,
-      messageTimestamp: m.messageTimestamp || m.internalDate || null,
-    };
-  });
-
-  return {
-    ok: result.ok !== false,
-    error: result.error,
-    sessionId: result.sessionId,
-    tool: toolSlug || undefined,
-    data: {
-      messages: compactMsgs,
-      nextPageToken: data?.nextPageToken || null,
-      resultSizeEstimate: data?.resultSizeEstimate ?? compactMsgs.length,
-    },
-  };
-}
-
-/**
- * Best-effort prose summary from a Composio Gmail execute JSON blob (no LLM).
- * @param {string} resultText
- * @param {string} [tool]
- * @returns {string}
- */
-export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
-  /** @type {any} */
-  let parsed = null;
-  try {
-    parsed = JSON.parse(String(resultText || ""));
-  } catch {
-    // Why: legacy truncated blobs — try to salvage message objects if any.
-    parsed = null;
-  }
-  if (!parsed) {
-    return "I couldn’t parse the Gmail response from Composio. Try again, or Connect Gmail under this agent.";
-  }
-  if (parsed.ok === false) {
-    const err = String(parsed.error || parsed.detail || "Gmail request failed");
-    if (/not connected|unauthorized|auth|connect/i.test(err)) {
-      return (
-        `Gmail isn’t connected for this agent yet. Open Agents → edit → Composio → Connect Gmail, finish OAuth, then ask again.\n\n(${err})`
-      );
-    }
-    return `Gmail via Composio failed: ${err}`;
-  }
-
-  const data = parsed.data ?? parsed;
-  /** @type {any[]} */
-  let rows = [];
-  if (Array.isArray(data)) rows = data;
-  else if (Array.isArray(data?.messages)) rows = data.messages;
-  else if (Array.isArray(data?.emails)) rows = data.emails;
-  else if (Array.isArray(data?.data)) rows = data.data;
-  else if (Array.isArray(data?.items)) rows = data.items;
-  else if (Array.isArray(data?.threads)) rows = data.threads;
-  else if (data && typeof data === "object") {
-    for (const v of Object.values(data)) {
-      if (Array.isArray(v) && v.length && typeof v[0] === "object") {
-        rows = v;
-        break;
-      }
-    }
-  }
-
-  if (!rows.length) {
-    return tool
-      ? `No unread emails came back from ${tool} (inbox may be empty for today).`
-      : "No unread emails found for today.";
-  }
-
-  const lines = rows.slice(0, 5).map((row, i) => {
-    const from =
-      row?.sender ||
-      row?.from ||
-      row?.from_email ||
-      row?.fromEmail ||
-      row?.payload?.headers?.find?.((h) => /from/i.test(h?.name || ""))?.value ||
-      row?.messageSender ||
-      "Unknown sender";
-    const subject =
-      row?.subject ||
-      row?.Subject ||
-      row?.payload?.headers?.find?.((h) => /subject/i.test(h?.name || ""))?.value ||
-      "(no subject)";
-    let gistRaw = row?.preview ?? row?.snippet ?? row?.messageText ?? row?.body ?? row?.text ?? "";
-    if (gistRaw && typeof gistRaw === "object") {
-      gistRaw = gistRaw.body || gistRaw.text || gistRaw.snippet || "";
-    }
-    const gist = String(gistRaw || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 140);
-    const idOnly = (!row?.sender && !row?.from && !row?.subject && (row?.id || row?.messageId))
-      ? `   (id: ${row.id || row.messageId})`
-      : "";
-    return `${i + 1}. From: ${String(from).slice(0, 80)}\n   Subject: ${String(subject).slice(0, 120)}${
-      gist ? `\n   ${gist}` : ""
-    }${idOnly && !gist ? `\n${idOnly}` : ""}`;
-  });
-
-  return `Top unread from Gmail today:\n\n${lines.join("\n\n")}`;
-}
-
-/**
- * Deterministic Gmail unread path: Composio fetch first, format summary locally.
- * Why: some LLM providers fail on forced tool_choice; also avoid LLM inventing “disconnected”
- * when Composio already returned messages.
+ * Deterministic Composio intent path (Gmail / Slack / Sheets starters).
+ * Why: intent → known tool → compact result → reply; LLM is optional polish only.
  * @param {{
  *   runtime: object,
  *   userText: string,
  *   creds: object,
  *   onDelta?: (chunk: string) => void,
  *   track: ReturnType<typeof createAutoTimingTracker>,
+ *   spec?: object|null,
  * }} opts
  */
-export async function runDeterministicGmailUnreadTurn(opts) {
+export async function runDeterministicComposioIntentTurn(opts) {
   const { runtime, userText, creds, onDelta, track } = opts;
+  const spec = opts.spec || matchComposioIntent(userText);
+  if (!spec) {
+    return {
+      action: "reply",
+      content: "I could not map that to a Composio app action.",
+      goal: "",
+      ack: "",
+      reason: "composio_intent_unmatched",
+      timing: track.finish(),
+    };
+  }
   track.addLookup("composio_search");
   track.addLookup("composio_execute");
-  track.setPath("composio_gmail_direct");
-  const auto = await autoExecuteGmailUnread(runtime, userText);
-  let content = formatGmailUnreadSummaryFromToolResult(auto.resultText, auto.tool || "");
+  track.setPath(`composio_${spec.id}_direct`);
+  const ran = await runComposioIntentExecute({
+    runtime,
+    userText,
+    spec,
+    executeLookup: executeAutoLookupTool,
+  });
+  if (ran.needsConnect) {
+    track.addLookup("composio_connect");
+  }
+  let content = String(ran.content || "").trim();
 
-  // Why: only polish error / empty cases — never let the LLM override a real message list.
-  if (!auto.ok || !/^Top unread/i.test(content)) {
+  const looksStructured =
+    /^Top unread/i.test(content) ||
+    /^Posted to Slack/i.test(content) ||
+    /^Google Sheet/i.test(content) ||
+    /^Connect /i.test(content) ||
+    /^To (post|read)/i.test(content);
+  if (!ran.ok && !ran.needsConnect && !looksStructured) {
     try {
       const polished = await llmChatCompletion({
         apiKey: creds.apiKey,
@@ -1446,16 +1191,15 @@ export async function runDeterministicGmailUnreadTurn(opts) {
           {
             role: "system",
             content:
-              "Explain the Gmail/Composio result to the user in plain prose. Use ONLY the JSON. " +
-              "If messages exist, list sender + subject. If ok:false with auth error, tell them to Connect Gmail. " +
-              "Do not invent that Gmail is disconnected when the JSON shows messages. No ACTION: lines.",
+              "Explain this Composio tool result in plain prose. Use ONLY the JSON. " +
+              "Do not invent that an app is disconnected when the JSON shows success/data. No ACTION: lines.",
           },
           {
             role: "user",
             content:
               `User ask: ${String(userText || "").slice(0, 400)}\n\n` +
-              `Composio tool: ${auto.tool || "unknown"}\n` +
-              `Result JSON:\n${String(auto.resultText || "").slice(0, 3500)}`,
+              `Intent: ${spec.id}\nTool: ${ran.tool || "unknown"}\n` +
+              `Result JSON:\n${String(ran.resultText || "").slice(0, 3500)}`,
           },
         ],
       });
@@ -1469,7 +1213,7 @@ export async function runDeterministicGmailUnreadTurn(opts) {
         content = text;
       }
     } catch (err) {
-      console.warn("[auto] gmail summarize polish failed:", err?.message || err);
+      console.warn("[auto] composio intent polish failed:", err?.message || err);
     }
   }
 
@@ -1480,9 +1224,21 @@ export async function runDeterministicGmailUnreadTurn(opts) {
     content,
     goal: "",
     ack: "",
-    reason: auto.ok ? "composio_gmail_direct" : "composio_gmail_direct_error",
+    reason: ran.ok
+      ? `composio_${spec.id}_direct`
+      : ran.needsConnect
+        ? `composio_${spec.id}_connect`
+        : `composio_${spec.id}_error`,
     timing: track.finish(),
   };
+}
+
+/** @deprecated use runDeterministicComposioIntentTurn */
+export async function runDeterministicGmailUnreadTurn(opts) {
+  return runDeterministicComposioIntentTurn({
+    ...opts,
+    spec: matchComposioIntent(opts.userText) || undefined,
+  });
 }
 
 /**
@@ -2326,20 +2082,22 @@ export async function runChatAutoTurn(opts) {
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
 
-  // Why: some LLM providers 500 on tool_choice={function:composio_*}; Gmail unread does not need the tool loop.
-  if (looksLikeGmailInboxRequest(text) && runtime?.composioApiKey) {
+  // Why: some LLM providers 500 on tool_choice={function:composio_*}; mapped intents skip the tool loop.
+  const mappedComposio = matchComposioIntent(text);
+  if (mappedComposio && runtime?.composioApiKey) {
     try {
       return finalize(
-        await runDeterministicGmailUnreadTurn({
+        await runDeterministicComposioIntentTurn({
           runtime,
           userText: text,
           creds,
           onDelta: stream ? delta : undefined,
           track,
+          spec: mappedComposio,
         })
       );
     } catch (err) {
-      console.warn("[auto] deterministic gmail failed:", err?.message || err);
+      console.warn("[auto] deterministic composio intent failed:", err?.message || err);
       // Fall through to tools / text paths with a useful Composio error if possible.
     }
   }
@@ -2440,18 +2198,25 @@ export async function runChatAutoTurn(opts) {
             });
             return true;
           }
-          // Why: searched but model still stalls / ACTION-only — run Gmail fetch ourselves.
-          if (looksLikeGmailInboxRequest(text)) {
+          // Why: searched but model still stalls / ACTION-only — run mapped intent ourselves.
+          const mappedStall = matchComposioIntent(text);
+          if (mappedStall) {
             track.addLookup("composio_search");
             track.addLookup("composio_execute");
-            const auto = await autoExecuteGmailUnread(runtime, text);
+            const auto = await runComposioIntentExecute({
+              runtime,
+              userText: text,
+              spec: mappedStall,
+              executeLookup: executeAutoLookupTool,
+            });
+            if (auto.needsConnect) track.addLookup("composio_connect");
             messages.push({
               role: "user",
               content:
                 `[COMPOSIO TOOL RESULT for composio_execute${auto.tool ? ` (${auto.tool})` : ""}]\n` +
                 `${String(auto.resultText || "").slice(0, 3500)}\n\n` +
-                "Using ONLY this JSON, reply in plain prose with the top unread emails (sender + subject + one-line gist). " +
-                "If not connected, tell the user to Connect Gmail. Never say hold on. Never print ACTION: lines.",
+                "Using ONLY this JSON, reply in plain prose for the user. " +
+                "If not connected, include the Connect URL. Never say hold on. Never print ACTION: lines.",
             });
             return true;
           }
@@ -2583,18 +2348,25 @@ export async function runChatAutoTurn(opts) {
           if (kind === "composio_search" && !toolArgs.query) {
             toolArgs = { ...toolArgs, query: text };
           }
-          // Why: forced composio_execute often arrives with empty tool slug — finish Gmail ourselves.
+          // Why: empty tool slug on composio_execute — finish mapped intent ourselves.
+          const mappedExec = matchComposioIntent(text);
           if (
             kind === "composio_execute" &&
             !(toolArgs.tool || toolArgs.slug || toolArgs.action) &&
-            looksLikeGmailInboxRequest(text)
+            mappedExec
           ) {
-            const auto = await autoExecuteGmailUnread(runtime, text);
+            const auto = await runComposioIntentExecute({
+              runtime,
+              userText: text,
+              spec: mappedExec,
+              executeLookup: executeAutoLookupTool,
+            });
             track.addLookup("composio_search");
+            if (auto.needsConnect) track.addLookup("composio_connect");
             messages.push({
               role: "tool",
               tool_call_id: toolCallId,
-              content: String(auto.resultText || "").slice(0, 4000),
+              content: String(auto.resultText || "").slice(0, 8000),
             });
             continue;
           }
@@ -2723,19 +2495,21 @@ export async function runChatAutoTurn(opts) {
       /not support/i.test(detail) ||
       /provider returned error/i.test(detail);
     // Why: Gmail unread can still succeed via Composio without LLM tools.
-    if (looksLikeGmailInboxRequest(text) && runtime?.composioApiKey) {
+    const mappedAfterFail = matchComposioIntent(text);
+    if (mappedAfterFail && runtime?.composioApiKey) {
       try {
         return finalize(
-          await runDeterministicGmailUnreadTurn({
+          await runDeterministicComposioIntentTurn({
             runtime,
             userText: text,
             creds,
             onDelta: stream ? delta : undefined,
             track,
+            spec: mappedAfterFail,
           })
         );
       } catch (err2) {
-        console.warn("[auto] gmail fallback after tools fail:", err2?.message || err2);
+        console.warn("[auto] composio intent fallback after tools fail:", err2?.message || err2);
       }
     }
     if (!toolsUnsupported && status >= 500) throw err;

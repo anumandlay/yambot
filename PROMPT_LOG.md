@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 17:10] Shared Composio intent runtime (Gmail/Slack/Sheets)
+
+- **Prompt Provided:** Implement the solution — intent → known tool → compact → reply for all apps, not Gmail-only.
+- **Architectural Flow:** New composioAutoRuntime.js maps common asks (Gmail unread, Slack send, Sheets read) to preferred tool slugs + args; compactComposioExecuteResult for Gmail/Slack/Sheets/generic; connect ladder on auth errors; chatAutoTurn runs deterministic path when intent matches.
+- **Impacted Files:** composioAutoRuntime.js (new), chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 16:50] Fix Gmail summary Unknown sender / no subject
 
 - **Prompt Provided:** Top 5 unread listed as Unknown sender / (no subject).
