@@ -14,6 +14,7 @@ import {
   looksLikeMemoryStoreRequest,
   looksLikeDayHistoryOrStatusRequest,
   looksLikeVagueChatFollowup,
+  looksLikeComposioAppRequest,
 } from "./messageIntent.js";
 import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 
@@ -47,7 +48,7 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "queue_goal",
       description:
-        "Start the cloud computer / peer workers for a LIVE job NOW (open a site, click/fill, send mail, message peers). Do NOT use for past-work questions (did we open X today?), memory-store, or capability questions — use reply instead.",
+        "Start the cloud computer / peer workers for a LIVE browser job NOW (open a site, click/fill, message peers). Do NOT use for Gmail/Slack/Sheets/Notion/GitHub via Composio — use composio_* tools. Do NOT use for past-work questions or memory-store — use reply.",
       parameters: {
         type: "object",
         properties: {
@@ -794,6 +795,20 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     };
   }
 
+  // Why: Gmail/Slack/… via Composio must never start Playwright.
+  if (action === "queue_goal" && looksLikeComposioAppRequest(userText)) {
+    return {
+      action: "reply",
+      content:
+        content ||
+        "That uses your connected Composio apps (not the cloud browser). Ask again in Auto — I’ll search/execute the app tools instead of starting the computer.",
+      goal: "",
+      ack: "",
+      reason: `${reason}_composio_forced_reply`,
+      timing: result?.timing,
+    };
+  }
+
   // Why: "what we did today" / vague "what" must never become a browser goal from chat context.
   if (
     action === "queue_goal" &&
@@ -1272,9 +1287,10 @@ export function parseAutoTurnOutput(raw, userText = "") {
  */
 export function autoTurnHeuristicGate(text) {
   const c = classifyMessageIntent(text, {});
-  // Why: teach-prefs / day-history / vague — model path (or earlier forced chat), never skip-to-queue.
+  // Why: teach-prefs / day-history / vague / Composio apps — model path (or tools), never skip-to-queue.
   if (c.reason === "memory_store_request") return "model";
   if (c.reason === "day_history_or_status" || c.reason === "vague_chat_followup") return "model";
+  if (looksLikeComposioAppRequest(text)) return "model";
   // Why: send + peer are unambiguous worker jobs — skip LLM latency.
   if (c.reason === "send_email_from_context") return "queue_goal";
   if (c.reason === "peer_a2a_or_fanout" || c.reason === "peer_a2a_overrides_ask") {
@@ -1331,6 +1347,10 @@ export function formatAutoClassifierHint(text, opts = {}) {
   } else if (reason === "memory_store_request") {
     lines.push(
       "Prefer REPLY. User is teaching preferences/facts (URLs in the list are credentials/bookmarks, not a browse job)."
+    );
+  } else if (looksLikeComposioAppRequest(text)) {
+    lines.push(
+      "Prefer REPLY path with composio_* tools (composio_search → composio_execute). Do NOT queue_goal / start Chromium for Gmail/Slack/Sheets/etc."
     );
   } else if (reason === "has_url_or_domain" || reason === "explicit_task") {
     lines.push(
@@ -1684,7 +1704,9 @@ export async function runChatAutoTurn(opts) {
   let jevDecision = null;
   if (isJevEnabled(jevModeNorm)) {
     jevDecision = await classifyAutoActionWithJev(text, { jevMode: jevModeNorm });
-    if (jevDecision.action === "queue_goal") {
+    const composioIntent = looksLikeComposioAppRequest(text);
+    // Why: Jev treated “Search my Gmail…” as queue_goal — that must use composio_* tools instead.
+    if (jevDecision.action === "queue_goal" && !composioIntent) {
       track.setPath("jev");
       track.markDecision("queue_goal");
       return finalize({
@@ -1697,7 +1719,7 @@ export async function runChatAutoTurn(opts) {
         jev: jevDecision,
       });
     }
-    if (jevDecision.action === "reply") {
+    if (jevDecision.action === "reply" && !composioIntent) {
       track.setPath("jev_reply");
       track.markDecision("reply");
       const content = await streamChatQuestion({
@@ -1717,6 +1739,14 @@ export async function runChatAutoTurn(opts) {
         jev: jevDecision,
       });
     }
+    if (composioIntent && (jevDecision.action === "queue_goal" || jevDecision.action === "reply")) {
+      // Fall through to tools path; keep Jev decision for the classifier hint.
+      jevDecision = {
+        ...jevDecision,
+        action: "uncertain",
+        reason: `${jevDecision.reason || "jev"}_composio_override`,
+      };
+    }
     // uncertain — keep jevDecision for classifier hint on the LLM path
   } else if (jevModeNorm === "off") {
     jevDecision = {
@@ -1733,7 +1763,8 @@ export async function runChatAutoTurn(opts) {
   // Native tools are non-streaming and left “Sending…” blank for the whole LLM wait.
   // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
   const wantsLookup =
-    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet|notion|github|hubspot|connect (gmail|slack|notion)|send (a )?(slack|email)|i connected|connected)\b/i.test(
+    looksLikeComposioAppRequest(text) ||
+    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet|notion|github|hubspot|connect (gmail|slack|notion)|send (a )?(slack|email)|i connected|connected|unread)\b/i.test(
       text
     );
   if (stream && !wantsLookup) {
@@ -1782,6 +1813,34 @@ export async function runChatAutoTurn(opts) {
 
       const terminal = parseAutoToolCalls(msg.toolCalls);
       if (terminal) {
+        // Why: model still proposes queue_goal for Gmail — reject and keep the composio tool loop.
+        if (terminal.action === "queue_goal" && looksLikeComposioAppRequest(text)) {
+          messages.push({
+            role: "assistant",
+            content: msg.content || null,
+            tool_calls: msg.rawMessage?.tool_calls || undefined,
+          });
+          if (msg.rawMessage?.tool_calls?.length) {
+            for (const tc of msg.rawMessage.tool_calls) {
+              messages.push({
+                role: "tool",
+                tool_call_id: tc.id,
+                content: JSON.stringify({
+                  ok: false,
+                  detail:
+                    "Do not queue_goal for Composio apps. Use composio_search then composio_execute (or composio_connect if not connected).",
+                }),
+              });
+            }
+          } else {
+            messages.push({
+              role: "user",
+              content:
+                "[SYSTEM] Rejected queue_goal. Use composio_search → composio_execute for this Gmail/Slack/app request. Do not start the computer.",
+            });
+          }
+          continue;
+        }
         track.markDecision(terminal.action);
         const out = finalize({
           ...terminal,

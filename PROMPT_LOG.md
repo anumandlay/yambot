@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:05] Fix: Gmail/Composio must not start the computer
+
+- **Prompt Provided:** “Search my Gmail…” started Trial Expiry Checker’s computer instead of Composio.
+- **Architectural Flow:** looksLikeComposioAppRequest; Jev no longer short-circuits queue/reply for Composio intents (tools path); ensureAutoTurnResult + tool-loop reject queue_goal; Jev criteria updated.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, jevEvaluate.js, PROMPT_LOG
+
 ## [2026-09-23 15:55] Composio Phase 2 — search, wait, connect UX
 
 - **Prompt Provided:** Let’s do Phase 2 (in-chat connect, tool search, agent Connect/Disconnect).

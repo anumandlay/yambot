@@ -142,6 +142,46 @@ export function looksLikeMemoryStoreRequest(text) {
 }
 
 /**
+ * True when the user wants a connected Composio app action (Gmail/Slack/…) — never Chromium.
+ * Why: "Search my Gmail…" was force-queued by Jev as a live computer job.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeComposioAppRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  const lower = raw.toLowerCase();
+
+  // Explicit browse of the Gmail website → still a computer job.
+  if (
+    /\b(open|go to|navigate|visit|launch)\b[\s\S]{0,40}\b(gmail\.com|mail\.google|slack\.com|notion\.so|github\.com)\b/i.test(
+      lower
+    ) ||
+    /\b(open|go to|navigate|visit)\b[\s\S]{0,20}\bhttps?:\/\/[^\s]*gmail/i.test(lower)
+  ) {
+    return false;
+  }
+
+  if (/\bcomposio\b/i.test(lower)) return true;
+  if (
+    /\b(gmail|google\s*mail|google\s*sheets?|slack|notion|github|hubspot|google\s*drive|googledrive)\b/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  // Phrases that almost always mean API inbox/app, not “open the site”.
+  if (
+    /\b(unread (emails?|mail|messages?)|summarize .{0,40}(inbox|emails?)|list .{0,40}(inbox|emails?)|send (a )?slack|post (to|in) (slack|#))\b/i.test(
+      lower
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Pull the durable fact string from a "remember …" user line.
  * @param {string} text
  * @returns {string}

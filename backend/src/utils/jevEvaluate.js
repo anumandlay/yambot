@@ -139,6 +139,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
           "Memory/preference store with URLs = reply",
           "Capability questions (can you open websites?) = reply until they name a concrete live job",
           "Imperative open/go to/visit/click/fill/log in NOW = queue_goal",
+          "Gmail / Slack / Sheets / Notion / GitHub / Composio app actions (search inbox, send Slack, etc.) = reply — NOT queue_goal (apps use API tools, not the browser)",
         ],
       },
       questions: {
@@ -148,9 +149,9 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
             "Should YamBot answer in chat (reply) or start a live computer / peer task (queue_goal)?",
           criteria: {
             reply:
-              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy. Naming a domain in a question is not enough.",
+              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy, OR connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Composio (search email, send Slack, etc.). Naming a domain in a question is not enough.",
             queue_goal:
-              "Live job now: open/go to/navigate/visit a site, click, fill, submit, log in, live browse research, message_agent / peer fan-out, or send/deliver mail.",
+              "Live browser/computer job now: open/go to/navigate/visit a website in Chromium, click, fill, submit, log in on a page, live browse research, or message_agent / peer fan-out. Do NOT choose queue_goal for Gmail/Slack/Composio API actions.",
           },
         },
       },
