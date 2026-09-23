@@ -995,6 +995,85 @@ export function parseAutoToolCalls(toolCalls) {
 }
 
 /**
+ * True when the model printed a fake worker-style ACTION: composio_*() line.
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function looksLikeFakeComposioActionText(content) {
+  return /ACTION\s*:\s*composio_\w+\s*\(/i.test(String(content || ""));
+}
+
+/**
+ * Parse fake ACTION: composio_list() / composio_search(query="…") lines into lookup specs.
+ * @param {string} content
+ * @returns {{ kind: string, args: object }[]}
+ */
+export function parseFakeComposioActionText(content) {
+  const raw = String(content || "");
+  /** @type {{ kind: string, args: object }[]} */
+  const out = [];
+  const re = /ACTION\s*:\s*(composio_\w+)\s*\(([^)]*)\)/gi;
+  let m;
+  while ((m = re.exec(raw)) !== null) {
+    const name = String(m[1] || "").trim().toLowerCase();
+    const kind = classifyAutoToolName({ name });
+    if (
+      kind !== "composio_list" &&
+      kind !== "composio_search" &&
+      kind !== "composio_connect" &&
+      kind !== "composio_wait" &&
+      kind !== "composio_execute"
+    ) {
+      continue;
+    }
+    const argStr = String(m[2] || "").trim();
+    /** @type {Record<string, unknown>} */
+    const args = {};
+    if (argStr) {
+      const jsonMatch = argStr.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        try {
+          const obj = JSON.parse(jsonMatch[0]);
+          if (obj && typeof obj === "object" && !Array.isArray(obj)) {
+            Object.assign(args, obj);
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+      const q = argStr.match(/(?:query|q|search)\s*[=:]\s*["']?([^"',)]+)["']?/i);
+      if (q && !args.query) args.query = q[1].trim();
+      const tool = argStr.match(/(?:tool|slug|action)\s*[=:]\s*["']?([A-Za-z0-9_]+)["']?/i);
+      if (tool && !args.tool) args.tool = tool[1].trim();
+      const toolkit = argStr.match(/(?:toolkit|app)\s*[=:]\s*["']?([A-Za-z0-9_-]+)["']?/i);
+      if (toolkit && !args.toolkit) args.toolkit = toolkit[1].trim();
+    }
+    // Why: bare composio_search() with no query — use the user text if we have it later.
+    out.push({ kind, args });
+  }
+  return out;
+}
+
+/**
+ * Strip leftover fake ACTION: composio_* lines from a user-visible reply.
+ * @param {string} content
+ * @param {string} [fallback]
+ * @returns {string}
+ */
+export function sanitizeFakeComposioActionReply(content, fallback) {
+  const raw = String(content || "").trim();
+  if (!looksLikeFakeComposioActionText(raw)) return raw;
+  const cleaned = raw
+    .replace(/ACTION\s*:\s*composio_\w+\s*\([^)]*\)\s*/gi, "")
+    .trim();
+  if (cleaned.length >= 8) return cleaned;
+  return String(
+    fallback ||
+      "I couldn’t finish that Composio step cleanly — please send the same request once more."
+  ).trim();
+}
+
+/**
  * Classify the first tool call in a batch.
  * @param {{ id: string, name: string, arguments: string }} tc
  * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"composio_list"|"composio_search"|"composio_connect"|"composio_wait"|"composio_execute"|"unknown"}
@@ -1449,8 +1528,9 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "REPLY / reply — answer in chat (no Chromium):",
     "- Questions, memory, capability, planning",
     "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
-    "- Flow: composio_list → composio_search (find tool slug) → if needed composio_connect (paste redirectUrl for the user) → composio_wait → composio_execute",
+    "- Flow: composio_search (find tool slug) → if needed composio_connect (paste redirectUrl) → composio_wait → composio_execute",
     "- Always include the full https connect URL in your reply when composio_connect returns redirectUrl",
+    "- Never write fake lines like ACTION: composio_list() — call the native composio_* tools instead, then reply in plain prose",
     "",
     "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
     "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
@@ -1811,6 +1891,36 @@ export async function runChatAutoTurn(opts) {
         toolChoice: "auto",
       });
 
+      /**
+       * Execute fake ACTION: composio_*() text as real lookups and keep the loop going.
+       * @param {string} actionText
+       * @returns {Promise<boolean>} true if any fake actions ran
+       */
+      async function runFakeComposioActionsFromText(actionText) {
+        const fakes = parseFakeComposioActionText(actionText);
+        if (!fakes.length) return false;
+        messages.push({
+          role: "assistant",
+          content: String(actionText || "").slice(0, 2000),
+        });
+        for (const fake of fakes) {
+          track.addLookup(fake.kind);
+          const args =
+            fake.kind === "composio_search" && !fake.args.query
+              ? { ...fake.args, query: text }
+              : fake.args;
+          const resultText = await executeAutoLookupTool(fake.kind, runtime, args);
+          messages.push({
+            role: "user",
+            content:
+              `[COMPOSIO TOOL RESULT for ${fake.kind}]\n${resultText.slice(0, 3500)}\n\n` +
+              "Continue with native composio_* tools if needed (e.g. composio_search then composio_execute), " +
+              "then reply to the user in plain prose with the summary. Never print ACTION: lines.",
+          });
+        }
+        return true;
+      }
+
       const terminal = parseAutoToolCalls(msg.toolCalls);
       if (terminal) {
         // Why: model still proposes queue_goal for Gmail — reject and keep the composio tool loop.
@@ -1841,9 +1951,18 @@ export async function runChatAutoTurn(opts) {
           }
           continue;
         }
+        // Why: models reply with ACTION: composio_list() instead of native tool_calls.
+        if (
+          terminal.action === "reply" &&
+          looksLikeFakeComposioActionText(terminal.content)
+        ) {
+          const ran = await runFakeComposioActionsFromText(terminal.content);
+          if (ran) continue;
+        }
         track.markDecision(terminal.action);
         const out = finalize({
           ...terminal,
+          content: sanitizeFakeComposioActionReply(terminal.content || ""),
           reason: round === 0 ? "model_auto_tool_call" : "model_auto_tool_loop",
           timing: track.finish(),
         });
@@ -1909,6 +2028,12 @@ export async function runChatAutoTurn(opts) {
         continue;
       }
 
+      // Why: free-text "ACTION: composio_list()" with no tool_calls — run it for real.
+      if (msg.content && looksLikeFakeComposioActionText(msg.content)) {
+        const ran = await runFakeComposioActionsFromText(msg.content);
+        if (ran) continue;
+      }
+
       if (msg.content) {
         let parsed = parseAutoTurnOutput(msg.content, text);
         if (!parsed.content && !parsed.goal) {
@@ -1917,6 +2042,7 @@ export async function runChatAutoTurn(opts) {
         track.markDecision(parsed.action);
         const out = finalize({
           ...parsed,
+          content: sanitizeFakeComposioActionReply(parsed.content || ""),
           reason: "model_auto_turn_after_tools",
           timing: track.finish(),
         });

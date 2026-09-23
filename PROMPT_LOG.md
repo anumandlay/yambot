@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:10] Fix fake ACTION: composio_list() replies
+
+- **Prompt Provided:** Agent replied `ACTION: composio_list()` instead of summarizing Gmail.
+- **Architectural Flow:** Parse fake ACTION: composio_*() text, run real composio tools, continue Auto loop; sanitize leftover ACTION lines in chats.js; prompt forbids ACTION: lines.
+- **Impacted Files:** chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-23 16:05] Fix: Gmail/Composio must not start the computer
 
 - **Prompt Provided:** “Search my Gmail…” started Trial Expiry Checker’s computer instead of Composio.

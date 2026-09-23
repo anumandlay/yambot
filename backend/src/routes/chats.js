@@ -25,7 +25,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply } from "../utils/chatAutoTurn.js";
 import {
   persistChatRememberFact,
   sanitizeFakeMemoryActionReply,
@@ -1277,6 +1277,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           console.warn("[chats] remember persist failed:", err?.message || err);
           assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
         }
+        assistantContent = sanitizeFakeComposioActionReply(assistantContent);
         autoTiming = turn.timing || null;
         const timingLine = formatAutoTimingSummary(autoTiming);
         const assistantMessage = await Message.create({
@@ -1491,6 +1492,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         console.warn("[chats] remember persist (legacy) failed:", err?.message || err);
         assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
       }
+      assistantContent = sanitizeFakeComposioActionReply(String(assistantContent || ""));
 
       const assistantMessage = await Message.create({
         chat: chat._id,
