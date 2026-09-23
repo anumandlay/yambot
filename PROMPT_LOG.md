@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 16:20] Fix Composio stall “Hold on while I pull the unread”
+
+- **Prompt Provided:** Agent replied “Fine, I'll dig through your inbox… Hold on while I pull the unread” instead of summarizing Gmail.
+- **Architectural Flow:** Round-0 toolChoice forces `composio_search` on Composio intents; `looksLikeComposioStallReply` + `rejectPrematureComposioReply` reject filler and auto-run search / nudge execute; reply tool description forbids stall language; empty rounds kick off search.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-23 16:15] Show status chips on normal Auto messages
 
 - **Prompt Provided:** Also show the chips for normal messages too.

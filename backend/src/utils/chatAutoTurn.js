@@ -30,7 +30,7 @@ export const AUTO_CHAT_TOOLS = [
     function: {
       name: "reply",
       description:
-        "Answer in chat from memory, day history, profile, or knowledge. Use for questions (including past browse: did we open X today?), memory-store, and capability asks. Do NOT use when the user wants a live browse/run right now.",
+        "Answer in chat with the FINAL result for the user. For Gmail/Slack/Composio tasks, only after composio_execute (or a clear error). Never say hold on / digging / pulling — finish the work with tools first. Use for questions, memory-store, and capability asks. Do NOT use when the user wants a live browse/run right now.",
       parameters: {
         type: "object",
         properties: {
@@ -189,6 +189,7 @@ export const AUTO_CHAT_MAX_TOOL_ROUNDS = 6;
  *   markFirstToken: () => void,
  *   markDecision: (action: string) => void,
  *   addLookup: (name: string) => void,
+ *   getLookups: () => string[],
  *   setPath: (path: string) => void,
  *   setToolRounds: (n: number) => void,
  *   wrapOnDelta: (onDelta?: (chunk: string) => void) => ((chunk: string) => void)|undefined,
@@ -221,10 +222,12 @@ export function createAutoTimingTracker() {
     addLookup(name) {
       lookups.push(String(name || "lookup"));
     },
+    getLookups() {
+      return lookups.slice();
+    },
     setPath(p) {
       path = String(p || path);
-    },
-    setToolRounds(n) {
+    },    setToolRounds(n) {
       toolRounds = Math.max(0, Number(n) || 0);
     },
     wrapOnDelta(onDelta) {
@@ -1074,6 +1077,43 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
 }
 
 /**
+ * True when the model “replied” with a stall / filler instead of a real Composio result summary.
+ * Why: “Hold on while I pull the unread…” was returned as the final chat answer.
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function looksLikeComposioStallReply(content) {
+  const t = String(content || "").trim();
+  if (!t) return true;
+  const stall =
+    /\b(hold on|one (sec|second|moment|minute)|dig through|pull(ing)? (the )?unread|let me (check|look|fetch|search|pull|dig)|working on (it|that)|i('ll| will) (check|look|search|fetch|pull|dig|get)|give me a (sec|moment)|fine[,!]?\s+i('ll| will))\b/i.test(
+      t
+    );
+  if (!stall) return false;
+  // Real inbox summaries usually list senders/subjects or say none found.
+  if (
+    t.length > 100 &&
+    /\b(from:|subject:|sender:|no unread|0 unread|here (are|is)|top \d|1[\).]|•\s+\S)/i.test(t)
+  ) {
+    return false;
+  }
+  return true;
+}
+
+/**
+ * @param {string[]} lookups
+ * @returns {{ searched: boolean, executed: boolean, listed: boolean }}
+ */
+export function summarizeComposioLookups(lookups) {
+  const L = (Array.isArray(lookups) ? lookups : []).map((x) => String(x || "").toLowerCase());
+  return {
+    listed: L.some((x) => x.includes("composio_list")),
+    searched: L.some((x) => x.includes("composio_search") || x.includes("composio_list")),
+    executed: L.some((x) => x.includes("composio_execute")),
+  };
+}
+
+/**
  * Classify the first tool call in a batch.
  * @param {{ id: string, name: string, arguments: string }} tc
  * @returns {"reply"|"queue_goal"|"check_run_status"|"list_peer_agents"|"composio_list"|"composio_search"|"composio_connect"|"composio_wait"|"composio_execute"|"unknown"}
@@ -1876,6 +1916,7 @@ export async function runChatAutoTurn(opts) {
 
   try {
     track.setPath("tools");
+    const composioIntent = looksLikeComposioAppRequest(text);
     for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
       track.setToolRounds(round + 1);
       const msg = await llmChatCompletionMessage({
@@ -1888,7 +1929,11 @@ export async function runChatAutoTurn(opts) {
         timeoutMs: 60_000,
         messages,
         tools: AUTO_CHAT_TOOLS,
-        toolChoice: "auto",
+        // Why: first round for Gmail/Slack asks — force composio_search so the model cannot stall with “hold on…”.
+        toolChoice:
+          composioIntent && round === 0
+            ? { type: "function", function: { name: "composio_search" } }
+            : "auto",
       });
 
       /**
@@ -1915,16 +1960,59 @@ export async function runChatAutoTurn(opts) {
             content:
               `[COMPOSIO TOOL RESULT for ${fake.kind}]\n${resultText.slice(0, 3500)}\n\n` +
               "Continue with native composio_* tools if needed (e.g. composio_search then composio_execute), " +
-              "then reply to the user in plain prose with the summary. Never print ACTION: lines.",
+              "then reply to the user in plain prose with the summary. Never print ACTION: lines. Never say hold on — finish the task.",
           });
         }
         return true;
       }
 
+      /**
+       * If the model tries to end with a stall / filler, run search or nudge execute.
+       * @param {string} replyText
+       * @returns {Promise<boolean>} true if the loop should continue
+       */
+      async function rejectPrematureComposioReply(replyText) {
+        if (!composioIntent) return false;
+        const steps = summarizeComposioLookups(track.getLookups());
+        const stall = looksLikeComposioStallReply(replyText);
+        if (steps.executed && !stall) return false;
+        if (!steps.executed && (stall || !steps.searched)) {
+          if (!steps.searched) {
+            track.addLookup("composio_search");
+            const resultText = await executeAutoLookupTool("composio_search", runtime, {
+              query: text,
+            });
+            messages.push({
+              role: "user",
+              content:
+                `[COMPOSIO TOOL RESULT for composio_search]\n${resultText.slice(0, 3500)}\n\n` +
+                "Now call composio_execute with the best GMAIL_* (or matching) tool slug and arguments, " +
+                "then reply with a real summary of unread emails. Do not say hold on.",
+            });
+            return true;
+          }
+          messages.push({
+            role: "user",
+            content:
+              "[SYSTEM] Do not stall with “hold on / I’ll dig”. Call composio_execute now using a tool slug from the search results, then summarize the unread emails in plain prose for the user.",
+          });
+          return true;
+        }
+        if (stall && steps.executed) {
+          messages.push({
+            role: "user",
+            content:
+              "[SYSTEM] You already ran composio_execute. Reply now with the actual summary (senders/subjects) — no filler.",
+          });
+          return true;
+        }
+        return false;
+      }
+
       const terminal = parseAutoToolCalls(msg.toolCalls);
       if (terminal) {
         // Why: model still proposes queue_goal for Gmail — reject and keep the composio tool loop.
-        if (terminal.action === "queue_goal" && looksLikeComposioAppRequest(text)) {
+        if (terminal.action === "queue_goal" && composioIntent) {
           messages.push({
             role: "assistant",
             content: msg.content || null,
@@ -1958,6 +2046,9 @@ export async function runChatAutoTurn(opts) {
         ) {
           const ran = await runFakeComposioActionsFromText(terminal.content);
           if (ran) continue;
+        }
+        if (terminal.action === "reply" && (await rejectPrematureComposioReply(terminal.content))) {
+          continue;
         }
         track.markDecision(terminal.action);
         const out = finalize({
@@ -2014,11 +2105,11 @@ export async function runChatAutoTurn(opts) {
             tc.id ||
             assistantToolMessage.tool_calls?.[i]?.id ||
             `call_${round}_${i}`;
-          const resultText = await executeAutoLookupTool(
-            kind,
-            runtime,
-            parseToolArgs(tc?.arguments)
-          );
+          let toolArgs = parseToolArgs(tc?.arguments);
+          if (kind === "composio_search" && !toolArgs.query) {
+            toolArgs = { ...toolArgs, query: text };
+          }
+          const resultText = await executeAutoLookupTool(kind, runtime, toolArgs);
           messages.push({
             role: "tool",
             tool_call_id: toolCallId,
@@ -2035,6 +2126,9 @@ export async function runChatAutoTurn(opts) {
       }
 
       if (msg.content) {
+        if (await rejectPrematureComposioReply(msg.content)) {
+          continue;
+        }
         let parsed = parseAutoTurnOutput(msg.content, text);
         if (!parsed.content && !parsed.goal) {
           parsed = recoverMalformedAutoOutput(msg.content, text);
@@ -2051,6 +2145,12 @@ export async function runChatAutoTurn(opts) {
         }
         return out;
       }
+
+      // Why: empty tool round on a Composio ask — kick off search ourselves.
+      if (composioIntent && !(await rejectPrematureComposioReply(""))) {
+        break;
+      }
+      if (composioIntent) continue;
 
       break;
     }
