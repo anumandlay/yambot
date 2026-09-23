@@ -2160,15 +2160,36 @@ agentsRouter.post("/:id/composio/connect", async (req, res, next) => {
       });
       return;
     }
-    const { composioAuthorizeToolkit } = await import("../utils/composioService.js");
+    const { composioAuthorizeToolkit, normalizeToolkitSlug } = await import(
+      "../utils/composioService.js"
+    );
+    const toolkit = normalizeToolkitSlug(req.body?.toolkit);
+    if (!toolkit) {
+      res.status(400).json({
+        ok: false,
+        title: "Toolkit required",
+        detail: "Pass { toolkit: \"gmail\" } (or another app slug).",
+      });
+      return;
+    }
+    // Why: user may click Connect right after checking an app, before Save — still allow OAuth.
+    const currentSlugs = Array.isArray(ctx.agent.composio?.toolkitSlugs)
+      ? ctx.agent.composio.toolkitSlugs.map((s) => normalizeToolkitSlug(s)).filter(Boolean)
+      : [];
+    if (!currentSlugs.includes(toolkit)) {
+      ctx.agent.composio = ctx.agent.composio || {};
+      ctx.agent.composio.toolkitSlugs = [...currentSlugs, toolkit];
+      ctx.agent.markModified("composio");
+      await ctx.agent.save();
+    }
     const result = await composioAuthorizeToolkit({
       userId: req.userId,
       apiKey: ctx.apiKey,
-      toolkit: req.body?.toolkit,
+      toolkit,
       sessionId: ctx.agent.composio?.sessionId,
       toolkitSlugs: Array.isArray(ctx.agent.composio?.toolkitSlugs)
         ? ctx.agent.composio.toolkitSlugs
-        : [],
+        : [toolkit],
     });
     if (!result.ok) {
       res.status(400).json({
@@ -2189,7 +2210,9 @@ agentsRouter.post("/:id/composio/connect", async (req, res, next) => {
       toolkit: result.toolkit,
       redirectUrl: result.redirectUrl,
       sessionId: result.sessionId,
-      message: "Open the connect URL to authorize this app, then Refresh status.",
+      message:
+        "Open the connect URL to authorize this app, then click Refresh status.",
+      userMessage: result.userMessage,
     });
   } catch (err) {
     next(err);

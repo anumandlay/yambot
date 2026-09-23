@@ -167,6 +167,8 @@ export function AgentEditPage() {
   const [composioConnections, setComposioConnections] = useState([]);
   const [composioStatusBusy, setComposioStatusBusy] = useState(false);
   const [composioConnectBusy, setComposioConnectBusy] = useState("");
+  /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
+  const [composioConnectUrl, setComposioConnectUrl] = useState("");
 
 
   useEffect(() => {
@@ -503,29 +505,77 @@ export function AgentEditPage() {
   }
 
   /**
+   * Start OAuth for one toolkit. Opens a tab synchronously so browsers don’t block the popup.
    * @param {string} toolkit
    */
   async function connectComposioToolkit(toolkit) {
     if (isNew || !agentId) return;
-    setComposioConnectBusy(toolkit);
     setError(null);
     setOkMsg("");
+    setComposioConnectUrl("");
+    // Why: window.open after await is blocked as a popup; open blank now, then navigate.
+    let popup = null;
     try {
+      popup = window.open("about:blank", "_blank");
+    } catch {
+      popup = null;
+    }
+    setComposioConnectBusy(toolkit);
+    try {
+      // Persist current app list so Connect works even if the user hasn’t clicked Save yet.
+      try {
+        await api(`/api/agents/${agentId}`, {
+          method: "PUT",
+          body: JSON.stringify({
+            composio: {
+              enabled: Boolean(form.composio?.enabled),
+              apiKey: String(form.composio?.apiKey || "").trim(),
+              clearApiKey: false,
+              toolkitSlugs: Array.isArray(form.composio?.toolkitSlugs)
+                ? form.composio.toolkitSlugs
+                : [],
+            },
+          }),
+        });
+      } catch (saveErr) {
+        console.warn("[composio] pre-connect save failed:", saveErr);
+      }
       const data = await api(`/api/agents/${agentId}/composio/connect`, {
         method: "POST",
         body: JSON.stringify({ toolkit }),
       });
       const url = String(data.redirectUrl || "").trim();
       if (url) {
-        window.open(url, "_blank", "noopener,noreferrer");
+        setComposioConnectUrl(url);
+        if (popup && !popup.closed) {
+          try {
+            popup.location.href = url;
+          } catch {
+            popup.close();
+            window.open(url, "_blank", "noopener,noreferrer");
+          }
+        } else {
+          const opened = window.open(url, "_blank", "noopener,noreferrer");
+          if (!opened) {
+            setOkMsg(
+              "Popup blocked — use the Connect link below (or allow popups for this site)."
+            );
+            return;
+          }
+        }
         setOkMsg(
           data.message ||
             "Opened the connect page. Finish authorizing, then click Refresh status."
         );
       } else {
-        setOkMsg(data.message || "Connect started.");
+        if (popup && !popup.closed) popup.close();
+        setError({
+          title: "No connect URL",
+          detail: data.message || "Composio did not return a redirect URL for this app.",
+        });
       }
     } catch (err) {
+      if (popup && !popup.closed) popup.close();
       setError(err);
     } finally {
       setComposioConnectBusy("");
@@ -1642,6 +1692,19 @@ export function AgentEditPage() {
                       </button>
                     ) : null}
                   </div>
+                  {composioConnectUrl ? (
+                    <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
+                      <p className="font-semibold">Connect link (if the tab didn’t open):</p>
+                      <a
+                        href={composioConnectUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-1 block break-all text-teal-800 underline"
+                      >
+                        {composioConnectUrl}
+                      </a>
+                    </div>
+                  ) : null}
                   <ul className="flex flex-col gap-2">
                     {(form.composio.toolkitSlugs || []).map((slug) => {
                       const conn = composioConnectionFor(slug);

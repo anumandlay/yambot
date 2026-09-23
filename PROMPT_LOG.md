@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 17:55] Fix Composio Connect click doing nothing
+
+- **Prompt Provided:** Added more apps but Connect click does nothing.
+- **Architectural Flow:** Open blank tab synchronously (avoid popup block); show fallback Connect URL; pre-save toolkit list on Connect; API auto-adds toolkit to agent if missing before OAuth.
+- **Impacted Files:** AgentEditPage.jsx, agents.js, PROMPT_LOG
+
 ## [2026-09-23 17:25] Match “last 5 emails unread” + kill ACTION: check_email
 
 - **Prompt Provided:** “Give me last 5 emails unread” → ACTION: check_email; “using composio” → Provider returned error.
