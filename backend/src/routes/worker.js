@@ -30,6 +30,10 @@ import { unblockDependentTasks } from "../utils/enqueueTask.js";
 import { emitEvent } from "../utils/eventBus.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import {
+  slimTaskEventPayload,
+  trimTaskEventsInPlace,
+} from "../utils/taskDocGuard.js";
+import {
   formatPeerAgentsBlock,
   sendAgentMessage,
   pollAgentMessageStatus,
@@ -399,8 +403,9 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
       return;
     }
     const type = String(req.body?.type || "event");
-    const payload = req.body?.payload || {};
+    const payload = slimTaskEventPayload(type, req.body?.payload || {});
     task.events.push({ type, payload });
+    trimTaskEventsInPlace(task.events);
     if (req.body?.status) task.status = req.body.status;
     // Why: heartbeat so long LLM/browser steps do not look "stuck" to the reclaim timer.
     task.claimedAt = new Date();
@@ -566,7 +571,26 @@ workerRouter.post("/tasks/:id/events", async (req, res, next) => {
       }
     }
 
-    await task.save();
+    try {
+      await task.save();
+    } catch (saveErr) {
+      // Why: docs already near 16MB cannot $push more thinking/llm payloads — trim and retry once.
+      const msg = String(saveErr?.message || saveErr);
+      if (/16777216|larger than|document.*too large/i.test(msg)) {
+        task.events = [
+          {
+            type: "events_trimmed",
+            at: new Date(),
+            payload: { reason: "bson_limit", kept: type },
+          },
+          { type, payload, at: new Date() },
+        ];
+        task.trajectory = Array.isArray(task.trajectory) ? task.trajectory.slice(-20) : [];
+        await task.save();
+      } else {
+        throw saveErr;
+      }
+    }
     res.json({ ok: true, task });
   } catch (err) {
     next(err);

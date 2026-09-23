@@ -36,6 +36,7 @@ import {
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
+import { cancelTaskWithoutBloat } from "../utils/taskDocGuard.js";
 
 export const chatsRouter = Router();
 
@@ -2064,14 +2065,26 @@ chatsRouter.patch("/:id/tasks/:taskId", async (req, res, next) => {
       });
       return;
     }
-    task.goal = goal;
-    task.events.push({
-      type: "goal_edited",
-      payload: { goal, byChat: String(chat._id) },
-    });
-    await task.save();
+    // Why: $set only — bloated pending tasks cannot accept another events.push.
+    await Task.updateOne(
+      { _id: task._id, status: "pending" },
+      {
+        $set: {
+          goal,
+          // Keep a tiny event trail without appending onto a 16MB array.
+          events: [
+            {
+              type: "goal_edited",
+              at: new Date(),
+              payload: { goal: goal.slice(0, 500), byChat: String(chat._id), trimmedEvents: true },
+            },
+          ],
+        },
+      }
+    );
     await Message.findByIdAndUpdate(task.message, { content: goal }).catch(() => {});
-    res.json({ ok: true, task });
+    const updated = await Task.findById(task._id).select("_id goal status").lean();
+    res.json({ ok: true, task: updated });
   } catch (err) {
     next(err);
   }
@@ -2095,17 +2108,14 @@ chatsRouter.delete("/:id", async (req, res, next) => {
       user: req.userId,
       chat: chatId,
       status: { $in: ["running", "waiting_user", "waiting_peer"] },
-    });
+    }).select("_id agent");
     const agentIds = new Set();
     for (const task of active) {
-      task.status = "cancelled";
-      task.completedAt = now;
-      task.resultSummary = "Chat deleted";
-      task.events.push({
-        type: "cancelled",
-        payload: { reason: "chat_deleted" },
+      await cancelTaskWithoutBloat(Task, task._id, {
+        resultSummary: "Chat deleted",
+        reason: "chat_deleted",
+        byChat: String(chatId),
       });
-      await task.save();
       if (task.agent) agentIds.add(String(task.agent));
     }
     for (const id of agentIds) {
@@ -2144,7 +2154,7 @@ chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
       _id: req.params.taskId,
       user: req.userId,
       status: "pending",
-    });
+    }).select("_id chat goal status");
     if (!task || !taskMatchesChat(chat, task)) {
       res.status(404).json({
         ok: false,
@@ -2153,22 +2163,19 @@ chatsRouter.delete("/:id/tasks/:taskId", async (req, res, next) => {
       });
       return;
     }
-    const now = new Date();
-    task.status = "cancelled";
-    task.completedAt = now;
-    task.resultSummary = "Removed from queue";
-    task.events.push({
-      type: "cancelled",
-      payload: { reason: "user_removed_from_queue", byChat: String(chat._id) },
+    // Why: never task.save()+$push — bloated pending docs (requeued near 16MB) reject updates.
+    await cancelTaskWithoutBloat(Task, task._id, {
+      resultSummary: "Removed from queue",
+      reason: "user_removed_from_queue",
+      byChat: String(chat._id),
     });
-    await task.save();
     await Message.create({
       chat: task.chat,
       role: "system",
-      content: `Queued goal removed: “${task.goal.slice(0, 120)}”`,
+      content: `Queued goal removed: “${String(task.goal || "").slice(0, 120)}”`,
       meta: { taskId: task._id, kind: "queue_removed" },
     }).catch(() => {});
-    res.json({ ok: true, task: { id: task._id, status: task.status } });
+    res.json({ ok: true, task: { id: task._id, status: "cancelled" } });
   } catch (err) {
     next(err);
   }
@@ -2203,14 +2210,11 @@ chatsRouter.post("/:id/stop", async (req, res, next) => {
     const now = new Date();
     const agentIds = new Set();
     for (const task of active) {
-      task.status = "cancelled";
-      task.completedAt = now;
-      task.resultSummary = "Stopped by user";
-      task.events.push({
-        type: "cancelled",
-        payload: { reason: "user_stop" },
+      await cancelTaskWithoutBloat(Task, task._id, {
+        resultSummary: "Stopped by user",
+        reason: "user_stop",
+        byChat: String(chat._id),
       });
-      await task.save();
       if (task.agent) agentIds.add(String(task.agent));
     }
     for (const id of agentIds) {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 09:55] Fix queue Delete 16MB BSON error
+
+- **Prompt Provided:** Delete on agent queue box → Server error “Resulting document after update is larger than 16777216”.
+- **Architectural Flow:** Pending NSE task was requeued with 666 huge thinking/llm events (~16MB). Delete used events.push+save and tipped over the limit. Fix: cancel via $set replacing events/trajectory; slim worker event payloads; trim event array; catch BSON overflow on worker saves.
+- **Impacted Files:** taskDocGuard.js, chats.js, worker.js, taskDocGuard.test.js, PROMPT_LOG
+
 ## [2026-09-23 09:52] Remove /grok/jev-lab A/B page
 
 - **Prompt Provided:** Remove /grok/jev-lab page.
