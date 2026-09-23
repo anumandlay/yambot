@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 13:15] Fix type Illegal invocation in setNativeValue
+
+- **Prompt Provided:** Step 15 type failed — frame.evaluate TypeError: Illegal invocation at setNativeValue.
+- **Architectural Flow:** `setNativeValue` no longer blindly calls `HTMLInputElement.prototype.value.set` on whatever ref resolved (wrappers / wrong prototype → Illegal invocation). Walks the real prototype chain, prefers nested input inside textbox wrappers, falls back to `.value=` / attribute. Agent `type` catches remaining Illegal invocation and types via Playwright keyboard.
+- **Impacted Files:** worker/src/pageDom.js, worker/src/agent.js, worker/test/setNativeValue.test.js, PROMPT_LOG
+
 ## [2026-09-23 13:10] One-command VPS install script
 
 - **Prompt Provided:** Installation script so other users paste one link on a new VPS and get the whole project running.

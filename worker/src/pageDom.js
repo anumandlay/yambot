@@ -1404,16 +1404,81 @@ export function executeInPage(action) {
     return Boolean(el?.isContentEditable || el?.getAttribute?.("contenteditable") === "true");
   }
 
+  /**
+   * Set an input/textarea value in a way React/Vue controlled fields notice.
+   * Why: calling HTMLInputElement.prototype.value.set on a non-input (wrapper,
+   * custom element, wrong realm) throws TypeError: Illegal invocation.
+   * @param {Element} el
+   * @param {string} value
+   */
   function setNativeValue(el, value) {
-    const proto =
-      el.tagName === "TEXTAREA"
-        ? window.HTMLTextAreaElement.prototype
-        : window.HTMLInputElement.prototype;
-    const setter = Object.getOwnPropertyDescriptor(proto, "value")?.set;
-    if (setter) setter.call(el, value);
-    else el.value = value;
-    el.dispatchEvent(new Event("input", { bubbles: true }));
-    el.dispatchEvent(new Event("change", { bubbles: true }));
+    const text = String(value ?? "");
+    let target = el;
+    const tag = String(el?.tagName || "").toUpperCase();
+    // Why: role=textbox wrappers often hold a real <input>/<textarea> inside.
+    if (tag && tag !== "INPUT" && tag !== "TEXTAREA") {
+      const nested =
+        el.querySelector?.(
+          "input:not([type='hidden']):not([type='checkbox']):not([type='radio']):not([type='button']):not([type='submit']), textarea"
+        ) || null;
+      if (nested) target = nested;
+    }
+
+    let applied = false;
+    const isInput =
+      typeof window.HTMLInputElement === "function" && target instanceof window.HTMLInputElement;
+    const isArea =
+      typeof window.HTMLTextAreaElement === "function" &&
+      target instanceof window.HTMLTextAreaElement;
+
+    if (isInput || isArea) {
+      // Why: walk THIS element's prototype chain — never assume Input vs TextArea by tag alone.
+      let setter = null;
+      let proto = Object.getPrototypeOf(target);
+      while (proto && proto !== Object.prototype) {
+        const desc = Object.getOwnPropertyDescriptor(proto, "value");
+        if (desc && typeof desc.set === "function") {
+          setter = desc.set;
+          break;
+        }
+        proto = Object.getPrototypeOf(proto);
+      }
+      if (setter) {
+        try {
+          setter.call(target, text);
+          applied = true;
+        } catch {
+          applied = false;
+        }
+      }
+    }
+
+    if (!applied) {
+      try {
+        target.value = text;
+        applied = true;
+      } catch {
+        applied = false;
+      }
+    }
+    if (!applied && typeof target.setAttribute === "function") {
+      target.setAttribute("value", text);
+    }
+
+    try {
+      target.dispatchEvent(new Event("input", { bubbles: true }));
+      target.dispatchEvent(new Event("change", { bubbles: true }));
+    } catch {
+      /* ignore */
+    }
+    if (target !== el) {
+      try {
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+        el.dispatchEvent(new Event("change", { bubbles: true }));
+      } catch {
+        /* ignore */
+      }
+    }
   }
 
   /**

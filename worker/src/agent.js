@@ -4104,15 +4104,43 @@ export function createCloudAgent({ api, config, log = console.log }) {
         try {
           return await runType();
         } catch (err) {
+          const msg = String(err?.message || err);
           // Why: form redirects / SPA navigations destroy the evaluate context mid-type.
-          if (!isTransientNavigationError(err)) throw err;
-          await sleep(350);
-          try {
-            await page.waitForLoadState("domcontentloaded", { timeout: 5000 });
-          } catch {
-            /* continue retry */
+          if (isTransientNavigationError(err)) {
+            await sleep(350);
+            try {
+              await page.waitForLoadState("domcontentloaded", { timeout: 5000 });
+            } catch {
+              /* continue retry */
+            }
+            return await runType();
           }
-          return await runType();
+          // Why: setNativeValue Illegal invocation on wrappers / odd inputs — type via OS keyboard.
+          if (/Illegal invocation/i.test(msg) || /setNativeValue/i.test(msg)) {
+            const { enriched, frame, inChildFrame } = resolveActionTarget(action, obs);
+            const meta = await frame.evaluate(executeInPage, {
+              ...enriched,
+              type: "resolve_point",
+            });
+            if (inChildFrame) {
+              await frame.locator(`[data-ba-ref="${enriched.ref}"]`).click({ timeout: 10000 });
+            } else {
+              await page.mouse.click(meta.x, meta.y, { delay: 20 });
+            }
+            await page.keyboard.press("Control+a").catch(() => {});
+            await sleep(40);
+            await page.keyboard.type(String(action.text ?? ""), { delay: 8 });
+            if (action.submit) await page.keyboard.press("Enter");
+            return {
+              ok: true,
+              typed: true,
+              fallback: "keyboard_after_illegal_invocation",
+              name: meta.name,
+              x: meta.x,
+              y: meta.y,
+            };
+          }
+          throw err;
         }
       }
       case "click": {
