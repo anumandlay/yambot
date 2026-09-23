@@ -30,6 +30,7 @@ import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
 import { MessageStatusChips } from "../components/MessageStatusChips.jsx";
+import { StreamProgressBar } from "../components/StreamProgressBar.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
@@ -744,7 +745,11 @@ export function ChatDetailPage() {
         role: "assistant",
         content: "…",
         createdAt: new Date().toISOString(),
-        meta: { kind: "chat_qa", streaming: true },
+        meta: {
+          kind: "chat_qa",
+          streaming: true,
+          progress: { id: "auto", label: "Working…", pct: 0 },
+        },
       },
     ]);
     scrollThreadToBottom(true);
@@ -764,10 +769,39 @@ export function ChatDetailPage() {
                 prevText === "…" || prevText === "..."
                   ? text
                   : prevText + text;
-              return { ...m, content: next };
+              return {
+                ...m,
+                content: next,
+                meta: {
+                  ...m.meta,
+                  progress: m.meta?.progress
+                    ? { ...m.meta.progress, pct: Math.max(Number(m.meta.progress.pct) || 0, 96) }
+                    : undefined,
+                },
+              };
             })
           );
           scrollThreadToBottom(true);
+        },
+        onProgress: (step) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m._id === `${streamId}-assistant`
+                ? {
+                    ...m,
+                    meta: {
+                      ...m.meta,
+                      streaming: true,
+                      progress: {
+                        id: step.id || "composio",
+                        label: step.label || "Working…",
+                        pct: Number(step.pct) || 0,
+                      },
+                    },
+                  }
+                : m
+            )
+          );
         },
         onTiming: (timing) => {
           // Why: Hermes-style debug — keep in console; durable copy is on ops icon / message meta.
@@ -783,7 +817,11 @@ export function ChatDetailPage() {
             setMessages((prev) =>
               prev.map((m) =>
                 m._id === `${streamId}-assistant`
-                  ? { ...m, content: ack, meta: { ...m.meta, streaming: false } }
+                  ? {
+                      ...m,
+                      content: ack,
+                      meta: { ...m.meta, streaming: false, progress: undefined },
+                    }
                   : m
               )
             );
@@ -1520,6 +1558,13 @@ export function ChatDetailPage() {
                         </div>
                       ) : null}
                       <ChatMessageBody text={humanizeGoalOrMessage(m.content, m.meta)} />
+                      {m.meta?.streaming && (m.meta?.progress || String(m.content || "") === "…") ? (
+                        <StreamProgressBar
+                          label={String(m.meta?.progress?.label || "Working…")}
+                          pct={Number(m.meta?.progress?.pct) || 0}
+                          indeterminate={!Number(m.meta?.progress?.pct)}
+                        />
+                      ) : null}
                       {m.role === "assistant" || m.role === "agent" ? (
                         <MessageStatusChips message={m} tone="light" />
                       ) : null}

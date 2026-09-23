@@ -1140,6 +1140,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           onDelta: wantStream
             ? (chunk) => writeNdjson({ type: "delta", text: chunk })
             : undefined,
+          onProgress: wantStream
+            ? (step) =>
+                writeNdjson({
+                  type: "progress",
+                  id: step?.id || "composio",
+                  label: step?.label || "Working…",
+                  pct: Number(step?.pct) || 0,
+                })
+            : undefined,
           // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
           runtime: {
             checkRunStatus: async () => {

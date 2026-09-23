@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 18:55] Small progress bar while Composio works
+
+- **Prompt Provided:** Can I have a small progress bar while composio is working.
+- **Architectural Flow:** Auto NDJSON emits progress (label + pct) during Composio search/execute; chat stream bubble shows StreamProgressBar under the assistant message until the reply lands.
+- **Impacted Files:** chatAutoTurn.js, chats.js, api.js, StreamProgressBar.jsx, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-23 18:30] Fix “using composio” hijacking Sheets into Gmail unread
 
 - **Prompt Provided:** Check last live chat — list spreadsheets using composio returned Gmail unread.

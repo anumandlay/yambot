@@ -230,7 +230,7 @@ export async function apiNdjson(path, options = {}) {
 
 /**
  * POST /api/chats/:id/messages with NDJSON stream (Hermes-style fast Auto/Answer).
- * Events: user_message, delta, routing, timing, result, error.
+ * Events: user_message, delta, routing, timing, progress, result, error.
  * @param {string} path
  * @param {{
  *   body?: object,
@@ -240,6 +240,7 @@ export async function apiNdjson(path, options = {}) {
  *   onDelta?: (text: string) => void,
  *   onRouting?: (info: object) => void,
  *   onTiming?: (timing: object) => void,
+ *   onProgress?: (step: { id: string, label: string, pct: number }) => void,
  * }} [options]
  * @returns {Promise<object>} Final result event
  */
@@ -252,6 +253,7 @@ export async function apiChatMessageStream(path, options = {}) {
     onDelta,
     onRouting,
     onTiming,
+    onProgress,
   } = options;
   const h = new Headers();
   h.set("Content-Type", "application/json");
@@ -331,6 +333,14 @@ export async function apiChatMessageStream(path, options = {}) {
           if (typeof onDelta === "function") onDelta(String(obj.text));
         } else if (obj.type === "timing" && obj.timing) {
           if (typeof onTiming === "function") onTiming(obj.timing);
+        } else if (obj.type === "progress") {
+          if (typeof onProgress === "function") {
+            onProgress({
+              id: String(obj.id || "composio"),
+              label: String(obj.label || "Working…"),
+              pct: Number(obj.pct) || 0,
+            });
+          }
         } else if (obj.type === "routing") {
           if (typeof onRouting === "function") onRouting(obj);
         } else if (obj.type === "result") {

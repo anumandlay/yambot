@@ -203,6 +203,7 @@ export const AUTO_CHAT_TOOLS = [
 export const AUTO_CHAT_MAX_TOOL_ROUNDS = 6;
 
 /**
+ * @param {{ onProgress?: (step: { id: string, label: string, pct: number }) => void }} [opts]
  * @returns {{
  *   markFirstToken: () => void,
  *   markDecision: (action: string) => void,
@@ -210,11 +211,12 @@ export const AUTO_CHAT_MAX_TOOL_ROUNDS = 6;
  *   getLookups: () => string[],
  *   setPath: (path: string) => void,
  *   setToolRounds: (n: number) => void,
+ *   emitProgress: (label: string, pct: number, id?: string) => void,
  *   wrapOnDelta: (onDelta?: (chunk: string) => void) => ((chunk: string) => void)|undefined,
  *   finish: (extra?: object) => object,
  * }}
  */
-export function createAutoTimingTracker() {
+export function createAutoTimingTracker(opts = {}) {
   const t0 = Date.now();
   /** @type {number|null} */
   let firstTokenMs = null;
@@ -226,6 +228,40 @@ export function createAutoTimingTracker() {
   const lookups = [];
   let toolRounds = 0;
   let path = "unknown";
+  let progressPct = 0;
+  const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+
+  /**
+   * @param {string} name
+   * @returns {string}
+   */
+  function labelForLookup(name) {
+    const n = String(name || "").toLowerCase();
+    if (n.includes("composio_search")) return "Searching app tools…";
+    if (n.includes("composio_execute")) return "Running connected app…";
+    if (n.includes("composio_connect")) return "Opening connect link…";
+    if (n.includes("composio_wait")) return "Waiting for connection…";
+    if (n.includes("composio_list")) return "Checking app status…";
+    if (n.startsWith("composio")) return "Working with Composio…";
+    return "Working…";
+  }
+
+  /**
+   * Why: never let the bar jump backwards when emitProgress and addLookup interleave.
+   * @param {string} label
+   * @param {number} pct
+   * @param {string} [id]
+   */
+  function pushProgress(label, pct, id = "composio") {
+    if (!onProgress) return;
+    const next = Math.max(progressPct, Math.max(0, Math.min(100, Number(pct) || 0)));
+    progressPct = next;
+    onProgress({
+      id: String(id || "composio"),
+      label: String(label || "Working…"),
+      pct: next,
+    });
+  }
 
   return {
     markFirstToken() {
@@ -238,15 +274,24 @@ export function createAutoTimingTracker() {
       }
     },
     addLookup(name) {
-      lookups.push(String(name || "lookup"));
+      const key = String(name || "lookup");
+      lookups.push(key);
+      if (/^composio/i.test(key)) {
+        const n = lookups.filter((l) => /^composio/i.test(l)).length;
+        pushProgress(labelForLookup(key), Math.min(92, 18 + n * 22));
+      }
     },
     getLookups() {
       return lookups.slice();
     },
     setPath(p) {
       path = String(p || path);
-    },    setToolRounds(n) {
+    },
+    setToolRounds(n) {
       toolRounds = Math.max(0, Number(n) || 0);
+    },
+    emitProgress(label, pct, id = "composio") {
+      pushProgress(label, pct, id);
     },
     wrapOnDelta(onDelta) {
       if (typeof onDelta !== "function") return undefined;
@@ -1166,9 +1211,11 @@ export async function runDeterministicComposioIntentTurn(opts) {
       timing: track.finish(),
     };
   }
+  track.emitProgress?.(`Working with ${spec.label}…`, 15);
   track.addLookup("composio_search");
   track.addLookup("composio_execute");
   track.setPath(`composio_${spec.id}_direct`);
+  track.emitProgress?.(`Running ${spec.label}…`, 55);
   const ran = await runComposioIntentExecute({
     runtime,
     userText,
@@ -1177,6 +1224,9 @@ export async function runDeterministicComposioIntentTurn(opts) {
   });
   if (ran.needsConnect) {
     track.addLookup("composio_connect");
+    track.emitProgress?.("Need app connection…", 85);
+  } else {
+    track.emitProgress?.("Finishing…", 95);
   }
   let content = String(ran.content || "").trim();
 
@@ -1914,6 +1964,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
  *   chatContext?: string,
  *   stream?: boolean,
  *   onDelta?: (chunk: string) => void,
+ *   onProgress?: (step: { id: string, label: string, pct: number }) => void,
  *   runtime?: {
  *     checkRunStatus?: () => Promise<object|string>,
  *     listPeerAgents?: () => Promise<object|string>,
@@ -1929,12 +1980,13 @@ export async function runChatAutoTurn(opts) {
     chatContext = "",
     stream = false,
     onDelta,
+    onProgress,
     runtime = {},
     jevMode = "auto",
   } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
-  const track = createAutoTimingTracker();
+  const track = createAutoTimingTracker({ onProgress });
   const delta = track.wrapOnDelta(onDelta);
   const threadEarly = String(chatContext || snapshot?.chatContext || "").trim();
   const ensureCtx = {
@@ -2099,6 +2151,7 @@ export async function runChatAutoTurn(opts) {
   const mappedComposio = matchComposioIntent(text);
   if (mappedComposio && runtime?.composioApiKey) {
     try {
+      track.emitProgress(`Working with ${mappedComposio.label}…`, 12);
       return finalize(
         await runDeterministicComposioIntentTurn({
           runtime,
@@ -2127,6 +2180,9 @@ export async function runChatAutoTurn(opts) {
   try {
     track.setPath("tools");
     const composioIntent = looksLikeComposioAppRequest(text);
+    if (composioIntent) {
+      track.emitProgress("Using connected apps…", 10);
+    }
     for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
       track.setToolRounds(round + 1);
       const msg = await llmChatCompletionMessage({
