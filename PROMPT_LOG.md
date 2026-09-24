@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:30] Memory Phase 1 — forget, provenance, budget, precedence
+
+- **Prompt Provided:** Hermes context/memory lifecycle — implement Phase 1 (forget sync, provenance, write safety, precedence labels, cross-block budget).
+- **Architectural Flow:** Chat “forget …” removes Mongo USER/MEMORY + Mem0 by content. Adds stamp source/sourceRef/confidence; near-dupe add replaces. Threat-scan Mem0 writes; personal chat ingest → USER scope. Prompt labels MEMORY as retrieved background + coded precedence. `assembleAgentContextBudget` sizes USER/MEMORY pulls.
+- **Impacted Files:** curatedMemory.js, curatedMemoryOps.js, mem0Service.js, memoryContextBudget.js, semanticMemory.js, messageIntent.js, chatRememberPersist.js, chats.js, chatAutoTurn.js, Agent.js, curatedMemoryExtract.js, chatRememberPersist.test.js, PROMPT_LOG
+
 ## [2026-09-24 13:20] TaskPlan Phase 2 — confirm, idempotency, verify
 
 - **Prompt Provided:** Hermes missed items — confirm send, failure handling, duplicate prevention, strict verify, temp state.

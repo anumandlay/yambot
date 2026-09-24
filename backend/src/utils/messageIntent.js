@@ -101,6 +101,8 @@ export function looksLikeVagueChatFollowup(text) {
 export function looksLikeMemoryStoreRequest(text) {
   const raw = String(text || "").trim();
   if (!raw || raw.length < 10) return false;
+  // Why: forget/delete memory is the opposite path — never treat as remember.
+  if (looksLikeMemoryForgetRequest(raw)) return false;
   const lower = raw.toLowerCase();
 
   // Explicit browse job — still a goal even if they also say "remember".
@@ -138,6 +140,39 @@ export function looksLikeMemoryStoreRequest(text) {
   if (storeCue && noComputer) return true;
   // Numbered preference dump with store cue and no browse verb.
   if (storeCue && /\b\d+[).:]\s*\S/.test(raw) && raw.length >= 120) return true;
+  return false;
+}
+
+/**
+ * True when the user wants to delete / stop retaining a durable fact.
+ * Why: “Forget that I prefer visible CUA” must remove Mongo + Mem0, not queue a browser job.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeMemoryForgetRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw || raw.length < 8) return false;
+  // Opposite of forget.
+  if (/\bdon'?t\s+forget\b/i.test(raw) || /\bdo\s+not\s+forget\b/i.test(raw)) return false;
+  // Casual dismiss, not memory delete.
+  if (
+    /\bforget\s+about\s+(it|that|this)\b/i.test(raw) &&
+    !/\bforget\s+(?:that\s+)?(?:i|my|the)\b/i.test(raw)
+  ) {
+    return false;
+  }
+  if (
+    /^(?:please\s+)?(?:forget|don'?t remember|do not remember|stop remembering)\b/i.test(raw)
+  ) {
+    return true;
+  }
+  if (
+    /\b(forget that|forget i |forget my |remove .+ from (your )?memory|delete (that|this|the) (fact|preference|memory))\b/i.test(
+      raw
+    )
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -216,6 +251,37 @@ export function extractRememberFact(text) {
     return `owns a ${thing}`.slice(0, 320);
   }
   return rest.slice(0, 320);
+}
+
+/**
+ * Pull the search needle from a "forget …" user line.
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractForgetNeedle(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  let rest = raw
+    .replace(
+      /^\s*(?:please\s+)?(?:forget(?:\s+that)?|don'?t\s+remember|do\s+not\s+remember|stop\s+remembering)\s+/i,
+      ""
+    )
+    .replace(
+      /^\s*(?:please\s+)?(?:remove|delete)\s+(?:that|this|the)?\s*(?:fact|preference|memory)?\s*(?:about|:)?\s*/i,
+      ""
+    )
+    .replace(/\s+from\s+(your\s+)?memory\.?\s*$/i, "")
+    .trim();
+  if (!rest || rest.length < 2) return "";
+  rest = rest.replace(/[.!]+$/g, "").trim();
+  const have = rest.match(/^\s*i\s+(?:have|own)\s+(.+)$/i);
+  if (have?.[1]) {
+    const thing = have[1].trim();
+    return thing.slice(0, 200);
+  }
+  const prefer = rest.match(/^\s*i\s+prefer\s+(.+)$/i);
+  if (prefer?.[1]) return `prefer ${prefer[1].trim()}`.slice(0, 200);
+  return rest.slice(0, 200);
 }
 
 /**
@@ -390,6 +456,14 @@ export function classifyMessageIntent(text, opts = {}) {
       intent: "question",
       confidence: 0.96,
       reason: "memory_store_request",
+      text: cleaned,
+    };
+  }
+  if (looksLikeMemoryForgetRequest(cleaned)) {
+    return {
+      intent: "question",
+      confidence: 0.96,
+      reason: "memory_forget_request",
       text: cleaned,
     };
   }

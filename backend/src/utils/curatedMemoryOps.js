@@ -1,7 +1,8 @@
 /**
  * @fileoverview Persist Hermes-style curated memory mutations on User / Agent.
  * Purpose: Shared add|replace|remove path for JWT UI routes and worker tools.
- * Downstream: settings routes, agents routes, worker tools/memory, apiAgentRunner.
+ * Phase 1: provenance on writes, Mem0 sync on delete/replace, audit ledger.
+ * Downstream: settings routes, agents routes, worker tools/memory, apiAgentRunner, chat remember/forget.
  */
 
 import { User } from "../models/User.js";
@@ -19,6 +20,7 @@ import {
 import { resolveLlmCredentials, resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { embedCuratedContent } from "./semanticMemory.js";
 import { invalidateChatContextSummariesForUser } from "./chatContext.js";
+import { writeAudit } from "./audit.js";
 
 /**
  * @param {string} userId
@@ -63,6 +65,35 @@ async function stampFocusEmbedding(persistable, focusContent, creds) {
 }
 
 /**
+ * Mirror Mongo remove/replace into Mem0 (best-effort).
+ * @param {{
+ *   userId: string,
+ *   agentId?: string|null,
+ *   scope: "user"|"agent",
+ *   content?: string|null,
+ *   alsoRemove?: string|null,
+ * }} opts
+ */
+async function syncMem0AfterMutation(opts) {
+  try {
+    const { mem0DeleteByContent, mem0AddFact } = await import("./mem0Service.js");
+    const removals = [opts.content, opts.alsoRemove]
+      .map((c) => String(c || "").trim())
+      .filter(Boolean);
+    for (const content of removals) {
+      await mem0DeleteByContent({
+        userId: opts.userId,
+        agentId: opts.agentId,
+        scope: opts.scope,
+        content,
+      });
+    }
+  } catch (err) {
+    console.warn("[curatedMemory] mem0 sync failed:", err?.message || err);
+  }
+}
+
+/**
  * Apply a curated memory tool action and persist.
  * @param {{
  *   userId: string,
@@ -71,6 +102,12 @@ async function stampFocusEmbedding(persistable, focusContent, creds) {
  *   target: string,
  *   content?: string,
  *   oldText?: string,
+ *   source?: string|null,
+ *   sourceRef?: string|null,
+ *   confidence?: number|null,
+ *   tags?: string[],
+ *   messageId?: string|null,
+ *   taskId?: string|null,
  * }} opts
  * @returns {Promise<object>}
  */
@@ -80,6 +117,10 @@ export async function mutateCuratedMemory(opts) {
   const payload = {
     content: opts.content,
     oldText: opts.oldText,
+    source: opts.source || null,
+    sourceRef: opts.sourceRef || opts.messageId || opts.taskId || null,
+    confidence: opts.confidence,
+    tags: opts.tags,
   };
 
   if (target === "user") {
@@ -108,14 +149,59 @@ export async function mutateCuratedMemory(opts) {
     await invalidateChatContextSummariesForUser(opts.userId).catch((err) => {
       console.warn("[curatedMemory] chat summary invalidate failed:", err?.message || err);
     });
-    if (action === "add" || action === "replace") {
+
+    if (action === "remove") {
+      void syncMem0AfterMutation({
+        userId: opts.userId,
+        scope: "user",
+        content: String(result.removedContent || payload.oldText || "").trim(),
+      });
+    } else if (action === "replace") {
+      void syncMem0AfterMutation({
+        userId: opts.userId,
+        scope: "user",
+        content: String(payload.oldText || "").trim(),
+        alsoRemove: result.removedContent || null,
+      }).then(async () => {
+        const { mem0AddFact } = await import("./mem0Service.js");
+        await mem0AddFact({
+          userId: opts.userId,
+          scope: "user",
+          content: String(payload.content || "").trim(),
+          metadata: { source: payload.source || "yambot_curated" },
+        });
+      });
+    } else if (action === "add") {
+      if (result.replaced && result.removedContent) {
+        void syncMem0AfterMutation({
+          userId: opts.userId,
+          scope: "user",
+          content: result.removedContent,
+        });
+      }
       const { mem0AddFact } = await import("./mem0Service.js");
       void mem0AddFact({
         userId: opts.userId,
         scope: "user",
         content: String(payload.content || "").trim(),
+        metadata: { source: payload.source || "yambot_curated" },
       }).catch(() => {});
     }
+
+    void writeAudit({
+      userId: opts.userId,
+      agentId: opts.agentId || null,
+      taskId: opts.taskId || null,
+      action: `memory_${action}_user`,
+      detail: String(payload.content || payload.oldText || "").slice(0, 400),
+      meta: {
+        target: "user",
+        source: payload.source || null,
+        sourceRef: payload.sourceRef || null,
+        replaced: Boolean(result.replaced),
+      },
+    });
+
     return {
       ...result,
       ...publicCuratedStore(user.curatedMemory.entries, USER_CHAR_LIMIT, now),
@@ -151,15 +237,64 @@ export async function mutateCuratedMemory(opts) {
       updatedAt: now,
     };
     await agent.save();
-    if (action === "add" || action === "replace") {
+
+    if (action === "remove") {
+      void syncMem0AfterMutation({
+        userId: opts.userId,
+        agentId,
+        scope: "agent",
+        content: String(result.removedContent || payload.oldText || "").trim(),
+      });
+    } else if (action === "replace") {
+      void syncMem0AfterMutation({
+        userId: opts.userId,
+        agentId,
+        scope: "agent",
+        content: String(payload.oldText || "").trim(),
+        alsoRemove: result.removedContent || null,
+      }).then(async () => {
+        const { mem0AddFact } = await import("./mem0Service.js");
+        await mem0AddFact({
+          userId: opts.userId,
+          agentId,
+          scope: "agent",
+          content: String(payload.content || "").trim(),
+          metadata: { source: payload.source || "yambot_curated" },
+        });
+      });
+    } else if (action === "add") {
+      if (result.replaced && result.removedContent) {
+        void syncMem0AfterMutation({
+          userId: opts.userId,
+          agentId,
+          scope: "agent",
+          content: result.removedContent,
+        });
+      }
       const { mem0AddFact } = await import("./mem0Service.js");
       void mem0AddFact({
         userId: opts.userId,
         agentId,
         scope: "agent",
         content: String(payload.content || "").trim(),
+        metadata: { source: payload.source || "yambot_curated" },
       }).catch(() => {});
     }
+
+    void writeAudit({
+      userId: opts.userId,
+      agentId,
+      taskId: opts.taskId || null,
+      action: `memory_${action}_agent`,
+      detail: String(payload.content || payload.oldText || "").slice(0, 400),
+      meta: {
+        target: "memory",
+        source: payload.source || null,
+        sourceRef: payload.sourceRef || null,
+        replaced: Boolean(result.replaced),
+      },
+    });
+
     return {
       ...result,
       ...publicCuratedStore(agent.curatedMemory.entries, MEMORY_CHAR_LIMIT, now),
@@ -203,6 +338,10 @@ export async function setCuratedMemoryEntries(opts) {
       content,
       at: prev?.at || now,
       embedding: prev?.embedding || null,
+      source: prev?.source || "ui_set",
+      sourceRef: prev?.sourceRef || null,
+      confidence: prev?.confidence ?? 0.9,
+      tags: prev?.tags || [],
     };
   });
   const total = charCount(records);
@@ -215,6 +354,7 @@ export async function setCuratedMemoryEntries(opts) {
   }
 
   const persistable = toPersistableEntries(records);
+  const clearing = persistable.length === 0;
 
   if (target === "user") {
     const user = await User.findById(opts.userId);
@@ -223,6 +363,19 @@ export async function setCuratedMemoryEntries(opts) {
     await user.save();
     await invalidateChatContextSummariesForUser(opts.userId).catch((err) => {
       console.warn("[curatedMemory] chat summary invalidate failed:", err?.message || err);
+    });
+    if (clearing) {
+      try {
+        const { mem0ClearScope } = await import("./mem0Service.js");
+        void mem0ClearScope({ userId: opts.userId, scope: "user" });
+      } catch {
+        /* ignore */
+      }
+    }
+    void writeAudit({
+      userId: opts.userId,
+      action: clearing ? "memory_clear_user" : "memory_set_user",
+      detail: clearing ? "cleared USER curated store" : `set ${persistable.length} USER entries`,
     });
     return {
       success: true,
@@ -235,6 +388,26 @@ export async function setCuratedMemoryEntries(opts) {
   if (!agent) return { success: false, target, error: "Agent not found." };
   agent.curatedMemory = { entries: persistable, updatedAt: now };
   await agent.save();
+  if (clearing) {
+    try {
+      const { mem0ClearScope } = await import("./mem0Service.js");
+      void mem0ClearScope({
+        userId: opts.userId,
+        agentId: opts.agentId,
+        scope: "agent",
+      });
+    } catch {
+      /* ignore */
+    }
+  }
+  void writeAudit({
+    userId: opts.userId,
+    agentId: opts.agentId,
+    action: clearing ? "memory_clear_agent" : "memory_set_agent",
+    detail: clearing
+      ? "cleared agent MEMORY store"
+      : `set ${persistable.length} agent MEMORY entries`,
+  });
   return {
     success: true,
     target,

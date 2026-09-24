@@ -225,6 +225,10 @@ export async function persistCuratedMemoryFromRun(opts) {
         action: "add",
         target: "memory",
         content,
+        source: "run_extract",
+        sourceRef: opts.taskId ? String(opts.taskId) : null,
+        confidence: 0.75,
+        taskId: opts.taskId || null,
       });
       if (result?.success) saved.push(content);
     }

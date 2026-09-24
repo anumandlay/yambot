@@ -29,6 +29,7 @@ import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQu
 import { enrichComputerGoalForCombo, buildComboFollowupForTask } from "../utils/comboRunner.js";
 import {
   persistChatRememberFact,
+  persistChatForgetFact,
   sanitizeFakeMemoryActionReply,
 } from "../utils/chatRememberPersist.js";
 import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
@@ -1289,26 +1290,43 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           "I am here — ask a question or send a computer goal.";
         // Why: models emit fake ACTION: memory(...) — persist for real, then replace the ACTION text.
         let rememberMeta = null;
+        let forgetMeta = null;
         try {
-          const saved = await persistChatRememberFact({
+          const forgotten = await persistChatForgetFact({
             userId: req.userId,
             agentId: String(agentDoc._id),
             userText: questionText,
+            messageId: message?._id ? String(message._id) : null,
           });
-          if (saved.ok) {
-            rememberMeta = { fact: saved.fact, targets: saved.targets };
-            assistantContent = sanitizeFakeMemoryActionReply(
-              assistantContent,
-              saved.reply
-            );
-            if (/^\s*ACTION\s*:\s*memory\s*\(/i.test(String(turn.content || ""))) {
-              assistantContent = saved.reply || assistantContent;
-            }
+          if (forgotten.ok && forgotten.reply) {
+            forgetMeta = {
+              needle: forgotten.needle,
+              targets: forgotten.targets,
+              removed: forgotten.removed,
+            };
+            assistantContent = forgotten.reply;
           } else {
-            assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
+            const saved = await persistChatRememberFact({
+              userId: req.userId,
+              agentId: String(agentDoc._id),
+              userText: questionText,
+              messageId: message?._id ? String(message._id) : null,
+            });
+            if (saved.ok) {
+              rememberMeta = { fact: saved.fact, targets: saved.targets };
+              assistantContent = sanitizeFakeMemoryActionReply(
+                assistantContent,
+                saved.reply
+              );
+              if (/^\s*ACTION\s*:\s*memory\s*\(/i.test(String(turn.content || ""))) {
+                assistantContent = saved.reply || assistantContent;
+              }
+            } else {
+              assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
+            }
           }
         } catch (err) {
-          console.warn("[chats] remember persist failed:", err?.message || err);
+          console.warn("[chats] remember/forget persist failed:", err?.message || err);
           assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
         }
         assistantContent = sanitizeFakeComposioActionReply(assistantContent);
@@ -1333,6 +1351,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hermesAuto: true,
             hermesTiming: autoTiming || undefined,
             rememberSaved: rememberMeta || undefined,
+            rememberForgotten: forgetMeta || undefined,
             error: answerError ? String(answerError.message || answerError) : undefined,
           },
         });
@@ -1508,26 +1527,41 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       }
 
       let rememberMeta = null;
+      let forgetMeta = null;
       try {
-        const saved = await persistChatRememberFact({
+        const forgotten = await persistChatForgetFact({
           userId: req.userId,
           agentId: String(agentDoc._id),
           userText: questionText,
         });
-        if (saved.ok) {
-          rememberMeta = { fact: saved.fact, targets: saved.targets };
-          assistantContent = sanitizeFakeMemoryActionReply(
-            String(assistantContent || ""),
-            saved.reply
-          );
-          if (/^\s*ACTION\s*:\s*memory\s*\(/i.test(String(assistantContent || ""))) {
-            assistantContent = saved.reply || assistantContent;
-          }
+        if (forgotten.ok && forgotten.reply) {
+          forgetMeta = {
+            needle: forgotten.needle,
+            targets: forgotten.targets,
+            removed: forgotten.removed,
+          };
+          assistantContent = forgotten.reply;
         } else {
-          assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
+          const saved = await persistChatRememberFact({
+            userId: req.userId,
+            agentId: String(agentDoc._id),
+            userText: questionText,
+          });
+          if (saved.ok) {
+            rememberMeta = { fact: saved.fact, targets: saved.targets };
+            assistantContent = sanitizeFakeMemoryActionReply(
+              String(assistantContent || ""),
+              saved.reply
+            );
+            if (/^\s*ACTION\s*:\s*memory\s*\(/i.test(String(assistantContent || ""))) {
+              assistantContent = saved.reply || assistantContent;
+            }
+          } else {
+            assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
+          }
         }
       } catch (err) {
-        console.warn("[chats] remember persist (legacy) failed:", err?.message || err);
+        console.warn("[chats] remember/forget persist (legacy) failed:", err?.message || err);
         assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
       }
       assistantContent = sanitizeFakeComposioActionReply(String(assistantContent || ""));
@@ -1549,6 +1583,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentName: agentDoc.name,
           answeredWhileBusy: Boolean(busyRun),
           rememberSaved: rememberMeta || undefined,
+          rememberForgotten: forgetMeta || undefined,
           error: answerError ? String(answerError.message || answerError) : undefined,
         },
       });

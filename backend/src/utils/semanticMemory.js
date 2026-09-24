@@ -15,6 +15,7 @@ import {
 } from "./curatedMemory.js";
 import { isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
 import { embedOne, embedTexts, embeddingsSupported } from "./llmEmbed.js";
+import { assembleAgentContextBudget } from "./memoryContextBudget.js";
 
 /**
  * When store is tiny, inject everything durable (no retrieval noise).
@@ -284,9 +285,12 @@ function fitByChars(records, charLimit) {
  */
 export async function resolveCuratedMemoryForPrompt(opts) {
   const creds = opts.creds || null;
+  const budget = assembleAgentContextBudget(creds || {});
+  const userLimit = Math.min(USER_CHAR_LIMIT, budget.userChars);
+  const memoryLimit = Math.min(MEMORY_CHAR_LIMIT, budget.memoryChars);
   const [userSel, agentSel] = await Promise.all([
-    selectCuratedSubset(opts.userEntries, opts.goal, creds, USER_CHAR_LIMIT),
-    selectCuratedSubset(opts.agentEntries, opts.goal, creds, MEMORY_CHAR_LIMIT),
+    selectCuratedSubset(opts.userEntries, opts.goal, creds, userLimit),
+    selectCuratedSubset(opts.agentEntries, opts.goal, creds, memoryLimit),
   ]);
 
   if (opts.persistEmbeddings) {
@@ -335,8 +339,8 @@ export async function resolveCuratedMemoryForPrompt(opts) {
         ]);
         mem0Meta.userHits = userHits.length;
         mem0Meta.agentHits = agentHits.length;
-        const userMerged = mergeMem0IntoCurated(userContents, userHits, USER_CHAR_LIMIT);
-        const agentMerged = mergeMem0IntoCurated(agentContents, agentHits, MEMORY_CHAR_LIMIT);
+        const userMerged = mergeMem0IntoCurated(userContents, userHits, userLimit);
+        const agentMerged = mergeMem0IntoCurated(agentContents, agentHits, memoryLimit);
         userContents = userMerged.contents;
         agentContents = agentMerged.contents;
         mem0Meta.userMerged = userMerged.mem0Added;
@@ -372,6 +376,11 @@ export async function resolveCuratedMemoryForPrompt(opts) {
         })),
       },
       mem0: mem0Meta,
+      budget: {
+        userChars: userLimit,
+        memoryChars: memoryLimit,
+        contextTokens: budget.contextTokens,
+      },
     },
   };
 }

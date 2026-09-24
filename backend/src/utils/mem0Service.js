@@ -9,6 +9,7 @@
 import { randomUUID } from "crypto";
 import { env } from "./env.js";
 import { isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
+import { scanMemoryContent } from "./curatedMemory.js";
 
 /** Sentinel agent_id for account-wide USER prefs. */
 export const MEM0_USER_SCOPE_AGENT = "yambot_user_profile";
@@ -268,6 +269,9 @@ export async function mem0AddFact(opts) {
   const userKey = mem0UserKey(opts.userId);
   if (!content || !userKey) return { ok: false, skipped: "missing" };
   if (isEphemeralCuratedFact(content)) return { ok: false, skipped: "ephemeral" };
+  // Why: Mem0 hits are injected into the system prompt — same threat gate as curated Mongo writes.
+  const scanError = scanMemoryContent(content);
+  if (scanError) return { ok: false, skipped: "threat" };
   if (!(await ensureCollection())) return { ok: false, skipped: "disabled" };
 
   const scope = opts.scope === "user" ? "user" : "agent";
@@ -448,6 +452,40 @@ export async function mem0ClearScope(opts) {
 }
 
 /**
+ * Delete Mem0 points whose content matches (exact / contains) a needle.
+ * Why: Mongo remove must mirror into Qdrant so forgotten facts cannot be re-injected.
+ * @param {{
+ *   userId: string,
+ *   scope?: "user"|"agent",
+ *   agentId?: string|null,
+ *   content: string,
+ * }} opts
+ * @returns {Promise<{ ok: boolean, deleted?: number, skipped?: string }>}
+ */
+export async function mem0DeleteByContent(opts) {
+  const needle = String(opts.content || "").trim().toLowerCase();
+  const userId = String(opts.userId || "").trim();
+  if (!needle || !userId) return { ok: false, skipped: "missing" };
+  const scope = opts.scope === "agent" ? "agent" : "user";
+  const listed = await mem0ListFacts({
+    userId,
+    scope,
+    agentId: opts.agentId,
+    limit: 200,
+  });
+  let deleted = 0;
+  for (const row of listed) {
+    const hay = String(row.content || "").trim().toLowerCase();
+    if (!hay) continue;
+    if (hay === needle || hay.includes(needle) || (needle.length >= 12 && needle.includes(hay))) {
+      const r = await mem0DeleteFact({ userId, id: row.id });
+      if (r.ok) deleted += 1;
+    }
+  }
+  return { ok: true, deleted };
+}
+
+/**
  * Extract durable facts from a chat turn via the user's Settings LLM, then store them.
  * @param {{
  *   userId: string,
@@ -499,9 +537,18 @@ export async function mem0IngestChatTurn(opts) {
       try {
         const brace = String(raw || "").match(/\{[\s\S]*\}/);
         const parsed = JSON.parse(brace ? brace[0] : raw);
+/**
+ * Also filter facts after LLM extract with threat scan.
+ */
         facts = (Array.isArray(parsed?.facts) ? parsed.facts : [])
           .map((f) => String(f || "").trim())
-          .filter((f) => f.length >= 8 && f.length <= 320 && !isEphemeralCuratedFact(f));
+          .filter(
+            (f) =>
+              f.length >= 8 &&
+              f.length <= 320 &&
+              !isEphemeralCuratedFact(f) &&
+              !scanMemoryContent(f)
+          );
       } catch {
         facts = [];
       }
@@ -512,12 +559,23 @@ export async function mem0IngestChatTurn(opts) {
 
   if (!facts.length) return { ok: true, skipped: "none", saved: 0 };
 
+  /** @param {string} text */
+  const looksPersonal = (text) =>
+    /\b(i\s+(have|own|am|'m)|my\s+(name|car|email|phone|timezone|tz|preference|prefer))\b/i.test(
+      String(text || "")
+    ) ||
+    /\b(user prefers|user owns|user's name)\b/i.test(String(text || ""));
+
   let saved = 0;
   for (const content of facts) {
+    if (scanMemoryContent(content)) continue;
+    if (isEphemeralCuratedFact(content)) continue;
+    const personal = looksPersonal(content) || looksPersonal(userText);
+    const scope = personal ? "user" : "agent";
     const r = await mem0AddFact({
       userId,
-      agentId,
-      scope: "agent",
+      agentId: personal ? null : agentId,
+      scope,
       content,
       metadata: { source: "yambot_chat" },
     });

@@ -11,6 +11,7 @@ import { formatAgentPrompt } from "../models/Agent.js";
 import {
   classifyMessageIntent,
   looksLikeMemoryStoreRequest,
+  looksLikeMemoryForgetRequest,
   looksLikeDayHistoryOrStatusRequest,
   looksLikeVagueChatFollowup,
   looksLikeComposioAppRequest,
@@ -789,6 +790,7 @@ export function looksLikeLiveComputerJobRequest(text) {
   if (!t) return false;
   if (looksLikeComposioAppRequest(t)) return false;
   if (looksLikeMemoryStoreRequest(t)) return false;
+  if (looksLikeMemoryForgetRequest(t)) return false;
   if (looksLikeDayHistoryOrStatusRequest(t)) return false;
   if (looksLikeVagueChatFollowup(t)) return false;
   const lower = t.toLowerCase();
@@ -928,13 +930,18 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     };
   }
 
-  // Why: teach-prefs with URLs must never become a Chromium goal — even if the model mis-queues.
-  if (action === "queue_goal" && looksLikeMemoryStoreRequest(userText)) {
+  // Why: teach-prefs / forget with URLs must never become a Chromium goal — even if the model mis-queues.
+  if (
+    action === "queue_goal" &&
+    (looksLikeMemoryStoreRequest(userText) || looksLikeMemoryForgetRequest(userText))
+  ) {
     return {
       action: "reply",
       content:
         content ||
-        "Got it — I’ll remember those preferences for this agent. No computer run started.",
+        (looksLikeMemoryForgetRequest(userText)
+          ? "Got it — I’ll forget that. No computer run started."
+          : "Got it — I’ll remember those preferences for this agent. No computer run started."),
       goal: "",
       ack: "",
       reason: `${reason}_memory_store_forced_reply`,
@@ -1938,6 +1945,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing, peers, or connected apps.",
     "USER PROFILE (Settings → Memory) is authoritative for tone/identity. If that block is empty or says none, ignore old tone prefs from chat history.",
+    "CONTEXT PRECEDENCE (highest wins): current user message > standing instructions / task state > USER PROFILE > MEMORY (retrieved) > day history / chat summary > assumptions. Retrieved MEMORY is background only — never override an explicit instruction this turn.",
   ];
 
   if (mode === "tools") {
