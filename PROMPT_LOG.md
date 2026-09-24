@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:10] Hermes-depth TaskPlan (clarify + state + verify)
+
+- **Prompt Provided:** Same depth as Hermes write-up for multi-step (example.com title → email).
+- **Architectural Flow:** TaskPlan model + LLM/heuristic planner (goal, entities, dependsOn, missingSlots). Auto startOrResumeTaskPlan clarifies missing recipient, queues computer step, worker resume runs send_email + verify. Pure “check email” stays on Composio path.
+- **Impacted Files:** TaskPlan.js, taskPlanPlanner.js, taskPlanRunner.js, Task.js, chatAutoTurn.js, chats.js, worker.js, taskPlan.test.js, PROMPT_LOG
+
 ## [2026-09-24 13:00] LLM plans Composio compound asks
 
 - **Prompt Provided:** Send compound messages to the LLM so it understands/decides (e.g. check email and give me update ran Gmail twice).

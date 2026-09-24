@@ -254,6 +254,13 @@ const taskSchema = new mongoose.Schema(
      * (Notion / Slack / Gmail) with the result summary as prior content.
      */
     comboFollowup: { type: mongoose.Schema.Types.Mixed, default: null },
+    /** Hermes-depth TaskPlan this computer step belongs to. */
+    taskPlanId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "TaskPlan",
+      default: null,
+      index: true,
+    },
     claimedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     escalationLevel: { type: Number, default: 0 },

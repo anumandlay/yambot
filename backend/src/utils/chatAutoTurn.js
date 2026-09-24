@@ -31,6 +31,7 @@ import {
   parseScheduleFromChat,
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
+import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 
 export {
   looksLikeGmailInboxRequest,
@@ -1907,6 +1908,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
     "- Schedule manage: “check email every 5 minutes”, “list schedules”, “stop the schedule” — REPLY after saving (runtime handles it); do not QUEUE_GOAL for the manage message itself",
+    "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",
     "2) QUEUE_GOAL / queue_goal — LIVE cloud computer / peers NOW:",
@@ -2111,6 +2113,9 @@ export async function runChatAutoTurn(opts) {
       { ...partial, timing: partial.timing || track.finish() },
       ensureCtx
     );
+    // Why: Hermes TaskPlan ids must survive ensureAutoTurnResult normalization.
+    if (partial?.taskPlanId) out.taskPlanId = String(partial.taskPlanId);
+    if (partial?.taskPlanStepId) out.taskPlanStepId = String(partial.taskPlanStepId);
     // Why: lab A/B needs the raw Jev decision alongside the normalized turn.
     if (partial?.jev) out.jev = partial.jev;
     out.jevMode = String(jevMode || "auto");
@@ -2175,6 +2180,38 @@ export async function runChatAutoTurn(opts) {
       reason: "send_email_request",
       timing: track.finish(),
     });
+  }
+
+  // Why: Hermes-depth multi-step (site → email) with clarify + stateful plan.
+  if (runtime?.agent && runtime?.chatId) {
+    try {
+      const tp = await startOrResumeTaskPlan({
+        userId: String(runtime.userId || ""),
+        chatId: String(runtime.chatId),
+        agent: runtime.agent,
+        userText: text,
+        creds,
+      });
+      if (tp.handled) {
+        track.setPath("taskplan");
+        track.markDecision(tp.action === "queue_goal" ? "queue_goal" : "reply");
+        if (tp.action === "reply" && typeof delta === "function" && tp.content) {
+          delta(tp.content);
+        }
+        return finalize({
+          action: tp.action === "queue_goal" ? "queue_goal" : "reply",
+          content: tp.content || "",
+          goal: tp.goal || "",
+          ack: tp.ack || "",
+          reason: tp.reason || "taskplan",
+          taskPlanId: tp.taskPlanId || "",
+          taskPlanStepId: tp.taskPlanStepId || "",
+          timing: track.finish(),
+        });
+      }
+    } catch (err) {
+      console.warn("[auto] taskplan failed:", err?.message || err);
+    }
   }
 
   // Why: hybrid browser→Notion/Slack/email must queue computer first (apps resume after complete).

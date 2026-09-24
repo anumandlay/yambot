@@ -940,6 +940,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let autoAck = "";
     /** @type {object|null} */
     let autoTiming = null;
+    /** @type {string} */
+    let autoTaskPlanId = "";
 
     // Why: peer fan-out must not look like “Starting this agent’s computer”.
     if (peerFanoutTargets?.length >= 1 && agentDoc?.name) {
@@ -1264,6 +1266,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           text: goalText,
         };
         autoTiming = turn.timing || null;
+        autoTaskPlanId = String(turn.taskPlanId || "").trim();
         // Why: always show a short ack — model ack, or a clear default (never silent queue).
         autoAck =
           String(turn.ack || turn.content || "").trim() ||
@@ -1760,6 +1763,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       computerUseMode,
       status: "pending",
       comboFollowup: comboFollowup || null,
+      taskPlanId: autoTaskPlanId || null,
       events: [
         {
           type: "queued",
@@ -1777,6 +1781,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             invokedSkillName: invokedSkillDoc?.name || null,
             skillSlug: skillSlashMeta?.slug || null,
             hermesTiming: autoTiming || null,
+            taskPlanId: autoTaskPlanId || null,
             peerFanout: peerFanoutTargets
               ? peerFanoutTargets.map((p) => ({ to: p.agentName, content: p.content }))
               : null,
@@ -1787,6 +1792,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         },
       ],
     });
+
+    if (autoTaskPlanId) {
+      try {
+        const { TaskPlan } = await import("../models/TaskPlan.js");
+        await TaskPlan.findOneAndUpdate(
+          { _id: autoTaskPlanId, user: req.userId },
+          { $set: { activeTaskId: task._id, status: "running" } }
+        );
+      } catch (err) {
+        console.warn("[chats] taskplan link failed:", err?.message || err);
+      }
+    }
 
     // Why: multi-@ (and cheap single greetings) fan-out server-side — park waiting_peer first
     // so finalize can wake; if every peer answered cheaply, finish here without a computer.
