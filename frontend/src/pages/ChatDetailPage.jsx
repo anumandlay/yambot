@@ -30,7 +30,6 @@ import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
 import { MessageStatusChips } from "../components/MessageStatusChips.jsx";
-import { StreamProgressBar } from "../components/StreamProgressBar.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
