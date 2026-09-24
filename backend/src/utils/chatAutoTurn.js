@@ -511,6 +511,12 @@ export function sanitizeAutoReplyContent(text) {
     .replace(/<\/?tool_call>/gi, "")
     .replace(/<\/?function_call>/gi, "")
     .trim();
+  // Why: never leave bare composio_search(…) as the visible bubble.
+  if (looksLikeFakeComposioActionText(s)) {
+    const stripped = sanitizeFakeComposioActionReply(s, "");
+    if (!stripped || stripped.length < 8) return "";
+    s = stripped;
+  }
   // Drop accidental goal:/ack: labels left in a reply body.
   if (/^goal:\s*/i.test(s) && /\nack:\s*/i.test(s)) {
     return "";
@@ -1198,15 +1204,30 @@ export function parseAutoToolCalls(toolCalls) {
 }
 
 /**
- * True when the model printed a fake worker-style ACTION: composio_*() line.
+ * True when the model printed a fake worker-style ACTION: composio_*() line,
+ * or bare composio_search(…) / composio_execute(…) without the ACTION: prefix.
+ * Why: models often dump `composio_search(query="gmail")` as the whole reply.
  * @param {string} content
  * @returns {boolean}
  */
 export function looksLikeFakeComposioActionText(content) {
-  const t = String(content || "");
-  return (
-    /ACTION\s*:\s*composio_\w+\s*\(/i.test(t) || looksLikeFakeInboxActionText(t)
-  );
+  const t = String(content || "").trim();
+  if (!t) return false;
+  if (/ACTION\s*:\s*composio_\w+\s*\(/i.test(t) || looksLikeFakeInboxActionText(t)) {
+    return true;
+  }
+  // Why: entire bubble is a bare tool call (no prose) — never show that to the user.
+  if (/^composio_(?:search|list|connect|wait|execute|find_tools)\s*\(/i.test(t)) {
+    return true;
+  }
+  if (
+    t.length < 220 &&
+    /composio_(?:search|list|connect|wait|execute)\s*\(/i.test(t) &&
+    !/[.!?]\s+[A-Z]/.test(t)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -1241,7 +1262,8 @@ export function parseFakeComposioActionText(content) {
   const raw = String(content || "");
   /** @type {{ kind: string, args: object }[]} */
   const out = [];
-  const headRe = /ACTION\s*:\s*(composio_\w+)\s*/gi;
+  // Why: match ACTION: composio_* and bare composio_*(…) the model prints as “reply”.
+  const headRe = /(?:ACTION\s*:\s*)?(composio_\w+)\s*/gi;
   let m;
   while ((m = headRe.exec(raw)) !== null) {
     const name = String(m[1] || "").trim().toLowerCase();
@@ -1254,6 +1276,12 @@ export function parseFakeComposioActionText(content) {
       kind !== "composio_execute"
     ) {
       continue;
+    }
+    // Why: require an opening paren so we don't match prose mentioning composio_search.
+    const afterName = m.index + m[0].length;
+    if (raw[afterName] !== "(" && !/\(\s*$/.test(m[0])) {
+      const peek = raw.slice(afterName, afterName + 2).trimStart();
+      if (!peek.startsWith("(")) continue;
     }
     const balanced = extractBalancedParenArgs(raw, m.index + m[0].length - 1);
     const argStr = String(balanced?.args || "").trim();
@@ -1302,14 +1330,17 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
   if (!looksLikeFakeComposioActionText(raw) && !looksLikeFakeInboxActionText(raw)) {
     return raw;
   }
-  // Strip balanced ACTION: composio_*(…) and ACTION: check_email(…) / navigate(…) spans.
+  // Strip balanced ACTION: composio_*(…) / bare composio_*(…) and ACTION: check_email(…) / navigate(…) spans.
   let cleaned = raw;
   const headRe =
-    /ACTION\s*:\s*(?:composio_\w+|check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail|navigate|goto|open_url|click|type)\s*/gi;
+    /(?:ACTION\s*:\s*)?(?:composio_\w+|check_email|fetch_email|get_emails?|list_emails?|read_emails?|check_mail|fetch_mail|navigate|goto|open_url|click|type)\s*/gi;
   let m;
   const cuts = [];
   while ((m = headRe.exec(raw)) !== null) {
     const start = m.index;
+    // Why: only cut when this match is a call (has '('), not prose mentioning the name.
+    const after = raw.slice(m.index + m[0].length).trimStart();
+    if (!after.startsWith("(") && !/\(\s*$/.test(m[0])) continue;
     const balanced = extractBalancedParenArgs(raw, m.index + m[0].length - 1);
     const end = balanced ? balanced.end : Math.min(raw.length, start + m[0].length);
     cuts.push([start, end]);
@@ -2277,6 +2308,25 @@ export async function runChatAutoTurn(opts) {
       reason: `combo_hybrid:${plan.recipe || "browse_then_composio_tail"}`,
       timing: track.finish(),
     });
+  }
+
+  // Why: “check email” / known Composio intents must skip the tools LLM loop.
+  // Models otherwise print bare composio_search(query="gmail") (~20s) or invent a send to self.
+  if (
+    composioReady &&
+    looksLikeComposioAppRequest(text) &&
+    matchComposioIntent(text)
+  ) {
+    return finalize(
+      await runDeterministicComposioIntentTurn({
+        runtime,
+        userText: text,
+        creds,
+        onDelta: typeof delta === "function" ? delta : undefined,
+        track,
+        spec: matchComposioIntent(text),
+      })
+    );
   }
 
   // Why: day-history / vague "what" must never reach QUEUE_GOAL — models invent login goals from thread.

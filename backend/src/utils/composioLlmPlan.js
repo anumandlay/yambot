@@ -10,6 +10,7 @@ import {
   COMPOSIO_INTENT_SPECS,
   planComposioMultiSteps,
   parseEmailRecipient,
+  filterSpuriousComposioSendSteps,
 } from "./composioAutoRuntime.js";
 
 const SPEC_IDS = new Set(COMPOSIO_INTENT_SPECS.map((s) => s.id));
@@ -203,7 +204,10 @@ export async function planComposioStepsWithLlm(userText, creds) {
  */
 export async function resolveComposioPlan(userText, creds = null) {
   const text = String(userText || "").trim();
-  const heuristic = collapseDuplicateComposioSteps(planComposioMultiSteps(text));
+  const heuristic = filterSpuriousComposioSendSteps(
+    collapseDuplicateComposioSteps(planComposioMultiSteps(text)),
+    text
+  );
 
   if (!looksLikeCompoundComposioAsk(text) || !creds?.apiKey) {
     return heuristic;
@@ -212,7 +216,10 @@ export async function resolveComposioPlan(userText, creds = null) {
   try {
     const llmPlan = await planComposioStepsWithLlm(text, creds);
     if (Array.isArray(llmPlan) && llmPlan.length > 0) {
-      return collapseDuplicateComposioSteps(llmPlan);
+      return filterSpuriousComposioSendSteps(
+        collapseDuplicateComposioSteps(llmPlan),
+        text
+      );
     }
     // LLM said no connected-app steps — keep heuristic only if it still looks useful.
     if (Array.isArray(llmPlan) && llmPlan.length === 0 && heuristic.length <= 1) {

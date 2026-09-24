@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:20] Fix check-email: tool leak, empty From/Subject, invented send
+
+- **Prompt Provided:** “check email” showed `composio_search(query="gmail")` (TTFT ~19s), then unread list with Unknown sender / (no subject), then emailed result to agent mailbox.
+- **Architectural Flow:** Early deterministic Composio path for matched intents (skip tools LLM). Detect/sanitize bare `composio_search(…)`. Richer Gmail From/Subject/snippet extraction (headers + nested payloads). `looksLikeSendEmailClause` + `filterSpuriousComposioSendSteps` so inbox checks never invent a send-to-self step.
+- **Impacted Files:** chatAutoTurn.js, composioAutoRuntime.js, composioLlmPlan.js, composioGmailFormat.test.js, PROMPT_LOG
+
 ## [2026-09-24 15:10] Fix 1m reminders firing every ~2 minutes
 
 - **Prompt Provided:** remind every 1 minute but water reminder arrived ~every 2 minutes (3:02:46 → 3:04:14).

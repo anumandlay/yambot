@@ -323,6 +323,126 @@ export function pickBestComposioTool(tools, preferred, score = {}) {
 }
 
 /**
+ * Read a Gmail header value from common Composio / Gmail API shapes.
+ * @param {any} row
+ * @param {string} name
+ * @returns {string}
+ */
+export function gmailHeaderValue(row, name) {
+  const want = String(name || "").toLowerCase();
+  if (!row || typeof row !== "object" || !want) return "";
+  const lists = [
+    row.payload?.headers,
+    row.headers,
+    row.header,
+    row.message?.payload?.headers,
+    row.data?.payload?.headers,
+  ];
+  for (const list of lists) {
+    if (!Array.isArray(list)) continue;
+    for (const h of list) {
+      if (!h || typeof h !== "object") continue;
+      if (String(h.name || h.key || "").toLowerCase() === want) {
+        const v = String(h.value || h.val || "").trim();
+        if (v) return v;
+      }
+    }
+  }
+  return "";
+}
+
+/**
+ * Normalize From / sender into a short display string.
+ * @param {any} raw
+ * @returns {string}
+ */
+export function normalizeGmailSender(raw) {
+  if (raw == null) return "";
+  if (typeof raw === "string") return raw.trim();
+  if (typeof raw === "object") {
+    const name = String(raw.name || raw.displayName || "").trim();
+    const email = String(raw.email || raw.address || raw.value || "").trim();
+    if (name && email) return `${name} <${email}>`;
+    return name || email || "";
+  }
+  return String(raw).trim();
+}
+
+/**
+ * Pull sender / subject / snippet from one Gmail message row (any nesting).
+ * @param {any} row
+ * @returns {{ sender: string, subject: string, preview: string, messageId: string|null, threadId: string|null }}
+ */
+export function extractGmailMessageFields(row) {
+  const m = row && typeof row === "object" ? row : {};
+  const sender = normalizeGmailSender(
+    m.sender ||
+      m.from ||
+      m.from_email ||
+      m.fromEmail ||
+      m.From ||
+      m.senderEmail ||
+      m.sender_email ||
+      m.payload?.headers?.find?.((h) => /from/i.test(String(h?.name || "")))?.value ||
+      gmailHeaderValue(m, "From")
+  );
+  const subject = String(
+    m.subject ||
+      m.Subject ||
+      m.subject_line ||
+      m.subjectLine ||
+      gmailHeaderValue(m, "Subject") ||
+      ""
+  ).trim();
+  let previewRaw =
+    m.preview ?? m.snippet ?? m.messageText ?? m.message_text ?? m.body ?? m.text ?? "";
+  if (previewRaw && typeof previewRaw === "object") {
+    previewRaw =
+      previewRaw.body || previewRaw.text || previewRaw.snippet || previewRaw.preview || "";
+  }
+  const preview = String(previewRaw || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180);
+  return {
+    sender,
+    subject,
+    preview,
+    messageId: m.messageId || m.id || m.message_id || null,
+    threadId: m.threadId || m.thread_id || null,
+  };
+}
+
+/**
+ * Find a Gmail message array in nested Composio payloads.
+ * @param {any} data
+ * @returns {any[]|null}
+ */
+export function extractGmailMessageRows(data) {
+  if (!data || typeof data !== "object") return null;
+  const candidates = [
+    data.messages,
+    data.emails,
+    data.items,
+    data.results,
+    data.data?.messages,
+    data.data?.emails,
+    data.data?.items,
+    data.response?.messages,
+    data.response_data?.messages,
+    data.responseData?.messages,
+    data.successful === true || data.successful === false
+      ? data.data?.messages || data.data?.emails
+      : null,
+  ];
+  for (const c of candidates) {
+    if (Array.isArray(c) && c.length) return c;
+  }
+  if (Array.isArray(data)) return data;
+  return null;
+}
+
+/**
  * Shrink Composio execute payloads so chat tools stay under size limits.
  * @param {any} result
  * @param {string} [toolSlug]
@@ -333,35 +453,18 @@ export function compactComposioExecuteResult(result, toolSlug = "") {
   const data = result.data ?? result;
   const tool = String(toolSlug || "").toUpperCase();
 
-  /** @param {any} previewRaw */
-  function previewText(previewRaw) {
-    if (typeof previewRaw === "string") return previewRaw;
-    if (previewRaw && typeof previewRaw === "object") {
-      return String(
-        previewRaw.body || previewRaw.text || previewRaw.snippet || previewRaw.preview || ""
-      );
-    }
-    return "";
-  }
-
-  // Gmail-shaped lists
-  const messages = Array.isArray(data?.messages)
-    ? data.messages
-    : Array.isArray(data?.emails)
-      ? data.emails
-      : null;
+  // Gmail-shaped lists (including nested Composio wrappers)
+  const messages = extractGmailMessageRows(data) || extractGmailMessageRows(result);
   if (messages) {
     const compactMsgs = messages.slice(0, 10).map((m) => {
       if (!m || typeof m !== "object") return m;
+      const fields = extractGmailMessageFields(m);
       return {
-        sender: m.sender || m.from || m.from_email || m.fromEmail || null,
-        subject: m.subject || m.Subject || null,
-        preview: previewText(m.preview ?? m.snippet ?? m.messageText ?? m.body ?? m.text)
-          .replace(/\s+/g, " ")
-          .trim()
-          .slice(0, 180),
-        messageId: m.messageId || m.id || m.message_id || null,
-        threadId: m.threadId || m.thread_id || null,
+        sender: fields.sender || null,
+        subject: fields.subject || null,
+        preview: fields.preview || null,
+        messageId: fields.messageId,
+        threadId: fields.threadId,
         display_url: m.display_url || m.displayUrl || null,
         labelIds: Array.isArray(m.labelIds) ? m.labelIds.slice(0, 8) : undefined,
         messageTimestamp: m.messageTimestamp || m.internalDate || null,
@@ -374,7 +477,7 @@ export function compactComposioExecuteResult(result, toolSlug = "") {
       tool: toolSlug || undefined,
       data: {
         messages: compactMsgs,
-        nextPageToken: data?.nextPageToken || null,
+        nextPageToken: data?.nextPageToken || data?.data?.nextPageToken || null,
         resultSizeEstimate: data?.resultSizeEstimate ?? compactMsgs.length,
       },
     };
@@ -534,11 +637,7 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
   }
 
   const data = parsed.data ?? parsed;
-  /** @type {any[]} */
-  let rows = [];
-  if (Array.isArray(data?.messages)) rows = data.messages;
-  else if (Array.isArray(data?.emails)) rows = data.emails;
-  else if (Array.isArray(data)) rows = data;
+  const rows = extractGmailMessageRows(data) || extractGmailMessageRows(parsed) || [];
 
   if (!rows.length) {
     return tool
@@ -547,16 +646,10 @@ export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
   }
 
   const lines = rows.slice(0, 5).map((row, i) => {
-    const from = row?.sender || row?.from || "Unknown sender";
-    const subject = row?.subject || row?.Subject || "(no subject)";
-    let gistRaw = row?.preview ?? row?.snippet ?? "";
-    if (gistRaw && typeof gistRaw === "object") {
-      gistRaw = gistRaw.body || gistRaw.text || "";
-    }
-    const gist = String(gistRaw || "")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 140);
+    const fields = extractGmailMessageFields(row);
+    const from = fields.sender || "Unknown sender";
+    const subject = fields.subject || "(no subject)";
+    const gist = fields.preview.slice(0, 140);
     return `${i + 1}. From: ${String(from).slice(0, 80)}\n   Subject: ${String(subject).slice(0, 120)}${
       gist ? `\n   ${gist}` : ""
     }`;
@@ -1166,13 +1259,42 @@ export function splitComposioClauses(text) {
 }
 
 /**
+ * True when a clause asks to *send* mail to an address (not merely “check email”).
+ * Why: bare “email” / “mail” words match inbox reads; requiring send/to avoids emailing
+ * unread summaries to the agent mailbox by accident.
  * @param {string} clause
  * @returns {boolean}
  */
 export function looksLikeSendEmailClause(clause) {
   const t = String(clause || "");
   if (!parseEmailRecipient(t)) return false;
-  return /\b(send|email|e-?mail|mail)\b/i.test(t);
+  const wantsSend =
+    /\b(send|forward)\b/i.test(t) ||
+    /\b(e-?mail|mail)\s+to\b/i.test(t) ||
+    /\bemail\s+(?:it|this|them|me)\b/i.test(t) ||
+    (/\b(email|e-?mail|mail)\b/i.test(t) && /\bto\b/i.test(t));
+  if (!wantsSend) return false;
+  // Why: “check email for alice@…” is still inbox — never a send step.
+  if (/\bcheck\b/i.test(t) && !/\b(send|forward)\b/i.test(t)) return false;
+  return true;
+}
+
+/**
+ * Drop invented send_email steps when the user only asked to check/read inbox.
+ * @param {ComposioPlanStep[]} plan
+ * @param {string} userText
+ * @returns {ComposioPlanStep[]}
+ */
+export function filterSpuriousComposioSendSteps(plan, userText) {
+  const list = Array.isArray(plan) ? plan : [];
+  const full = String(userText || "").trim();
+  const userHasRecipient = Boolean(parseEmailRecipient(full));
+  const userWantsSend = looksLikeSendEmailClause(full) ||
+    (userHasRecipient &&
+      /\b(send|forward|e-?mail\s+to|mail\s+to)\b/i.test(full) &&
+      !/\bcheck\b/i.test(full));
+  if (userWantsSend) return list;
+  return list.filter((s) => s?.kind !== "send_email");
 }
 
 /**
@@ -1302,7 +1424,10 @@ export function planComposioMultiSteps(userText) {
   }
 
   // Deduplicate accidental double sheets_list+email when one clause already matched list only
-  return collapseAdjacentDuplicateSteps(steps.slice(0, 6));
+  return filterSpuriousComposioSendSteps(
+    collapseAdjacentDuplicateSteps(steps.slice(0, 6)),
+    raw
+  );
 }
 
 /**
@@ -1482,7 +1607,8 @@ async function runMultiStepSendSlack(opts) {
  * @returns {Promise<{ ok: boolean, content: string, needsConnect?: boolean, steps: object[], resultText: string }>}
  */
 export async function runComposioMultiStep(opts) {
-  const plan = Array.isArray(opts.plan) ? opts.plan : planComposioMultiSteps(opts.userText);
+  const planned = Array.isArray(opts.plan) ? opts.plan : planComposioMultiSteps(opts.userText);
+  const plan = filterSpuriousComposioSendSteps(planned, opts.userText);
   const { runtime, executeLookup } = opts;
   if (!plan.length) {
     return {
