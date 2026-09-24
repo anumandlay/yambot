@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 16:00] Schedulers show Last run / Status; list reminders includes last run
+
+- **Prompt Provided:** list shows Check email (off) — is it working? need last run in agent settings.
+- **Architectural Flow:** Off = not running. Agent Edit → Schedulers always shows Status / Last run / Next run (Never when unset). Chat “list reminders” includes Last run + clearer off label.
+- **Impacted Files:** AgentEditPage.jsx, scheduleFromChat.js, PROMPT_LOG
+
 ## [2026-09-24 15:55] Tomorrow-at-9am reminder must save (not fake LLM ack)
 
 - **Prompt Provided:** create reminder develop project tomorrow 9am → “Done I’ve set…” but where was it created?

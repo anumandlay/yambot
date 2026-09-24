@@ -1357,12 +1357,24 @@ export function AgentEditPage() {
                   </span>
                 </label>
               ) : null}
-              {(job.lastRunAt || job.nextRunAt) && (
-                <p className="text-xs text-teal-900/70">
-                  {job.lastRunAt ? `Last run: ${new Date(job.lastRunAt).toLocaleString()}. ` : null}
-                  {job.nextRunAt ? `Next run: ${new Date(job.nextRunAt).toLocaleString()}.` : null}
+              <div className="grid gap-1 rounded-lg border border-teal-50 bg-teal-50/50 px-3 py-2 text-xs text-teal-900/80 sm:grid-cols-2">
+                <p>
+                  <span className="font-semibold text-teal-900">Status:</span>{" "}
+                  {job.enabled ? "On — will run when due" : "Off — not running"}
                 </p>
-              )}
+                <p>
+                  <span className="font-semibold text-teal-900">Last run:</span>{" "}
+                  {job.lastRunAt ? new Date(job.lastRunAt).toLocaleString() : "Never"}
+                </p>
+                <p className="sm:col-span-2">
+                  <span className="font-semibold text-teal-900">Next run:</span>{" "}
+                  {job.enabled && job.nextRunAt
+                    ? new Date(job.nextRunAt).toLocaleString()
+                    : job.enabled
+                      ? "Pending (next scheduler tick)"
+                      : "— (enable to schedule)"}
+                </p>
+              </div>
             </div>
           ))}
           <button

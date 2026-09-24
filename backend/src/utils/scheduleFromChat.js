@@ -562,8 +562,14 @@ export function formatScheduleListReply(jobs) {
   const list = (Array.isArray(jobs) ? jobs : []).filter(isMeaningfulScheduleJob);
   if (!list.length) return "No reminders/schedules on this agent yet.";
   const lines = list.map((j, i) => {
-    const on = j.enabled ? "on" : "off";
-    const next = j.nextRunAt ? new Date(j.nextRunAt).toISOString() : "—";
+    const on = j.enabled ? "on" : "off — not running";
+    const last = j.lastRunAt ? new Date(j.lastRunAt).toISOString() : "never";
+    const next =
+      j.enabled && j.nextRunAt
+        ? new Date(j.nextRunAt).toISOString()
+        : j.enabled
+          ? "pending"
+          : "—";
     const label = String(j.name || "").trim() || `Job ${i + 1}`;
     const kindLabel = j.kind === "chat_reminder" ? "chat reminder" : "computer job";
     return `${i + 1}. **${label}** (${on}, ${kindLabel}) — ${formatScheduleIntervalLabel(
@@ -573,7 +579,7 @@ export function formatScheduleListReply(jobs) {
       j.interval === "daily"
         ? `\n   Time: ${formatDailyAtLabel(j.dailyAt)}`
         : ""
-    }\n   ${j.kind === "chat_reminder" ? "Message" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Next: ${next}`;
+    }\n   ${j.kind === "chat_reminder" ? "Message" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Last run: ${last}\n   Next: ${next}`;
   });
   return `Reminders / schedules on this agent:\n\n${lines.join("\n\n")}`;
 }
