@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 17:50] Schedule Composio path compact Gmail results (empty subject fix)
+
+- **Prompt Provided:** Follow-up from schedule/email exploration — empty subject/body on scheduled email summary.
+- **Architectural Flow:** `buildComposioExecuteLookupFromAgent` now runs `compactComposioExecuteResult` before the 8KB slice (same as chat). Prevents mid-JSON truncation of Gmail fetch payloads that wiped subject/preview on schedule ticks.
+- **Impacted Files:** comboRunner.js, PROMPT_LOG
+
 ## [2026-09-24 17:40] Schedule update + any Nm interval + email-summary empty send fix
 
 - **Prompt Provided:** change schedule via LLM; scheduled email summary sends empty subject/body; allow any timeframe (1/3/70 min).

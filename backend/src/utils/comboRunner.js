@@ -19,6 +19,7 @@ import {
   parseEmailRecipient,
   looksLikeSendEmailClause,
   looksLikeSendSlackClause,
+  compactComposioExecuteResult,
 } from "./composioAutoRuntime.js";
 import {
   composioExecuteTool,
@@ -360,12 +361,13 @@ export function buildComposioExecuteLookupFromAgent(opts) {
       return JSON.stringify(data).slice(0, 4000);
     }
     if (kind === "composio_execute") {
+      const toolSlug = String(args.tool || args.slug || "").trim();
       const send = await composioExecuteTool({
         userId,
         apiKey,
         sessionId: state.sessionId,
         toolkitSlugs,
-        tool: args.tool || args.slug || "",
+        tool: toolSlug,
         arguments: args.arguments || args.args || {},
       });
       if (send.sessionId) {
@@ -380,7 +382,10 @@ export function buildComposioExecuteLookupFromAgent(opts) {
           /* non-fatal */
         }
       }
-      return JSON.stringify(send).slice(0, 8000);
+      // Why: schedule/combo ticks used raw 8KB JSON — Gmail lists truncated mid-payload so
+      // subject/preview vanished (chat path already compactComposioExecuteResult first).
+      const compact = compactComposioExecuteResult(send, toolSlug);
+      return JSON.stringify(compact).slice(0, 8000);
     }
     return JSON.stringify({ ok: false, detail: `Unknown lookup ${kind}` });
   };
