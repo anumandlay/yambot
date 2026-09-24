@@ -433,6 +433,7 @@ export function extractScheduleUpdateHint(text) {
     )
     .replace(/\b(to\s+)?every\s+\d+\s*(?:m(?:in(?:ute)?s?)?|h(?:ours?)?)\b/gi, " ")
     .replace(/\bevery\s+(?:minute|hour)\b/gi, " ")
+    .replace(/\bto\s+\d+\s*m(?:in(?:ute)?s?)?\b/gi, " ")
     .replace(/\b(to|into|as|for|about|named|called)\b/gi, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -441,6 +442,8 @@ export function extractScheduleUpdateHint(text) {
     if (/\b(drink|water|hydrat)\b/i.test(raw)) return "drink water";
     return "";
   }
+  // Why: leftover “the water” → normalize to drink water for matching.
+  if (/^the\s+water$/i.test(hint) || /^water$/i.test(hint)) return "drink water";
   return hint.slice(0, 80);
 }
 
@@ -452,6 +455,12 @@ export function extractScheduleUpdateHint(text) {
 export function looksLikeScheduleUpdateRequest(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
+  // Why: brand-new “remind me … every N” is create, not update.
+  const isFreshCreate =
+    /\b(remind\s+me|create|add\s+(a\s+)?reminder|set\s+(a\s+)?reminder)\b/i.test(raw) &&
+    !/\b(change|update|edit|modify|adjust|switch)\b/i.test(raw);
+  if (isFreshCreate) return false;
+
   if (
     /\b(change|update|edit|modify|adjust|switch)\b[\s\S]{0,60}\b(schedule|reminder|interval|cadence|frequency)\b/i.test(
       raw
@@ -466,6 +475,21 @@ export function looksLikeScheduleUpdateRequest(text) {
     return true;
   }
   if (/\b(make|set)\s+(it|the\s+(schedule|reminder))\s+to\s+every\b/i.test(raw)) {
+    return true;
+  }
+  // Why: “change drink water to every 2 minutes” — topic + cadence, no “schedule” noun.
+  if (
+    /\b(change|update|edit|modify|adjust|switch)\b/i.test(raw) &&
+    (/\bevery\s+\d+\s*(?:m(?:in(?:ute)?s?)?|h(?:ours?)?)?\b/i.test(raw) ||
+      /\bevery\s+(?:minute|hour)\b/i.test(raw) ||
+      /\bto\s+\d+\s*m(?:in(?:ute)?s?)?\b/i.test(raw))
+  ) {
+    return true;
+  }
+  if (
+    /\b(set|make)\b.+\b(to\s+)?every\b/i.test(raw) &&
+    /\b(water|drink|hydrat|email|reminder|schedule|nudge|ping)\b/i.test(raw)
+  ) {
     return true;
   }
   return false;
@@ -807,12 +831,12 @@ export async function applyScheduleFromChat(opts) {
         .filter(Boolean);
       const availBit = available.length
         ? ` On this agent: ${available.map((l) => `“${l}”`).join(", ")}.`
-        : " No reminders on this agent.";
+        : " This agent has no reminders yet.";
       return {
         ok: true,
         content: hint
-          ? `No reminder matched “${hint}” to update.${availBit} Say “list reminders”.`
-          : `Which schedule should I change?${availBit} Example: “change the email schedule to every 4 minutes”.`,
+          ? `No reminder matched “${hint}” on this agent (schedules are per-agent).${availBit} Open the agent where you created it and say “list reminders”, or create it here: “remind me to drink water every 2 minutes”.`
+          : `Which schedule should I change?${availBit} Example: “change the water reminder to every 2 minutes”.`,
       };
     }
 

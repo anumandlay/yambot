@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 17:55] Wrong-agent water change must not ask which app
+
+- **Prompt Provided:** water schedule on agent A; on agent B “change drink water…” → Google Calendar / which app clarify.
+- **Architectural Flow:** “change drink water to every 2m” is schedule **update** (not create/junk). No match → per-agent message. Never fall through to chat LLM for unparsed schedule manage; block fake app/calendar clarifications in ensureAutoTurnResult.
+- **Impacted Files:** scheduleFromChat.js, chatAutoTurn.js, tests, PROMPT_LOG
+
 ## [2026-09-24 17:50] Schedule Composio path compact Gmail results (empty subject fix)
 
 - **Prompt Provided:** Follow-up from schedule/email exploration — empty subject/body on scheduled email summary.

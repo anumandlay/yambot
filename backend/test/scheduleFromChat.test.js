@@ -12,6 +12,7 @@ import {
   formatScheduleListReply,
   isMeaningfulScheduleJob,
   looksLikeChatReminderRequest,
+  looksLikeScheduleUpdateRequest,
   extractScheduleDisableHint,
   wantsDisableAllSchedules,
   jobMatchesScheduleHint,
@@ -213,12 +214,23 @@ test("every 4 minutes and 70 minutes are exact intervals", () => {
   assert.equal(scheduleIntervalMs("3h"), 3 * 60 * 60 * 1000);
 });
 
-test("change schedule to every 4 minutes is update", () => {
-  const t = "change the schedule to every 4 minutes";
+test("change drink water to every 2 minutes is update not create", () => {
+  const t = "change drink water to every 2 minutes";
   assert.equal(looksLikeScheduleManageRequest(t), true);
+  assert.equal(looksLikeScheduleUpdateRequest(t), true);
   const p = parseScheduleFromChat(t);
   assert.equal(p?.action, "update");
-  assert.equal(p?.interval, "4m");
+  assert.equal(p?.interval, "2m");
+  assert.match(String(p?.matchHint || ""), /water/i);
+});
+
+test("remind me to drink water every 2 minutes stays create", () => {
+  const t = "remind me to drink water every 2 minutes";
+  assert.equal(looksLikeScheduleUpdateRequest(t), false);
+  const p = parseScheduleFromChat(t);
+  assert.equal(p?.action, "create");
+  assert.equal(p?.interval, "2m");
+  assert.equal(p?.kind, "chat_reminder");
 });
 
 test("send email summary frames as inbox check", () => {

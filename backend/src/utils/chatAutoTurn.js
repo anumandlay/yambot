@@ -31,6 +31,7 @@ import {
 import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
 import {
   looksLikeScheduleManageRequest,
+  looksLikeScheduleUpdateRequest,
   looksLikeReminderCreateRequest,
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
@@ -939,6 +940,26 @@ export function ensureAutoTurnResult(result, ctx = {}) {
       goal: "",
       ack: "",
       reason: `${reason}_fake_reminder_ack_blocked`,
+      timing: result?.timing,
+    };
+  }
+
+  // Why: wrong-agent “change water…” must not become “which app hosts drink water?”.
+  if (
+    (looksLikeScheduleManageRequest(userText) || looksLikeScheduleUpdateRequest(userText)) &&
+    action === "reply" &&
+    !/^schedule_/i.test(reason) &&
+    /\b(which\s+(application|app|website|calendar)|google\s+calendar|health\/water|tracking\s+app)\b/i.test(
+      content
+    )
+  ) {
+    return {
+      action: "reply",
+      content:
+        "Reminders live on each YamBot agent (not Google Calendar). Open the agent where you created it and say “list reminders”, or here: “change the water reminder to every 2 minutes”.",
+      goal: "",
+      ack: "",
+      reason: `${reason}_fake_schedule_app_clarify_blocked`,
       timing: result?.timing,
     };
   }
@@ -2235,24 +2256,34 @@ export async function runChatAutoTurn(opts) {
     try {
       const parsed = await resolveScheduleFromChat(text, creds);
       if (!parsed) {
-        // Fall through to normal Auto if neither heuristic nor LLM mapped it.
-      } else {
-        const applied = await applyScheduleFromChat({
-          agent: runtime.agent,
-          parsed,
-          chatId: runtime.chatId || null,
-        });
-        const content = String(applied.content || "Schedule updated.").trim();
-        if (content) await pushReply(content);
+        // Why: never fall through to the chat LLM (it invents “which app hosts drink water?”).
+        const content =
+          "I couldn’t map that to a YamBot schedule change. Try: “change the water reminder to every 2 minutes”, “list reminders”, or open the agent that owns the schedule.";
+        await pushReply(content);
         return finalize({
           action: "reply",
           content,
           goal: "",
           ack: "",
-          reason: `schedule_${parsed.action}${parsed.action !== "list" && creds?.apiKey ? "_llm" : ""}`,
+          reason: "schedule_manage_unparsed",
           timing: track.finish(),
         });
       }
+      const applied = await applyScheduleFromChat({
+        agent: runtime.agent,
+        parsed,
+        chatId: runtime.chatId || null,
+      });
+      const content = String(applied.content || "Schedule updated.").trim();
+      if (content) await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: `schedule_${parsed.action}${parsed.action !== "list" && creds?.apiKey ? "_llm" : ""}`,
+        timing: track.finish(),
+      });
     } catch (err) {
       const content = `Could not update schedule: ${String(err?.message || err)}`;
       await pushReply(content);
