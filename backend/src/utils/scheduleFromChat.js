@@ -208,6 +208,25 @@ export function parseScheduleIntervalFromText(text) {
     return { interval, dailyAt: "09:00", matchedSpan: bareMin[0] };
   }
 
+  // Why: “remind me tomorrow at 9 am” / “create reminder … at 9am” — one wall-clock, store as daily.
+  const clockOnly = parseClockTimeFromText(raw);
+  if (
+    clockOnly &&
+    /\b(remind|reminder|schedule|nudge)\b/i.test(raw) &&
+    /\b(tomorrow|today|at\s+\d)/i.test(raw)
+  ) {
+    const spans = [clockOnly.matchedSpan];
+    const tom = raw.match(/\btomorrow\b/i);
+    if (tom) spans.push(tom[0]);
+    const tod = raw.match(/\btoday\b/i);
+    if (tod) spans.push(tod[0]);
+    return {
+      interval: "daily",
+      dailyAt: clockOnly.dailyAt,
+      matchedSpan: spans.filter(Boolean).join("|"),
+    };
+  }
+
   return null;
 }
 
@@ -240,8 +259,12 @@ export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
     .replace(/\b(\d+\s*m(?:in(?:ute)?s?)?)\b/gi, " ")
     .replace(/\b(daily(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)\b/gi, " ")
     .replace(/\b(once\s+a\s+day|each\s+day|every\s+day)\b/gi, " ")
+    .replace(/\btomorrow\b/gi, " ")
+    .replace(/\btoday\b/gi, " ")
     .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, " ")
     .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, " ")
+    .replace(/\b(create|set|add|make)\s+(a\s+)?reminder\s+(to\s+)?/gi, " ")
+    .replace(/\band\s+remind\s+me\b/gi, " ")
     .replace(/^[:=\-\s]+/, "")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -279,6 +302,7 @@ export function looksLikeChatReminderRequest(text) {
   if (/\b(remind\s+me|nudge\s+me|ping\s+me|send\s+me\s+a\s+reminder)\b/i.test(raw)) {
     return true;
   }
+  if (/\b(create|set|add|make)\b[\s\S]{0,40}\breminder\b/i.test(raw)) return true;
   return false;
 }
 
@@ -375,6 +399,25 @@ const SCHEDULE_NOUN =
   "(?:schedules?|schedulers?|reminders?|recurring\\s+(?:jobs?|tasks?)|cron\\s*jobs?)";
 
 /**
+ * True when the user is creating a reminder (even without “every N minutes”).
+ * Why: “create reminder … tomorrow at 9 am” must not fall through to a fake LLM ack.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeReminderCreateRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (/\b(create|set|add|make)\b[\s\S]{0,40}\breminder\b/i.test(raw)) return true;
+  if (
+    /\bremind\s+me\b/i.test(raw) &&
+    /\b(tomorrow|today|at\s+\d|every|daily|minute|hour|reminders?\b)/i.test(raw)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * True when the user is managing schedules (create/list/stop), not running now.
  * @param {string} text
  * @returns {boolean}
@@ -406,7 +449,9 @@ export function looksLikeScheduleManageRequest(text) {
     return true;
   }
 
-  // Create: must have a cadence ("every 5 minutes") — not "schedule a meeting" alone.
+  if (looksLikeReminderCreateRequest(raw)) return true;
+
+  // Create: cadence ("every 5 minutes") + schedule verbs.
   const cadence = parseScheduleIntervalFromText(raw);
   if (!cadence) return false;
   if (/\b(schedule|reminder|remind|repeat|every|daily|recurring)\b/i.test(raw)) return true;
@@ -647,8 +692,9 @@ export async function applyScheduleFromChat(opts) {
     chatId: opts.chatId || (existingIdx >= 0 ? jobs[existingIdx].chatId : null) || null,
     pausedByEmergency: false,
   });
-  jobPayload.nextRunAt = now;
-  // Why: first fire on the next scheduler tick; later ticks use computeNextRunAt after each run.
+  jobPayload.nextRunAt =
+    interval === "daily" ? computeNextRunAt(jobPayload, now) || now : now;
+  // Why: daily “tomorrow at 9am” must land on the next 09:00 UTC, not fire on the next 15s tick.
 
   if (existingIdx >= 0) {
     const prevId = jobs[existingIdx]._id;

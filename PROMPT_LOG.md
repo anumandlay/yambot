@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:55] Tomorrow-at-9am reminder must save (not fake LLM ack)
+
+- **Prompt Provided:** create reminder develop project tomorrow 9am → “Done I’ve set…” but where was it created?
+- **Architectural Flow:** That reply was a fake chat ack — schedule manage never ran (“tomorrow at 9am” had no cadence). Parse tomorrow/at-clock as daily; treat create-reminder asks as schedule manage; daily nextRunAt via computeNextRunAt; block fake reminder acks. Real home: agent `schedules[]` → Agents → Schedulers / “list reminders”.
+- **Impacted Files:** scheduleFromChat.js, scheduleLlmPlan.js, chatAutoTurn.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 15:45] Delete drink water finds disabled jobs and removes them
 
 - **Prompt Provided:** “delete drink water reminder” → No enabled reminder matched “drink water”.

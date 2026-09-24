@@ -121,8 +121,9 @@ export async function planScheduleWithLlm(userText, creds) {
     "- list = show reminders/schedules.",
     "- disable = stop/delete/cancel one or all reminders. Put the topic in matchHint (e.g. \"drink water\"). Empty matchHint means stop all.",
     "- create = new recurring reminder/job. Always set interval from the user cadence.",
+    "- \"tomorrow at 9 am\" / \"at 9am\" with remind = daily + dailyAt (24h UTC).",
     "- chat_reminder = chat nudge text (remind me / drink water). computer = check email / Composio / browser goal.",
-    "- goal for chat_reminder is the short message body (without every/minute cadence).",
+    "- goal for chat_reminder is the short message body (without every/minute/tomorrow/at cadence).",
     "- dailyAt is 24h UTC when interval is daily; else 09:00.",
     "- If this is not a reminder/schedule manage ask, return {\"action\":\"none\"}.",
   ].join("\n");

@@ -31,6 +31,7 @@ import {
 import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
 import {
   looksLikeScheduleManageRequest,
+  looksLikeReminderCreateRequest,
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
@@ -921,6 +922,26 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   let ack = sanitizeAutoReplyContent(result?.ack || "");
   // Why: never queue literal template text like "<exact instructions for the worker>" or "...".
   if (isPromptPlaceholder(goal) || goal.length < 8) goal = "";
+
+  // Why: never accept a fake “I’ve set a reminder” when create never hit schedule_manage.
+  if (
+    looksLikeReminderCreateRequest(userText) &&
+    action === "reply" &&
+    !/^schedule_/i.test(reason) &&
+    /\b(i('ve| have)?\s+set|reminder\s+(is\s+)?set|will remind|scheduled a reminder|created a reminder)\b/i.test(
+      content
+    )
+  ) {
+    return {
+      action: "reply",
+      content:
+        "I didn’t save that on the agent yet. Try again like: “remind me tomorrow at 9am to develop the project” — it will show under Agents → Schedulers and via “list reminders”.",
+      goal: "",
+      ack: "",
+      reason: `${reason}_fake_reminder_ack_blocked`,
+      timing: result?.timing,
+    };
+  }
 
   // Why: "send them the emails" must become a concrete send_email goal — never browse mangled addresses.
   // Skip when the user asked for Composio/Gmail API (SMTP harden must not hijack that path).

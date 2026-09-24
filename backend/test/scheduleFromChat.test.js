@@ -182,6 +182,20 @@ test("formatScheduleIntervalLabel 5m", () => {
   assert.match(formatScheduleIntervalLabel("5m"), /5 minutes/i);
 });
 
+test("tomorrow at 9 am creates daily reminder cadence", () => {
+  const t = "create reminder to develop project and remind me tomorrow at 9 am";
+  assert.equal(looksLikeScheduleManageRequest(t), true);
+  const c = parseScheduleIntervalFromText(t);
+  assert.equal(c?.interval, "daily");
+  assert.equal(c?.dailyAt, "09:00");
+  const p = parseScheduleFromChat(t);
+  assert.equal(p?.action, "create");
+  assert.equal(p?.interval, "daily");
+  assert.equal(p?.kind, "chat_reminder");
+  assert.match(String(p?.goal || ""), /develop/i);
+  assert.doesNotMatch(String(p?.goal || ""), /tomorrow/i);
+});
+
 test("plain check email is not schedule manage", () => {
   assert.equal(looksLikeScheduleManageRequest("check email"), false);
 });
