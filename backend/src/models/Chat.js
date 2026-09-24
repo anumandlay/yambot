@@ -97,6 +97,12 @@ const chatSchema = new mongoose.Schema(
       ref: "Message",
       default: null,
     },
+    /**
+     * Temporary chat-scoped notes (“for this chat / for now”) with per-note TTL.
+     * Why: must not land in durable USER/MEMORY — Phase 2 session scratch.
+     * Shape: { notes: [{ content, at, expiresAt, source }], updatedAt }
+     */
+    sessionScratch: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );

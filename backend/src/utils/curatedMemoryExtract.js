@@ -7,14 +7,18 @@
 
 import { Agent } from "../models/Agent.js";
 import { Message } from "../models/Chat.js";
+import { Task } from "../models/Task.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { mutateCuratedMemory } from "./curatedMemoryOps.js";
 import { normalizeEntries } from "./curatedMemory.js";
 import { filterDurableCuratedFacts, isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
+import { writeAudit } from "./audit.js";
 
 const MAX_FACTS = 5;
 const MAX_FACT_CHARS = 320;
+/** Bump when extract prompt/heuristics change enough to re-run for the same task. */
+export const MEMORY_EXTRACT_VERSION = 1;
 
 /**
  * @param {string} text
@@ -185,12 +189,48 @@ export async function persistCuratedMemoryFromRun(opts) {
   const userId = String(opts.userId || "").trim();
   const agentId = String(opts.agentId || "").trim();
   const summary = String(opts.summary || "").trim();
+  const taskId = opts.taskId ? String(opts.taskId).trim() : "";
   if (!userId || !agentId || !summary) {
     return { ok: false, saved: [], skipped: "missing" };
   }
   // Why: failed runs still get day logs / avoid notes — curated MEMORY stays for durable wins.
   if (opts.success === false) {
     return { ok: true, saved: [], skipped: "failed_run" };
+  }
+
+  // Phase 2: idempotent extract — complete retries must not re-LLM and re-save.
+  if (taskId) {
+    try {
+      const task = await Task.findById(taskId).select("workingState").lean();
+      const ws = task?.workingState && typeof task.workingState === "object" ? task.workingState : {};
+      if (
+        ws.memoryExtractAt &&
+        Number(ws.memoryExtractVersion || 0) >= MEMORY_EXTRACT_VERSION
+      ) {
+        return { ok: true, saved: [], skipped: "already_extracted" };
+      }
+      const priorChip = await Message.findOne({
+        "meta.kind": "curated_save",
+        "meta.taskId": taskId,
+      })
+        .select("_id")
+        .lean();
+      if (priorChip) {
+        await Task.updateOne(
+          { _id: taskId },
+          {
+            $set: {
+              "workingState.memoryExtractAt": new Date(),
+              "workingState.memoryExtractVersion": MEMORY_EXTRACT_VERSION,
+              "workingState.memoryExtractKey": `${taskId}:v${MEMORY_EXTRACT_VERSION}`,
+            },
+          }
+        ).catch(() => null);
+        return { ok: true, saved: [], skipped: "already_extracted" };
+      }
+    } catch (err) {
+      console.warn("[curatedMemoryExtract] idempotency check failed:", err?.message || err);
+    }
   }
 
   try {
@@ -213,11 +253,34 @@ export async function persistCuratedMemoryFromRun(opts) {
     facts = filterDurableCuratedFacts(facts);
     facts = dedupeFacts(facts, normalizeEntries(agent.curatedMemory?.entries));
     if (!facts.length) {
+      if (taskId) {
+        await Task.updateOne(
+          { _id: taskId },
+          {
+            $set: {
+              "workingState.memoryExtractAt": new Date(),
+              "workingState.memoryExtractVersion": MEMORY_EXTRACT_VERSION,
+              "workingState.memoryExtractKey": `${taskId}:v${MEMORY_EXTRACT_VERSION}`,
+              "workingState.memoryExtractSkipped": "none",
+            },
+          }
+        ).catch(() => null);
+      }
+      void writeAudit({
+        userId,
+        agentId,
+        taskId: taskId || null,
+        action: "memory_extract_skip",
+        detail: "no durable facts",
+        meta: { reason: "none", version: MEMORY_EXTRACT_VERSION },
+      });
       return { ok: true, saved: [], skipped: "none" };
     }
 
     /** @type {string[]} */
     const saved = [];
+    /** @type {string[]} */
+    const rejected = [];
     for (const content of facts) {
       const result = await mutateCuratedMemory({
         userId,
@@ -226,11 +289,26 @@ export async function persistCuratedMemoryFromRun(opts) {
         target: "memory",
         content,
         source: "run_extract",
-        sourceRef: opts.taskId ? String(opts.taskId) : null,
+        sourceRef: taskId || null,
         confidence: 0.75,
-        taskId: opts.taskId || null,
+        taskId: taskId || null,
       });
       if (result?.success) saved.push(content);
+      else if (result?.error) rejected.push(`${content.slice(0, 60)}… (${result.error.slice(0, 80)})`);
+    }
+
+    if (taskId) {
+      await Task.updateOne(
+        { _id: taskId },
+        {
+          $set: {
+            "workingState.memoryExtractAt": new Date(),
+            "workingState.memoryExtractVersion": MEMORY_EXTRACT_VERSION,
+            "workingState.memoryExtractKey": `${taskId}:v${MEMORY_EXTRACT_VERSION}`,
+            "workingState.memoryExtractSaved": saved.length,
+          },
+        }
+      ).catch(() => null);
     }
 
     if (saved.length && opts.chatId) {
@@ -239,6 +317,9 @@ export async function persistCuratedMemoryFromRun(opts) {
         "",
         ...saved.map((f, i) => `${i + 1}. ${f}`),
       ];
+      if (rejected.length) {
+        lines.push("", `Rejected: ${rejected.length}`);
+      }
       await Message.create({
         chat: opts.chatId,
         role: "system",
@@ -246,15 +327,31 @@ export async function persistCuratedMemoryFromRun(opts) {
         meta: {
           kind: "curated_save",
           ui: "icon",
-          taskId: opts.taskId || null,
+          taskId: taskId || null,
           curatedSave: {
             target: "memory",
             count: saved.length,
             facts: saved,
+            source: "run_extract",
+            rejected: rejected.length ? rejected : undefined,
+            extractVersion: MEMORY_EXTRACT_VERSION,
           },
         },
       }).catch(() => null);
     }
+
+    void writeAudit({
+      userId,
+      agentId,
+      taskId: taskId || null,
+      action: "memory_extract_done",
+      detail: `saved ${saved.length}`,
+      meta: {
+        saved: saved.length,
+        rejected: rejected.length,
+        version: MEMORY_EXTRACT_VERSION,
+      },
+    });
 
     return { ok: true, saved };
   } catch (err) {

@@ -588,12 +588,21 @@ export async function mem0IngestChatTurn(opts) {
  * @param {string[]} curated
  * @param {{ memory: string, score: number }[]} mem0Hits
  * @param {number} charLimit
- * @returns {{ contents: string[], mem0Added: number }}
+ * @returns {{
+ *   contents: string[],
+ *   mem0Added: number,
+ *   trusted: string[],
+ *   untrusted: string[],
+ * }}
  */
 export function mergeMem0IntoCurated(curated, mem0Hits, charLimit) {
   const limit = Math.max(200, Number(charLimit) || 8000);
   /** @type {string[]} */
   const out = [];
+  /** @type {string[]} */
+  const trusted = [];
+  /** @type {string[]} */
+  const untrusted = [];
   const seen = new Set();
   let chars = 0;
   let mem0Added = 0;
@@ -603,16 +612,23 @@ export function mergeMem0IntoCurated(curated, mem0Hits, charLimit) {
     if (!t || isEphemeralCuratedFact(t)) return;
     const key = t.toLowerCase();
     if (seen.has(key)) return;
-    if (chars + t.length > limit && out.length) return;
+    // Why: Mem0 / external retrieval is labeled untrusted so it cannot masquerade as system rules.
+    const labeled = fromMem0 ? `[untrusted·retrieved] ${t}` : t;
+    if (chars + labeled.length > limit && out.length) return;
     seen.add(key);
-    out.push(t);
-    chars += t.length + 2;
-    if (fromMem0) mem0Added += 1;
+    out.push(labeled);
+    chars += labeled.length + 2;
+    if (fromMem0) {
+      mem0Added += 1;
+      untrusted.push(t);
+    } else {
+      trusted.push(t);
+    }
   };
 
   const ranked = [...(mem0Hits || [])].sort((a, b) => (b.score || 0) - (a.score || 0));
   for (const hit of ranked) push(hit.memory, true);
   for (const c of curated || []) push(c, false);
 
-  return { contents: out, mem0Added };
+  return { contents: out, mem0Added, trusted, untrusted };
 }

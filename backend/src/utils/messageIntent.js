@@ -103,6 +103,8 @@ export function looksLikeMemoryStoreRequest(text) {
   if (!raw || raw.length < 10) return false;
   // Why: forget/delete memory is the opposite path — never treat as remember.
   if (looksLikeMemoryForgetRequest(raw)) return false;
+  // Session scratch is temporary — handled on a separate path.
+  if (looksLikeSessionScratchRequest(raw)) return false;
   const lower = raw.toLowerCase();
 
   // Explicit browse job — still a goal even if they also say "remember".
@@ -141,6 +143,54 @@ export function looksLikeMemoryStoreRequest(text) {
   // Numbered preference dump with store cue and no browse verb.
   if (storeCue && /\b\d+[).:]\s*\S/.test(raw) && raw.length >= 120) return true;
   return false;
+}
+
+/**
+ * True when the user wants a temporary chat-only note (not durable USER/MEMORY).
+ * Why: “for this chat remember X” must stay in sessionScratch with TTL.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSessionScratchRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw || raw.length < 12) return false;
+  if (looksLikeMemoryForgetRequest(raw)) return false;
+  const sessionCue =
+    /\b(for (this|the) (chat|session|thread|conversation)|just for now|for now|temporarily|this turn only)\b/i.test(
+      raw
+    );
+  if (!sessionCue) return false;
+  return (
+    /\b(remember|note|keep in mind|hold onto|don't forget|do not forget)\b/i.test(raw) ||
+    /^\s*(?:please\s+)?(?:note|remember)\s+/i.test(raw)
+  );
+}
+
+/**
+ * Pull the temporary fact from a session-scratch line.
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractSessionScratchFact(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  let rest = raw
+    .replace(
+      /^\s*(?:please\s+)?(?:for (?:this|the) (?:chat|session|thread|conversation)|just for now|for now|temporarily|this turn only)\s*[,:]?\s*/i,
+      ""
+    )
+    .replace(/^\s*(?:please\s+)?(?:remember(?:\s+that)?|note(?:\s+that)?|keep in mind|hold onto)\s+/i, "")
+    .trim();
+  if (!rest || rest.length < 3) {
+    // Fallback: strip leading remember after session cue elsewhere in the string.
+    rest = raw
+      .replace(/\b(for (this|the) (chat|session|thread|conversation)|just for now|for now|temporarily)\b/gi, " ")
+      .replace(/^\s*(?:please\s+)?remember(?:\s+that)?\s+/i, "")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  rest = rest.replace(/[.!]+$/g, "").trim();
+  return rest.slice(0, 320);
 }
 
 /**
@@ -456,6 +506,14 @@ export function classifyMessageIntent(text, opts = {}) {
       intent: "question",
       confidence: 0.96,
       reason: "memory_store_request",
+      text: cleaned,
+    };
+  }
+  if (looksLikeSessionScratchRequest(cleaned)) {
+    return {
+      intent: "question",
+      confidence: 0.96,
+      reason: "session_scratch_request",
       text: cleaned,
     };
   }

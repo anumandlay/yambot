@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:45] Memory Phase 2 — scratch, untrusted, extract idempotency, compress
+
+- **Prompt Provided:** Hermes memory Phase 2 — scoped scratch, untrusted labels, async extract reliability, tool-result retention, observability.
+- **Architectural Flow:** Chat.sessionScratch (TTL) for “for this chat/for now”. Mem0 hits labeled `[untrusted·retrieved]`. Post-run extract idempotent via Task.workingState + curated_save chip. chatContext compresses HTML/a11y observes. GET /api/governance/memory ledger.
+- **Impacted Files:** sessionScratch.js, Chat.js, Task.js, messageIntent.js, chatRememberPersist.js, chats.js, chatAutoTurn.js, chatContext.js, curatedMemoryExtract.js, mem0Service.js, semanticMemory.js, curatedMemory.js, governance.js, memoryPhase2.test.js, PROMPT_LOG
+
 ## [2026-09-24 13:30] Memory Phase 1 — forget, provenance, budget, precedence
 
 - **Prompt Provided:** Hermes context/memory lifecycle — implement Phase 1 (forget sync, provenance, write safety, precedence labels, cross-block budget).

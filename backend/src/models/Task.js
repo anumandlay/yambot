@@ -254,6 +254,12 @@ const taskSchema = new mongoose.Schema(
      * (Notion / Slack / Gmail) with the result summary as prior content.
      */
     comboFollowup: { type: mongoose.Schema.Types.Mixed, default: null },
+    /**
+     * Ephemeral run state (not durable MEMORY).
+     * Phase 2: memoryExtractAt / memoryExtractKey for idempotent post-run extract;
+     * may also hold short-lived task scratch (current URL hints, etc.).
+     */
+    workingState: { type: mongoose.Schema.Types.Mixed, default: null },
     /** Hermes-depth TaskPlan this computer step belongs to. */
     taskPlanId: {
       type: mongoose.Schema.Types.ObjectId,

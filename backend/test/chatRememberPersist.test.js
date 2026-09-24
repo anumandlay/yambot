@@ -53,7 +53,7 @@ assert.equal(replaced.entries[0], "User prefers visible browser automation.");
 
 const block = renderCuratedBlock("memory", ["note one"]);
 assert.match(block, /retrieved notes/i);
-assert.match(block, /background information/i);
+assert.match(block, /untrusted·retrieved|background only/i);
 
 const budget = assembleAgentContextBudget(128000);
 assert.ok(budget.userChars > 0);

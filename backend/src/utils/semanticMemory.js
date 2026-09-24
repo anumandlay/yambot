@@ -345,6 +345,8 @@ export async function resolveCuratedMemoryForPrompt(opts) {
         agentContents = agentMerged.contents;
         mem0Meta.userMerged = userMerged.mem0Added;
         mem0Meta.agentMerged = agentMerged.mem0Added;
+        mem0Meta.userUntrusted = userMerged.untrusted?.length || 0;
+        mem0Meta.agentUntrusted = agentMerged.untrusted?.length || 0;
       }
     } catch (err) {
       console.warn("[semanticMemory] mem0 merge failed:", err?.message || err);
@@ -394,13 +396,17 @@ export function formatCuratedPullMessageContent(meta) {
   const agent = meta?.agent || {};
   const user = meta?.user || {};
   const mem0 = meta?.mem0 || {};
+  const budget = meta?.budget || {};
   const lines = [
     `Memory pull · agent ${agent.mode || "?"} ${agent.selected || 0}/${agent.total || 0}` +
       (user.total
         ? ` · user ${user.mode || "?"} ${user.selected || 0}/${user.total || 0}`
         : "") +
       (mem0.enabled
-        ? ` · mem0 +${(mem0.agentMerged || 0) + (mem0.userMerged || 0)}`
+        ? ` · mem0 +${(mem0.agentMerged || 0) + (mem0.userMerged || 0)} (untrusted)`
+        : "") +
+      (budget.memoryChars
+        ? ` · budget mem ${budget.memoryChars}/user ${budget.userChars}`
         : ""),
   ];
   if (Array.isArray(agent.pulled) && agent.pulled.length) {
@@ -410,7 +416,10 @@ export function formatCuratedPullMessageContent(meta) {
         typeof row.score === "number" && row.score > 0
           ? ` [${row.score.toFixed(2)}]`
           : "";
-      lines.push(`${row.rank}. ${row.content}${sc}`);
+      const trust = /\[untrusted·retrieved\]/i.test(String(row.content || ""))
+        ? " · untrusted"
+        : " · trusted";
+      lines.push(`${row.rank}. ${row.content}${sc}${trust}`);
     }
   } else {
     lines.push("", "Agent MEMORY: (none pulled)");
@@ -422,7 +431,10 @@ export function formatCuratedPullMessageContent(meta) {
         typeof row.score === "number" && row.score > 0
           ? ` [${row.score.toFixed(2)}]`
           : "";
-      lines.push(`${row.rank}. ${row.content}${sc}`);
+      const trust = /\[untrusted·retrieved\]/i.test(String(row.content || ""))
+        ? " · untrusted"
+        : " · trusted";
+      lines.push(`${row.rank}. ${row.content}${sc}${trust}`);
     }
   }
   return lines.join("\n");

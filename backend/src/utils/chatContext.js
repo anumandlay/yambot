@@ -11,12 +11,55 @@ import {
   chatContextBudgetFromTokens,
   DEFAULT_CONTEXT_TOKENS,
 } from "./llmContextWindow.js";
+import { formatSessionScratchBlock } from "./sessionScratch.js";
 
 /** Fallback constants when no creds are passed (legacy / tests). */
 export const CHAT_CONTEXT_RECENT = 16;
 export const CHAT_CONTEXT_SUMMARIZE_MIN = 24;
 export const CHAT_CONTEXT_SUMMARIZE_CHARS = 14_000;
 export const CHAT_CONTEXT_SUMMARY_MAX = 3_500;
+
+/**
+ * Compress noisy tool/observe payloads for chat packing.
+ * Why: accessibility trees / HTML dumps blow the context window; keep a short summary + artifact hint.
+ * @param {string} text
+ * @param {object} [m]
+ * @returns {string}
+ */
+export function compressToolResultForContext(text, m = null) {
+  let raw = String(text || "").replace(/\s+/g, " ").trim();
+  if (!raw) return "";
+  const kind = String(m?.meta?.kind || "");
+  const looksHtml =
+    /<\/?(html|body|div|span|table|script|style)\b/i.test(raw) ||
+    raw.includes("<!DOCTYPE");
+  const looksA11y =
+    /\b(AXRole|accessibility|role=|name=|focused=| bounding box)\b/i.test(raw) &&
+    raw.length > 800;
+  const looksScreenshotPath = /\b(screenshot|artifact)[:\s].+\.(png|jpg|jpeg|webp)\b/i.test(
+    raw
+  );
+
+  if (looksHtml || looksA11y) {
+    const urlMatch = raw.match(/https?:\/\/[^\s"'<>]+/i);
+    const titleMatch = raw.match(/\b(?:title|page)\s*[:=]\s*["']?([^"'<\n]{3,80})/i);
+    const bits = [
+      kind === "observe" || kind === "step" ? "Tool observe (compressed)" : "Tool result (compressed)",
+      titleMatch?.[1] ? `title=${titleMatch[1].trim()}` : null,
+      urlMatch?.[0] ? `url=${urlMatch[0].slice(0, 120)}` : null,
+      `~${raw.length} chars dropped from prompt`,
+    ].filter(Boolean);
+    return bits.join(" · ").slice(0, 400);
+  }
+  if (looksScreenshotPath && raw.length > 600) {
+    return raw.slice(0, 280) + " …[screenshot/artifact retained as path only]";
+  }
+  // Keep finish / result / email-ish content longer; trim other agent spam.
+  if (kind === "result" || kind === "chat_qa") return raw;
+  if (/\bfinish\b/i.test(raw) && raw.length > 900) return raw.slice(0, 900);
+  if (kind === "step" || kind === "observe") return raw.slice(0, 500);
+  return raw;
+}
 
 /**
  * @param {{ contextTokens?: number, llmModel?: string, model?: string }|null|undefined} creds
@@ -54,9 +97,7 @@ export function isContextEligibleMessage(m) {
  */
 export function formatContextMessageLine(m, lineMax = 1200) {
   const role = String(m.role || "unknown").toUpperCase();
-  const text = String(m.content || "")
-    .replace(/\s+/g, " ")
-    .trim()
+  const text = compressToolResultForContext(String(m.content || ""), m)
     .slice(0, Math.max(200, lineMax));
   return `${role}: ${text}`;
 }
@@ -82,11 +123,20 @@ export async function loadEligibleChatMessages(chatId, opts = {}) {
 export function contextMessagePriority(m) {
   const role = String(m?.role || "");
   const kind = String(m?.meta?.kind || "");
+  const content = String(m?.content || "");
   if (role === "user") return 100;
   if (role === "assistant" && (kind === "result" || kind === "chat_qa")) return 95;
   if (role === "assistant") return 80;
   if (role === "system" && kind === "skill_learned") return 40;
-  if (role === "agent" && kind === "step" && /\bfinish\b/i.test(String(m?.content || ""))) return 55;
+  if (role === "agent" && kind === "step" && /\bfinish\b/i.test(content)) return 55;
+  // Why: huge HTML/a11y observes are almost never useful in later turns — demote hard.
+  if (
+    role === "agent" &&
+    (kind === "step" || kind === "observe") &&
+    (content.length > 1200 || /<\/?(html|body|div)\b/i.test(content))
+  ) {
+    return 12;
+  }
   if (role === "agent" && (kind === "step" || kind === "observe")) return 20;
   if (role === "agent") return 30;
   if (role === "system") return 25;
@@ -177,8 +227,14 @@ export function formatChatContextBlock(chat, eligible, budget = null) {
           .join("\n")
     );
   }
-  if (!parts.length) return "";
-  return (
+  if (!parts.length) {
+    const onlyScratch = formatSessionScratchBlock(chat?.sessionScratch);
+    return onlyScratch
+      ? "THIS CHAT SESSION CONTEXT:\n" + onlyScratch
+      : "";
+  }
+  const scratchBlock = formatSessionScratchBlock(chat?.sessionScratch);
+  const body =
     "THIS CHAT SESSION CONTEXT (use for continuity; do not invent turns that are not listed):\n" +
       "AUTHORITY: Account USER prefs / tone / identity come only from the USER PROFILE block " +
       "(Settings → Memory). If that block is absent or empty, do not keep old tone/identity " +
@@ -186,8 +242,8 @@ export function formatChatContextBlock(chat, eligible, budget = null) {
       "FOLLOW-UPS: When the user refers to above/those/them emails or prior results, use the " +
       "lists and addresses in RECENT MESSAGES (and EARLIER summary). Draft or answer in chat — " +
       "do not invent missing emails.\n\n" +
-      parts.join("\n\n")
-  );
+      parts.join("\n\n");
+  return scratchBlock ? `${body}\n\n${scratchBlock}` : body;
 }
 
 /**

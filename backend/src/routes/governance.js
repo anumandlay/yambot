@@ -13,7 +13,7 @@ export const governanceRouter = Router();
 
 /**
  * GET /api/governance/audit — recent audit events.
- * Query: limit?, agentId?, goalId?, action?
+ * Query: limit?, agentId?, goalId?, action?, actionPrefix? (e.g. memory_)
  */
 governanceRouter.get("/audit", async (req, res, next) => {
   try {
@@ -21,7 +21,12 @@ governanceRouter.get("/audit", async (req, res, next) => {
     const filter = { user: req.userId };
     if (req.query.agentId) filter.agent = String(req.query.agentId);
     if (req.query.goalId) filter.goal = String(req.query.goalId);
-    if (req.query.action) filter.action = String(req.query.action);
+    if (req.query.taskId) filter.task = String(req.query.taskId);
+    if (req.query.actionPrefix) {
+      filter.action = { $regex: `^${String(req.query.actionPrefix).replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}` };
+    } else if (req.query.action) {
+      filter.action = String(req.query.action);
+    }
 
     const events = await AuditEvent.find(filter)
       .sort({ createdAt: -1 })
@@ -29,6 +34,41 @@ governanceRouter.get("/audit", async (req, res, next) => {
       .lean();
 
     res.json({ ok: true, events });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * GET /api/governance/memory — memory mutation / extract ledger (Phase 2 observability).
+ * Query: limit?, agentId?, taskId?
+ */
+governanceRouter.get("/memory", async (req, res, next) => {
+  try {
+    const limit = Math.min(200, Math.max(1, Number(req.query.limit) || 50));
+    const filter = {
+      user: req.userId,
+      action: { $regex: /^memory_/ },
+    };
+    if (req.query.agentId) filter.agent = String(req.query.agentId);
+    if (req.query.taskId) filter.task = String(req.query.taskId);
+
+    const events = await AuditEvent.find(filter)
+      .sort({ createdAt: -1 })
+      .limit(limit)
+      .lean();
+
+    const byAction = {};
+    for (const ev of events) {
+      const a = String(ev.action || "unknown");
+      byAction[a] = (byAction[a] || 0) + 1;
+    }
+
+    res.json({
+      ok: true,
+      events,
+      summary: { count: events.length, byAction },
+    });
   } catch (err) {
     next(err);
   }

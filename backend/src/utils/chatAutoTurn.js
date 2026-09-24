@@ -12,6 +12,7 @@ import {
   classifyMessageIntent,
   looksLikeMemoryStoreRequest,
   looksLikeMemoryForgetRequest,
+  looksLikeSessionScratchRequest,
   looksLikeDayHistoryOrStatusRequest,
   looksLikeVagueChatFollowup,
   looksLikeComposioAppRequest,
@@ -791,6 +792,7 @@ export function looksLikeLiveComputerJobRequest(text) {
   if (looksLikeComposioAppRequest(t)) return false;
   if (looksLikeMemoryStoreRequest(t)) return false;
   if (looksLikeMemoryForgetRequest(t)) return false;
+  if (looksLikeSessionScratchRequest(t)) return false;
   if (looksLikeDayHistoryOrStatusRequest(t)) return false;
   if (looksLikeVagueChatFollowup(t)) return false;
   const lower = t.toLowerCase();
@@ -933,7 +935,9 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   // Why: teach-prefs / forget with URLs must never become a Chromium goal — even if the model mis-queues.
   if (
     action === "queue_goal" &&
-    (looksLikeMemoryStoreRequest(userText) || looksLikeMemoryForgetRequest(userText))
+    (looksLikeMemoryStoreRequest(userText) ||
+      looksLikeMemoryForgetRequest(userText) ||
+      looksLikeSessionScratchRequest(userText))
   ) {
     return {
       action: "reply",
@@ -941,7 +945,9 @@ export function ensureAutoTurnResult(result, ctx = {}) {
         content ||
         (looksLikeMemoryForgetRequest(userText)
           ? "Got it — I’ll forget that. No computer run started."
-          : "Got it — I’ll remember those preferences for this agent. No computer run started."),
+          : looksLikeSessionScratchRequest(userText)
+            ? "Got it — noted for this chat only. No computer run started."
+            : "Got it — I’ll remember those preferences for this agent. No computer run started."),
       goal: "",
       ack: "",
       reason: `${reason}_memory_store_forced_reply`,
