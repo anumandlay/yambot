@@ -52,6 +52,24 @@ import {
 } from "./composioService.js";
 
 /**
+ * In-process keys for schedule jobs currently being executed.
+ * Why: the 15s fast tick and 60s full tick can overlap; without this a 1m reminder
+ * can post twice before nextRunAt is persisted.
+ * @type {Set<string>}
+ */
+const runningScheduleKeys = new Set();
+
+/**
+ * Stable lock key for an agent schedule job.
+ * @param {import('mongoose').Document|object} agent
+ * @param {object|null} job
+ * @returns {string}
+ */
+function scheduleRunKey(agent, job) {
+  return `${String(agent?._id || "")}:${job?._id ? String(job._id) : "legacy"}`;
+}
+
+/**
  * Uses the agent's single chat (one chat per agent).
  * @param {import('mongoose').Document} agent
  * @param {object} [job]
@@ -246,6 +264,22 @@ export async function runScheduledAgent(agent, job = null) {
   const now = new Date();
   const jobLabel = String(sched.name || "").trim();
   const scheduleJobId = sched._id ? String(sched._id) : null;
+
+  // Why: claim the next slot before side effects so overlapping ticks cannot double-fire
+  // a 1m chat_reminder while the previous run is still saving.
+  sched.nextRunAt = computeNextRunAt(sched, now);
+  if (
+    job &&
+    Array.isArray(agent.schedules) &&
+    agent.schedules[0] &&
+    String(agent.schedules[0]._id) === String(job._id)
+  ) {
+    agent.schedule = agent.schedule || {};
+    agent.schedule.nextRunAt = sched.nextRunAt;
+  } else if (!job) {
+    agent.schedule.nextRunAt = sched.nextRunAt;
+  }
+  await agent.save();
 
   // --- Chat reminder: post a message, never start the computer ---
   if (kind === "chat_reminder") {
@@ -471,10 +505,20 @@ export async function tickAgentSchedules() {
           skipped += 1;
           continue;
         }
-        if (!job.nextRunAt) job.nextRunAt = now;
-        const result = await runScheduledAgent(agent, useMulti ? job : null);
-        if (result.ok) ran += 1;
-        else skipped += 1;
+        const lockKey = scheduleRunKey(agent, useMulti ? job : null);
+        if (runningScheduleKeys.has(lockKey)) {
+          skipped += 1;
+          continue;
+        }
+        runningScheduleKeys.add(lockKey);
+        try {
+          if (!job.nextRunAt) job.nextRunAt = now;
+          const result = await runScheduledAgent(agent, useMulti ? job : null);
+          if (result.ok) ran += 1;
+          else skipped += 1;
+        } finally {
+          runningScheduleKeys.delete(lockKey);
+        }
       } catch (err) {
         console.error(`[scheduler] agent ${agent._id} job ${job?._id || "legacy"}:`, err?.message || err);
         try {
@@ -555,13 +599,32 @@ export async function tickSlaBreaches() {
 }
 
 /**
- * Starts the in-process schedule loop (every ~60s).
- * @param {{ intervalMs?: number }} [opts]
+ * Starts the in-process schedule loop.
+ * Why: agent schedules (esp. 1m chat_reminders) need a ~15s poll so cadence is not
+ * stretched to ~2m by the heavy 60s full tick. Heavy work stays on intervalMs.
+ * @param {{ intervalMs?: number, scheduleTickMs?: number }} [opts]
  */
 export function startAgentScheduler(opts = {}) {
   const intervalMs = Math.max(30_000, Number(opts.intervalMs) || 60_000);
+  // Why: with a 60s poll, a 1m job that becomes due just after a tick waits ~2m.
+  // 15s keeps 1m reminders within about one minute ±15s.
+  const scheduleTickMs = Math.max(5_000, Number(opts.scheduleTickMs) || 15_000);
+
+  const tickSchedulesFast = async () => {
+    try {
+      const result = await tickAgentSchedules();
+      if (result.ran || result.checked) {
+        console.log(`[scheduler] schedules=${result.ran}/${result.checked} (fast)`);
+      }
+    } catch (err) {
+      console.error("[scheduler] schedule tick failed", err);
+    }
+  };
+
   const tick = async () => {
     try {
+      // Schedules also run on the fast loop; keep a pass here so a stopped fast timer
+      // (tests / misconfig) still fires jobs at least once per full tick.
       const result = await tickAgentSchedules();
       const esc = await tickTaskEscalations();
       const sla = await tickSlaBreaches();
@@ -623,7 +686,9 @@ export function startAgentScheduler(opts = {}) {
       console.error("[scheduler] tick failed", err);
     }
   };
+  void tickSchedulesFast();
   void tick();
+  setInterval(() => void tickSchedulesFast(), scheduleTickMs);
   setInterval(() => void tick(), intervalMs);
   // Why: API agents have no worker heartbeat — poll pending API tasks more often than the full scheduler.
   setInterval(() => {
@@ -631,7 +696,9 @@ export function startAgentScheduler(opts = {}) {
       console.error("[scheduler] apiAgents tick failed", err?.message || err)
     );
   }, 15_000);
-  console.log(`[scheduler] started (every ${intervalMs}ms; api agents every 15s)`);
+  console.log(
+    `[scheduler] started (schedules every ${scheduleTickMs}ms; full tick every ${intervalMs}ms; api agents every 15s)`
+  );
 }
 
 /** Unblocks dependency-ready tasks for all users with blocked queue items. */

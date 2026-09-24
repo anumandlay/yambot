@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:10] Fix 1m reminders firing every ~2 minutes
+
+- **Prompt Provided:** remind every 1 minute but water reminder arrived ~every 2 minutes (3:02:46 → 3:04:14).
+- **Architectural Flow:** Root cause was poll skew — full scheduler ticked every 60s, so a 1m `nextRunAt` due just after a tick waited until the next tick (~2m). Added a dedicated 15s schedule-only tick; claim `nextRunAt` before side effects + in-process lock so fast+full ticks cannot double-post.
+- **Impacted Files:** scheduler.js, PROMPT_LOG
+
 ## [2026-09-24 15:05] Parse “at 2 pm every day” into dailyAt
 
 - **Prompt Provided:** remind me to start doordash at 2 pm every day — agent settings time wrong.
