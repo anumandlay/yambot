@@ -1,5 +1,5 @@
 /**
- * @fileoverview Unit tests for Jev Auto gate helpers (no live Gateway call).
+ * @fileoverview Unit tests: Jev retired; Auto hint exposes three LLM-owned modes.
  * Run: node --test test/jevAutoGate.test.js (from backend/)
  */
 
@@ -8,47 +8,32 @@ import assert from "node:assert/strict";
 import { formatAutoClassifierHint, buildAutoUserContent } from "../src/utils/chatAutoTurn.js";
 import { JEV_CONFIDENT_MIN, isJevEnabled } from "../src/utils/jevEvaluate.js";
 
-describe("Jev Auto classifier hint", () => {
-  it("embeds Jev prefer-reply when provided", () => {
+describe("Auto classifier hint (Jev removed)", () => {
+  it("describes three modes without Jev lines", () => {
     const hint = formatAutoClassifierHint("hi", {
       jev: { action: "reply", choice: "reply", confidence: 0.91, reason: "jev_confident" },
     });
-    assert.match(hint, /jev_action=reply/);
-    assert.match(hint, /Jev prefers REPLY/i);
+    assert.match(hint, /three modes/i);
+    assert.match(hint, /Composio tools/i);
+    assert.doesNotMatch(hint, /jev_action=/);
+    assert.doesNotMatch(hint, /Jev prefers/i);
   });
 
-  it("embeds Jev prefer-queue when provided", () => {
-    const hint = formatAutoClassifierHint("open https://example.com", {
-      jev: {
-        action: "queue_goal",
-        choice: "queue_goal",
-        confidence: 0.88,
-        reason: "jev_confident",
-      },
-    });
-    assert.match(hint, /jev_action=queue_goal/);
-    assert.match(hint, /Jev prefers QUEUE_GOAL/i);
-  });
-
-  it("packs USER MESSAGE with optional Jev meta", () => {
+  it("packs USER MESSAGE without Jev meta", () => {
     const packed = buildAutoUserContent("hello", {
       jev: { action: "uncertain", reason: "jev_error", confidence: 0 },
     });
     assert.match(packed, /USER MESSAGE:\nhello/);
-    assert.match(packed, /jev_reason=jev_error/);
+    assert.doesNotMatch(packed, /jev_reason=/);
   });
 
-  it("exposes a confidence floor for short-circuit", () => {
+  it("keeps JEV_CONFIDENT_MIN for legacy probes", () => {
     assert.ok(JEV_CONFIDENT_MIN >= 0.5 && JEV_CONFIDENT_MIN < 1);
   });
 
-  it("respects jevMode off even when a gateway key exists in env", () => {
+  it("isJevEnabled is always false (retired)", () => {
     assert.equal(isJevEnabled("off"), false);
-  });
-
-  it("reports auto mode from env key presence", () => {
-    // Why: local shells may export AI_GATEWAY_API_KEY after lab setup — assert boolean only.
-    assert.equal(typeof isJevEnabled("auto"), "boolean");
-    assert.equal(typeof isJevEnabled("on"), "boolean");
+    assert.equal(isJevEnabled("auto"), false);
+    assert.equal(isJevEnabled("on"), false);
   });
 });

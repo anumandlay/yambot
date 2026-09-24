@@ -1,9 +1,8 @@
 /**
  * @fileoverview Hermes-style Auto chat turn — model picks from YamBot chat tools.
- * Purpose: reply / queue_goal (+ optional status/peer lookups); harden malformed output,
- * default queue acks, and stream→non-stream recovery. Downstream: chats.js Auto mode only.
- * When AI_GATEWAY_API_KEY is set, Jev (Vercel AI Gateway) decides reply vs queue_goal first;
- * confident choices short-circuit; uncertain falls through to the LLM with a Jev hint.
+ * Purpose: The chat LLM decides three modes — normal REPLY, live QUEUE_GOAL (computer/peers),
+ * or Composio app tools. No Jev / heuristic short-circuit for that choice.
+ * Downstream: chats.js Auto mode only.
  */
 
 import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
@@ -16,7 +15,6 @@ import {
   looksLikeVagueChatFollowup,
   looksLikeComposioAppRequest,
 } from "./messageIntent.js";
-import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 import {
   matchComposioIntent,
   compactComposioExecuteResult,
@@ -1676,47 +1674,24 @@ export function parseAutoTurnOutput(raw, userText = "") {
 }
 
 /**
- * Whether Auto should skip the model and queue the computer immediately.
- * Why (Hermes-style): the LLM normally decides reply vs queue_goal. Only force-queue
- * for send-mail / peer fan-out — URL/domain / browse verbs go to the model with a hint.
- * Hard chat vetoes (day-history, memory-store) still run earlier in runChatAutoTurn.
- * @param {string} text
+ * Soft gate only — always defer to the LLM for chat vs computer vs Composio.
+ * Why: Jev + URL heuristics mis-routed app asks (Sheets/Gmail) and past-work questions.
+ * Kept as "model" so empty-reply recovery never force-queues either.
+ * @param {string} _text
  * @returns {"queue_goal"|"model"}
  */
-export function autoTurnHeuristicGate(text) {
-  const c = classifyMessageIntent(text, {});
-  // Why: teach-prefs / day-history / vague / Composio apps — model path (or tools), never skip-to-queue.
-  if (c.reason === "memory_store_request") return "model";
-  if (c.reason === "day_history_or_status" || c.reason === "vague_chat_followup") return "model";
-  if (looksLikeComposioAppRequest(text)) return "model";
-  // Why: send + peer are unambiguous worker jobs — skip LLM latency.
-  if (c.reason === "send_email_from_context") return "queue_goal";
-  if (c.reason === "peer_a2a_or_fanout" || c.reason === "peer_a2a_overrides_ask") {
-    return "queue_goal";
-  }
-  // Why: concrete live browse/open jobs — queue now (avoid “Want me to?” then cheap “yes”).
-  // Day-history / memory-store already returned “model” above.
-  if (
-    c.intent === "goal" &&
-    (c.reason === "question_shaped_but_actionable" ||
-      c.reason === "has_url_or_domain" ||
-      c.reason === "explicit_task")
-  ) {
-    return "queue_goal";
-  }
-  // Why: has_url_or_domain / explicit_task used to force-queue and mis-fired on
-  // “did we open nseindia.com today?” — LLM decides with classifier hint instead.
+export function autoTurnHeuristicGate(_text) {
   return "model";
 }
 
 /**
- * Soft classifier note injected into the Auto user message so the LLM sees the gate signal.
- * Why: heuristics alone mis-routed; the model needs an explicit REPLY vs QUEUE_GOAL checklist.
+ * Soft classifier note injected into the Auto user message so the LLM sees context signals.
+ * Why: no hard route — the model must pick REPLY (chat), QUEUE_GOAL (live computer), or composio_* tools.
  * @param {string} text
- * @param {{ jev?: { action?: string, choice?: string, confidence?: number, reason?: string }|null }} [opts]
+ * @param {{ jev?: { action?: string, choice?: string, confidence?: number, reason?: string }|null }} [_opts]
  * @returns {string}
  */
-export function formatAutoClassifierHint(text, opts = {}) {
+export function formatAutoClassifierHint(text, _opts = {}) {
   const c = classifyMessageIntent(text, {});
   const reason = String(c.reason || "unknown");
   const intent = String(c.intent || "unknown");
@@ -1724,54 +1699,38 @@ export function formatAutoClassifierHint(text, opts = {}) {
   const lines = [
     "[AUTO DECISION HINT — not user text]",
     `classifier_intent=${intent}; classifier_reason=${reason}`,
+    "YOU decide one of three modes:",
+    "1) REPLY — normal chat (questions, memory, planning, past status). No Chromium.",
+    "2) QUEUE_GOAL — live cloud computer / peers NOW (open/click/fill a site, fan-out).",
+    "3) Composio tools (composio_search → composio_execute) — Gmail/Sheets/Slack/Drive and other connected apps. Never invent browser goals for those.",
   ];
-  const jev = opts.jev;
-  if (jev && (jev.action || jev.choice || jev.reason)) {
-    lines.push(
-      `jev_action=${String(jev.action || "uncertain")}; jev_choice=${String(jev.choice || "")}; jev_confidence=${Number(jev.confidence || 0).toFixed(2)}; jev_reason=${String(jev.reason || "")}`
-    );
-    if (jev.action === "reply") {
-      lines.push("Jev prefers REPLY — answer in chat unless the user clearly demands a live computer job.");
-    } else if (jev.action === "queue_goal") {
-      lines.push("Jev prefers QUEUE_GOAL — start the computer / peers if the message is a live job.");
-    } else if (jev.reason === "jev_error") {
-      lines.push("Jev unavailable — YOU decide REPLY vs QUEUE_GOAL. Prefer REPLY when unsure.");
-    }
-  }
   if (reason === "day_history_or_status" || reason === "vague_chat_followup") {
     lines.push(
-      "Prefer REPLY. This looks like a past-work / status question — answer from day history or chat. Do NOT start a live computer."
+      "Signal: looks like past-work / status — prefer REPLY from day history. Do NOT start a live computer."
     );
   } else if (reason === "memory_store_request") {
     lines.push(
-      "Prefer REPLY. User is teaching preferences/facts (URLs in the list are credentials/bookmarks, not a browse job)."
+      "Signal: teaching preferences/facts — prefer REPLY (URLs in the list are bookmarks, not a browse job)."
     );
   } else if (looksLikeComposioAppRequest(text)) {
     lines.push(
-      "Prefer REPLY path with composio_* tools (composio_search → composio_execute). Do NOT queue_goal / start Chromium for Gmail/Slack/Sheets/etc."
+      "Signal: may be a connected-app ask — prefer composio_* tools over QUEUE_GOAL."
     );
   } else if (reason === "has_url_or_domain" || reason === "explicit_task") {
     lines.push(
-      "A URL/domain or task verb was detected. QUEUE_GOAL only if they want a live browse/run RIGHT NOW (open/go to/check this site, click, fill, submit).",
-      "Prefer REPLY if they ask about the past (did we open… today?), capability, planning, or memory — naming a domain is not enough to start Chromium."
+      "Signal: URL/domain or task verb seen. QUEUE_GOAL only for a live browse/run RIGHT NOW;",
+      "prefer REPLY if they ask about the past, capability, or planning."
     );
   } else if (reason === "capability_question") {
-    lines.push("Prefer REPLY — capability/policy question; do not queue until they name a concrete live job.");
+    lines.push("Signal: capability/policy — prefer REPLY until they name a concrete live job.");
   } else {
-    lines.push(
-      "YOU decide: REPLY = answer in chat; QUEUE_GOAL = start cloud computer / peers. Prefer REPLY when unsure."
-    );
+    lines.push("Prefer REPLY when unsure. A domain/URL alone ≠ start computer.");
   }
   lines.push("[END AUTO DECISION HINT]");
   return lines.join("\n");
 }
 
-/**
- * User payload for Auto LLM: classifier hint + real message.
- * @param {string} text
- * @param {{ jev?: object|null }} [opts]
- * @returns {string}
- */
+
 export function buildAutoUserContent(text, opts = {}) {
   const body = String(text || "").trim().slice(0, 4000);
   const hint = formatAutoClassifierHint(body, opts);
@@ -1834,38 +1793,36 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "You are NOT controlling the browser in this turn. Queuing starts a cloud computer / A2A workers.",
     "",
-    "=== DECISION: REPLY vs QUEUE_GOAL (you own this choice) ===",
-    "Read the [AUTO DECISION HINT] on the user message, then decide.",
+    "=== DECISION: three modes (you own this choice) ===",
+    "Read the [AUTO DECISION HINT] on the user message, then pick exactly one mode:",
     "",
-    "QUEUE_GOAL / queue_goal — only when they want a LIVE computer or peers NOW:",
+    "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
+    "- Questions, memory, capability, planning, greetings, drafts",
+    "- Past work: “did we open X today?”, day history, status",
+    "- Prefer REPLY when unsure",
+    "",
+    "2) QUEUE_GOAL / queue_goal — LIVE cloud computer / peers NOW:",
     "- Imperative browse: open/go to/navigate/visit a site, click, fill, submit, log in (now)",
     "- Live research that needs browsing this turn",
     "- Peer message / fan-out / handoff",
-    "- Send/deliver mail, download, change something external",
+    "- Worker send_email / download / change something in the browser",
     "- NEVER turn an email address into a https:// URL",
+    "- NEVER use QUEUE_GOAL for Gmail/Sheets/Slack/Drive via connected apps — that is mode 3",
     "",
-    "REPLY / reply — answer in chat (no Chromium):",
-    "- Questions, memory, capability, planning",
-    "- Composio app actions via composio_* tools (agent’s enabled apps) — never invent a browser goal for those",
-    "- Flow: composio_search (find tool slug) → if needed composio_connect (paste redirectUrl) → composio_wait → composio_execute",
-    "- Multi-step: users may chain apps in one message (list Sheets and email the list; unread then Slack #channel). Prefer finishing each step before the next.",
-    "- Always include the full https connect URL in your reply when composio_connect returns redirectUrl",
-    "- Never write fake lines like ACTION: composio_list(), ACTION: check_email(), or ACTION: navigate(url=…) — use Composio for Gmail/Slack (or the runtime will), then reply in plain prose",
+    "3) Composio tools — connected apps (Gmail, Google Sheets, Slack, Drive, Notion, …):",
+    "- Use composio_search → composio_connect (if needed) → composio_wait → composio_execute",
+    "- Multi-step asks (list a Sheet then email it; unread then Slack) — finish each step before the next",
+    "- Always paste the full https connect URL when composio_connect returns redirectUrl",
+    "- Never write fake ACTION: lines — call real composio_* tools, then reply in plain prose",
     "",
-    "- Questions about the past: “did we open X today?”, “what we did”, timestamps, day history, status",
-    "- MEMORY STORE / remember preferences (URLs in the list are facts, not a browse job)",
-    "- Capability / policy (“can you open websites?”) — do not queue until they name a concrete live job",
-    "- Greetings, explanations, planning, drafts (draft=REPLY; send=QUEUE_GOAL)",
-    "- Naming a domain in a question is NOT enough — only start the computer for a live action",
-    "",
-    "Auto: YOU decide. Prefer REPLY when unsure. A domain/URL alone ≠ start computer.",
+    "Auto: YOU decide among the three. A domain/URL alone ≠ start computer. Prefer REPLY when unsure.",
     "",
     "SEND MAIL RULES:",
-    "- Draft = REPLY. Send/deliver = QUEUE_GOAL.",
+    "- Draft = REPLY. Send via worker SMTP = QUEUE_GOAL. Send via connected Gmail = Composio tools.",
     "- When EMAIL IDENTITY / SMTP is configured, the worker must use send_email actions (to/subject/text) — not Gmail compose and not navigate.",
     "- Copy recipient addresses from RECENT MESSAGES. Do not invent URLs from local-parts (e.g. never open https://alex.parker.demo/).",
     "",
-    "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing or peers.",
+    "Do not invent credentials. Prefer reply when unsure unless they clearly need browsing, peers, or connected apps.",
     "USER PROFILE (Settings → Memory) is authoritative for tone/identity. If that block is empty or says none, ignore old tone prefs from chat history.",
   ];
 
@@ -2088,130 +2045,11 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  if (autoTurnHeuristicGate(text) === "queue_goal") {
-    track.setPath("heuristic");
-    track.markDecision("queue_goal");
-    return finalize({
-      action: "queue_goal",
-      content: "",
-      goal: text,
-      ack: "",
-      reason: "heuristic_queue_goal",
-      timing: track.finish(),
-    });
-  }
-
-  const jevModeNorm = String(jevMode || "auto").trim().toLowerCase() || "auto";
-  /** @type {Awaited<ReturnType<typeof classifyAutoActionWithJev>>|null} */
-  let jevDecision = null;
-  if (isJevEnabled(jevModeNorm)) {
-    jevDecision = await classifyAutoActionWithJev(text, { jevMode: jevModeNorm });
-    const composioIntent = looksLikeComposioAppRequest(text);
-    // Why: Jev treated “Search my Gmail…” as queue_goal — that must use composio_* tools instead.
-    if (jevDecision.action === "queue_goal" && !composioIntent) {
-      track.setPath("jev");
-      track.markDecision("queue_goal");
-      return finalize({
-        action: "queue_goal",
-        content: "",
-        goal: text,
-        ack: "",
-        reason: `jev_queue_goal:${Number(jevDecision.confidence || 0).toFixed(2)}`,
-        timing: track.finish(),
-        jev: jevDecision,
-      });
-    }
-    if (jevDecision.action === "reply" && !composioIntent) {
-      track.setPath("jev_reply");
-      track.markDecision("reply");
-      const content = await streamChatQuestion({
-        question: text,
-        snapshot,
-        creds,
-        chatContext,
-        onDelta: stream ? delta : undefined,
-      });
-      return finalize({
-        action: "reply",
-        content: content || "Got it.",
-        goal: "",
-        ack: "",
-        reason: `jev_reply:${Number(jevDecision.confidence || 0).toFixed(2)}`,
-        timing: track.finish(),
-        jev: jevDecision,
-      });
-    }
-    if (composioIntent && (jevDecision.action === "queue_goal" || jevDecision.action === "reply")) {
-      // Fall through to tools path; keep Jev decision for the classifier hint.
-      jevDecision = {
-        ...jevDecision,
-        action: "uncertain",
-        reason: `${jevDecision.reason || "jev"}_composio_override`,
-      };
-    }
-    // uncertain — keep jevDecision for classifier hint on the LLM path
-  } else if (jevModeNorm === "off") {
-    jevDecision = {
-      ok: false,
-      action: "uncertain",
-      choice: "",
-      confidence: 0,
-      probabilities: {},
-      reason: "jev_disabled",
-    };
-  }
-
-  // Why: when the client wants a live bubble, stream REPLY/QUEUE_GOAL text immediately.
-  // Native tools are non-streaming and left “Sending…” blank for the whole LLM wait.
-  // Keep tools for status/peer questions (need the lookup loop) or non-stream calls.
-  const wantsLookup =
-    looksLikeComposioAppRequest(text) ||
-    /\b(status|running|busy|pending|peers?|managed agents?|who can you (message|ask)|list (your )?peers|composio|gmail|slack|google\s*sheets?|spreadsheet|notion|github|hubspot|connect (gmail|slack|notion)|send (a )?(slack|email)|i connected|connected|unread|label|labels)\b/i.test(
-      text
-    );
-  if (stream && !wantsLookup) {
-    return finalize(
-      await runChatAutoTurnTextFallback(
-        {
-          question,
-          snapshot,
-          creds,
-          chatContext,
-          stream: true,
-          onDelta,
-          jev: jevDecision,
-        },
-        track
-      )
-    );
-  }
+  // Why: Jev + URL heuristics + deterministic Composio intents removed —
+  // the chat LLM owns normal reply vs live computer vs connected-app tools.
+  const jevDecision = null;
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
-
-  // Why: some LLM providers 500 on tool_choice={function:composio_*}; mapped intents skip the tool loop.
-  const multiComposio = looksLikeMultiStepComposioRequest(text);
-  const mappedComposio = matchComposioIntent(text);
-  if ((multiComposio || mappedComposio) && runtime?.composioApiKey) {
-    try {
-      track.emitProgress(
-        multiComposio ? "Planning Composio steps…" : `Working with ${mappedComposio?.label || "apps"}…`,
-        12
-      );
-      return finalize(
-        await runDeterministicComposioIntentTurn({
-          runtime,
-          userText: text,
-          creds,
-          onDelta: stream ? delta : undefined,
-          track,
-          spec: mappedComposio || undefined,
-        })
-      );
-    } catch (err) {
-      console.warn("[auto] deterministic composio intent failed:", err?.message || err);
-      // Fall through to tools / text paths with a useful Composio error if possible.
-    }
-  }
 
   /** @type {object[]} */
   const messages = [
@@ -2219,7 +2057,7 @@ export async function runChatAutoTurn(opts) {
       role: "system",
       content: buildAutoSystemPrompt(snapshot, agentName, thread, "tools"),
     },
-    { role: "user", content: buildAutoUserContent(text, { jev: jevDecision }) },
+    { role: "user", content: buildAutoUserContent(text) },
   ];
 
   try {

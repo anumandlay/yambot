@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 20:10] Remove Jev — LLM owns chat vs computer vs Composio
+
+- **Prompt Provided:** This is not good, lets remove Jeb, let the llm decide its a normal chat or live computer chat or related to composio.
+- **Architectural Flow:** Retire Jev (`isJevEnabled` always false). Drop heuristic force-queue and deterministic Composio short-circuit from Auto. Always run the tools LLM path so it can pick REPLY, QUEUE_GOAL, or composio_* tools. Soft hints + system prompt describe the three modes; stall recovery may still call mapped Composio helpers.
+- **Impacted Files:** chatAutoTurn.js, jevEvaluate.js, env.js, hermesAutoGate.test.js, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-23 20:00] Trial expiry list → Sheets + email (not Gmail unread)
 
 - **Prompt Provided:** Check trial expiring list and send the list to fastagconsultant@gmail.com using composio → wrongly returned Top unread from Gmail.

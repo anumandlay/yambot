@@ -1,8 +1,8 @@
 /**
  * @fileoverview Jev (TypeSafe System One) via Vercel AI Gateway HTTP evaluate API.
- * Purpose: Fast typed decisions (reply vs queue_goal) without prose parsing.
+ * Purpose: Legacy typed reply vs queue_goal helper — **disabled**. Auto now lets the chat LLM
+ * decide normal reply vs live computer vs Composio tools. Kept for offline probes/tests only.
  * Inputs: AI_GATEWAY_API_KEY (+ optional JEV_MODEL / JEV_ENABLED); user message state.
- * Downstream: chatAutoTurn runChatAutoTurn — falls back to Hermes Auto LLM when unset/failing.
  */
 
 import { env } from "./env.js";
@@ -13,17 +13,12 @@ const DEFAULT_MODEL = "typesafe-ai/jev";
 export const JEV_CONFIDENT_MIN = 0.72;
 
 /**
- * @param {"auto"|"on"|"off"|string|undefined|null} [mode]
+ * Jev is retired from Auto routing — always off so the chat LLM owns the decision.
+ * @param {"auto"|"on"|"off"|string|undefined|null} [_mode]
  * @returns {boolean}
  */
-export function isJevEnabled(mode = "auto") {
-  const m = String(mode || "auto").trim().toLowerCase();
-  if (m === "off" || m === "0" || m === "false" || m === "no") return false;
-  const hasKey = Boolean(String(env.AI_GATEWAY_API_KEY || "").trim());
-  if (m === "on" || m === "1" || m === "true" || m === "yes") return hasKey;
-  const flag = String(env.JEV_ENABLED || "").trim().toLowerCase();
-  if (flag === "0" || flag === "false" || flag === "off" || flag === "no") return false;
-  return hasKey;
+export function isJevEnabled(_mode = "auto") {
+  return false;
 }
 
 /**

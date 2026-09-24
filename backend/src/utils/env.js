@@ -56,11 +56,10 @@ export const env = {
   DEFAULT_LLM_BASE_URL: process.env.DEFAULT_LLM_BASE_URL || LLM_BASE,
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
   /**
-   * Vercel AI Gateway key for Jev (System One) typed decisions.
-   * Why: Auto REPLY vs QUEUE_GOAL can skip a full chat LLM round when Jev is confident.
+   * Vercel AI Gateway key (legacy Jev). Unused — Auto LLM owns reply vs queue vs Composio.
    */
   AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY || "",
-  /** Empty = on when AI_GATEWAY_API_KEY is set; set 0/false to force off. */
+  /** Legacy; isJevEnabled() always returns false. */
   JEV_ENABLED: process.env.JEV_ENABLED || "",
   JEV_MODEL: process.env.JEV_MODEL || "typesafe-ai/jev",
   /** Internal computer-manager HTTP (Compose network). */
