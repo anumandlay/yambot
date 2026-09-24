@@ -58,6 +58,49 @@ export function formatScheduleIntervalLabel(interval, dailyAt = "09:00") {
 }
 
 /**
+ * Human label for HH:MM (24h UTC stored value).
+ * @param {string} dailyAt
+ * @returns {string}
+ */
+export function formatDailyAtLabel(dailyAt) {
+  const raw = String(dailyAt || "09:00").trim();
+  const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
+  if (!m) return `${raw} UTC`;
+  const hh = Number(m[1]);
+  const mm = m[2];
+  const ap = hh >= 12 ? "PM" : "AM";
+  const h12 = hh % 12 || 12;
+  return `${h12}:${mm} ${ap} UTC (${String(hh).padStart(2, "0")}:${mm})`;
+}
+
+/**
+ * Parse a wall-clock time from chat (“at 2 pm”, “2:30pm”, “at 14:00”).
+ * @param {string} text
+ * @returns {{ dailyAt: string, matchedSpan: string }|null}
+ */
+export function parseClockTimeFromText(text) {
+  const raw = String(text || "");
+  const m =
+    raw.match(/\bat\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||
+    raw.match(/\b(\d{1,2})(?::(\d{2}))?\s*(am|pm)\b/i) ||
+    raw.match(/\bat\s+(\d{1,2}):(\d{2})\b/i);
+  if (!m) return null;
+  let hh = Number(m[1]);
+  let mm = m[2] != null ? Number(m[2]) : 0;
+  if (!Number.isFinite(hh) || !Number.isFinite(mm)) return null;
+  const ap = String(m[3] || "").toLowerCase();
+  if (ap === "pm" && hh < 12) hh += 12;
+  if (ap === "am" && hh === 12) hh = 0;
+  if (!ap && hh > 23) return null;
+  hh = Math.min(23, Math.max(0, hh));
+  mm = Math.min(59, Math.max(0, mm));
+  return {
+    dailyAt: `${String(hh).padStart(2, "0")}:${String(mm).padStart(2, "0")}`,
+    matchedSpan: m[0],
+  };
+}
+
+/**
  * Map natural cadence phrases to SCHEDULE_INTERVALS (+ optional dailyAt).
  * @param {string} text
  * @returns {{ interval: string, dailyAt: string, matchedSpan: string }|null}
@@ -66,19 +109,40 @@ export function parseScheduleIntervalFromText(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
 
-  const dailyAtM = raw.match(
-    /\b(?:daily|every\s+day|once\s+a\s+day)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i
-  );
-  if (dailyAtM && /\b(daily|every\s+day|once\s+a\s+day)\b/i.test(raw)) {
-    let hh = dailyAtM[1] != null ? Number(dailyAtM[1]) : 9;
-    let mm = dailyAtM[2] != null ? Number(dailyAtM[2]) : 0;
-    const ap = String(dailyAtM[3] || "").toLowerCase();
-    if (ap === "pm" && hh < 12) hh += 12;
-    if (ap === "am" && hh === 12) hh = 0;
-    const dailyAt = `${String(Math.min(23, Math.max(0, hh))).padStart(2, "0")}:${String(
-      Math.min(59, Math.max(0, mm))
-    ).padStart(2, "0")}`;
-    return { interval: "daily", dailyAt, matchedSpan: dailyAtM[0] };
+  const isDaily = /\b(daily|every\s+day|once\s+a\s+day|each\s+day)\b/i.test(raw);
+  if (isDaily) {
+    const dailyToken = raw.match(/\b(daily|every\s+day|once\s+a\s+day|each\s+day)\b/i);
+    // Why: users say “at 2 pm every day” OR “every day at 2 pm” — time may be anywhere.
+    const afterDaily = raw.match(
+      /\b(?:daily|every\s+day|once\s+a\s+day|each\s+day)\b(?:\s+at\s+(\d{1,2})(?::(\d{2}))?\s*(am|pm)?)?/i
+    );
+    let dailyAt = "09:00";
+    /** @type {string[]} */
+    const spans = [];
+    if (dailyToken) spans.push(dailyToken[0]);
+
+    const clock = parseClockTimeFromText(raw);
+    if (clock) {
+      dailyAt = clock.dailyAt;
+      spans.push(clock.matchedSpan);
+    } else if (afterDaily && afterDaily[1] != null) {
+      let hh = Number(afterDaily[1]);
+      let mm = afterDaily[2] != null ? Number(afterDaily[2]) : 0;
+      const ap = String(afterDaily[3] || "").toLowerCase();
+      if (ap === "pm" && hh < 12) hh += 12;
+      if (ap === "am" && hh === 12) hh = 0;
+      dailyAt = `${String(Math.min(23, Math.max(0, hh))).padStart(2, "0")}:${String(
+        Math.min(59, Math.max(0, mm))
+      ).padStart(2, "0")}`;
+      spans.push(afterDaily[0]);
+    }
+
+    return {
+      interval: "daily",
+      dailyAt,
+      // Why: join with | so strip can remove non-contiguous “every day” + “at 2 pm”.
+      matchedSpan: spans.filter(Boolean).join("|"),
+    };
   }
 
   /** @type {{ re: RegExp, interval: string }[]} */
@@ -155,9 +219,16 @@ export function parseScheduleIntervalFromText(text) {
  */
 export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
   let g = String(text || "").trim();
-  if (matchedSpan) {
-    g = g.replace(matchedSpan, " ");
+  // Why: matchedSpan may be non-contiguous (“every day” + “at 2 pm”) — strip each piece.
+  for (const part of String(matchedSpan || "")
+    .split("|")
+    .map((s) => s.trim())
+    .filter(Boolean)) {
+    if (part.length >= 2) g = g.replace(part, " ");
   }
+  // Also strip common clock / daily tokens even if span order differed.
+  const clock = parseClockTimeFromText(g);
+  if (clock?.matchedSpan) g = g.replace(clock.matchedSpan, " ");
   g = g
     .replace(
       /\b(schedule|schedules|scheduler|repeat|recurring|automatically|auto)\b/gi,
@@ -168,7 +239,9 @@ export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
     .replace(/\b(every\s+(?:minute|hour|day))\b/gi, " ")
     .replace(/\b(\d+\s*m(?:in(?:ute)?s?)?)\b/gi, " ")
     .replace(/\b(daily(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)\b/gi, " ")
-    .replace(/\b(once\s+a\s+day)\b/gi, " ")
+    .replace(/\b(once\s+a\s+day|each\s+day|every\s+day)\b/gi, " ")
+    .replace(/\bat\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?\b/gi, " ")
+    .replace(/\b\d{1,2}(?::\d{2})?\s*(?:am|pm)\b/gi, " ")
     .replace(/^[:=\-\s]+/, "")
     .replace(/\s{2,}/g, " ")
     .trim();
@@ -376,7 +449,11 @@ export function formatScheduleListReply(jobs) {
     return `${i + 1}. **${label}** (${on}, ${kindLabel}) — ${formatScheduleIntervalLabel(
       j.interval,
       j.dailyAt
-    )}\n   ${j.kind === "chat_reminder" ? "Message" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Next: ${next}`;
+    )}${
+      j.interval === "daily"
+        ? `\n   Time: ${formatDailyAtLabel(j.dailyAt)}`
+        : ""
+    }\n   ${j.kind === "chat_reminder" ? "Message" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Next: ${next}`;
   });
   return `Reminders / schedules on this agent:\n\n${lines.join("\n\n")}`;
 }
@@ -497,11 +574,15 @@ export async function applyScheduleFromChat(opts) {
     : "soon";
   const verb = existingIdx >= 0 ? "Updated" : "Created";
   const kindLabel = kind === "chat_reminder" ? "chat reminder" : "computer schedule";
+  const when =
+    interval === "daily"
+      ? `daily at ${formatDailyAtLabel(dailyAt)}`
+      : formatScheduleIntervalLabel(interval, dailyAt);
   return {
     ok: true,
     job: saved,
     content:
-      `${verb} ${kindLabel} **${name}** — ${formatScheduleIntervalLabel(interval, dailyAt)}.\n` +
+      `${verb} ${kindLabel} **${name}** — ${when}.\n` +
       `${kind === "chat_reminder" ? "Message" : "Goal"}: ${goal.slice(0, 400)}\n` +
       `Next run: ${nextIso}\n` +
       `You can change it under Agents → Schedulers, or say “list reminders” / “stop the reminder”.`,

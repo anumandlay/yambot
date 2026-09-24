@@ -83,6 +83,25 @@ test("check email every 5 minutes frames computer goal", () => {
   assert.match(String(p?.goal || ""), /unread|email/i);
 });
 
+test("remind me at 2 pm every day parses dailyAt 14:00", () => {
+  const t = "remind me to start doordash at 2 pm every day";
+  const cadence = parseScheduleIntervalFromText(t);
+  assert.equal(cadence?.interval, "daily");
+  assert.equal(cadence?.dailyAt, "14:00");
+  const p = parseScheduleFromChat(t);
+  assert.equal(p?.kind, "chat_reminder");
+  assert.equal(p?.interval, "daily");
+  assert.equal(p?.dailyAt, "14:00");
+  assert.match(String(p?.goal || ""), /doordash/i);
+  assert.doesNotMatch(String(p?.goal || ""), /\b2\s*pm\b/i);
+});
+
+test("every day at 2:30pm also works", () => {
+  const c = parseScheduleIntervalFromText("check email every day at 2:30pm");
+  assert.equal(c?.interval, "daily");
+  assert.equal(c?.dailyAt, "14:30");
+});
+
 test("empty schedule stubs are not listed as reminders", () => {
   assert.equal(
     isMeaningfulScheduleJob({ enabled: false, goal: "", interval: "1h", name: "" }),

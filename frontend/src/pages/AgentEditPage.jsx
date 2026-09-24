@@ -1343,6 +1343,18 @@ export function AgentEditPage() {
                     onChange={(e) => updateScheduleJob(index, "dailyAt", e.target.value)}
                     disabled={!job.enabled}
                   />
+                  <span className="text-xs text-teal-900/70">
+                    Stored as UTC. Example: 2:00 PM → set 14:00. Current:{" "}
+                    {(() => {
+                      const raw = String(job.dailyAt || "09:00");
+                      const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
+                      if (!m) return raw;
+                      const hh = Number(m[1]);
+                      const ap = hh >= 12 ? "PM" : "AM";
+                      const h12 = hh % 12 || 12;
+                      return `${h12}:${m[2]} ${ap} UTC`;
+                    })()}
+                  </span>
                 </label>
               ) : null}
               {(job.lastRunAt || job.nextRunAt) && (

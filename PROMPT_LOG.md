@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:05] Parse “at 2 pm every day” into dailyAt
+
+- **Prompt Provided:** remind me to start doordash at 2 pm every day — agent settings time wrong.
+- **Architectural Flow:** Clock time parsed anywhere in the phrase (`parseClockTimeFromText`); daily jobs store `14:00` UTC; UI shows AM/PM UTC helper; goal text no longer keeps “at 2 pm”.
+- **Impacted Files:** scheduleFromChat.js, AgentEditPage.jsx, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 15:00] Chat reminders vs computer schedules
 
 - **Prompt Provided:** Implement chat_reminder kind; “remind me to drink water 1 minutes” must save to agent (not LLM fake); frame check-email goals; show in agent Schedulers.
