@@ -1,18 +1,23 @@
 /**
- * @fileoverview LLM planner for reminder/schedule create & delete phrasing.
- * Purpose: Understand natural “cancel the water nudge” / “remind me every minute to …”
+ * @fileoverview LLM planner for reminder/schedule create, update & delete phrasing.
+ * Purpose: Understand natural “change schedule to every 4 minutes” / “cancel the water nudge”
  * as structured ParsedScheduleChat. List stays heuristic-only (instant).
  * Downstream: chatAutoTurn schedule_manage; applyScheduleFromChat still writes schedules[].
  */
 
 import { llmChatCompletion } from "./llmChat.js";
-import { SCHEDULE_INTERVALS } from "../models/Agent.js";
+import {
+  isValidScheduleInterval,
+  normalizeScheduleIntervalCode,
+} from "../models/Agent.js";
 import {
   parseScheduleFromChat,
   extractScheduleDisableHint,
+  extractScheduleUpdateHint,
   frameComputerScheduleGoal,
   defaultScheduleJobName,
   looksLikeChatReminderRequest,
+  looksLikeScheduleUpdateRequest,
   stripScheduleCadenceFromGoal,
   parseScheduleIntervalFromText,
   parseClockTimeFromText,
@@ -34,9 +39,15 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action === "stop" || action === "delete" || action === "cancel" || action === "remove") {
     action = "disable";
   }
-  if (action === "update") action = "create";
+  if (action === "edit" || action === "modify" || action === "change") {
+    action = "update";
+  }
+  // Why: bare “update” without cadence still may be update if user said change/every.
+  if (action === "update" || looksLikeScheduleUpdateRequest(userText)) {
+    action = "update";
+  }
   if (action === "list" || action === "show") return { action: "list" };
-  if (action !== "create" && action !== "disable") return null;
+  if (action !== "create" && action !== "disable" && action !== "update") return null;
 
   if (action === "disable") {
     const matchHint = String(
@@ -47,15 +58,20 @@ export function normalizeLlmSchedulePlan(raw, userText) {
     return { action: "disable", matchHint };
   }
 
-  // create
-  let interval = String(raw.interval || "").trim();
-  if (!SCHEDULE_INTERVALS.includes(interval)) {
+  let interval = String(raw.interval || "").trim().toLowerCase();
+  if (!isValidScheduleInterval(interval)) {
+    interval =
+      normalizeScheduleIntervalCode(raw.interval) ||
+      normalizeScheduleIntervalCode(raw.cadenceText || raw.intervalText || "") ||
+      "";
+  }
+  if (!isValidScheduleInterval(interval)) {
     const cadence = parseScheduleIntervalFromText(
       String(raw.cadenceText || raw.intervalText || userText || "")
     );
     interval = cadence?.interval || "";
   }
-  if (!SCHEDULE_INTERVALS.includes(interval)) return null;
+  if (!isValidScheduleInterval(interval)) return null;
 
   let dailyAt = String(raw.dailyAt || raw.daily_at || "09:00").trim();
   if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) {
@@ -75,13 +91,35 @@ export function normalizeLlmSchedulePlan(raw, userText) {
     }
   }
 
+  if (action === "update") {
+    const matchHint = String(
+      raw.matchHint || raw.hint || raw.topic || extractScheduleUpdateHint(userText) || ""
+    )
+      .trim()
+      .slice(0, 80);
+    /** @type {ParsedScheduleChat} */
+    const plan = {
+      action: "update",
+      interval,
+      dailyAt,
+      oneShotAt,
+      matchHint,
+    };
+    const goalRaw = String(raw.goal || raw.message || "").trim();
+    if (goalRaw.length >= 3) {
+      plan.goal = frameComputerScheduleGoal(goalRaw.slice(0, 8000));
+    }
+    return plan;
+  }
+
+  // create
   let kind =
     String(raw.kind || "").trim() === "computer" ? "computer" : "chat_reminder";
   // Why: remind-me phrasing always chat nudge even if the model says computer.
   if (looksLikeChatReminderRequest(userText)) kind = "chat_reminder";
   if (
     kind === "chat_reminder" &&
-    /\b(check\s+email|unread|composio|notion|slack|sheet)\b/i.test(userText) &&
+    /\b(check\s+email|unread|composio|notion|slack|sheet|email\s+summary)\b/i.test(userText) &&
     !/\bremind\b/i.test(userText)
   ) {
     kind = "computer";
@@ -93,10 +131,6 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   }
   if (!goal || goal.length < 2) return null;
 
-  // Why: Hermes stores a prompt for the tick LLM — keep natural language, light framing only for static.
-  if (kind === "chat_reminder" && interval !== "once") {
-    // Keep short topics as prompts; frameComputer for computer kinds only below.
-  }
   goal =
     kind === "computer" ? frameComputerScheduleGoal(goal) : goal.replace(/^to\s+/i, "").trim();
 
@@ -123,7 +157,7 @@ export function normalizeLlmSchedulePlan(raw, userText) {
 }
 
 /**
- * Ask the chat LLM for a schedule create/disable plan (JSON only).
+ * Ask the chat LLM for a schedule create/update/disable plan (JSON only).
  * @param {string} userText
  * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }} creds
  * @returns {Promise<ParsedScheduleChat|null>}
@@ -132,19 +166,19 @@ export async function planScheduleWithLlm(userText, creds) {
   const text = String(userText || "").trim();
   if (!text || !creds?.apiKey) return null;
 
-  const intervals = SCHEDULE_INTERVALS.join("|");
   const system = [
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
-    'Schema: {"action":"create"|"disable"|"list","interval":"' +
-      intervals +
-      '","dailyAt":"HH:MM","kind":"chat_reminder"|"computer","goal":"…","name":"…","matchHint":"…"}',
+    'Schema: {"action":"create"|"update"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer","goal":"…","name":"…","matchHint":"…"}',
     "Rules:",
     "- list = show reminders/schedules.",
     "- disable = stop/delete/cancel one or all reminders. Put the topic in matchHint (e.g. \"drink water\"). Empty matchHint means stop all.",
+    "- update = change cadence (or goal) on an EXISTING reminder. Always set interval. Put which job in matchHint (e.g. \"email\", \"water\"). Example: \"change the schedule to every 4 minutes\" → action update, interval 4m.",
     "- create = new recurring or one-shot reminder/job. Always set interval from the user cadence.",
+    "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",
     "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
     "- \"every day at 9 am\" = daily + dailyAt.",
-    "- chat_reminder = Hermes-style prompt (LLM on tick). computer = check email / Composio / browser goal.",
+    "- chat_reminder = Hermes-style prompt (LLM on tick). computer = check email / email summary / Composio / browser goal.",
+    "- \"send email summary\" / \"email summary\" = computer kind, goal about checking unread and summarizing (never blank send).",
     "- Optional repeatLimit (integer) for finite repeats; omit for forever.",
     "- goal for chat_reminder is the prompt body (without every/minute/tomorrow/at cadence).",
     "- dailyAt is 24h UTC when interval is daily; else 09:00.",
@@ -183,7 +217,7 @@ export async function planScheduleWithLlm(userText, creds) {
 }
 
 /**
- * Prefer LLM for create/disable phrasing; list stays heuristic; heuristic is fallback.
+ * Prefer LLM for create/update/disable phrasing; list stays heuristic; heuristic is fallback.
  * @param {string} userText
  * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} [creds]
  * @returns {Promise<ParsedScheduleChat|null>}
@@ -197,12 +231,15 @@ export async function resolveScheduleFromChat(userText, creds = null) {
 
   if (!creds?.apiKey) return heuristic;
 
-  // Why: create + delete benefit from LLM NLU; still validate + apply deterministically.
+  // Why: create + update + delete benefit from LLM NLU; still validate + apply deterministically.
   if (
     heuristic?.action === "create" ||
+    heuristic?.action === "update" ||
     heuristic?.action === "disable" ||
     // Soft manage phrases heuristic missed — still try LLM.
-    /\b(remind|reminder|schedule|nudge|every\s+\d|every\s+minute|daily)\b/i.test(text) ||
+    /\b(remind|reminder|schedule|nudge|every\s+\d|every\s+minute|daily|change|update)\b/i.test(
+      text
+    ) ||
     /\b(stop|delete|cancel|remove|disable)\b/i.test(text)
   ) {
     try {

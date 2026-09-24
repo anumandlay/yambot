@@ -239,6 +239,9 @@ export async function maybeEmailCredentialsAfterComputerRun(opts) {
       body,
       message_body: body,
       messageBody: body,
+      email_subject: subject,
+      email_body: body,
+      text: body,
       is_html: false,
     },
   });

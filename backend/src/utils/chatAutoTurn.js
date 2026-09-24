@@ -1995,7 +1995,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
-    "- Schedule manage: “check email every 5 minutes”, “list schedules”, “stop the schedule” — REPLY after saving (runtime handles it); do not QUEUE_GOAL for the manage message itself",
+    "- Schedule manage: “check email every 5 minutes”, “change the schedule to every 4 minutes”, “list schedules”, “stop the schedule” — REPLY after saving (runtime handles it); do not QUEUE_GOAL for the manage message itself",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",

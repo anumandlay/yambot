@@ -63,8 +63,18 @@ export function looksLikeGmailInboxRequest(text) {
   if (mentionsComposio && hasMail && (hasUnread || hasListCue)) return true;
   // give/get/show + emails + unread-ish
   if (hasMail && hasListCue && (hasUnread || /\b(inbox|e-?mails?)\b/.test(noAddrs))) return true;
-  // Why: “check email” / schedule goals — treat as inbox unread, not a browser open.
+  // Why: “check email” / schedule “email summary” — treat as inbox unread, not a blank send.
   if (/\bcheck\b/.test(t) && /\b(e-?mails?|mails?|inbox|gmail)\b/.test(noAddrs)) return true;
+  if (
+    /\b(e-?mail|inbox|gmail)\s+summary\b/.test(noAddrs) ||
+    /\bsummary\s+(of\s+)?(my\s+)?(e-?mails?|inbox|gmail)\b/.test(noAddrs)
+  ) {
+    return true;
+  }
+  if (/\bsend\b/.test(t) && /\bsummary\b/.test(t) && /\b(e-?mails?|inbox|gmail)\b/.test(noAddrs)) {
+    // Why: “send email summary” without a recipient is inbox digest — never GMAIL_SEND with empty body.
+    if (!/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/i.test(t)) return true;
+  }
   return false;
 }
 
@@ -1464,6 +1474,36 @@ export function looksLikeMultiStepComposioRequest(text) {
 }
 
 /**
+ * Build Gmail send arguments with every known Composio field alias.
+ * Why: empty subject/body in the mailbox usually means the tool ignored our param names.
+ * @param {{ to: string, subject: string, body: string }} opts
+ * @returns {Record<string, unknown>}
+ */
+export function buildGmailSendArguments(opts) {
+  const to = String(opts.to || "").trim();
+  const subject = String(opts.subject || "").trim() || "Update from YamBot";
+  const body = String(opts.body || "").trim();
+  return {
+    recipient_email: to,
+    recipientEmail: to,
+    to,
+    subject,
+    email_subject: subject,
+    emailSubject: subject,
+    body,
+    message_body: body,
+    messageBody: body,
+    email_body: body,
+    emailBody: body,
+    text: body,
+    message: body,
+    html_body: body,
+    is_html: false,
+    isHtml: false,
+  };
+}
+
+/**
  * Send prior step output (or clause body) via Gmail.
  * @param {{
  *   runtime: object,
@@ -1490,27 +1530,22 @@ async function runMultiStepSendEmail(opts) {
     body = quoted?.[1]?.trim() || priorContent || String(step.userText || "").trim();
   }
   body = String(body || "").trim().slice(0, 8000);
-  if (!body) {
-    return { ok: false, content: `Nothing to email to ${to}.`, needsConnect: false };
+  if (!body || body.length < 8) {
+    return {
+      ok: false,
+      content: `Nothing to email to ${to} (empty summary). Check inbox first, then send.`,
+      needsConnect: false,
+    };
   }
   const subject = /spreadsheet/i.test(priorContent || step.userText)
     ? "Your spreadsheet list"
-    : /unread|email|inbox/i.test(priorContent || step.userText)
+    : /unread|email|inbox|summary/i.test(priorContent || step.userText)
       ? "Your email summary"
       : "Update from YamBot";
 
   const sendText = await executeLookup("composio_execute", runtime, {
     tool: "GMAIL_SEND_EMAIL",
-    arguments: {
-      recipient_email: to,
-      recipientEmail: to,
-      to,
-      subject,
-      body,
-      message_body: body,
-      messageBody: body,
-      is_html: false,
-    },
+    arguments: buildGmailSendArguments({ to, subject, body }),
   });
   try {
     const sendJson = JSON.parse(sendText);
@@ -1856,19 +1891,11 @@ export async function runSheetsList(opts) {
     if (!listResult.ok || !wantsEmail || !to) return listResult;
 
     const body = String(listResult.content || "").trim();
+    if (!body || body.length < 8) return listResult;
     const subject = "Your spreadsheet list";
     const sendText = await executeLookup("composio_execute", runtime, {
       tool: "GMAIL_SEND_EMAIL",
-      arguments: {
-        recipient_email: to,
-        recipientEmail: to,
-        to,
-        subject,
-        body,
-        message_body: body,
-        messageBody: body,
-        is_html: false,
-      },
+      arguments: buildGmailSendArguments({ to, subject, body }),
     });
     const sendJson = parseOk(sendText);
     if (composioResultNeedsConnect(sendText)) {
@@ -1889,12 +1916,7 @@ export async function runSheetsList(opts) {
     // Try alternate send slug once
     const altText = await executeLookup("composio_execute", runtime, {
       tool: "GMAIL_SEND_EMAIL",
-      arguments: {
-        to,
-        recipient_email: to,
-        subject,
-        body,
-      },
+      arguments: buildGmailSendArguments({ to, subject, body }),
     });
     const altJson = parseOk(altText);
     if (altJson?.ok) {

@@ -28,7 +28,7 @@ import { tickModelRouting } from "./modelRouter.js";
 import { tickContinuousOptimize } from "./continuousOptimize.js";
 import { tickWorkflowWaits } from "./apiWorkflowRunner.js";
 import { tickApiAgents } from "./apiAgentRunner.js";
-import { tickEventDelivery } from "./eventDelivery.js";
+import { frameComputerScheduleGoal } from "./scheduleFromChat.js";import { tickEventDelivery } from "./eventDelivery.js";
 import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
 import { tickCampaigns } from "./campaignEngine.js";
 import { tickTicketSla } from "./ticketSla.js";
@@ -344,7 +344,7 @@ async function runScheduledComposioGoal(opts) {
  */
 export async function runScheduledAgent(agent, job = null) {
   const sched = job || agent.schedule || {};
-  const goal = String(sched.goal || "").trim();
+  const goal = frameComputerScheduleGoal(String(sched.goal || "").trim());
   if (!sched.enabled || !goal) {
     return { ok: false, skipped: "disabled_or_empty" };
   }

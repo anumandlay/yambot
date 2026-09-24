@@ -37,19 +37,76 @@ const agentPolicySchema = new mongoose.Schema(
 );
 
 /** How often a scheduled goal is enqueued. `once` = Hermes-style one-shot. */
+/**
+ * Preset cadence codes shown in the agent editor (suggestions).
+ * Any `Nm` / `Nh` is also valid via isValidScheduleInterval (e.g. 3m, 70m, 4h).
+ */
 export const SCHEDULE_INTERVALS = [
   "once",
   "1m",
   "2m",
+  "3m",
   "5m",
+  "10m",
   "15m",
   "30m",
+  "45m",
   "1h",
+  "2h",
   "6h",
   "12h",
   "24h",
   "daily",
 ];
+
+/**
+ * True when interval is once/daily or custom Nm/Nh (1–10080 minutes / 1–168 hours).
+ * @param {string} interval
+ * @returns {boolean}
+ */
+export function isValidScheduleInterval(interval) {
+  const s = String(interval || "")
+    .trim()
+    .toLowerCase();
+  if (s === "once" || s === "daily") return true;
+  const mins = /^(\d+)m$/.exec(s);
+  if (mins) {
+    const n = Number(mins[1]);
+    return Number.isFinite(n) && n >= 1 && n <= 10_080;
+  }
+  const hours = /^(\d+)h$/.exec(s);
+  if (hours) {
+    const n = Number(hours[1]);
+    return Number.isFinite(n) && n >= 1 && n <= 168;
+  }
+  return false;
+}
+
+/**
+ * Normalize user/LLM interval text to a stored code (e.g. "4 minutes" → "4m").
+ * @param {string} raw
+ * @returns {string|null}
+ */
+export function normalizeScheduleIntervalCode(raw) {
+  const s = String(raw || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, "");
+  if (!s) return null;
+  if (s === "once" || s === "daily") return s;
+  if (isValidScheduleInterval(s)) return s;
+  const m = /^(\d+)\s*(m|min|mins|minute|minutes)$/i.exec(String(raw || "").trim());
+  if (m) {
+    const n = Math.min(10_080, Math.max(1, Number(m[1]) || 1));
+    return `${n}m`;
+  }
+  const h = /^(\d+)\s*(h|hr|hrs|hour|hours)$/i.exec(String(raw || "").trim());
+  if (h) {
+    const n = Math.min(168, Math.max(1, Number(h[1]) || 1));
+    return `${n}h`;
+  }
+  return null;
+}
 
 /** Schedule job kinds — computer runs a goal; chat_reminder posts/runs a reminder. */
 export const SCHEDULE_KINDS = ["computer", "chat_reminder"];
@@ -94,13 +151,15 @@ const scheduleJobSchema = new mongoose.Schema(
     },
     /** Goal text / reminder prompt (Hermes job prompt). */
     goal: { type: String, default: "", trim: true },
-    /** once|1m|…|daily */
+    /** once | daily | Nm | Nh (any minute/hour cadence, e.g. 3m, 70m, 4h). */
     interval: {
       type: String,
-      enum: SCHEDULE_INTERVALS,
       default: "1h",
-    },
-    /** When interval=daily, wall-clock time in UTC as HH:MM. */
+      validate: {
+        validator: (v) => isValidScheduleInterval(v),
+        message: "Invalid schedule interval",
+      },
+    },    /** When interval=daily, wall-clock time in UTC as HH:MM. */
     dailyAt: { type: String, default: "09:00", trim: true },
     /** When interval=once — absolute fire time (Hermes one-shot). */
     oneShotAt: { type: Date, default: null },
@@ -954,33 +1013,21 @@ export function encryptCredentialPassword(plaintext) {
 
 /**
  * Interval → milliseconds (daily uses wall clock separately).
+ * Supports any Nm / Nh code (e.g. 3m, 70m, 4h).
  * @param {string} interval
  * @returns {number}
  */
 export function scheduleIntervalMs(interval) {
-  switch (String(interval || "1h")) {
-    case "once":
-      return 0;
-    case "1m":
-      return 1 * 60 * 1000;
-    case "2m":
-      return 2 * 60 * 1000;
-    case "5m":
-      return 5 * 60 * 1000;
-    case "15m":
-      return 15 * 60 * 1000;
-    case "30m":
-      return 30 * 60 * 1000;
-    case "6h":
-      return 6 * 60 * 60 * 1000;
-    case "12h":
-      return 12 * 60 * 60 * 1000;
-    case "24h":
-      return 24 * 60 * 60 * 1000;
-    case "1h":
-    default:
-      return 60 * 60 * 1000;
-  }
+  const s = String(interval || "1h")
+    .trim()
+    .toLowerCase();
+  if (s === "once") return 0;
+  const mins = /^(\d+)m$/.exec(s);
+  if (mins) return Math.max(1, Number(mins[1]) || 1) * 60 * 1000;
+  const hours = /^(\d+)h$/.exec(s);
+  if (hours) return Math.max(1, Number(hours[1]) || 1) * 60 * 60 * 1000;
+  // Legacy fallthrough for unknown → 1h so ticks never spin.
+  return 60 * 60 * 1000;
 }
 
 /**
@@ -1016,9 +1063,10 @@ export function computeNextRunAt(schedule, from = new Date()) {
  */
 export function normalizeScheduleJob(raw = {}) {
   const enabled = Boolean(raw.enabled);
-  const interval = SCHEDULE_INTERVALS.includes(String(raw.interval))
-    ? String(raw.interval)
-    : "1h";
+  const intervalRaw = String(raw.interval || "").trim().toLowerCase();
+  const interval = isValidScheduleInterval(intervalRaw)
+    ? intervalRaw
+    : normalizeScheduleIntervalCode(raw.interval) || "1h";
   let dailyAt = String(raw.dailyAt || "09:00").trim();
   if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
   const goal = String(raw.goal || "").trim().slice(0, 8000);

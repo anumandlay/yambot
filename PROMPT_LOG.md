@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 17:40] Schedule update + any Nm interval + email-summary empty send fix
+
+- **Prompt Provided:** change schedule via LLM; scheduled email summary sends empty subject/body; allow any timeframe (1/3/70 min).
+- **Architectural Flow:** Intervals are free-form `Nm`/`Nh` (schema + parse + tick ms). Chat “change … to every 4 minutes” → action `update` (LLM + heuristic) patches existing job. Bare “send email summary” framed as inbox unread (not blank GMAIL_SEND); Gmail send args use all aliases and refuse empty body. Agent editor frequency is free-text with presets.
+- **Impacted Files:** Agent.js, scheduleFromChat.js, scheduleLlmPlan.js, scheduler.js, composioAutoRuntime.js, computerThenEmailFollowup.js, AgentEditPage.jsx, tests, PROMPT_LOG
+
 ## [2026-09-24 16:25] Hermes-style schedules: one-shot, LLM-on-tick, finite repeat
 
 - **Prompt Provided:** yes lets do like hermes (cron flow).

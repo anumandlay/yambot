@@ -5,13 +5,13 @@
  */
 
 import {
-  SCHEDULE_INTERVALS,
   computeNextRunAt,
   listAgentScheduleJobs,
   syncLegacyScheduleMirror,
   normalizeScheduleJob,
+  isValidScheduleInterval,
+  normalizeScheduleIntervalCode,
 } from "../models/Agent.js";
-
 /**
  * @typedef {{
  *   action: "create"|"update"|"list"|"disable",
@@ -31,31 +31,25 @@ import {
  * @returns {string}
  */
 export function formatScheduleIntervalLabel(interval, dailyAt = "09:00") {
-  switch (String(interval || "")) {
+  const iv = String(interval || "");
+  switch (iv) {
     case "once":
       return "one-shot";
-    case "1m":
-      return "every minute";
-    case "2m":
-      return "every 2 minutes";
-    case "5m":
-      return "every 5 minutes";
-    case "15m":
-      return "every 15 minutes";
-    case "30m":
-      return "every 30 minutes";
-    case "1h":
-      return "every hour";
-    case "6h":
-      return "every 6 hours";
-    case "12h":
-      return "every 12 hours";
-    case "24h":
-      return "every 24 hours";
     case "daily":
       return `daily at ${dailyAt || "09:00"} UTC`;
-    default:
-      return String(interval || "custom");
+    default: {
+      const mins = /^(\d+)m$/i.exec(iv);
+      if (mins) {
+        const n = Number(mins[1]);
+        return n === 1 ? "every minute" : `every ${n} minutes`;
+      }
+      const hours = /^(\d+)h$/i.exec(iv);
+      if (hours) {
+        const n = Number(hours[1]);
+        return n === 1 ? "every hour" : `every ${n} hours`;
+      }
+      return iv || "custom";
+    }
   }
 }
 
@@ -149,19 +143,10 @@ export function parseScheduleIntervalFromText(text) {
 
   /** @type {{ re: RegExp, interval: string }[]} */
   const patterns = [
-    { re: /\bevery\s*1\s*m(?:in(?:ute)?s?)?\b/i, interval: "1m" },
     { re: /\bevery\s*minute\b/i, interval: "1m" },
-    { re: /\bevery\s*2\s*m(?:in(?:ute)?s?)?\b/i, interval: "2m" },
-    { re: /\bevery\s*5\s*m(?:in(?:ute)?s?)?\b/i, interval: "5m" },
-    { re: /\bevery\s*15\s*m(?:in(?:ute)?s?)?\b/i, interval: "15m" },
-    { re: /\bevery\s*30\s*m(?:in(?:ute)?s?)?\b/i, interval: "30m" },
-    { re: /\bevery\s*(?:1\s*)?hours?\b/i, interval: "1h" },
     { re: /\bevery\s*hour\b/i, interval: "1h" },
-    { re: /\bevery\s*6\s*hours?\b/i, interval: "6h" },
-    { re: /\bevery\s*12\s*hours?\b/i, interval: "12h" },
-    { re: /\bevery\s*24\s*hours?\b/i, interval: "24h" },
-    { re: /\bevery\s*(\d+)\s*m(?:in(?:ute)?s?)?\b/i, interval: "" }, // numeric catch
-    { re: /\bevery\s*(\d+)\s*h(?:ours?)?\b/i, interval: "" },
+    { re: /\bevery\s*(\d+)\s*m(?:in(?:ute)?s?)?\b/i, interval: "" }, // any Nm
+    { re: /\bevery\s*(\d+)\s*h(?:ours?)?\b/i, interval: "" }, // any Nh
   ];
 
   for (const p of patterns) {
@@ -173,17 +158,11 @@ export function parseScheduleIntervalFromText(text) {
     const n = Number(m[1]);
     if (!Number.isFinite(n) || n <= 0) continue;
     if (/m(?:in)?/i.test(m[0])) {
-      if (n <= 1) return { interval: "1m", dailyAt: "09:00", matchedSpan: m[0] };
-      if (n <= 2) return { interval: "2m", dailyAt: "09:00", matchedSpan: m[0] };
-      if (n <= 5) return { interval: "5m", dailyAt: "09:00", matchedSpan: m[0] };
-      if (n <= 15) return { interval: "15m", dailyAt: "09:00", matchedSpan: m[0] };
-      if (n <= 30) return { interval: "30m", dailyAt: "09:00", matchedSpan: m[0] };
-      return { interval: "1h", dailyAt: "09:00", matchedSpan: m[0] };
+      const mins = Math.min(10_080, Math.max(1, Math.floor(n)));
+      return { interval: `${mins}m`, dailyAt: "09:00", matchedSpan: m[0] };
     }
-    if (n <= 1) return { interval: "1h", dailyAt: "09:00", matchedSpan: m[0] };
-    if (n <= 6) return { interval: "6h", dailyAt: "09:00", matchedSpan: m[0] };
-    if (n <= 12) return { interval: "12h", dailyAt: "09:00", matchedSpan: m[0] };
-    return { interval: "24h", dailyAt: "09:00", matchedSpan: m[0] };
+    const hours = Math.min(168, Math.max(1, Math.floor(n)));
+    return { interval: `${hours}h`, dailyAt: "09:00", matchedSpan: m[0] };
   }
 
   // Why: Hermes “in 30m” / “in 2 hours” — one-shot from now (before bare “30 minutes” recurring).
@@ -233,28 +212,22 @@ export function parseScheduleIntervalFromText(text) {
     };
   }
 
-  // Compact: "every 5m" / "5 min schedule"
-  const compact = raw.match(/\b(?:every\s+)?(1|2|5|15|30)\s*m\b/i);
+  // Compact: "every 5m" / "every 70m" / "4m schedule"
+  const compact = raw.match(/\b(?:every\s+)?(\d+)\s*m\b/i);
   if (compact && /\b(every|schedule|repeat|remind|reminder)\b/i.test(raw)) {
+    const mins = Math.min(10_080, Math.max(1, Number(compact[1]) || 1));
     return {
-      interval: `${compact[1]}m`,
+      interval: `${mins}m`,
       dailyAt: "09:00",
       matchedSpan: compact[0],
     };
   }
 
-  // Bare "1 minutes" / "5 minute" (common: “remind me to drink water 1 minutes”)
+  // Bare "1 minutes" / "70 minute" (common: “remind me to drink water 1 minutes”)
   const bareMin = raw.match(/\b(\d+)\s*m(?:in(?:ute)?s?)?\b/i);
   if (bareMin && /\b(remind|reminder|schedule|every|nudge|ping)\b/i.test(raw)) {
-    const n = Number(bareMin[1]);
-    let interval = "5m";
-    if (n <= 1) interval = "1m";
-    else if (n <= 2) interval = "2m";
-    else if (n <= 5) interval = "5m";
-    else if (n <= 15) interval = "15m";
-    else if (n <= 30) interval = "30m";
-    else interval = "1h";
-    return { interval, dailyAt: "09:00", matchedSpan: bareMin[0] };
+    const mins = Math.min(10_080, Math.max(1, Number(bareMin[1]) || 1));
+    return { interval: `${mins}m`, dailyAt: "09:00", matchedSpan: bareMin[0] };
   }
 
   return null;
@@ -413,6 +386,25 @@ export function frameChatReminderMessage(topic) {
 export function frameComputerScheduleGoal(goal) {
   let g = String(goal || "").trim();
   if (!g) return g;
+  // Why: keep “check email and send summary to X@…” so multi-step Composio can email the digest.
+  const hasRecipient = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/i.test(g);
+  if (hasRecipient && /\b(send|forward|e-?mail\s+to|mail\s+to)\b/i.test(g)) {
+    if (/^check\s+(my\s+)?(email|inbox|gmail)\b/i.test(g) && !/unread|summar/i.test(g)) {
+      return g.replace(
+        /^check\s+(my\s+)?(email|inbox|gmail)\b/i,
+        "Check unread email in the inbox"
+      );
+    }
+    return g;
+  }
+  // Why: bare “send email summary” (no recipient) must stay inbox-read, not blank GMAIL_SEND.
+  if (
+    /\b(e-?mail|inbox|gmail)\s+summary\b/i.test(g) ||
+    /\bsummary\s+(of\s+)?(my\s+)?(e-?mails?|inbox|gmail)\b/i.test(g) ||
+    (/\bsend\b/i.test(g) && /\bsummary\b/i.test(g) && /\b(e-?mail|inbox|gmail)\b/i.test(g))
+  ) {
+    return "Check unread email in the inbox and summarize anything important.";
+  }
   if (/^check\s+(my\s+)?(email|inbox|gmail)\b/i.test(g) && !/unread|summar/i.test(g)) {
     return "Check unread email in the inbox and summarize anything important.";
   }
@@ -420,6 +412,63 @@ export function frameComputerScheduleGoal(goal) {
     return "Check the spam/junk folder for important misfiled mail and summarize.";
   }
   return g;
+}
+
+/**
+ * Topic left after “change the email schedule to every 4 minutes”.
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractScheduleUpdateHint(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  let hint = raw
+    .replace(
+      /\b(change|update|edit|modify|set|switch|make|adjust)\b/gi,
+      " "
+    )
+    .replace(
+      /\b(all\s+)?(the\s+)?(my\s+)?(schedules?|schedulers?|reminders?|recurring\s+(?:jobs?|tasks?)|cron\s*jobs?|interval|cadence|frequency)\b/gi,
+      " "
+    )
+    .replace(/\b(to\s+)?every\s+\d+\s*(?:m(?:in(?:ute)?s?)?|h(?:ours?)?)\b/gi, " ")
+    .replace(/\bevery\s+(?:minute|hour)\b/gi, " ")
+    .replace(/\b(to|into|as|for|about|named|called)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+  if (!hint || /^(it|this|that|them)$/i.test(hint)) {
+    if (/\bemail\b/i.test(raw)) return "email";
+    if (/\b(drink|water|hydrat)\b/i.test(raw)) return "drink water";
+    return "";
+  }
+  return hint.slice(0, 80);
+}
+
+/**
+ * True when the user wants to edit an existing schedule’s cadence (not create new).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeScheduleUpdateRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (
+    /\b(change|update|edit|modify|adjust|switch)\b[\s\S]{0,60}\b(schedule|reminder|interval|cadence|frequency)\b/i.test(
+      raw
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(schedule|reminder)\b[\s\S]{0,40}\b(to\s+every|every\s+\d)\b/i.test(raw) &&
+    /\b(change|update|edit|set|make|switch)\b/i.test(raw)
+  ) {
+    return true;
+  }
+  if (/\b(make|set)\s+(it|the\s+(schedule|reminder))\s+to\s+every\b/i.test(raw)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -480,6 +529,8 @@ export function looksLikeScheduleManageRequest(text) {
     return true;
   }
 
+  if (looksLikeScheduleUpdateRequest(raw)) return true;
+
   if (looksLikeReminderCreateRequest(raw)) return true;
 
   // Create: cadence ("every 5 minutes") + schedule verbs.
@@ -517,8 +568,21 @@ export function parseScheduleFromChat(text) {
     return { action: "disable", matchHint: extractScheduleDisableHint(raw) };
   }
 
+  // Why: “change the schedule to every 4 minutes” patches cadence on an existing job.
+  if (looksLikeScheduleUpdateRequest(raw)) {
+    const cadence = parseScheduleIntervalFromText(raw);
+    if (!cadence || !isValidScheduleInterval(cadence.interval)) return null;
+    return {
+      action: "update",
+      interval: cadence.interval,
+      dailyAt: cadence.dailyAt || "09:00",
+      oneShotAt: cadence.oneShotAt || null,
+      matchHint: extractScheduleUpdateHint(raw),
+    };
+  }
+
   const cadence = parseScheduleIntervalFromText(raw);
-  if (!cadence || !SCHEDULE_INTERVALS.includes(cadence.interval)) return null;
+  if (!cadence || !isValidScheduleInterval(cadence.interval)) return null;
 
   const kind = looksLikeChatReminderRequest(raw) ? "chat_reminder" : "computer";
   let goal = stripScheduleCadenceFromGoal(raw, cadence.matchedSpan);
@@ -711,10 +775,104 @@ export async function applyScheduleFromChat(opts) {
     };
   }
 
-  // create / update: upsert by similar goal/name
+  // update: change cadence (and optional goal) on an existing job — Hermes-style edit.
+  if (parsed.action === "update") {
+    const hint = String(parsed.matchHint || "").toLowerCase().trim();
+    const interval = isValidScheduleInterval(parsed.interval)
+      ? String(parsed.interval)
+      : normalizeScheduleIntervalCode(parsed.interval);
+    if (!interval) {
+      return {
+        ok: true,
+        content:
+          "Could not parse the new cadence. Try “change the schedule to every 4 minutes”.",
+      };
+    }
+    const meaningful = jobs.filter(isMeaningfulScheduleJob);
+    let idx = -1;
+    if (hint) {
+      idx = jobs.findIndex(
+        (j) => isMeaningfulScheduleJob(j) && jobMatchesScheduleHint(j, hint)
+      );
+    }
+    if (idx < 0 && meaningful.length === 1) {
+      idx = jobs.findIndex((j) => j === meaningful[0] || String(j._id) === String(meaningful[0]._id));
+      if (idx < 0) {
+        idx = jobs.findIndex((j) => isMeaningfulScheduleJob(j));
+      }
+    }
+    if (idx < 0) {
+      const available = meaningful
+        .map((j) => String(j.name || j.goal || "job").trim().slice(0, 40))
+        .filter(Boolean);
+      const availBit = available.length
+        ? ` On this agent: ${available.map((l) => `“${l}”`).join(", ")}.`
+        : " No reminders on this agent.";
+      return {
+        ok: true,
+        content: hint
+          ? `No reminder matched “${hint}” to update.${availBit} Say “list reminders”.`
+          : `Which schedule should I change?${availBit} Example: “change the email schedule to every 4 minutes”.`,
+      };
+    }
+
+    const prev = jobs[idx];
+    const dailyAt = parsed.dailyAt || prev.dailyAt || "09:00";
+    const now = new Date();
+    const patched = normalizeScheduleJob({
+      ...prev,
+      enabled: true,
+      interval,
+      dailyAt,
+      oneShotAt: interval === "once" ? parsed.oneShotAt || prev.oneShotAt : null,
+      goal: parsed.goal
+        ? String(prev.kind) === "chat_reminder"
+          ? String(parsed.goal).trim().slice(0, 8000)
+          : frameComputerScheduleGoal(String(parsed.goal))
+        : prev.goal,
+      pausedByEmergency: false,
+    });
+    if (interval === "once") {
+      const slot =
+        (patched.oneShotAt && !Number.isNaN(new Date(patched.oneShotAt).getTime())
+          ? new Date(patched.oneShotAt)
+          : null) || new Date(now.getTime() + 60_000);
+      patched.oneShotAt = slot;
+      patched.nextRunAt = slot;
+    } else if (interval === "daily") {
+      patched.nextRunAt = computeNextRunAt(patched, now) || now;
+    } else {
+      patched.nextRunAt = now;
+    }
+    if (prev._id) patched._id = prev._id;
+    jobs[idx] = patched;
+    syncLegacyScheduleMirror(agent, jobs);
+    agent.markModified?.("schedules");
+    agent.markModified?.("schedule");
+    await agent.save();
+    const label = String(patched.name || patched.goal || "job").trim().slice(0, 48);
+    const when =
+      interval === "once"
+        ? `one-shot at ${new Date(patched.nextRunAt).toISOString()}`
+        : interval === "daily"
+          ? `daily at ${formatDailyAtLabel(dailyAt)}`
+          : formatScheduleIntervalLabel(interval, dailyAt);
+    return {
+      ok: true,
+      job: patched,
+      content:
+        `Updated schedule **${label}** → ${when}.\n` +
+        `Next run: ${patched.nextRunAt ? new Date(patched.nextRunAt).toISOString() : "soon"}\n` +
+        `Say “list reminders” to confirm.`,
+    };
+  }
+
+  // create / upsert by similar goal/name
   const kind = parsed.kind === "chat_reminder" ? "chat_reminder" : "computer";
   const goal = String(parsed.goal || "").trim();
-  const interval = parsed.interval || "1h";
+  const interval = isValidScheduleInterval(parsed.interval)
+    ? String(parsed.interval)
+    : normalizeScheduleIntervalCode(parsed.interval) || "1h";
   const dailyAt = parsed.dailyAt || "09:00";
   const name = String(parsed.name || defaultScheduleJobName(goal, kind)).slice(0, 80);
   const oneShotAt = parsed.oneShotAt ? new Date(parsed.oneShotAt) : null;

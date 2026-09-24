@@ -204,6 +204,32 @@ test("in 30 minutes is one-shot", () => {
   assert.ok(delta > 25 * 60_000 && delta < 35 * 60_000);
 });
 
+test("every 4 minutes and 70 minutes are exact intervals", () => {
+  assert.equal(parseScheduleIntervalFromText("every 4 minutes")?.interval, "4m");
+  assert.equal(parseScheduleIntervalFromText("every 70 minutes")?.interval, "70m");
+  assert.equal(parseScheduleIntervalFromText("every 3 hours")?.interval, "3h");
+  assert.equal(scheduleIntervalMs("4m"), 4 * 60 * 1000);
+  assert.equal(scheduleIntervalMs("70m"), 70 * 60 * 1000);
+  assert.equal(scheduleIntervalMs("3h"), 3 * 60 * 60 * 1000);
+});
+
+test("change schedule to every 4 minutes is update", () => {
+  const t = "change the schedule to every 4 minutes";
+  assert.equal(looksLikeScheduleManageRequest(t), true);
+  const p = parseScheduleFromChat(t);
+  assert.equal(p?.action, "update");
+  assert.equal(p?.interval, "4m");
+});
+
+test("send email summary frames as inbox check", () => {
+  const p = parseScheduleFromChat("send email summary every 10 minutes");
+  assert.equal(p?.action, "create");
+  assert.equal(p?.interval, "10m");
+  assert.equal(p?.kind, "computer");
+  assert.match(String(p?.goal || ""), /unread|summar/i);
+  assert.doesNotMatch(String(p?.goal || ""), /^send email summary$/i);
+});
+
 test("plain check email is not schedule manage", () => {
   assert.equal(looksLikeScheduleManageRequest("check email"), false);
 });

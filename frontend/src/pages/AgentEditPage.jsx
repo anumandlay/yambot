@@ -1327,38 +1327,26 @@ export function AgentEditPage() {
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 <FieldLabel helpId="agent.schedule.interval">Frequency</FieldLabel>
-                <select
+                <input
                   className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  list={`schedule-interval-presets-${index}`}
                   value={job.interval || "1h"}
-                  onChange={(e) => updateScheduleJob(index, "interval", e.target.value)}
+                  onChange={(e) => {
+                    const v = e.target.value.trim().toLowerCase();
+                    updateScheduleJob(index, "interval", v || "1h");
+                  }}
+                  placeholder="e.g. 4m, 70m, 3h, daily, once"
                   disabled={!job.enabled}
-                >
+                />
+                <datalist id={`schedule-interval-presets-${index}`}>
                   {scheduleIntervals.map((iv) => (
-                    <option key={iv} value={iv}>
-                      {iv === "once"
-                        ? "One-shot (Hermes)"
-                        : iv === "daily"
-                        ? "Once daily (UTC time below)"
-                        : iv === "1m"
-                          ? "Every minute"
-                          : iv === "2m"
-                            ? "Every 2 minutes"
-                            : iv === "5m"
-                              ? "Every 5 minutes"
-                              : iv === "15m"
-                                ? "Every 15 minutes"
-                                : iv === "30m"
-                                  ? "Every 30 minutes"
-                                  : iv === "1h"
-                                    ? "Every hour"
-                                    : iv === "6h"
-                                      ? "Every 6 hours"
-                                      : iv === "12h"
-                                        ? "Every 12 hours"
-                                        : "Every 24 hours"}
-                    </option>
+                    <option key={iv} value={iv} />
                   ))}
-                </select>
+                </datalist>
+                <span className="text-xs text-teal-700/80">
+                  Any cadence: <code>1m</code>, <code>3m</code>, <code>70m</code>, <code>2h</code>,{" "}
+                  <code>daily</code>, or <code>once</code>.
+                </span>
               </label>
               {job.kind === "chat_reminder" ? (
                 <label className="flex min-h-11 items-center gap-2 text-sm">
