@@ -151,7 +151,7 @@ describe("memory store mis-queue is forced back to reply", () => {
       { userText: "Send email using composio", emailConfigured: false }
     );
     assert.notEqual(blocked.reason, "x_send_email_smtp_missing");
-    assert.notMatch(String(blocked.content || ""), /SMTP settings/i);
+    assert.ok(!/SMTP settings/i.test(String(blocked.content || "")));
   });
 
   it("ensureAutoTurnResult converts queue_goal → reply for remember prefs", async () => {
