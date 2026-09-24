@@ -14,6 +14,7 @@ import {
   looksLikeChatReminderRequest,
   extractScheduleDisableHint,
   wantsDisableAllSchedules,
+  normalizeLlmScheduleParse,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
@@ -146,6 +147,36 @@ test("extractScheduleDisableHint", () => {
 test("wantsDisableAllSchedules", () => {
   assert.equal(wantsDisableAllSchedules("stop reminders", ""), true);
   assert.equal(wantsDisableAllSchedules("stop reminder drink water", "drink water"), false);
+});
+
+test("normalizeLlmScheduleParse create chat reminder", () => {
+  const p = normalizeLlmScheduleParse(
+    {
+      action: "create",
+      kind: "chat_reminder",
+      interval: "1m",
+      goal: "drink water",
+      name: "Drink water",
+    },
+    "remind me to drink water every minute"
+  );
+  assert.equal(p?.action, "create");
+  assert.equal(p?.kind, "chat_reminder");
+  assert.equal(p?.interval, "1m");
+  assert.match(String(p?.goal || ""), /water/i);
+});
+
+test("normalizeLlmScheduleParse disable with matchHint", () => {
+  const p = normalizeLlmScheduleParse(
+    { action: "delete", matchHint: "drink water" },
+    "delete reminder drink water"
+  );
+  assert.equal(p?.action, "disable");
+  assert.match(String(p?.matchHint || ""), /drink\s+water/i);
+});
+
+test("cancel water nudge is schedule manage", () => {
+  assert.equal(looksLikeScheduleManageRequest("cancel my water nudge"), true);
 });
 
 test("stripScheduleCadenceFromGoal", () => {

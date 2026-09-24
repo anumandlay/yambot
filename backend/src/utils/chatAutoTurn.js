@@ -31,8 +31,8 @@ import {
 import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
 import {
   looksLikeScheduleManageRequest,
-  parseScheduleFromChat,
   applyScheduleFromChat,
+  resolveScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 
@@ -2203,13 +2203,16 @@ export async function runChatAutoTurn(opts) {
     return out;
   };
 
-  // Why: “check email every 5 minutes” saves a schedule — do not run or queue now.
+  // Why: “check email every 5 minutes” / remind / delete — save schedules, do not run now.
+  // LLM parses create/delete wording; list stays heuristic; apply always writes schedules[].
   if (looksLikeScheduleManageRequest(text) && runtime?.agent) {
-    const parsed = parseScheduleFromChat(text);
-    if (parsed) {
-      track.setPath("schedule_manage");
-      track.markDecision("reply");
-      try {
+    track.setPath("schedule_manage");
+    track.markDecision("reply");
+    try {
+      const parsed = await resolveScheduleFromChat(text, creds);
+      if (!parsed) {
+        // Fall through — not a complete schedule manage parse.
+      } else {
         const applied = await applyScheduleFromChat({
           agent: runtime.agent,
           parsed,
@@ -2222,21 +2225,21 @@ export async function runChatAutoTurn(opts) {
           content,
           goal: "",
           ack: "",
-          reason: `schedule_${parsed.action}`,
-          timing: track.finish(),
-        });
-      } catch (err) {
-        const content = `Could not update schedule: ${String(err?.message || err)}`;
-        await pushReply(content);
-        return finalize({
-          action: "reply",
-          content,
-          goal: "",
-          ack: "",
-          reason: "schedule_manage_error",
+          reason: `schedule_${parsed.action}${creds?.apiKey ? "_llm" : ""}`,
           timing: track.finish(),
         });
       }
+    } catch (err) {
+      const content = `Could not update schedule: ${String(err?.message || err)}`;
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "schedule_manage_error",
+        timing: track.finish(),
+      });
     }
   }
 
