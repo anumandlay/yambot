@@ -32,8 +32,8 @@ import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
 import {
   looksLikeScheduleManageRequest,
   applyScheduleFromChat,
-  resolveScheduleFromChat,
 } from "./scheduleFromChat.js";
+import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 
 export {
@@ -2203,15 +2203,15 @@ export async function runChatAutoTurn(opts) {
     return out;
   };
 
-  // Why: “check email every 5 minutes” / remind / delete — save schedules, do not run now.
-  // LLM parses create/delete wording; list stays heuristic; apply always writes schedules[].
+  // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
+  // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
   if (looksLikeScheduleManageRequest(text) && runtime?.agent) {
     track.setPath("schedule_manage");
     track.markDecision("reply");
     try {
       const parsed = await resolveScheduleFromChat(text, creds);
       if (!parsed) {
-        // Fall through — not a complete schedule manage parse.
+        // Fall through to normal Auto if neither heuristic nor LLM mapped it.
       } else {
         const applied = await applyScheduleFromChat({
           agent: runtime.agent,
@@ -2225,7 +2225,7 @@ export async function runChatAutoTurn(opts) {
           content,
           goal: "",
           ack: "",
-          reason: `schedule_${parsed.action}${creds?.apiKey ? "_llm" : ""}`,
+          reason: `schedule_${parsed.action}${parsed.action !== "list" && creds?.apiKey ? "_llm" : ""}`,
           timing: track.finish(),
         });
       }

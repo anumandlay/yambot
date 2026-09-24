@@ -1,10 +1,10 @@
 # PROMPT_LOG.md
 
-## [2026-09-24 15:30] LLM parses create/delete reminder text (hybrid)
+## [2026-09-24 15:35] LLM parse for reminder create/delete (list stays fast)
 
-- **Prompt Provided:** use LLM for creating/deleting reminder text — opinion + implement.
-- **Architectural Flow:** `resolveScheduleFromChat` — LLM proposes create/disable JSON from natural wording; `applyScheduleFromChat` still writes `schedules[]`. List stays heuristic (fast). Regex fallback if LLM fails. Broader manage detect for “cancel water nudge”.
-- **Impacted Files:** scheduleFromChat.js, chatAutoTurn.js, scheduleFromChat.test.js, PROMPT_LOG
+- **Prompt Provided:** use LLM for creating/deleting reminders text — opinion + implement.
+- **Architectural Flow:** Hybrid — `resolveScheduleFromChat` uses LLM JSON plan for create/disable phrasing; validate intervals/kind; `applyScheduleFromChat` still writes `schedules[]`. List remains heuristic-only (ms). Heuristic fallback if LLM fails.
+- **Impacted Files:** scheduleLlmPlan.js, chatAutoTurn.js, scheduleFromChat.js, scheduleLlmPlan.test.js, PROMPT_LOG
 
 ## [2026-09-24 15:25] Targeted reminder delete + hybrid reminder policy
 

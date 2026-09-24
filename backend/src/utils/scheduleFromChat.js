@@ -4,7 +4,6 @@
  * Downstream: chatAutoTurn.js (manage path); Agent.schedules + scheduler.js ticks.
  */
 
-import { llmChatCompletion } from "./llmChat.js";
 import {
   SCHEDULE_INTERVALS,
   computeNextRunAt,
@@ -399,8 +398,8 @@ export function looksLikeScheduleManageRequest(text) {
       "i"
     ).test(raw) ||
     /\b(stop|disable|pause)\b.+\b(email|checking|check)\b.+\b(schedule|reminder)?\b/i.test(raw) ||
-    // Why: “cancel my water nudge” / “delete drink water” — LLM parse fills the topic.
-    /\b(stop|disable|pause|cancel|remove|delete)\b.+\b(remind|reminder|nudge|water|hydrat)\b/i.test(
+    // Why: “cancel the water nudge” / “delete drink water reminder” — LLM parse fills matchHint.
+    /\b(stop|disable|pause|cancel|remove|delete)\b.+\b(nudge|ping|remind(?:er)?|water|hydrat)\b/i.test(
       raw
     )
   ) {
@@ -672,186 +671,4 @@ export async function applyScheduleFromChat(opts) {
       `Next run: ${nextIso}\n` +
       `You can change it under Agents → Schedulers, or say “list reminders” / “stop the reminder”.`,
   };
-}
-
-/**
- * Normalize LLM JSON into a ParsedScheduleChat (or null).
- * Why: model only proposes text/fields; applyScheduleFromChat still writes schedules[].
- * @param {any} raw
- * @param {string} userText
- * @returns {ParsedScheduleChat|null}
- */
-export function normalizeLlmScheduleParse(raw, userText = "") {
-  if (!raw || typeof raw !== "object") return null;
-  let action = String(raw.action || "").trim().toLowerCase();
-  if (action === "stop" || action === "delete" || action === "cancel" || action === "remove") {
-    action = "disable";
-  }
-  if (action === "add" || action === "set" || action === "remind") action = "create";
-  if (action === "update" || action === "edit") action = "create";
-  if (!["create", "list", "disable"].includes(action)) return null;
-
-  if (action === "list") return { action: "list" };
-
-  if (action === "disable") {
-    const matchHint = String(
-      raw.matchHint || raw.hint || raw.topic || raw.name || extractScheduleDisableHint(userText) || ""
-    )
-      .trim()
-      .slice(0, 80);
-    return { action: "disable", matchHint };
-  }
-
-  // create
-  let interval = String(raw.interval || "").trim();
-  if (!SCHEDULE_INTERVALS.includes(interval)) {
-    const fromText = parseScheduleIntervalFromText(
-      `${userText} ${raw.cadence || raw.every || ""}`
-    );
-    interval = fromText?.interval || "";
-  }
-  if (!SCHEDULE_INTERVALS.includes(interval)) return null;
-
-  let dailyAt = String(raw.dailyAt || raw.daily_at || "09:00").trim();
-  if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) {
-    const clock = parseClockTimeFromText(userText);
-    dailyAt = clock?.dailyAt || "09:00";
-  }
-  const hhmm = /^(\d{1,2}):(\d{2})$/.exec(dailyAt);
-  if (hhmm) {
-    dailyAt = `${String(Math.min(23, Number(hhmm[1]))).padStart(2, "0")}:${hhmm[2]}`;
-  }
-
-  const kindRaw = String(raw.kind || "").trim().toLowerCase();
-  let kind =
-    kindRaw === "chat_reminder" || kindRaw === "reminder" || kindRaw === "chat"
-      ? "chat_reminder"
-      : kindRaw === "computer" || kindRaw === "job"
-        ? "computer"
-        : looksLikeChatReminderRequest(userText) ||
-            /\b(remind|nudge|ping|water|hydrat|stretch|break)\b/i.test(
-              String(raw.goal || raw.message || userText)
-            )
-          ? "chat_reminder"
-          : "computer";
-
-  let goal = String(raw.goal || raw.message || raw.topic || "").trim();
-  if (!goal || goal.length < 2) {
-    goal = stripScheduleCadenceFromGoal(userText).slice(0, 8000);
-  }
-  if (!goal || goal.length < 2) return null;
-
-  goal =
-    kind === "chat_reminder"
-      ? frameChatReminderMessage(goal.replace(/^remind\s+me\s+to\s+/i, ""))
-      : frameComputerScheduleGoal(goal);
-
-  const name = String(raw.name || defaultScheduleJobName(goal, kind)).trim().slice(0, 80);
-  return {
-    action: "create",
-    interval,
-    dailyAt,
-    goal,
-    kind,
-    name,
-  };
-}
-
-/**
- * Ask the chat LLM to parse create/delete reminder wording into JSON.
- * @param {string} userText
- * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }} creds
- * @returns {Promise<ParsedScheduleChat|null>}
- */
-export async function parseScheduleWithLlm(userText, creds) {
-  const text = String(userText || "").trim();
-  if (!text || !creds?.apiKey) return null;
-
-  const intervals = SCHEDULE_INTERVALS.join("|");
-  const system = [
-    "You parse YamBot reminder/schedule chat into JSON only (no markdown).",
-    'Schema: {"action":"create|list|disable","kind":"chat_reminder|computer","interval":"' +
-      intervals +
-      '","dailyAt":"HH:MM","goal":"","name":"","matchHint":""}',
-    "Rules:",
-    "- create: recurring reminder or scheduled job with a cadence (every N minutes/hours, or daily).",
-    "- chat_reminder: chat nudge text (drink water, stretch). computer: check email / app jobs.",
-    "- disable: stop/delete/cancel one or all reminders. matchHint = topic words (e.g. drink water), empty for all.",
-    "- list: only if they ask to list/show reminders/schedules.",
-    "- dailyAt is 24h UTC clock for daily jobs. Prefer times the user said.",
-    "- goal/message should be clean (no “every 5 minutes” left in).",
-    "- If not a schedule/reminder manage ask, return {\"action\":\"\"}.",
-  ].join("\n");
-
-  const raw = await llmChatCompletion({
-    apiKey: creds.apiKey,
-    baseUrl: creds.llmBaseUrl || "",
-    model: creds.llmModel || "",
-    openAiAccountId: creds.openAiAccountId,
-    temperature: 0,
-    maxTokens: 350,
-    timeoutMs: 20_000,
-    messages: [
-      { role: "system", content: system },
-      { role: "user", content: text },
-    ],
-  });
-
-  const cleaned = String(raw || "")
-    .replace(/^```(?:json)?\s*/i, "")
-    .replace(/\s*```$/i, "")
-    .trim();
-  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
-  /** @type {any} */
-  let parsed;
-  try {
-    parsed = JSON.parse(jsonMatch[0]);
-  } catch {
-    return null;
-  }
-  return normalizeLlmScheduleParse(parsed, text);
-}
-
-/**
- * Prefer LLM for create/disable wording; keep list + apply deterministic.
- * Why: natural phrasing (“cancel my water nudge”) without inventing unsaved reminders.
- * @param {string} userText
- * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} [creds]
- * @returns {Promise<ParsedScheduleChat|null>}
- */
-export async function resolveScheduleFromChat(userText, creds = null) {
-  const text = String(userText || "").trim();
-  const heuristic = parseScheduleFromChat(text);
-
-  // Why: list is a pure DB read — no LLM latency.
-  if (heuristic?.action === "list") return heuristic;
-
-  const wantsLlm =
-    Boolean(creds?.apiKey) &&
-    (heuristic?.action === "create" ||
-      heuristic?.action === "disable" ||
-      (!heuristic && looksLikeScheduleManageRequest(text)));
-
-  if (wantsLlm) {
-    try {
-      const llmParsed = await parseScheduleWithLlm(text, creds);
-      if (llmParsed?.action === "list") return llmParsed;
-      if (llmParsed?.action === "create" || llmParsed?.action === "disable") {
-        // Why: merge disable hint — LLM topic wins when present; else heuristic.
-        if (llmParsed.action === "disable") {
-          const hint =
-            String(llmParsed.matchHint || "").trim() ||
-            String(heuristic?.matchHint || "").trim() ||
-            extractScheduleDisableHint(text);
-          return { action: "disable", matchHint: hint };
-        }
-        return llmParsed;
-      }
-    } catch (err) {
-      console.warn("[scheduleFromChat] LLM parse failed:", err?.message || err);
-    }
-  }
-
-  return heuristic;
 }
