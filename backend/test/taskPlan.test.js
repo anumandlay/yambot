@@ -45,6 +45,7 @@ test("heuristic plan missing recipient pauses", () => {
   assert.ok(p.steps.some((s) => s.kind === "send_email"));
   assert.ok(p.steps.some((s) => s.kind === "verify"));
   assert.ok(!p.entities.email_recipient);
+  assert.equal(p.workingState.needsSendConfirm, true);
 });
 
 test("heuristic plan with recipient has no missing slot", () => {
@@ -53,6 +54,7 @@ test("heuristic plan with recipient has no missing slot", () => {
   );
   assert.equal(p.missingSlots.length, 0);
   assert.equal(p.entities.email_recipient, "fastagconsultant@gmail.com");
+  assert.equal(p.workingState.needsSendConfirm, false);
 });
 
 test("applyClarifyAnswerToPlan fills email", () => {
@@ -112,4 +114,43 @@ test("normalizeLlmTaskPlan adds verify after send_email", () => {
     "check example.com and email title to a@b.com"
   );
   assert.ok(n.steps.some((s) => s.kind === "verify"));
+  assert.equal(n.workingState.needsSendConfirm, false);
+});
+
+test("phase2: confirm / deny / operationId / verify helpers", async () => {
+  const {
+    looksLikeSendConfirm,
+    looksLikeSendDeny,
+    buildSendOperationId,
+    verifySendAgainstDraft,
+    classifyComputerFailure,
+  } = await import("../src/utils/taskPlanRunner.js");
+  assert.equal(looksLikeSendConfirm("yes"), true);
+  assert.equal(looksLikeSendDeny("no"), true);
+  const a = buildSendOperationId("p1", "a@b.com", "Sub", "Title");
+  const b = buildSendOperationId("p1", "a@b.com", "Sub", "Title");
+  assert.equal(a, b);
+  assert.match(a, /^send-/);
+  const ok = verifySendAgainstDraft({
+    sent: true,
+    lastSendOk: true,
+    lastSendTo: "a@b.com",
+    lastSendSubject: "Sub",
+    pageTitle: "Example Domain",
+    emailDraft: {
+      to: "a@b.com",
+      subject: "Sub",
+      body: "The title is: Example Domain",
+    },
+  });
+  assert.equal(ok.ok, true);
+  const bad = verifySendAgainstDraft({
+    sent: true,
+    lastSendOk: true,
+    lastSendTo: "other@b.com",
+    lastSendSubject: "Sub",
+    emailDraft: { to: "a@b.com", subject: "Sub", body: "x" },
+  });
+  assert.equal(bad.ok, false);
+  assert.equal(classifyComputerFailure("DNS lookup failed").code, "website_unavailable");
 });

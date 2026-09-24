@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:20] TaskPlan Phase 2 — confirm, idempotency, verify
+
+- **Prompt Provided:** Hermes missed items — confirm send, failure handling, duplicate prevention, strict verify, temp state.
+- **Architectural Flow:** When recipient was clarified, pause with draft preview (yes/no). `sendOperationId` skips duplicate sends. Computer failures classified. Verify checks to/subject/title-in-body. workingState tracks draft/sent/verified without curated memory.
+- **Impacted Files:** taskPlanRunner.js, taskPlanPlanner.js, taskPlan.test.js, PROMPT_LOG
+
 ## [2026-09-24 13:10] Hermes-depth TaskPlan (clarify + state + verify)
 
 - **Prompt Provided:** Same depth as Hermes write-up for multi-step (example.com title → email).

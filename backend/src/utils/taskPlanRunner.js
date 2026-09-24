@@ -4,6 +4,7 @@
  * Downstream: chatAutoTurn.js, worker.js complete, chats.js Task link.
  */
 
+import { createHash } from "crypto";
 import { TaskPlan } from "../models/TaskPlan.js";
 import { Message } from "../models/Chat.js";
 import {
@@ -25,6 +26,111 @@ import {
   decryptAgentComposioApiKey,
   expandComposioToolkitSlugs,
 } from "./composioService.js";
+
+/**
+ * Stable id so retries do not double-send the same email.
+ * @param {string} planId
+ * @param {string} to
+ * @param {string} subject
+ * @param {string} title
+ * @returns {string}
+ */
+export function buildSendOperationId(planId, to, subject, title) {
+  const raw = `${planId}|${String(to || "").toLowerCase()}|${subject}|${title}`;
+  return `send-${createHash("sha256").update(raw).digest("hex").slice(0, 20)}`;
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSendConfirm(text) {
+  return /^(yes|y|ok|okay|send(\s+it)?|go\s*ahead|confirm|approved|do\s+it)\b/i.test(
+    String(text || "").trim()
+  );
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSendDeny(text) {
+  return /^(no|nope|cancel|stop|don'?t|do\s+not|never\s*mind)\b/i.test(
+    String(text || "").trim()
+  );
+}
+
+/**
+ * Classify browser failure for clearer user messages.
+ * @param {string} summary
+ * @returns {{ code: string, message: string }}
+ */
+export function classifyComputerFailure(summary) {
+  const s = String(summary || "");
+  if (/timeout|timed\s*out|ETIMEDOUT|network/i.test(s)) {
+    return {
+      code: "network_timeout",
+      message: "The site did not load in time (network timeout). Try again later.",
+    };
+  }
+  if (/unavailable|ERR_|DNS|refused|not\s+found|404|5\d\d/i.test(s)) {
+    return {
+      code: "website_unavailable",
+      message: "The website looked unavailable or returned an error.",
+    };
+  }
+  if (/login|sign\s*in|password|captcha|blocked|wall/i.test(s)) {
+    return {
+      code: "login_wall",
+      message: "A login wall or blocker stopped the browser step.",
+    };
+  }
+  if (/title|empty|nothing/i.test(s) && /fail|couldn|unable/i.test(s)) {
+    return {
+      code: "title_missing",
+      message: "Could not read a page title from the site.",
+    };
+  }
+  return {
+    code: "computer_failed",
+    message: `Browser step failed: ${s.slice(0, 400) || "unknown error"}`,
+  };
+}
+
+/**
+ * Strict verify: recipient, subject, body contain title, send flagged ok.
+ * @param {object} workingState
+ * @returns {{ ok: boolean, detail: string }}
+ */
+export function verifySendAgainstDraft(workingState) {
+  const ws = workingState && typeof workingState === "object" ? workingState : {};
+  const draft = ws.emailDraft || {};
+  if (!ws.lastSendOk || !ws.sent) {
+    return { ok: false, detail: "Send was not marked successful." };
+  }
+  const to = String(ws.lastSendTo || "").toLowerCase();
+  const wantTo = String(draft.to || ws.recipient || "").toLowerCase();
+  if (wantTo && to !== wantTo) {
+    return { ok: false, detail: `Recipient mismatch: sent to ${to || "?"} but expected ${wantTo}.` };
+  }
+  const subject = String(ws.lastSendSubject || "");
+  const wantSubject = String(draft.subject || "");
+  if (wantSubject && subject !== wantSubject) {
+    return {
+      ok: false,
+      detail: `Subject mismatch: got “${subject}” expected “${wantSubject}”.`,
+    };
+  }
+  const title = String(ws.pageTitle || "").trim();
+  const body = String(draft.body || "");
+  if (title && body && !body.includes(title)) {
+    return { ok: false, detail: "Email body does not contain the captured page title." };
+  }
+  return {
+    ok: true,
+    detail: `Verified send to ${ws.lastSendTo || to}` + (subject ? ` — ${subject}` : ""),
+  };
+}
 
 /**
  * @param {object} planDoc
@@ -67,6 +173,8 @@ export function applyClarifyAnswerToPlan(plan, userText) {
     plan.entities.email_recipient = email;
     plan.workingState = plan.workingState || {};
     plan.workingState.recipient = email;
+    // Why: recipient was missing from the original ask — require send confirmation.
+    plan.workingState.needsSendConfirm = true;
     plan.missingSlots = (plan.missingSlots || []).filter((s) => s !== "email_recipient");
     for (const s of plan.steps || []) {
       if (s.kind === "send_email") {
@@ -75,6 +183,17 @@ export function applyClarifyAnswerToPlan(plan, userText) {
       }
     }
     changed = true;
+  }
+  if (plan.workingState?.waitingFor === "send_confirm") {
+    if (looksLikeSendConfirm(text)) {
+      plan.workingState.sendConfirmed = true;
+      plan.workingState.waitingFor = null;
+      changed = true;
+    } else if (looksLikeSendDeny(text)) {
+      plan.workingState.sendDenied = true;
+      plan.workingState.waitingFor = null;
+      changed = true;
+    }
   }
   return changed;
 }
@@ -124,7 +243,6 @@ export function mergeComputerSummaryIntoWorkingState(workingState, summary) {
   if (titled) ws.pageTitle = titled.replace(/^['"]|['"]$/g, "").slice(0, 300);
   ws.lastComputerSummary = s.slice(0, 6000);
   if (!ws.pageTitle) {
-    // Fallback: first non-empty line
     const line = s.split(/\n/).map((l) => l.trim()).find((l) => l.length > 2 && l.length < 200);
     if (line && !/^done\.?$/i.test(line)) ws.pageTitle = line.slice(0, 300);
   }
@@ -162,15 +280,6 @@ function buildEmailFromWorkingState(plan) {
  *   userText: string,
  *   creds?: object|null,
  * }} opts
- * @returns {Promise<{
- *   handled: boolean,
- *   action?: "reply"|"queue_goal",
- *   content?: string,
- *   goal?: string,
- *   ack?: string,
- *   reason?: string,
- *   taskPlanId?: string,
- * }>}
  */
 export async function startOrResumeTaskPlan(opts) {
   const userId = String(opts.userId || "");
@@ -181,7 +290,6 @@ export async function startOrResumeTaskPlan(opts) {
     return { handled: false };
   }
 
-  // Resume waiting plan on clarify answers (email, short replies).
   const waiting = await findWaitingTaskPlan({
     userId,
     chatId,
@@ -189,10 +297,43 @@ export async function startOrResumeTaskPlan(opts) {
   });
   if (waiting) {
     const applied = applyClarifyAnswerToPlan(waiting, userText);
+    const waitingFor = waiting.workingState?.waitingFor;
+
+    if (waiting.workingState?.sendDenied) {
+      waiting.status = "cancelled";
+      waiting.lastError = "user_denied_send";
+      await savePlan(waiting);
+      return {
+        handled: true,
+        action: "reply",
+        content: "Cancelled — email was not sent.",
+        reason: "taskplan_send_denied",
+        taskPlanId: String(waiting._id),
+      };
+    }
+
+    if (waitingFor === "send_confirm") {
+      if (waiting.workingState?.sendConfirmed) {
+        waiting.status = "running";
+        waiting.clarifyQuestion = "";
+        await savePlan(waiting);
+        return advanceTaskPlan({ plan: waiting, agent, userId, chatId });
+      }
+      return {
+        handled: true,
+        action: "reply",
+        content:
+          waiting.clarifyQuestion ||
+          "Reply **yes** to send the email, or **no** to cancel.",
+        reason: "taskplan_await_send_confirm",
+        taskPlanId: String(waiting._id),
+      };
+    }
+
     const looksLikeAnswer =
       applied ||
       parseEmailRecipient(userText) ||
-      /^(yes|ok|okay|send\s*it|go\s*ahead)\b/i.test(userText);
+      looksLikeSendConfirm(userText);
     if (looksLikeAnswer) {
       if (!applied && waiting.missingSlots?.includes("email_recipient")) {
         return {
@@ -215,7 +356,6 @@ export async function startOrResumeTaskPlan(opts) {
         chatId,
       });
     }
-    // New unrelated ask — cancel waiting plan and continue normal routing.
     if (looksLikeHermesTaskPlanAsk(userText) || userText.length > 40) {
       waiting.status = "cancelled";
       waiting.lastError = "superseded";
@@ -311,7 +451,6 @@ export async function advanceTaskPlan(opts) {
           taskPlanId: String(plan._id),
         };
       }
-      // Waiting on running computer step
       return {
         handled: true,
         action: "reply",
@@ -321,7 +460,6 @@ export async function advanceTaskPlan(opts) {
       };
     }
 
-    // Prefer one computer step at a time (queue and pause).
     const computer = ready.find((s) => s.kind === "computer");
     if (computer) {
       computer.status = "running";
@@ -378,25 +516,68 @@ export async function advanceTaskPlan(opts) {
       }
       if (!agent.composio?.enabled || !apiKey) {
         step.status = "error";
-        step.error = "Composio/Gmail not configured";
+        step.error = "email_tool_unavailable";
         plan.status = "error";
         plan.lastError = step.error;
+        plan.workingState = plan.workingState || {};
+        plan.workingState.failureCode = "email_tool_unavailable";
         await savePlan(plan);
         return {
           handled: true,
           action: "reply",
           content:
-            "I have the page result, but Composio Gmail is not enabled on this agent — enable it under Agents → Composio.",
+            "Email tool unavailable — enable Composio + Gmail on this agent (Agents → Composio), then ask me to continue.",
           reason: "taskplan_composio_off",
           taskPlanId: String(plan._id),
         };
       }
+
       const { subject, body } = buildEmailFromWorkingState(plan);
       plan.workingState = plan.workingState || {};
       plan.workingState.emailDraft = { subject, body, to };
-      const {
-        composioExecuteTool,
-      } = await import("./composioService.js");
+      plan.workingState.draft_created = true;
+      plan.workingState.recipient = to;
+
+      if (plan.workingState.needsSendConfirm && !plan.workingState.sendConfirmed) {
+        const preview = String(body || "").slice(0, 280);
+        plan.status = "waiting_user";
+        plan.workingState.waitingFor = "send_confirm";
+        plan.clarifyQuestion = [
+          "Ready to send this email (not sent yet):",
+          `To: ${to}`,
+          `Subject: ${subject}`,
+          `Body preview: ${preview}${body.length > 280 ? "…" : ""}`,
+          "",
+          "Reply **yes** to send, or **no** to cancel.",
+        ].join("\n");
+        step.status = "pending";
+        await savePlan(plan);
+        return {
+          handled: true,
+          action: "reply",
+          content: plan.clarifyQuestion,
+          reason: "taskplan_send_confirm",
+          taskPlanId: String(plan._id),
+        };
+      }
+
+      const opId = buildSendOperationId(
+        String(plan._id),
+        to,
+        subject,
+        plan.workingState.pageTitle || ""
+      );
+      const doneOps = Array.isArray(plan.workingState.completedOperationIds)
+        ? plan.workingState.completedOperationIds
+        : [];
+      if (plan.workingState.sent && (doneOps.includes(opId) || plan.workingState.sendOperationId === opId)) {
+        step.status = "done";
+        step.result = `Already sent (idempotent) — ${opId}`;
+        await savePlan(plan);
+        continue;
+      }
+
+      const { composioExecuteTool } = await import("./composioService.js");
       const toolkitSlugs = expandComposioToolkitSlugs(
         Array.isArray(agent.composio?.toolkitSlugs) ? agent.composio.toolkitSlugs : []
       );
@@ -436,6 +617,19 @@ export async function advanceTaskPlan(opts) {
       plan.workingState.lastSendDetail = step.result.slice(0, 1000);
       plan.workingState.lastSendTo = to;
       plan.workingState.lastSendSubject = subject;
+      plan.workingState.lastSendBody = body.slice(0, 4000);
+      if (send.ok) {
+        plan.workingState.sent = true;
+        plan.workingState.sendOperationId = opId;
+        plan.workingState.completedOperationIds = [...doneOps, opId];
+      } else {
+        const err = String(send.error || "");
+        plan.workingState.failureCode = /auth|unauthor|connect/i.test(err)
+          ? "auth_expired"
+          : /reject|denied|permission/i.test(err)
+            ? "send_rejected"
+            : "send_failed";
+      }
       await savePlan(plan);
       if (!send.ok) {
         plan.status = "error";
@@ -444,7 +638,7 @@ export async function advanceTaskPlan(opts) {
         return {
           handled: true,
           action: "reply",
-          content: `Email step failed: ${step.error}`,
+          content: `Email send failed (${plan.workingState.failureCode}): ${step.error}. I did not mark this as sent.`,
           reason: "taskplan_email_error",
           taskPlanId: String(plan._id),
         };
@@ -457,11 +651,13 @@ export async function advanceTaskPlan(opts) {
         step.status = "error";
         step.error = "Composio off";
         plan.status = "error";
+        plan.workingState = plan.workingState || {};
+        plan.workingState.failureCode = "email_tool_unavailable";
         await savePlan(plan);
         return {
           handled: true,
           action: "reply",
-          content: "Composio is not enabled for the next connected-app step.",
+          content: "Connected-app tool unavailable — enable Composio on this agent.",
           reason: "taskplan_composio_off",
           taskPlanId: String(plan._id),
         };
@@ -535,25 +731,28 @@ export async function advanceTaskPlan(opts) {
     }
 
     if (step.kind === "verify") {
-      const ok = plan.workingState?.lastSendOk === true;
-      const to = plan.workingState?.lastSendTo || "";
-      const subject = plan.workingState?.lastSendSubject || "";
-      if (!ok) {
+      const check = verifySendAgainstDraft(plan.workingState || {});
+      if (!check.ok) {
         step.status = "error";
-        step.error = "Send was not confirmed ok";
+        step.error = check.detail;
         plan.status = "error";
-        plan.lastError = step.error;
+        plan.lastError = check.detail;
+        plan.workingState = plan.workingState || {};
+        plan.workingState.verified = false;
+        plan.workingState.failureCode = "verify_failed";
         await savePlan(plan);
         return {
           handled: true,
           action: "reply",
-          content: "Could not verify the email send — the send step did not report success.",
+          content: `Could not verify the email send: ${check.detail}`,
           reason: "taskplan_verify_fail",
           taskPlanId: String(plan._id),
         };
       }
       step.status = "done";
-      step.result = `Verified send to ${to}` + (subject ? ` (subject: ${subject})` : "");
+      step.result = check.detail;
+      plan.workingState = plan.workingState || {};
+      plan.workingState.verified = true;
       await savePlan(plan);
       continue;
     }
@@ -576,6 +775,12 @@ function formatPlanDoneMessage(plan) {
   const ws = plan.workingState || {};
   if (ws.pageTitle) lines.push("", `Page title: ${ws.pageTitle}`);
   if (ws.lastSendTo) lines.push(`Emailed: ${ws.lastSendTo}`);
+  if (ws.verified) lines.push("Verified: recipient / subject / title in body");
+  if (ws.sendOperationId) lines.push(`Operation id: ${ws.sendOperationId}`);
+  lines.push(
+    "",
+    `State: draft=${Boolean(ws.draft_created)} sent=${Boolean(ws.sent)} verified=${Boolean(ws.verified)}`
+  );
   return lines.join("\n");
 }
 
@@ -605,20 +810,27 @@ export async function resumeTaskPlanAfterComputer(opts) {
     (plan.steps || []).find((s) => s.kind === "computer" && s.status !== "done");
 
   if (!opts.success) {
+    const fail = classifyComputerFailure(opts.summary || "");
     if (step) {
       step.status = "error";
-      step.error = String(opts.summary || "computer failed");
+      step.error = fail.message;
     }
     plan.status = "error";
-    plan.lastError = step?.error || "computer failed";
+    plan.lastError = fail.message;
+    plan.workingState = plan.workingState || {};
+    plan.workingState.failureCode = fail.code;
     await savePlan(plan);
     await Message.create({
       chat: plan.chat,
       role: "assistant",
-      content: `Multi-step job stopped — browser step failed: ${plan.lastError}`,
-      meta: { kind: "taskplan_error", taskPlanId: String(plan._id) },
+      content: `Multi-step job stopped — ${fail.message}`,
+      meta: {
+        kind: "taskplan_error",
+        taskPlanId: String(plan._id),
+        failureCode: fail.code,
+      },
     }).catch(() => null);
-    return { ok: false, reason: "computer_failed" };
+    return { ok: false, reason: fail.code };
   }
 
   plan.workingState = mergeComputerSummaryIntoWorkingState(
@@ -640,7 +852,6 @@ export async function resumeTaskPlanAfterComputer(opts) {
     chatId: String(plan.chat),
   });
 
-  // If next action is another queue_goal, we cannot queue from worker — reply progress only.
   if (cont.action === "queue_goal") {
     await Message.create({
       chat: plan.chat,
@@ -653,7 +864,6 @@ export async function resumeTaskPlanAfterComputer(opts) {
   }
 
   if (cont.action === "reply" && cont.content) {
-    // advanceTaskPlan may have already posted done message
     if (cont.reason !== "taskplan_done") {
       await Message.create({
         chat: plan.chat,

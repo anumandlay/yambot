@@ -161,6 +161,17 @@ export function heuristicTaskPlanFromText(userText) {
       emailDraft: null,
       lastSendOk: null,
       lastSendDetail: "",
+      // Hermes-style completion flags
+      draft_created: false,
+      sent: false,
+      verified: false,
+      // Phase 2: confirm when recipient was not in the original ask
+      needsSendConfirm: missingSlots.includes("email_recipient"),
+      sendConfirmed: false,
+      waitingFor: null,
+      sendOperationId: "",
+      completedOperationIds: [],
+      failureCode: "",
     },
   };
 }
@@ -262,6 +273,15 @@ export function normalizeLlmTaskPlan(parsed, userText) {
       emailDraft: null,
       lastSendOk: null,
       lastSendDetail: "",
+      draft_created: false,
+      sent: false,
+      verified: false,
+      needsSendConfirm: !entities.email_recipient,
+      sendConfirmed: false,
+      waitingFor: null,
+      sendOperationId: "",
+      completedOperationIds: [],
+      failureCode: "",
     },
   };
 }
