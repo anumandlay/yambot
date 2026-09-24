@@ -748,7 +748,6 @@ export function ChatDetailPage() {
         meta: {
           kind: "chat_qa",
           streaming: true,
-          progress: { id: "auto", label: "Working…", pct: 0 },
         },
       },
     ]);
@@ -774,35 +773,15 @@ export function ChatDetailPage() {
                 content: next,
                 meta: {
                   ...m.meta,
-                  progress: m.meta?.progress
-                    ? { ...m.meta.progress, pct: Math.max(Number(m.meta.progress.pct) || 0, 96) }
-                    : undefined,
+                  streaming: true,
                 },
               };
             })
           );
           scrollThreadToBottom(true);
         },
-        onProgress: (step) => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m._id === `${streamId}-assistant`
-                ? {
-                    ...m,
-                    meta: {
-                      ...m.meta,
-                      streaming: true,
-                      progress: {
-                        id: step.id || "composio",
-                        label: step.label || "Working…",
-                        pct: Number(step.pct) || 0,
-                      },
-                    },
-                  }
-                : m
-            )
-          );
-        },
+        // Why: product does not want Working… / % progress on chat bubbles — only stream text.
+        onProgress: undefined,
         onTiming: (timing) => {
           // Why: Hermes-style debug — keep in console; durable copy is on ops icon / message meta.
           if (timing && typeof console !== "undefined" && console.debug) {
@@ -1558,13 +1537,6 @@ export function ChatDetailPage() {
                         </div>
                       ) : null}
                       <ChatMessageBody text={humanizeGoalOrMessage(m.content, m.meta)} />
-                      {m.meta?.streaming && (m.meta?.progress || String(m.content || "") === "…") ? (
-                        <StreamProgressBar
-                          label={String(m.meta?.progress?.label || "Working…")}
-                          pct={Number(m.meta?.progress?.pct) || 0}
-                          indeterminate={!Number(m.meta?.progress?.pct)}
-                        />
-                      ) : null}
                       {m.role === "assistant" || m.role === "agent" ? (
                         <MessageStatusChips message={m} tone="light" />
                       ) : null}

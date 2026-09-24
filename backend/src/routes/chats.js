@@ -1128,15 +1128,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
           });
         const autoTrack = createAutoTimingTracker({
-          onProgress: wantStream
-            ? (step) =>
-                writeNdjson({
-                  type: "progress",
-                  id: step?.id || "composio",
-                  label: step?.label || "Working…",
-                  pct: Number(step?.pct) || 0,
-                })
-            : undefined,
+          // Why: chat bubbles must not show Working… / % progress — stream text only.
+          onProgress: undefined,
         });
         await withChatAutoLock(String(chat._id), async () => {
           let prepared;
@@ -1172,15 +1165,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             onDelta: wantStream
               ? (chunk) => writeNdjson({ type: "delta", text: chunk })
               : undefined,
-            onProgress: wantStream
-              ? (step) =>
-                  writeNdjson({
-                    type: "progress",
-                    id: step?.id || "composio",
-                    label: step?.label || "Working…",
-                    pct: Number(step?.pct) || 0,
-                  })
-              : undefined,
+            onProgress: undefined,
             timing: autoTrack,
             // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
             runtime: {

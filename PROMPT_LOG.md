@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 16:15] No progress bar on chat messages
+
+- **Prompt Provided:** i dont need progress for chat messages.
+- **Architectural Flow:** Stop emitting Auto `progress` NDJSON from chats.js; ChatDetailPage no longer sets/shows StreamProgressBar — stream text only (ellipsis until first delta).
+- **Impacted Files:** chats.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-24 16:10] No cheap texts; bare “check email” hits Composio
 
 - **Prompt Provided:** “check email” → “I am here…”; “check email and send summary…” worked; make LLM decide, no cheap texts.
