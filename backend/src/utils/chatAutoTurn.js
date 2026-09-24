@@ -24,6 +24,7 @@ import {
   planComposioMultiSteps,
   runComposioMultiStep,
 } from "./composioAutoRuntime.js";
+import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
 
 export {
   looksLikeGmailInboxRequest,
@@ -1897,12 +1898,13 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "2) QUEUE_GOAL / queue_goal — LIVE cloud computer / peers NOW:",
     "- Imperative browse: open/go to/navigate/visit a site, click, fill, submit, log in (now)",
     "- Create/register accounts in CRM / Vughy / agency admin (even if they also want credentials emailed after)",
+    "- Open/check a site (Vughy/CRM) AND then update Notion / Slack / email — QUEUE_GOAL the browser step only; connected apps run after the computer finishes",
     "- When they ask create/register AND send credentials to an email: QUEUE_GOAL the browser create step — the runtime emails credentials via Composio after the computer finishes",
     "- Live research that needs browsing this turn",
     "- Peer message / fan-out / handoff",
     "- Worker send_email / download / change something in the browser",
     "- NEVER turn an email address into a https:// URL",
-    "- NEVER use QUEUE_GOAL for Gmail/Sheets/Slack/Drive via connected apps — that is mode 3",
+    "- NEVER use QUEUE_GOAL for Gmail/Sheets/Slack/Drive via connected apps — that is mode 3 (unless a live site step comes first in a combo)",
     "- NEVER reply with only “On it / Starting…” for a live job — you MUST call queue_goal so a Task is created",
     "",
     "3) Composio tools — connected apps (Gmail, Google Sheets, Slack, Drive, Notion, …):",
@@ -2120,6 +2122,21 @@ export async function runChatAutoTurn(opts) {
       goal: text,
       ack: "",
       reason: "send_email_request",
+      timing: track.finish(),
+    });
+  }
+
+  // Why: hybrid browser→Notion/Slack/email must queue computer first (apps resume after complete).
+  if (looksLikeHybridCombo(text)) {
+    const plan = planComboFromText(text);
+    track.setPath("combo_hybrid_queue");
+    track.markDecision("queue_goal");
+    return finalize({
+      action: "queue_goal",
+      content: "",
+      goal: plan.computerGoal || text,
+      ack: "",
+      reason: `combo_hybrid:${plan.recipe || "browse_then_composio_tail"}`,
       timing: track.finish(),
     });
   }

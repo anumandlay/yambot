@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 11:35] General combo runner (hybrid + Composio N-step)
+
+- **Prompt Provided:** Support different combos — create+email, Notion→Slack→email, open Vughy then Notion+Slack+email.
+- **Architectural Flow:** `comboRunner` plans hybrid (computer then Composio tail) vs Composio-only. Chats attach `comboFollowup` on Task and enrich the browser goal. Worker `resumeComboAfterComputer` runs the full Notion/Slack/Gmail tail with the result summary as prior content. Notion fetch/write intents added; multi-step accepts `initialPriorContent`.
+- **Impacted Files:** comboRunner.js, composioAutoRuntime.js, Task.js, chats.js, worker.js, chatAutoTurn.js, comboRunner.test.js, PROMPT_LOG
+
 ## [2026-09-24 11:20] Computer-then-email combo (create CRM + send credentials)
 
 - **Prompt Provided:** Create a new account in crm and send credentials to fastagconsultant@gmail.com — only created the account; need multiple combo works.

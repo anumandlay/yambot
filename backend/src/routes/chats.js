@@ -26,7 +26,7 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply } from "../utils/chatAutoTurn.js";
-import { enrichComputerGoalForEmailFollowup } from "../utils/computerThenEmailFollowup.js";
+import { enrichComputerGoalForCombo, buildComboFollowupForTask } from "../utils/comboRunner.js";
 import {
   persistChatRememberFact,
   sanitizeFakeMemoryActionReply,
@@ -1705,8 +1705,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     // Why: strip CUA phrases from the worker goal so the LLM focuses on the site task.
     let workerGoalText =
       parseComputerUseFromText(goalText || content).cleanedGoal || goalText || content;
-    // Why: “create account and send credentials to …” — browser captures creds; Composio emails after.
-    workerGoalText = enrichComputerGoalForEmailFollowup(workerGoalText, content);
+    // Why: hybrid combo (browse/create then Notion/Slack/email) — capture results; apps run after.
+    const comboFollowup = buildComboFollowupForTask(content);
+    workerGoalText = enrichComputerGoalForCombo(
+      workerGoalText,
+      content,
+      comboFollowup?.steps || []
+    );
 
     // Why: rebuild snapshot with final goal + semantic curated top-k + chat context for the worker.
     /** @type {object|null} */
@@ -1752,6 +1757,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       runner: "cloud",
       computerUseMode,
       status: "pending",
+      comboFollowup: comboFollowup || null,
       events: [
         {
           type: "queued",
@@ -1773,6 +1779,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               ? peerFanoutTargets.map((p) => ({ to: p.agentName, content: p.content }))
               : null,
             curatedMemory: curatedMeta,
+            comboRecipe: comboFollowup?.recipe || null,
+            comboSteps: comboFollowup?.steps?.length || 0,
           },
         },
       ],

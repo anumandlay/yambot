@@ -51,6 +51,7 @@ import { Skill } from "../models/Skill.js";
 import { processOutcomeRouting } from "../utils/resultRouter.js";
 import { processCompletionActions } from "../utils/completionActionsRunner.js";
 import { maybeEmailCredentialsAfterComputerRun } from "../utils/computerThenEmailFollowup.js";
+import { resumeComboAfterComputer } from "../utils/comboRunner.js";
 import { workerEntitiesRouter } from "./workerEntities.js";
 import { appendDemoStepIfActive, recordDemoUrlChange } from "../utils/demoCapture.js";
 import {
@@ -728,17 +729,30 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
           keywords,
           sourceTask: task._id,
         });
-        // Why: “create account and email credentials” — browser finished; Composio Gmail is step 2.
+        // Why: hybrid combo — browser finished; run Notion/Slack/email (or legacy credentials email).
         if (success && summary) {
-          await maybeEmailCredentialsAfterComputerRun({
+          const comboResult = await resumeComboAfterComputer({
             userId: req.userId,
             agent: agentDoc,
             task,
             success: true,
             summary,
-          }).catch((err) =>
-            console.warn("[worker] computer-then-email followup failed", err?.message || err)
-          );
+          }).catch((err) => {
+            console.warn("[worker] combo followup failed", err?.message || err);
+            return null;
+          });
+          // Why: older tasks without comboFollowup still get create→email via legacy helper.
+          if (comboResult?.skipped) {
+            await maybeEmailCredentialsAfterComputerRun({
+              userId: req.userId,
+              agent: agentDoc,
+              task,
+              success: true,
+              summary,
+            }).catch((err) =>
+              console.warn("[worker] computer-then-email followup failed", err?.message || err)
+            );
+          }
         }
         // Why: day logs are episodic; also distill durable facts into curated agent MEMORY for next-run top-k.
         // Fire-and-forget so the worker HTTP complete returns without waiting on an extra LLM call.

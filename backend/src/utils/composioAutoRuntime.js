@@ -936,6 +936,102 @@ export async function runGmailLabelMove(opts) {
   };
 }
 
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeNotionFetchRequest(text) {
+  const t = String(text || "");
+  if (!/\bnotion\b/i.test(t)) return false;
+  if (/\b(update|add|create|write|put|post|save)\b/i.test(t) && /\bin\s+notion\b/i.test(t)) {
+    return false;
+  }
+  return /\b(get|fetch|read|find|search|from|pull|load)\b/i.test(t);
+}
+
+/**
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeNotionWriteRequest(text) {
+  const t = String(text || "");
+  if (!/\bnotion\b/i.test(t)) return false;
+  return (
+    /\b(update|add|create|write|put|post|save)\b/i.test(t) ||
+    /\bin\s+notion\b/i.test(t) ||
+    /\bnotion\s+(page|doc|database|db)\b/i.test(t)
+  );
+}
+
+/**
+ * @param {string} userText
+ * @returns {Record<string, unknown>}
+ */
+export function buildNotionFetchToolArgs(userText = "") {
+  const raw = String(userText || "");
+  let query = raw
+    .replace(/\bnotion\b/gi, " ")
+    .replace(/\b(get|fetch|read|find|search|from|pull|load|the|a|an|message|page|doc)\b/gi, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (query.length < 2) query = "";
+  return {
+    query,
+    q: query,
+    search: query,
+  };
+}
+
+/**
+ * @param {string} userText
+ * @returns {Record<string, unknown>}
+ */
+export function buildNotionWriteToolArgs(userText = "") {
+  const raw = String(userText || "");
+  const prior =
+    raw.match(/Prior step result:\s*\n([\s\S]+)/i)?.[1]?.trim() ||
+    raw.match(/Content to use:\s*\n([\s\S]+)/i)?.[1]?.trim() ||
+    "";
+  const quoted = raw.match(/["“']([^"”']{3,4000})["”']/);
+  const content = (prior || quoted?.[1] || raw).trim().slice(0, 8000);
+  const titleMatch = raw.match(/\btitle\s*[:=]\s*["']?([^"'\n]{2,120})/i);
+  const title = titleMatch?.[1]?.trim() || "YamBot update";
+  return {
+    title,
+    content,
+    markdown: content,
+    text: content,
+    page_content: content,
+    properties: { title },
+  };
+}
+
+/**
+ * @param {string} resultText
+ * @param {string} [tool]
+ * @returns {string}
+ */
+export function formatNotionSummaryFromToolResult(resultText, tool = "") {
+  /** @type {any} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(resultText || ""));
+  } catch {
+    parsed = null;
+  }
+  if (!parsed) return "I couldn’t parse the Notion response from Composio.";
+  if (parsed.ok === false) {
+    const err = String(parsed.error || parsed.detail || "Notion request failed");
+    if (/not connected|unauthorized|auth|connect/i.test(err)) {
+      return `Notion isn’t connected yet. Open the Connect link, finish OAuth, then ask again.\n\n(${err})`;
+    }
+    return `Notion via Composio failed: ${err}`;
+  }
+  const data = parsed.data ?? parsed;
+  const snippet = JSON.stringify(data).slice(0, 1500);
+  return `Notion${tool ? ` (${tool})` : ""} ok.\n${snippet}`;
+}
+
 /** @type {ComposioIntentSpec[]} */
 export const COMPOSIO_INTENT_SPECS = [
   {
@@ -997,6 +1093,37 @@ export const COMPOSIO_INTENT_SPECS = [
     match: looksLikeGmailInboxRequest,
   },
   {
+    id: "notion_fetch",
+    toolkit: "notion",
+    label: "Notion fetch",
+    preferredTools: [
+      "NOTION_SEARCH",
+      "NOTION_SEARCH_PAGES",
+      "NOTION_FETCH_ROW",
+      "NOTION_GET_PAGE",
+    ],
+    searchQueries: ["NOTION_SEARCH", "search notion pages", "notion fetch"],
+    buildArgs: buildNotionFetchToolArgs,
+    formatOk: formatNotionSummaryFromToolResult,
+    match: looksLikeNotionFetchRequest,
+  },
+  {
+    id: "notion_write",
+    toolkit: "notion",
+    label: "Notion update",
+    preferredTools: [
+      "NOTION_CREATE_PAGE",
+      "NOTION_CREATE_A_PAGE",
+      "NOTION_ADD_PAGE_CONTENT",
+      "NOTION_UPDATE_PAGE",
+      "NOTION_APPEND_BLOCK_CHILDREN",
+    ],
+    searchQueries: ["NOTION_CREATE_PAGE", "create notion page", "notion update page"],
+    buildArgs: buildNotionWriteToolArgs,
+    formatOk: formatNotionSummaryFromToolResult,
+    match: looksLikeNotionWriteRequest,
+  },
+  {
     id: "slack_send",
     toolkit: "slack",
     label: "Slack send",
@@ -1053,7 +1180,7 @@ export function looksLikeSendEmailClause(clause) {
 export function looksLikeSendSlackClause(clause) {
   const t = String(clause || "");
   if (!/\bslack\b/i.test(t) && !/#[a-z0-9_-]{2,}/i.test(t)) return false;
-  return /\b(send|post|message|notify|share|tell)\b/i.test(t);
+  return /\b(send|post|message|notify|share|tell|update|add|write|put)\b/i.test(t);
 }
 
 /**
@@ -1115,7 +1242,21 @@ export function planComposioMultiSteps(userText) {
     // Prefer matching the clause; fall back to clause + light context from the full ask.
     let spec = matchComposioIntent(clause);
     if (!spec && priorExists) {
-      spec = matchComposioIntent(`${clause} ${steps[steps.length - 1].userText}`);
+      // Why: “update in slack” must not inherit “notion” from the prior clause.
+      const clauseApp = String(clause).match(/\b(notion|slack|gmail|googlesheets|sheets?|drive|apollo)\b/i)?.[1];
+      const priorToolkit = String(steps[steps.length - 1].toolkit || "").toLowerCase();
+      const clauseToolkit = String(clauseApp || "")
+        .toLowerCase()
+        .replace(/^sheets?$/, "googlesheets")
+        .replace(/^gmail$/, "gmail");
+      const conflict =
+        clauseToolkit &&
+        priorToolkit &&
+        clauseToolkit !== priorToolkit &&
+        !(clauseToolkit === "googlesheets" && priorToolkit === "googlesheets");
+      if (!conflict) {
+        spec = matchComposioIntent(`${clause} ${steps[steps.length - 1].userText}`);
+      }
     }
     // Why: “Check trial expiring list” has no “spreadsheet” word — still Sheets when followed by send.
     if (
@@ -1311,6 +1452,7 @@ async function runMultiStepSendSlack(opts) {
  *   executeLookup: (kind: string, runtime: object, args?: object) => Promise<string>,
  *   onProgress?: (label: string, pct: number) => void,
  *   plan?: ComposioPlanStep[],
+ *   initialPriorContent?: string,
  * }} opts
  * @returns {Promise<{ ok: boolean, content: string, needsConnect?: boolean, steps: object[], resultText: string }>}
  */
@@ -1327,7 +1469,7 @@ export async function runComposioMultiStep(opts) {
   }
 
   /** @type {string} */
-  let priorContent = "";
+  let priorContent = String(opts.initialPriorContent || "").trim();
   /** @type {{ label: string, ok: boolean, content: string }[]} */
   const done = [];
   let needsConnect = false;
@@ -1341,17 +1483,26 @@ export async function runComposioMultiStep(opts) {
     /** @type {{ ok: boolean, content: string, needsConnect?: boolean, resultText?: string, toolkit?: string }} */
     let ran;
     if (step.kind === "send_email") {
+      // Why: after a computer seed, email the browser summary — not a short Notion ack.
+      const emailPrior =
+        step.usePriorContent && String(opts.initialPriorContent || "").trim().length > 40
+          ? String(opts.initialPriorContent).trim()
+          : priorContent;
       ran = await runMultiStepSendEmail({
         runtime,
         step,
-        priorContent,
+        priorContent: emailPrior,
         executeLookup,
       });
     } else if (step.kind === "send_slack") {
+      const slackPrior =
+        step.usePriorContent && String(opts.initialPriorContent || "").trim().length > 40
+          ? String(opts.initialPriorContent).trim()
+          : priorContent;
       ran = await runMultiStepSendSlack({
         runtime,
         step,
-        priorContent,
+        priorContent: slackPrior,
         executeLookup,
       });
     } else {
@@ -1363,13 +1514,20 @@ export async function runComposioMultiStep(opts) {
       } else {
         // Why: avoid double-email when a later send_email step will deliver the list.
         const hasLaterEmail = plan.slice(i + 1).some((s) => s.kind === "send_email");
-        const stepText =
+        let stepText =
           hasLaterEmail && spec.id === "sheets_list"
             ? String(step.userText || "").replace(
                 /\b(and\s+)?(send|email|e-?mail|mail)\b[\s\S]*$/i,
                 ""
               )
             : step.userText;
+        // Why: Notion write / generic intents after computer or prior app need the payload.
+        if ((step.usePriorContent || spec.id === "notion_write") && priorContent) {
+          stepText = `${String(stepText || "").trim()}\n\nPrior step result:\n${priorContent}`.slice(
+            0,
+            9000
+          );
+        }
         const intentRan = await runComposioIntentExecute({
           runtime,
           userText: stepText || step.userText,
@@ -1387,7 +1545,19 @@ export async function runComposioMultiStep(opts) {
     }
 
     done.push({ label: step.label, ok: Boolean(ran.ok), content: String(ran.content || "") });
-    if (ran.content) priorContent = String(ran.content);
+    // Why: keep computer/seed prior for later email/Slack when an intermediate step is just an ack.
+    if (ran.content && (ran.ok || !priorContent)) {
+      if (
+        step.kind === "intent" &&
+        (step.specId === "notion_write" || step.specId === "notion_fetch") &&
+        priorContent &&
+        String(ran.content).length < 80
+      ) {
+        /* keep priorContent for Slack/email */
+      } else if (ran.ok) {
+        priorContent = String(ran.content);
+      }
+    }
     if (ran.needsConnect) {
       needsConnect = true;
       connectToolkit = ran.toolkit || step.toolkit || "";

@@ -249,6 +249,11 @@ const taskSchema = new mongoose.Schema(
     trajectory: { type: [mongoose.Schema.Types.Mixed], default: [] },
     resultSummary: { type: String, default: "" },
     lastError: { type: String, default: "" },
+    /**
+     * Cross-mode combo: after this computer Task completes, run Composio steps
+     * (Notion / Slack / Gmail) with the result summary as prior content.
+     */
+    comboFollowup: { type: mongoose.Schema.Types.Mixed, default: null },
     claimedAt: { type: Date, default: null },
     completedAt: { type: Date, default: null },
     escalationLevel: { type: Number, default: 0 },
