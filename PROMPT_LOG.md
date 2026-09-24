@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 14:20] Latency Phase 3 — lightweight chat fast path (Hermes-style)
+
+- **Prompt Provided:** “how are you” took ~10s wall / TTFT=total 3.2s; Hermes replies instantly — fix.
+- **Architectural Flow:** `looksLikeLightweightChat` skips tools schema + non-SSE loop → streaming `text_fast`. Light prepare skips Mem0 + embedding rank. Timing starts before prepare (`prepMs` on chip). Tools/Composio/computer/email unchanged.
+- **Impacted Files:** chatAutoTurn.js, chatPromptPrepare.js, semanticMemory.js, chats.js, MessageStatusChips.jsx, lightweightFastPath.test.js, PROMPT_LOG
+
 ## [2026-09-24 14:10] Fix TTFT chip when REPLY protocol holds stream
 
 - **Prompt Provided:** TTFT chip showed only total (e.g. 2.4s) with no `TTFT …` — fix first-token marking.

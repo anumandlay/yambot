@@ -70,12 +70,20 @@ export function messageStatusChipsFromMeta(message) {
             ? `TTFT ${(ttft / 1000).toFixed(2)}s`
             : `TTFT ${ttft}ms`
           : "";
+      const prep = Number(timing.prepMs);
+      const prepLabel =
+        Number.isFinite(prep) && prep > 0
+          ? prep >= 1000
+            ? `prep ${(prep / 1000).toFixed(1)}s`
+            : `prep ${prep}ms`
+          : "";
       chips.push({
         key: "timing",
         icon: "⏱",
-        label: [ttftLabel, sec].filter(Boolean).join(" · ") || "timing",
+        label: [ttftLabel, prepLabel, sec].filter(Boolean).join(" · ") || "timing",
         title: [
           Number.isFinite(ttft) && ttft > 0 ? `firstTokenMs=${ttft}` : null,
+          Number.isFinite(prep) && prep > 0 ? `prepMs=${prep}` : null,
           timing.path ? `path=${timing.path}` : null,
           timing.decisionAction ? `decision=${timing.decisionAction}` : null,
           lookups.length ? `lookups=${lookups.join(",")}` : null,

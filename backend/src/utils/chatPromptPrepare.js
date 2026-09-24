@@ -22,6 +22,7 @@ import {
  *   agentDoc: object,
  *   creds: object,
  *   userId: string,
+ *   light?: boolean,
  * }} opts
  * @returns {Promise<{
  *   chatContextBlock: string,
@@ -38,6 +39,7 @@ export async function prepareChatPromptContext(opts) {
     agentDoc,
     creds,
     userId,
+    light = false,
   } = opts;
 
   // Why: never block first token on a summary LLM — refresh in background.
@@ -57,6 +59,8 @@ export async function prepareChatPromptContext(opts) {
       creds,
       userId: String(userId || userDoc?._id || ""),
       agentId: String(agentDoc._id),
+      skipMem0: Boolean(light),
+      skipEmbeddings: Boolean(light),
     }),
   ]);
 

@@ -25,7 +25,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, looksLikeLightweightChat, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker } from "../utils/chatAutoTurn.js";
 import { enrichComputerGoalForCombo, buildComboFollowupForTask } from "../utils/comboRunner.js";
 import {
   persistChatRememberFact,
@@ -1118,6 +1118,19 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         // Why: parallel context + memory (Hermes-style) — never block TTFT on sequential awaits.
         // Why: do NOT abort on tab close — user wants the turn to finish and save even if the UI disconnects.
         // Why: serialize Auto turns per chat so two fast messages cannot race transcript order.
+        // Why: start timing before prepare so prep (Mem0/embeddings) is visible vs model time.
+        const light = looksLikeLightweightChat(questionText);
+        const autoTrack = createAutoTimingTracker({
+          onProgress: wantStream
+            ? (step) =>
+                writeNdjson({
+                  type: "progress",
+                  id: step?.id || "composio",
+                  label: step?.label || "Working…",
+                  pct: Number(step?.pct) || 0,
+                })
+            : undefined,
+        });
         await withChatAutoLock(String(chat._id), async () => {
           const prepared = await prepareChatPromptContext({
             chat,
@@ -1127,7 +1140,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             agentDoc,
             creds: qaCreds,
             userId: String(req.userId),
+            light,
           });
+          autoTrack.markPrepDone();
           turn = await runChatAutoTurn({
             question: questionText,
             snapshot: prepared.snapshot,
@@ -1146,6 +1161,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
                     pct: Number(step?.pct) || 0,
                   })
               : undefined,
+            timing: autoTrack,
             // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
             runtime: {
             checkRunStatus: async () => {

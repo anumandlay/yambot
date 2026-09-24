@@ -237,6 +237,8 @@ export function createAutoTimingTracker(opts = {}) {
   let firstTokenMs = null;
   /** @type {number|null} */
   let decisionMs = null;
+  /** @type {number|null} */
+  let prepMs = null;
   /** @type {string|null} */
   let decisionAction = null;
   /** @type {string[]} */
@@ -282,6 +284,12 @@ export function createAutoTimingTracker(opts = {}) {
     markFirstToken() {
       if (firstTokenMs == null) firstTokenMs = Date.now() - t0;
     },
+    /**
+     * Call after prepareChatPromptContext so the chip can show prep vs model time.
+     */
+    markPrepDone() {
+      if (prepMs == null) prepMs = Date.now() - t0;
+    },
     markDecision(action) {
       if (decisionMs == null) {
         decisionMs = Date.now() - t0;
@@ -326,6 +334,7 @@ export function createAutoTimingTracker(opts = {}) {
       return {
         totalMs,
         firstTokenMs,
+        prepMs,
         decisionMs,
         decisionAction,
         toolRounds,
@@ -350,6 +359,9 @@ export function formatAutoTimingSummary(timing) {
   const parts = [`${(total / 1000).toFixed(2)}s total`];
   if (timing.firstTokenMs != null) {
     parts.push(`first token ${(Number(timing.firstTokenMs) / 1000).toFixed(2)}s`);
+  }
+  if (timing.prepMs != null) {
+    parts.push(`prep ${(Number(timing.prepMs) / 1000).toFixed(2)}s`);
   }
   if (timing.decisionMs != null) {
     parts.push(`decision ${(Number(timing.decisionMs) / 1000).toFixed(2)}s`);
@@ -2013,7 +2025,8 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
  */
 async function runChatAutoTurnTextFallback(opts, timing) {
   const track = timing || createAutoTimingTracker();
-  track.setPath("text_fallback");
+  // Why: caller may already set text_fast — do not clobber that path label.
+  if (!timing) track.setPath("text_fallback");
   const { question, snapshot, creds, chatContext = "", stream = false, onDelta, jev = null, signal = null } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -2126,10 +2139,12 @@ export async function runChatAutoTurn(opts) {
     runtime = {},
     jevMode = "auto",
     signal = null,
+    timing = null,
   } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
-  const track = createAutoTimingTracker({ onProgress });
+  // Why: chats.js may start the tracker before prepare so prepMs lands in the chip.
+  const track = timing || createAutoTimingTracker({ onProgress });
   const delta = track.wrapOnDelta(onDelta);
   /** @param {string} content */
   const pushReply = async (content) => {
@@ -2288,6 +2303,25 @@ export async function runChatAutoTurn(opts) {
         : "day_history_forced_qa",
       timing: track.finish(),
     });
+  }
+
+  // Why: Hermes-style fast path — skip tool schema + non-SSE loop for chitchat; stream tokens now.
+  if (looksLikeLightweightChat(text)) {
+    track.setPath("text_fast");
+    return finalize(
+      await runChatAutoTurnTextFallback(
+        {
+          question: text,
+          snapshot,
+          creds,
+          chatContext: threadEarly,
+          stream: true,
+          onDelta,
+          signal,
+        },
+        track
+      )
+    );
   }
 
   // Why: Jev + URL heuristics + deterministic Composio intents removed —
@@ -2878,6 +2912,41 @@ export function formatDayHistoryChatAnswer(snapshot, question = "") {
   out.push("");
   out.push("(From agent dayLogs — not a live browser run.)");
   return out.join("\n");
+}
+
+/**
+ * Short social / chitchat that should stream text immediately (Hermes fast path).
+ * Why: full tools schema + Mem0 makes “how are you” feel ~10s vs Hermes’ near-instant tokens.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeLightweightChat(text) {
+  const q = String(text || "").trim();
+  if (!q || q.length > 160) return false;
+  if (looksLikeComposioAppRequest(q)) return false;
+  if (looksLikeSendEmailRequest(q)) return false;
+  if (looksLikeScheduleManageRequest(q)) return false;
+  if (looksLikeLiveComputerJobRequest(q)) return false;
+  if (looksLikeHybridCombo(q)) return false;
+  if (looksLikeDayHistoryOrStatusRequest(q)) return false;
+  if (looksLikeVagueChatFollowup(q)) return false;
+  if (
+    /^(how are you|how're you|how r you|how's it going|hows it going|how are things|how's everything|whats? up|sup|are you (there|ok|okay|well)|you (ok|okay|good)|feeling (ok|okay|good))\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  // Short conversational turns without action / app verbs.
+  if (
+    q.length <= 72 &&
+    !/\b(open|browse|click|fill|send|email|gmail|slack|notion|sheet|github|search|check my|run|queue|go to|navigate|composio|remember|forget|schedule|every \d|peer|@)\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**

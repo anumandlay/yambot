@@ -288,19 +288,21 @@ export async function resolveCuratedMemoryForPrompt(opts) {
   const budget = assembleAgentContextBudget(creds || {});
   const userLimit = Math.min(USER_CHAR_LIMIT, budget.userChars);
   const memoryLimit = Math.min(MEMORY_CHAR_LIMIT, budget.memoryChars);
+  // Why: lightweight Auto (chitchat) skips embedding ranking — recency-only is enough.
+  const lightCreds = opts.skipEmbeddings ? null : creds;
   const [userSel, agentSel] = await Promise.all([
-    selectCuratedSubset(opts.userEntries, opts.goal, creds, userLimit),
-    selectCuratedSubset(opts.agentEntries, opts.goal, creds, memoryLimit),
+    selectCuratedSubset(opts.userEntries, opts.goal, lightCreds, userLimit),
+    selectCuratedSubset(opts.agentEntries, opts.goal, lightCreds, memoryLimit),
   ]);
 
-  if (opts.persistEmbeddings) {
+  if (opts.persistEmbeddings && !opts.skipEmbeddings) {
     await persistEmbeddingsIfNeeded(opts.userDoc, opts.userEntries, creds, "user");
     await persistEmbeddingsIfNeeded(opts.agentDoc, opts.agentEntries, creds, "agent");
   }
 
   let userContents = userSel.contents;
   let agentContents = agentSel.contents;
-  /** @type {{ enabled: boolean, userHits: number, agentHits: number, userMerged: number, agentMerged: number }} */
+  /** @type {{ enabled: boolean, userHits: number, agentHits: number, userMerged: number, agentMerged: number, skipped?: boolean }} */
   let mem0Meta = {
     enabled: false,
     userHits: 0,
@@ -313,7 +315,10 @@ export async function resolveCuratedMemoryForPrompt(opts) {
   const agentId = String(opts.agentId || opts.agentDoc?._id || "").trim();
   const goal = String(opts.goal || "").trim();
 
-  if (userId && goal) {
+  // Why: Mem0 search is often multi-second — skip on Hermes-style lightweight chat turns.
+  if (opts.skipMem0) {
+    mem0Meta.skipped = true;
+  } else if (userId && goal) {
     try {
       const { isMem0Enabled, mem0SearchFacts, mergeMem0IntoCurated } = await import(
         "./mem0Service.js"
