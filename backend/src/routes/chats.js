@@ -45,6 +45,7 @@ import {
 } from "../utils/chatContext.js";
 import { prepareChatPromptContext } from "../utils/chatPromptPrepare.js";
 import { withChatAutoLock } from "../utils/chatAutoLock.js";
+import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
@@ -1119,9 +1120,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         // Why: do NOT abort on tab close — user wants the turn to finish and save even if the UI disconnects.
         // Why: serialize Auto turns per chat so two fast messages cannot race transcript order.
         // Why: Hermes tool-decision — light prep (skip Mem0) whenever tools are not needed.
-        const light = !autoTurnNeedsTools(questionText, {
-          composioEnabled: Boolean(agentDoc?.composio?.enabled),
-        });
+        // Why: schedule list/create/stop needs no LLM context pack — skip prepare entirely.
+        const scheduleManage = looksLikeScheduleManageRequest(questionText);
+        const light =
+          scheduleManage ||
+          !autoTurnNeedsTools(questionText, {
+            composioEnabled: Boolean(agentDoc?.composio?.enabled),
+          });
         const autoTrack = createAutoTimingTracker({
           onProgress: wantStream
             ? (step) =>
@@ -1134,16 +1139,29 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             : undefined,
         });
         await withChatAutoLock(String(chat._id), async () => {
-          const prepared = await prepareChatPromptContext({
-            chat,
-            messageId: String(message._id),
-            questionText,
-            userDoc: userForLlm,
-            agentDoc,
-            creds: qaCreds,
-            userId: String(req.userId),
-            light,
-          });
+          let prepared;
+          if (scheduleManage) {
+            prepared = {
+              chatContextBlock: "",
+              curated: {
+                userCuratedEntries: [],
+                agentCuratedEntries: [],
+                meta: {},
+              },
+              snapshot: toAgentSnapshot(agentDoc, { goal: questionText }),
+            };
+          } else {
+            prepared = await prepareChatPromptContext({
+              chat,
+              messageId: String(message._id),
+              questionText,
+              userDoc: userForLlm,
+              agentDoc,
+              creds: qaCreds,
+              userId: String(req.userId),
+              light,
+            });
+          }
           autoTrack.markPrepDone();
           turn = await runChatAutoTurn({
             question: questionText,

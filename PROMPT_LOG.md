@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 14:45] Instant “list reminders” — schedule path, no LLM
+
+- **Prompt Provided:** “list reminders” took TTFT 7.56s / prep 2s — check why.
+- **Architectural Flow:** Schedule manage regex now includes reminders. List/create/stop skips `prepareChatPromptContext` and reads `agent.schedules[]` deterministically (`path=schedule_manage`).
+- **Impacted Files:** scheduleFromChat.js, chats.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 14:35] Hermes reply flow — answer-direct by default
 
 - **Prompt Provided:** Hermes under-2s flow (Parse → Skills → Tool decision → Respond); align YamBot so most chat is not tools-first.

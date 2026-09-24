@@ -170,6 +170,13 @@ export function defaultScheduleJobName(goal) {
 }
 
 /**
+ * Nouns users use for agent.schedules[] in chat.
+ * Why: people say “reminders” more often than “schedules”.
+ */
+const SCHEDULE_NOUN =
+  "(?:schedules?|schedulers?|reminders?|recurring\\s+(?:jobs?|tasks?)|cron\\s*jobs?)";
+
+/**
  * True when the user is managing schedules (create/list/stop), not running now.
  * @param {string} text
  * @returns {boolean}
@@ -179,18 +186,20 @@ export function looksLikeScheduleManageRequest(text) {
   if (!raw) return false;
 
   if (
-    /\b(list|show|what are)\b.+\b(schedules?|schedulers?)\b/i.test(raw) ||
-    /\b(schedules?|schedulers?)\b.+\b(list|show)\b/i.test(raw) ||
-    /^list\s+schedules?\b/i.test(raw)
+    new RegExp(`\\b(list|show|what are|what'?s)\\b.+\\b${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
+    new RegExp(`\\b${SCHEDULE_NOUN}\\b.+\\b(list|show)\\b`, "i").test(raw) ||
+    new RegExp(`^(list|show)\\s+(my\\s+)?${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
+    /^(list|show)\s+reminders?\b/i.test(raw)
   ) {
     return true;
   }
 
   if (
-    /\b(stop|disable|pause|cancel|remove|delete|turn\s+off)\b.+\b(schedule|schedules|scheduler)\b/i.test(
-      raw
-    ) ||
-    /\b(stop|disable|pause)\b.+\b(email|checking|check)\b.+\b(schedule)?\b/i.test(raw)
+    new RegExp(
+      `\\b(stop|disable|pause|cancel|remove|delete|turn\\s+off)\\b.+\\b${SCHEDULE_NOUN}\\b`,
+      "i"
+    ).test(raw) ||
+    /\b(stop|disable|pause)\b.+\b(email|checking|check)\b.+\b(schedule|reminder)?\b/i.test(raw)
   ) {
     return true;
   }
@@ -198,7 +207,7 @@ export function looksLikeScheduleManageRequest(text) {
   // Create: must have a cadence ("every 5 minutes") — not "schedule a meeting" alone.
   const cadence = parseScheduleIntervalFromText(raw);
   if (!cadence) return false;
-  if (/\b(schedule|repeat|every|daily|recurring)\b/i.test(raw)) return true;
+  if (/\b(schedule|reminder|remind|repeat|every|daily|recurring)\b/i.test(raw)) return true;
   return false;
 }
 
@@ -212,18 +221,20 @@ export function parseScheduleFromChat(text) {
   if (!raw) return null;
 
   if (
-    /\b(list|show|what are)\b.+\b(schedules?|schedulers?)\b/i.test(raw) ||
-    /\b(schedules?|schedulers?)\b.+\b(list|show)\b/i.test(raw) ||
-    /^list\s+schedules?\b/i.test(raw)
+    new RegExp(`\\b(list|show|what are|what'?s)\\b.+\\b${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
+    new RegExp(`\\b${SCHEDULE_NOUN}\\b.+\\b(list|show)\\b`, "i").test(raw) ||
+    new RegExp(`^(list|show)\\s+(my\\s+)?${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
+    /^(list|show)\s+reminders?\b/i.test(raw)
   ) {
     return { action: "list" };
   }
 
   if (
-    /\b(stop|disable|pause|cancel|remove|delete|turn\s+off)\b.+\b(schedule|schedules|scheduler)\b/i.test(
-      raw
-    ) ||
-    /\b(stop|disable|pause)\s+(the\s+)?(email\s+)?(schedule|checking|check)\b/i.test(raw)
+    new RegExp(
+      `\\b(stop|disable|pause|cancel|remove|delete|turn\\s+off)\\b.+\\b${SCHEDULE_NOUN}\\b`,
+      "i"
+    ).test(raw) ||
+    /\b(stop|disable|pause)\s+(the\s+)?(email\s+)?(schedule|reminder|checking|check)\b/i.test(raw)
   ) {
     const hint =
       raw.match(/\b(?:named|called)\s+["']?([^"'\n]{2,60})/i)?.[1]?.trim() ||
@@ -256,7 +267,7 @@ export function parseScheduleFromChat(text) {
  */
 export function formatScheduleListReply(jobs) {
   const list = Array.isArray(jobs) ? jobs : [];
-  if (!list.length) return "No schedules on this agent yet.";
+  if (!list.length) return "No reminders/schedules on this agent yet.";
   const lines = list.map((j, i) => {
     const on = j.enabled ? "on" : "off";
     const next = j.nextRunAt ? new Date(j.nextRunAt).toISOString() : "—";
@@ -266,7 +277,7 @@ export function formatScheduleListReply(jobs) {
       j.dailyAt
     )}\n   Goal: ${String(j.goal || "").slice(0, 200)}\n   Next: ${next}`;
   });
-  return `Schedules on this agent:\n\n${lines.join("\n\n")}`;
+  return `Reminders / schedules on this agent:\n\n${lines.join("\n\n")}`;
 }
 
 /**

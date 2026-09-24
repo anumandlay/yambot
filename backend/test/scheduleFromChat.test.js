@@ -50,6 +50,13 @@ test("list schedules", () => {
   assert.equal(p?.action, "list");
 });
 
+test("list reminders is schedule list (no LLM)", () => {
+  assert.equal(looksLikeScheduleManageRequest("list reminders"), true);
+  assert.equal(parseScheduleFromChat("list reminders")?.action, "list");
+  assert.equal(looksLikeScheduleManageRequest("show my reminders"), true);
+  assert.equal(parseScheduleFromChat("show my reminders")?.action, "list");
+});
+
 test("stop the email schedule", () => {
   const p = parseScheduleFromChat("stop the email schedule");
   assert.equal(p?.action, "disable");
