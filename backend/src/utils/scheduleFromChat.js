@@ -32,6 +32,8 @@ import {
  */
 export function formatScheduleIntervalLabel(interval, dailyAt = "09:00") {
   switch (String(interval || "")) {
+    case "once":
+      return "one-shot";
     case "1m":
       return "every minute";
     case "2m":
@@ -184,6 +186,53 @@ export function parseScheduleIntervalFromText(text) {
     return { interval: "24h", dailyAt: "09:00", matchedSpan: m[0] };
   }
 
+  // Why: Hermes “in 30m” / “in 2 hours” — one-shot from now (before bare “30 minutes” recurring).
+  const inDur = raw.match(/\bin\s+(\d+)\s*(m(?:in(?:ute)?s?)?|h(?:ours?)?|d(?:ays?)?)\b/i);
+  if (inDur && /\b(remind|reminder|schedule|nudge|ping|tell|alert)\b/i.test(raw)) {
+    const n = Math.max(1, Number(inDur[1]) || 1);
+    const unit = String(inDur[2] || "m").toLowerCase();
+    let ms = n * 60_000;
+    if (unit.startsWith("h")) ms = n * 60 * 60_000;
+    else if (unit.startsWith("d")) ms = n * 24 * 60 * 60_000;
+    const oneShotAt = new Date(Date.now() + ms);
+    return {
+      interval: "once",
+      dailyAt: "09:00",
+      oneShotAt,
+      matchedSpan: inDur[0],
+    };
+  }
+
+  // Why: Hermes one-shot — “remind me tomorrow at 9 am” (not recurring daily).
+  const clockOnly = parseClockTimeFromText(raw);
+  if (
+    clockOnly &&
+    /\b(remind|reminder|schedule|nudge)\b/i.test(raw) &&
+    /\b(tomorrow|today|at\s+\d)/i.test(raw) &&
+    !/\b(every\s+day|daily|each\s+day)\b/i.test(raw)
+  ) {
+    const spans = [clockOnly.matchedSpan];
+    const tom = raw.match(/\btomorrow\b/i);
+    if (tom) spans.push(tom[0]);
+    const tod = raw.match(/\btoday\b/i);
+    if (tod) spans.push(tod[0]);
+    const [hh, mm] = String(clockOnly.dailyAt || "09:00").split(":").map(Number);
+    const oneShotAt = new Date();
+    oneShotAt.setUTCHours(hh || 9, mm || 0, 0, 0);
+    if (tom || oneShotAt.getTime() <= Date.now()) {
+      oneShotAt.setUTCDate(oneShotAt.getUTCDate() + (tom ? 1 : 0));
+      if (!tom && oneShotAt.getTime() <= Date.now()) {
+        oneShotAt.setUTCDate(oneShotAt.getUTCDate() + 1);
+      }
+    }
+    return {
+      interval: "once",
+      dailyAt: clockOnly.dailyAt,
+      oneShotAt,
+      matchedSpan: spans.filter(Boolean).join("|"),
+    };
+  }
+
   // Compact: "every 5m" / "5 min schedule"
   const compact = raw.match(/\b(?:every\s+)?(1|2|5|15|30)\s*m\b/i);
   if (compact && /\b(every|schedule|repeat|remind|reminder)\b/i.test(raw)) {
@@ -206,25 +255,6 @@ export function parseScheduleIntervalFromText(text) {
     else if (n <= 30) interval = "30m";
     else interval = "1h";
     return { interval, dailyAt: "09:00", matchedSpan: bareMin[0] };
-  }
-
-  // Why: “remind me tomorrow at 9 am” / “create reminder … at 9am” — one wall-clock, store as daily.
-  const clockOnly = parseClockTimeFromText(raw);
-  if (
-    clockOnly &&
-    /\b(remind|reminder|schedule|nudge)\b/i.test(raw) &&
-    /\b(tomorrow|today|at\s+\d)/i.test(raw)
-  ) {
-    const spans = [clockOnly.matchedSpan];
-    const tom = raw.match(/\btomorrow\b/i);
-    if (tom) spans.push(tom[0]);
-    const tod = raw.match(/\btoday\b/i);
-    if (tod) spans.push(tod[0]);
-    return {
-      interval: "daily",
-      dailyAt: clockOnly.dailyAt,
-      matchedSpan: spans.filter(Boolean).join("|"),
-    };
   }
 
   return null;
@@ -256,6 +286,7 @@ export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
     .replace(/\b(remind\s+me(?:\s+to)?|nudge\s+me(?:\s+to)?|ping\s+me(?:\s+to)?|send\s+me\s+a\s+reminder(?:\s+to)?)\b/gi, " ")
     .replace(/\b(every\s+\d+\s*(?:minutes?|mins?|m|hours?|h|days?))\b/gi, " ")
     .replace(/\b(every\s+(?:minute|hour|day))\b/gi, " ")
+    .replace(/\bin\s+\d+\s*(?:m(?:in(?:ute)?s?)?|h(?:ours?)?|d(?:ays?)?)\b/gi, " ")
     .replace(/\b(\d+\s*m(?:in(?:ute)?s?)?)\b/gi, " ")
     .replace(/\b(daily(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)\b/gi, " ")
     .replace(/\b(once\s+a\s+day|each\s+day|every\s+day)\b/gi, " ")
@@ -503,9 +534,11 @@ export function parseScheduleFromChat(text) {
     action: "create",
     interval: cadence.interval,
     dailyAt: cadence.dailyAt || "09:00",
+    oneShotAt: cadence.oneShotAt || null,
     goal,
     kind,
     name: defaultScheduleJobName(goal, kind),
+    agentRun: kind === "chat_reminder",
   };
 }
 
@@ -572,14 +605,25 @@ export function formatScheduleListReply(jobs) {
           : "—";
     const label = String(j.name || "").trim() || `Job ${i + 1}`;
     const kindLabel = j.kind === "chat_reminder" ? "chat reminder" : "computer job";
-    return `${i + 1}. **${label}** (${on}, ${kindLabel}) — ${formatScheduleIntervalLabel(
-      j.interval,
-      j.dailyAt
-    )}${
+    return `${i + 1}. **${label}** (${on}, ${kindLabel}${
+      j.kind === "chat_reminder"
+        ? j.agentRun === false
+          ? ", static"
+          : ", LLM tick"
+        : ""
+    }) — ${formatScheduleIntervalLabel(j.interval, j.dailyAt)}${
       j.interval === "daily"
         ? `\n   Time: ${formatDailyAtLabel(j.dailyAt)}`
         : ""
-    }\n   ${j.kind === "chat_reminder" ? "Message" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Last run: ${last}\n   Next: ${next}`;
+    }${
+      j.interval === "once" && j.oneShotAt
+        ? `\n   Fires at: ${new Date(j.oneShotAt).toISOString()}`
+        : ""
+    }${
+      j.repeatLimit != null
+        ? `\n   Repeat left: ${j.repeatRemaining ?? "?"} / ${j.repeatLimit}`
+        : ""
+    }\n   ${j.kind === "chat_reminder" ? "Prompt" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Last run: ${last}\n   Next: ${next}`;
   });
   return `Reminders / schedules on this agent:\n\n${lines.join("\n\n")}`;
 }
@@ -673,6 +717,10 @@ export async function applyScheduleFromChat(opts) {
   const interval = parsed.interval || "1h";
   const dailyAt = parsed.dailyAt || "09:00";
   const name = String(parsed.name || defaultScheduleJobName(goal, kind)).slice(0, 80);
+  const oneShotAt = parsed.oneShotAt ? new Date(parsed.oneShotAt) : null;
+  const agentRun = parsed.agentRun !== false && kind === "chat_reminder";
+  const repeatLimit =
+    parsed.repeatLimit == null ? null : Math.max(1, Number(parsed.repeatLimit) || 1);
 
   let existingIdx = jobs.findIndex((j) => {
     const g = String(j.goal || "").trim().toLowerCase();
@@ -695,12 +743,25 @@ export async function applyScheduleFromChat(opts) {
     goal,
     interval,
     dailyAt,
+    oneShotAt,
+    agentRun,
+    repeatLimit,
+    repeatRemaining: repeatLimit,
     chatId: opts.chatId || (existingIdx >= 0 ? jobs[existingIdx].chatId : null) || null,
     pausedByEmergency: false,
   });
-  jobPayload.nextRunAt =
-    interval === "daily" ? computeNextRunAt(jobPayload, now) || now : now;
-  // Why: daily “tomorrow at 9am” must land on the next 09:00 UTC, not fire on the next 15s tick.
+  if (interval === "once") {
+    const slot =
+      (oneShotAt && !Number.isNaN(oneShotAt.getTime()) ? oneShotAt : null) ||
+      jobPayload.oneShotAt ||
+      new Date(now.getTime() + 60_000);
+    jobPayload.oneShotAt = slot;
+    jobPayload.nextRunAt = slot;
+  } else if (interval === "daily") {
+    jobPayload.nextRunAt = computeNextRunAt(jobPayload, now) || now;
+  } else {
+    jobPayload.nextRunAt = now;
+  }
 
   if (existingIdx >= 0) {
     const prevId = jobs[existingIdx]._id;
@@ -721,18 +782,25 @@ export async function applyScheduleFromChat(opts) {
     ? new Date(saved.nextRunAt).toISOString()
     : "soon";
   const verb = existingIdx >= 0 ? "Updated" : "Created";
-  const kindLabel = kind === "chat_reminder" ? "chat reminder" : "computer schedule";
+  const kindLabel =
+    kind === "chat_reminder"
+      ? agentRun
+        ? "Hermes-style reminder (LLM on tick)"
+        : "static chat reminder"
+      : "computer schedule";
   const when =
-    interval === "daily"
-      ? `daily at ${formatDailyAtLabel(dailyAt)}`
-      : formatScheduleIntervalLabel(interval, dailyAt);
+    interval === "once"
+      ? `one-shot at ${nextIso}`
+      : interval === "daily"
+        ? `daily at ${formatDailyAtLabel(dailyAt)}`
+        : formatScheduleIntervalLabel(interval, dailyAt);
   return {
     ok: true,
     job: saved,
     content:
       `${verb} ${kindLabel} **${name}** — ${when}.\n` +
-      `${kind === "chat_reminder" ? "Message" : "Goal"}: ${goal.slice(0, 400)}\n` +
+      `${kind === "chat_reminder" ? "Prompt" : "Goal"}: ${goal.slice(0, 400)}\n` +
       `Next run: ${nextIso}\n` +
-      `You can change it under Agents → Schedulers, or say “list reminders” / “stop the reminder”.`,
+      `Stored on this agent (Agents → Schedulers). Say “list reminders” / “stop the reminder”.`,
   };
 }

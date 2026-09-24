@@ -182,18 +182,26 @@ test("formatScheduleIntervalLabel 5m", () => {
   assert.match(formatScheduleIntervalLabel("5m"), /5 minutes/i);
 });
 
-test("tomorrow at 9 am creates daily reminder cadence", () => {
+test("tomorrow at 9 am creates one-shot reminder", () => {
   const t = "create reminder to develop project and remind me tomorrow at 9 am";
   assert.equal(looksLikeScheduleManageRequest(t), true);
   const c = parseScheduleIntervalFromText(t);
-  assert.equal(c?.interval, "daily");
-  assert.equal(c?.dailyAt, "09:00");
+  assert.equal(c?.interval, "once");
+  assert.ok(c?.oneShotAt);
   const p = parseScheduleFromChat(t);
   assert.equal(p?.action, "create");
-  assert.equal(p?.interval, "daily");
+  assert.equal(p?.interval, "once");
   assert.equal(p?.kind, "chat_reminder");
   assert.match(String(p?.goal || ""), /develop/i);
   assert.doesNotMatch(String(p?.goal || ""), /tomorrow/i);
+});
+
+test("in 30 minutes is one-shot", () => {
+  const c = parseScheduleIntervalFromText("remind me in 30 minutes to stretch");
+  assert.equal(c?.interval, "once");
+  assert.ok(c?.oneShotAt);
+  const delta = new Date(c.oneShotAt).getTime() - Date.now();
+  assert.ok(delta > 25 * 60_000 && delta < 35 * 60_000);
 });
 
 test("plain check email is not schedule manage", () => {

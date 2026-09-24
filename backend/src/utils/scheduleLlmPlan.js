@@ -10,7 +10,6 @@ import { SCHEDULE_INTERVALS } from "../models/Agent.js";
 import {
   parseScheduleFromChat,
   extractScheduleDisableHint,
-  frameChatReminderMessage,
   frameComputerScheduleGoal,
   defaultScheduleJobName,
   looksLikeChatReminderRequest,
@@ -64,6 +63,18 @@ export function normalizeLlmSchedulePlan(raw, userText) {
     dailyAt = clock?.dailyAt || "09:00";
   }
 
+  let oneShotAt = null;
+  if (interval === "once") {
+    if (raw.oneShotAt || raw.one_shot_at) {
+      const d = new Date(raw.oneShotAt || raw.one_shot_at);
+      if (!Number.isNaN(d.getTime())) oneShotAt = d;
+    }
+    if (!oneShotAt) {
+      const cadence = parseScheduleIntervalFromText(userText);
+      if (cadence?.oneShotAt) oneShotAt = new Date(cadence.oneShotAt);
+    }
+  }
+
   let kind =
     String(raw.kind || "").trim() === "computer" ? "computer" : "chat_reminder";
   // Why: remind-me phrasing always chat nudge even if the model says computer.
@@ -82,22 +93,32 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   }
   if (!goal || goal.length < 2) return null;
 
+  // Why: Hermes stores a prompt for the tick LLM — keep natural language, light framing only for static.
+  if (kind === "chat_reminder" && interval !== "once") {
+    // Keep short topics as prompts; frameComputer for computer kinds only below.
+  }
   goal =
-    kind === "chat_reminder"
-      ? frameChatReminderMessage(goal)
-      : frameComputerScheduleGoal(goal);
+    kind === "computer" ? frameComputerScheduleGoal(goal) : goal.replace(/^to\s+/i, "").trim();
 
   const name = String(raw.name || defaultScheduleJobName(goal, kind))
     .trim()
     .slice(0, 80);
 
+  const repeatLimit =
+    raw.repeatLimit == null && raw.repeat_limit == null
+      ? null
+      : Math.max(1, Number(raw.repeatLimit ?? raw.repeat_limit) || 1);
+
   return {
     action: "create",
     interval,
     dailyAt,
+    oneShotAt,
     goal,
     kind,
     name,
+    agentRun: kind === "chat_reminder",
+    repeatLimit,
   };
 }
 
@@ -120,10 +141,12 @@ export async function planScheduleWithLlm(userText, creds) {
     "Rules:",
     "- list = show reminders/schedules.",
     "- disable = stop/delete/cancel one or all reminders. Put the topic in matchHint (e.g. \"drink water\"). Empty matchHint means stop all.",
-    "- create = new recurring reminder/job. Always set interval from the user cadence.",
-    "- \"tomorrow at 9 am\" / \"at 9am\" with remind = daily + dailyAt (24h UTC).",
-    "- chat_reminder = chat nudge text (remind me / drink water). computer = check email / Composio / browser goal.",
-    "- goal for chat_reminder is the short message body (without every/minute/tomorrow/at cadence).",
+    "- create = new recurring or one-shot reminder/job. Always set interval from the user cadence.",
+    "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
+    "- \"every day at 9 am\" = daily + dailyAt.",
+    "- chat_reminder = Hermes-style prompt (LLM on tick). computer = check email / Composio / browser goal.",
+    "- Optional repeatLimit (integer) for finite repeats; omit for forever.",
+    "- goal for chat_reminder is the prompt body (without every/minute/tomorrow/at cadence).",
     "- dailyAt is 24h UTC when interval is daily; else 09:00.",
     "- If this is not a reminder/schedule manage ask, return {\"action\":\"none\"}.",
   ].join("\n");

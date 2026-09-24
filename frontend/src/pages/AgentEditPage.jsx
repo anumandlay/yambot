@@ -62,6 +62,10 @@ const EMPTY = {
     goal: "",
     interval: "1h",
     dailyAt: "09:00",
+    oneShotAt: null,
+    repeatLimit: null,
+    repeatRemaining: null,
+    agentRun: true,
     lastRunAt: null,
     nextRunAt: null,
     chatId: null,
@@ -75,6 +79,10 @@ const EMPTY = {
       goal: "",
       interval: "1h",
       dailyAt: "09:00",
+      oneShotAt: null,
+      repeatLimit: null,
+      repeatRemaining: null,
+      agentRun: true,
       lastRunAt: null,
       nextRunAt: null,
       chatId: null,
@@ -136,6 +144,7 @@ export function AgentEditPage() {
   const [jobBrief, setJobBrief] = useState("");
   const [draftBusy, setDraftBusy] = useState(false);
   const [scheduleIntervals, setScheduleIntervals] = useState([
+    "once",
     "1m",
     "2m",
     "5m",
@@ -251,6 +260,10 @@ export function AgentEditPage() {
               goal: a.schedule?.goal || "",
               interval: a.schedule?.interval || "1h",
               dailyAt: a.schedule?.dailyAt || "09:00",
+              oneShotAt: a.schedule?.oneShotAt || null,
+              repeatLimit: a.schedule?.repeatLimit ?? null,
+              repeatRemaining: a.schedule?.repeatRemaining ?? null,
+              agentRun: a.schedule?.agentRun !== false,
               lastRunAt: a.schedule?.lastRunAt || null,
               nextRunAt: a.schedule?.nextRunAt || null,
               chatId: a.schedule?.chatId || null,
@@ -269,6 +282,10 @@ export function AgentEditPage() {
               goal: j.goal || "",
               interval: j.interval || "1h",
               dailyAt: j.dailyAt || "09:00",
+              oneShotAt: j.oneShotAt || null,
+              repeatLimit: j.repeatLimit ?? null,
+              repeatRemaining: j.repeatRemaining ?? null,
+              agentRun: j.agentRun !== false,
               lastRunAt: j.lastRunAt || null,
               nextRunAt: j.nextRunAt || null,
               chatId: j.chatId || null,
@@ -394,6 +411,10 @@ export function AgentEditPage() {
           goal: "",
           interval: "1h",
           dailyAt: "09:00",
+          oneShotAt: null,
+          repeatLimit: null,
+          repeatRemaining: null,
+          agentRun: true,
           lastRunAt: null,
           nextRunAt: null,
           chatId: null,
@@ -416,6 +437,10 @@ export function AgentEditPage() {
           goal: "",
           interval: "1h",
           dailyAt: "09:00",
+          oneShotAt: null,
+          repeatLimit: null,
+          repeatRemaining: null,
+          agentRun: true,
           lastRunAt: null,
           nextRunAt: null,
           chatId: null,
@@ -1294,7 +1319,7 @@ export function AgentEditPage() {
                   onChange={(e) => updateScheduleJob(index, "goal", e.target.value)}
                   placeholder={
                     job.kind === "chat_reminder"
-                      ? "Message posted to chat when due…"
+                      ? "Hermes prompt for the tick LLM (e.g. remind me to drink water)…"
                       : "Goal to enqueue automatically…"
                   }
                   disabled={!job.enabled}
@@ -1310,7 +1335,9 @@ export function AgentEditPage() {
                 >
                   {scheduleIntervals.map((iv) => (
                     <option key={iv} value={iv}>
-                      {iv === "daily"
+                      {iv === "once"
+                        ? "One-shot (Hermes)"
+                        : iv === "daily"
                         ? "Once daily (UTC time below)"
                         : iv === "1m"
                           ? "Every minute"
@@ -1333,6 +1360,71 @@ export function AgentEditPage() {
                   ))}
                 </select>
               </label>
+              {job.kind === "chat_reminder" ? (
+                <label className="flex min-h-11 items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={job.agentRun !== false}
+                    onChange={(e) => updateScheduleJob(index, "agentRun", e.target.checked)}
+                    disabled={!job.enabled}
+                  />
+                  <span className="font-semibold text-teal-900">
+                    LLM on tick (Hermes) — fresh reply each fire
+                  </span>
+                </label>
+              ) : null}
+              <label className="flex flex-col gap-1 text-sm">
+                <span className="font-semibold text-teal-900">Repeat limit (optional)</span>
+                <input
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  type="number"
+                  min={1}
+                  max={10000}
+                  placeholder="Forever"
+                  value={job.repeatLimit ?? ""}
+                  onChange={(e) => {
+                    const v = e.target.value.trim();
+                    updateScheduleJob(index, "repeatLimit", v === "" ? null : Number(v));
+                    if (v !== "") updateScheduleJob(index, "repeatRemaining", Number(v));
+                  }}
+                  disabled={!job.enabled}
+                />
+                <span className="text-xs text-teal-900/70">
+                  Leave empty for forever. Finite N disables after N fires.
+                  {job.repeatRemaining != null
+                    ? ` Remaining: ${job.repeatRemaining}.`
+                    : ""}
+                </span>
+              </label>
+              {job.interval === "once" ? (
+                <label className="flex flex-col gap-1 text-sm">
+                  <span className="font-semibold text-teal-900">One-shot time (local → stored)</span>
+                  <input
+                    className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                    type="datetime-local"
+                    value={
+                      job.oneShotAt
+                        ? (() => {
+                            const d = new Date(job.oneShotAt);
+                            if (Number.isNaN(d.getTime())) return "";
+                            const pad = (n) => String(n).padStart(2, "0");
+                            return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+                          })()
+                        : ""
+                    }
+                    onChange={(e) => {
+                      const v = e.target.value;
+                      updateScheduleJob(
+                        index,
+                        "oneShotAt",
+                        v ? new Date(v).toISOString() : null
+                      );
+                      if (v) updateScheduleJob(index, "nextRunAt", new Date(v).toISOString());
+                    }}
+                    disabled={!job.enabled}
+                  />
+                </label>
+              ) : null}
               {job.interval === "daily" ? (
                 <label className="flex flex-col gap-1 text-sm">
                   <FieldLabel helpId="agent.schedule.dailyAt">Daily time (UTC)</FieldLabel>

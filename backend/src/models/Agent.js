@@ -36,8 +36,9 @@ const agentPolicySchema = new mongoose.Schema(
   { _id: false }
 );
 
-/** How often a scheduled goal is enqueued. */
+/** How often a scheduled goal is enqueued. `once` = Hermes-style one-shot. */
 export const SCHEDULE_INTERVALS = [
+  "once",
   "1m",
   "2m",
   "5m",
@@ -50,7 +51,7 @@ export const SCHEDULE_INTERVALS = [
   "daily",
 ];
 
-/** Schedule job kinds — computer runs a goal; chat_reminder posts a chat message. */
+/** Schedule job kinds — computer runs a goal; chat_reminder posts/runs a reminder. */
 export const SCHEDULE_KINDS = ["computer", "chat_reminder"];
 
 /**
@@ -84,16 +85,16 @@ const scheduleJobSchema = new mongoose.Schema(
     enabled: { type: Boolean, default: false },
     /**
      * computer — enqueue a browser/Composio goal on each tick.
-     * chat_reminder — post a reminder message into the agent chat (no computer).
+     * chat_reminder — Hermes-style: run a short LLM turn (or post static text if agentRun=false).
      */
     kind: {
       type: String,
       enum: ["computer", "chat_reminder"],
       default: "computer",
     },
-    /** Goal text queued on each tick (same as sending a chat goal), or reminder body. */
+    /** Goal text / reminder prompt (Hermes job prompt). */
     goal: { type: String, default: "", trim: true },
-    /** 1m|2m|5m|15m|30m|1h|6h|12h|24h|daily */
+    /** once|1m|…|daily */
     interval: {
       type: String,
       enum: SCHEDULE_INTERVALS,
@@ -101,6 +102,19 @@ const scheduleJobSchema = new mongoose.Schema(
     },
     /** When interval=daily, wall-clock time in UTC as HH:MM. */
     dailyAt: { type: String, default: "09:00", trim: true },
+    /** When interval=once — absolute fire time (Hermes one-shot). */
+    oneShotAt: { type: Date, default: null },
+    /**
+     * Hermes-style finite repeat. null = forever.
+     * After each fire, repeatRemaining decrements; at 0 the job disables.
+     */
+    repeatLimit: { type: Number, default: null },
+    repeatRemaining: { type: Number, default: null },
+    /**
+     * chat_reminder: true = fresh LLM turn on tick (Hermes default);
+     * false = post goal text as-is (cheap static nudge).
+     */
+    agentRun: { type: Boolean, default: true },
     lastRunAt: { type: Date, default: null },
     nextRunAt: { type: Date, default: null },
     /**
@@ -945,6 +959,8 @@ export function encryptCredentialPassword(plaintext) {
  */
 export function scheduleIntervalMs(interval) {
   switch (String(interval || "1h")) {
+    case "once":
+      return 0;
     case "1m":
       return 1 * 60 * 1000;
     case "2m":
@@ -969,13 +985,15 @@ export function scheduleIntervalMs(interval) {
 
 /**
  * Computes the next run time for an agent schedule.
- * @param {{ interval?: string, dailyAt?: string, enabled?: boolean }} schedule
+ * @param {{ interval?: string, dailyAt?: string, enabled?: boolean, oneShotAt?: Date|string|null }} schedule
  * @param {Date} [from]
  * @returns {Date|null}
  */
 export function computeNextRunAt(schedule, from = new Date()) {
   if (!schedule?.enabled) return null;
   const interval = String(schedule.interval || "1h");
+  // Why: Hermes one-shot — no recurring next; caller disables after fire.
+  if (interval === "once") return null;
   if (interval === "daily") {
     const raw = String(schedule.dailyAt || "09:00").trim();
     const m = /^(\d{1,2}):(\d{2})$/.exec(raw);
@@ -1007,6 +1025,26 @@ export function normalizeScheduleJob(raw = {}) {
   const name = String(raw.name || "").trim().slice(0, 80);
   const kind =
     String(raw.kind || "").trim() === "chat_reminder" ? "chat_reminder" : "computer";
+  const oneShotAt = raw.oneShotAt ? new Date(raw.oneShotAt) : null;
+  const repeatLimitRaw = raw.repeatLimit;
+  const repeatLimit =
+    repeatLimitRaw == null || repeatLimitRaw === ""
+      ? null
+      : Math.max(1, Math.min(10_000, Number(repeatLimitRaw) || 1));
+  let repeatRemaining = raw.repeatRemaining;
+  if (repeatLimit != null) {
+    const rem = Number(repeatRemaining);
+    repeatRemaining =
+      Number.isFinite(rem) && rem >= 0 ? Math.min(repeatLimit, rem) : repeatLimit;
+  } else {
+    repeatRemaining = null;
+  }
+  // Why: Hermes default — chat reminders run a fresh LLM turn unless explicitly static.
+  const agentRun =
+    kind === "chat_reminder"
+      ? raw.agentRun !== false && raw.agentRun !== "false"
+      : Boolean(raw.agentRun);
+
   /** @type {object} */
   const job = {
     name,
@@ -1015,6 +1053,11 @@ export function normalizeScheduleJob(raw = {}) {
     goal,
     interval,
     dailyAt,
+    oneShotAt:
+      oneShotAt && !Number.isNaN(oneShotAt.getTime()) ? oneShotAt : null,
+    repeatLimit,
+    repeatRemaining,
+    agentRun,
     pausedByEmergency: Boolean(raw.pausedByEmergency),
     enabledBeforeEmergency: Boolean(raw.enabledBeforeEmergency),
     lastRunAt: raw.lastRunAt ? new Date(raw.lastRunAt) : null,
@@ -1024,10 +1067,21 @@ export function normalizeScheduleJob(raw = {}) {
   if (raw._id) job._id = raw._id;
   if (enabled && goal) {
     const incomingNext = raw.nextRunAt ? new Date(raw.nextRunAt) : null;
-    job.nextRunAt =
-      incomingNext && !Number.isNaN(incomingNext.getTime()) && incomingNext.getTime() > Date.now()
-        ? incomingNext
-        : new Date();
+    if (interval === "once") {
+      const slot =
+        job.oneShotAt ||
+        (incomingNext && !Number.isNaN(incomingNext.getTime()) ? incomingNext : null);
+      job.oneShotAt = slot;
+      job.nextRunAt = slot && slot.getTime() > Date.now() ? slot : slot || new Date();
+    } else if (
+      incomingNext &&
+      !Number.isNaN(incomingNext.getTime()) &&
+      incomingNext.getTime() > Date.now()
+    ) {
+      job.nextRunAt = incomingNext;
+    } else {
+      job.nextRunAt = new Date();
+    }
   }
   return job;
 }
@@ -1069,6 +1123,10 @@ export function syncLegacyScheduleMirror(agent, jobs) {
       goal: first.goal || "",
       interval: first.interval || "1h",
       dailyAt: first.dailyAt || "09:00",
+      oneShotAt: first.oneShotAt || null,
+      repeatLimit: first.repeatLimit ?? null,
+      repeatRemaining: first.repeatRemaining ?? null,
+      agentRun: first.agentRun !== false,
       lastRunAt: first.lastRunAt || null,
       nextRunAt: first.nextRunAt || null,
       pausedByEmergency: Boolean(first.pausedByEmergency),

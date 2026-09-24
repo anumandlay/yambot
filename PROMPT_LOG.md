@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 16:25] Hermes-style schedules: one-shot, LLM-on-tick, finite repeat
+
+- **Prompt Provided:** yes lets do like hermes (cron flow).
+- **Architectural Flow:** Jobs gain `once`/`oneShotAt`, `repeatLimit`/`repeatRemaining`, `agentRun`. Chat reminders default to fresh LLM turn on tick (Hermes); static optional. Parse `in 30m` + `tomorrow at 9am` as one-shot. After fire: disable once / decrement repeat. UI + list show new fields. Delivery remains agent chat (origin).
+- **Impacted Files:** Agent.js, scheduler.js, scheduleFromChat.js, scheduleLlmPlan.js, agents.js, AgentEditPage.jsx, tests, PROMPT_LOG
+
 ## [2026-09-24 16:15] No progress bar on chat messages
 
 - **Prompt Provided:** i dont need progress for chat messages.

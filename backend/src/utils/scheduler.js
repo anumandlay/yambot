@@ -90,7 +90,7 @@ async function ensureScheduleChat(agent, job = null) {
 }
 
 /**
- * Advance last/next run timestamps and persist agent.
+ * Advance last/next run timestamps (Hermes: one-shot / finite repeat disable) and persist.
  * @param {import('mongoose').Document} agent
  * @param {object} sched
  * @param {object|null} job
@@ -99,8 +99,24 @@ async function ensureScheduleChat(agent, job = null) {
  */
 async function markScheduleJobFired(agent, sched, job, chat, now) {
   sched.lastRunAt = now;
-  sched.nextRunAt = computeNextRunAt(sched, now);
   sched.chatId = chat._id;
+
+  const interval = String(sched.interval || "1h");
+  if (interval === "once") {
+    // Why: Hermes one-shot — fire once then sleep forever.
+    sched.enabled = false;
+    sched.nextRunAt = null;
+  } else if (sched.repeatRemaining != null && Number.isFinite(Number(sched.repeatRemaining))) {
+    sched.repeatRemaining = Math.max(0, Number(sched.repeatRemaining) - 1);
+    if (sched.repeatRemaining <= 0) {
+      sched.enabled = false;
+      sched.nextRunAt = null;
+    } else {
+      sched.nextRunAt = computeNextRunAt(sched, now);
+    }
+  } else {
+    sched.nextRunAt = computeNextRunAt(sched, now);
+  }
 
   if (
     job &&
@@ -111,14 +127,88 @@ async function markScheduleJobFired(agent, sched, job, chat, now) {
     agent.schedule = agent.schedule || {};
     agent.schedule.lastRunAt = sched.lastRunAt;
     agent.schedule.nextRunAt = sched.nextRunAt;
+    agent.schedule.enabled = sched.enabled;
+    agent.schedule.repeatRemaining = sched.repeatRemaining;
     agent.schedule.chatId = chat._id;
   } else if (!job) {
     agent.schedule.lastRunAt = now;
     agent.schedule.nextRunAt = sched.nextRunAt;
+    agent.schedule.enabled = sched.enabled;
+    agent.schedule.repeatRemaining = sched.repeatRemaining;
     agent.schedule.chatId = chat._id;
   }
 
   await agent.save();
+}
+
+/**
+ * Hermes-style reminder: fresh LLM turn (no chat history / tools), deliver reply to agent chat.
+ * @param {{
+ *   agent: import('mongoose').Document,
+ *   chat: import('mongoose').Document,
+ *   prompt: string,
+ *   jobLabel: string,
+ *   scheduleJobId: string|null,
+ * }} opts
+ * @returns {Promise<string>}
+ */
+async function runHermesStyleReminderTurn(opts) {
+  const { agent, chat, prompt, jobLabel, scheduleJobId } = opts;
+  const owner = await User.findById(agent.user);
+  const { resolveLlmCredentialsForAgent } = await import("./llmCredentials.js");
+  const { llmChatCompletion } = await import("./llmChat.js");
+  const creds = owner ? await resolveLlmCredentialsForAgent(owner, agent) : null;
+
+  let content = "";
+  if (creds?.apiKey) {
+    try {
+      const raw = await llmChatCompletion({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl || "",
+        model: creds.llmModel || "",
+        openAiAccountId: creds.openAiAccountId,
+        temperature: 0.4,
+        maxTokens: 400,
+        timeoutMs: 45_000,
+        messages: [
+          {
+            role: "system",
+            content:
+              `You are the scheduled reminder voice for agent “${String(agent.name || "Agent")}”. ` +
+              "This is a fresh session (no prior chat). Reply with a short, friendly reminder only — " +
+              "no tools, no ACTION lines, no meta. 1–3 sentences.",
+          },
+          {
+            role: "user",
+            content: String(prompt || "").trim().slice(0, 4000),
+          },
+        ],
+      });
+      content = String(raw || "").trim();
+    } catch (err) {
+      console.warn("[scheduler] reminder LLM failed:", err?.message || err);
+    }
+  }
+  if (!content || content.length < 2) {
+    content = String(prompt || "").trim() || "Reminder.";
+  }
+
+  await Message.create({
+    chat: chat._id,
+    role: "assistant",
+    content,
+    meta: {
+      kind: "chat_reminder",
+      hermesAuto: true,
+      scheduled: true,
+      agentRun: true,
+      scheduleJobId,
+      scheduleName: jobLabel || null,
+      intent: "reminder",
+      intentReason: "scheduled_chat_reminder_agent",
+    },
+  });
+  return content;
 }
 
 /**
@@ -265,9 +355,13 @@ export async function runScheduledAgent(agent, job = null) {
   const jobLabel = String(sched.name || "").trim();
   const scheduleJobId = sched._id ? String(sched._id) : null;
 
-  // Why: claim the next slot before side effects so overlapping ticks cannot double-fire
-  // a 1m chat_reminder while the previous run is still saving.
-  sched.nextRunAt = computeNextRunAt(sched, now);
+  // Why: claim the next slot before side effects so overlapping ticks cannot double-fire.
+  // Hermes one-shot: clear nextRunAt so a second tick cannot re-dispatch.
+  if (String(sched.interval || "") === "once") {
+    sched.nextRunAt = null;
+  } else {
+    sched.nextRunAt = computeNextRunAt(sched, now);
+  }
   if (
     job &&
     Array.isArray(agent.schedules) &&
@@ -281,22 +375,34 @@ export async function runScheduledAgent(agent, job = null) {
   }
   await agent.save();
 
-  // --- Chat reminder: post a message, never start the computer ---
+  // --- Chat reminder: Hermes agent turn (default) or static message ---
   if (kind === "chat_reminder") {
-    await Message.create({
-      chat: chat._id,
-      role: "assistant",
-      content: goal,
-      meta: {
-        kind: "chat_reminder",
-        hermesAuto: true,
-        scheduled: true,
+    const useAgent = sched.agentRun !== false;
+    if (useAgent) {
+      await runHermesStyleReminderTurn({
+        agent,
+        chat,
+        prompt: goal,
+        jobLabel,
         scheduleJobId,
-        scheduleName: jobLabel || null,
-        intent: "reminder",
-        intentReason: "scheduled_chat_reminder",
-      },
-    });
+      });
+    } else {
+      await Message.create({
+        chat: chat._id,
+        role: "assistant",
+        content: goal,
+        meta: {
+          kind: "chat_reminder",
+          hermesAuto: true,
+          scheduled: true,
+          agentRun: false,
+          scheduleJobId,
+          scheduleName: jobLabel || null,
+          intent: "reminder",
+          intentReason: "scheduled_chat_reminder_static",
+        },
+      });
+    }
     await Message.create({
       chat: chat._id,
       role: "system",
@@ -459,6 +565,12 @@ export async function runScheduledAgent(agent, job = null) {
  */
 function scheduleJobIsDue(sched, now) {
   if (!sched?.enabled || !String(sched.goal || "").trim()) return false;
+  // Why: Hermes one-shot — due only when oneShotAt/nextRunAt has arrived.
+  if (String(sched.interval || "") === "once") {
+    const slot = sched.nextRunAt || sched.oneShotAt;
+    if (!slot) return true;
+    return new Date(slot).getTime() <= now.getTime();
+  }
   if (!sched.nextRunAt) return true;
   return new Date(sched.nextRunAt).getTime() <= now.getTime();
 }

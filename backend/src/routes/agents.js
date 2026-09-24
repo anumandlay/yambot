@@ -6,7 +6,7 @@
 
 import crypto from "node:crypto";
 import { Router } from "express";
-import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention, decryptAgentCredentials, encryptCredentialPassword } from "../models/Agent.js";
+import { Agent, AGENT_MODES, AGENT_ROLES, SCHEDULE_INTERVALS, appendAgentMemory, clearAgentNeedsAttention, decryptAgentCredentials, encryptCredentialPassword, normalizeScheduleJob } from "../models/Agent.js";
 import { Task } from "../models/Task.js";
 import { Chat, Message } from "../models/Chat.js";
 import { AgentMessage } from "../models/AgentMessage.js";
@@ -329,42 +329,7 @@ function pickAgentFields(body, opts = {}) {
       .slice(0, 20)
       .map((row) => {
         if (!row || typeof row !== "object") return null;
-        const enabled = Boolean(row.enabled);
-        const interval = SCHEDULE_INTERVALS.includes(String(row.interval))
-          ? String(row.interval)
-          : "1h";
-        let dailyAt = String(row.dailyAt || "09:00").trim();
-        if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
-        const goal = String(row.goal || "").trim().slice(0, 8000);
-        const name = String(row.name || "").trim().slice(0, 80);
-        const kind =
-          String(row.kind || "").trim() === "chat_reminder" ? "chat_reminder" : "computer";
-        /** @type {object} */
-        const job = {
-          name,
-          enabled,
-          kind,
-          goal,
-          interval,
-          dailyAt,
-          pausedByEmergency: Boolean(row.pausedByEmergency),
-          enabledBeforeEmergency: Boolean(row.enabledBeforeEmergency),
-        };
-        if (row._id) job._id = row._id;
-        if (row.lastRunAt) job.lastRunAt = new Date(row.lastRunAt);
-        if (row.chatId) job.chatId = row.chatId;
-        if (enabled && goal) {
-          const incomingNext = row.nextRunAt ? new Date(row.nextRunAt) : null;
-          job.nextRunAt =
-            incomingNext &&
-            !Number.isNaN(incomingNext.getTime()) &&
-            incomingNext.getTime() > Date.now()
-              ? incomingNext
-              : new Date();
-        } else {
-          job.nextRunAt = null;
-        }
-        return job;
+        return normalizeScheduleJob(row);
       })
       .filter(Boolean);
     set("schedules", jobs);
@@ -381,34 +346,7 @@ function pickAgentFields(body, opts = {}) {
       });
     }
   } else if (body.schedule != null && typeof body.schedule === "object") {
-    const s = body.schedule;
-    const enabled = Boolean(s.enabled);
-    const interval = SCHEDULE_INTERVALS.includes(String(s.interval))
-      ? String(s.interval)
-      : "1h";
-    let dailyAt = String(s.dailyAt || "09:00").trim();
-    if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
-    const goal = String(s.goal || "").trim().slice(0, 8000);
-    /** @type {object} */
-    const schedule = {
-      enabled,
-      goal,
-      interval,
-      dailyAt,
-      name: String(s.name || "").trim().slice(0, 80),
-    };
-    if (s.lastRunAt) schedule.lastRunAt = new Date(s.lastRunAt);
-    if (s.chatId) schedule.chatId = s.chatId;
-    if (enabled && goal) {
-      const incomingNext = s.nextRunAt ? new Date(s.nextRunAt) : null;
-      // Why: keep a future nextRunAt on edit; otherwise fire on the next scheduler tick.
-      schedule.nextRunAt =
-        incomingNext && !Number.isNaN(incomingNext.getTime()) && incomingNext.getTime() > Date.now()
-          ? incomingNext
-          : new Date();
-    } else {
-      schedule.nextRunAt = null;
-    }
+    const schedule = normalizeScheduleJob(body.schedule);
     set("schedule", schedule);
     // Why: single-schedule edits still land in schedules[0] so multi-tick finds them.
     set("schedules", [schedule]);
