@@ -1897,6 +1897,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "2) QUEUE_GOAL / queue_goal — LIVE cloud computer / peers NOW:",
     "- Imperative browse: open/go to/navigate/visit a site, click, fill, submit, log in (now)",
     "- Create/register accounts in CRM / Vughy / agency admin (even if they also want credentials emailed after)",
+    "- When they ask create/register AND send credentials to an email: QUEUE_GOAL the browser create step — the runtime emails credentials via Composio after the computer finishes",
     "- Live research that needs browsing this turn",
     "- Peer message / fan-out / handoff",
     "- Worker send_email / download / change something in the browser",

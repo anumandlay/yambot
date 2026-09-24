@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 11:20] Computer-then-email combo (create CRM + send credentials)
+
+- **Prompt Provided:** Create a new account in crm and send credentials to fastagconsultant@gmail.com — only created the account; need multiple combo works.
+- **Architectural Flow:** Detect create/register + send-credentials-to-email. Enrich queued computer goal so the worker captures Account email / Password / Login URL and does not mail in-browser. On successful task complete, backend sends credentials via Composio `GMAIL_SEND_EMAIL` and posts a chat follow-up (or a clear Composio/Gmail connect hint).
+- **Impacted Files:** computerThenEmailFollowup.js, chats.js, worker.js, chatAutoTurn.js, computerThenEmailFollowup.test.js, PROMPT_LOG
+
 ## [2026-09-24 10:45] Clearer Enable agent SMTP checkbox + Composio fallback
 
 - **Prompt Provided:** need a check box in agent settings to enable/disable agent smtp settings.

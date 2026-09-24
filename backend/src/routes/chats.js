@@ -26,6 +26,7 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply } from "../utils/chatAutoTurn.js";
+import { enrichComputerGoalForEmailFollowup } from "../utils/computerThenEmailFollowup.js";
 import {
   persistChatRememberFact,
   sanitizeFakeMemoryActionReply,
@@ -1702,8 +1703,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           : "auto"
     );
     // Why: strip CUA phrases from the worker goal so the LLM focuses on the site task.
-    const workerGoalText =
+    let workerGoalText =
       parseComputerUseFromText(goalText || content).cleanedGoal || goalText || content;
+    // Why: “create account and send credentials to …” — browser captures creds; Composio emails after.
+    workerGoalText = enrichComputerGoalForEmailFollowup(workerGoalText, content);
 
     // Why: rebuild snapshot with final goal + semantic curated top-k + chat context for the worker.
     /** @type {object|null} */
