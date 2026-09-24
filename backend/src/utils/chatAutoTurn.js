@@ -2006,7 +2006,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
 async function runChatAutoTurnTextFallback(opts, timing) {
   const track = timing || createAutoTimingTracker();
   track.setPath("text_fallback");
-  const { question, snapshot, creds, chatContext = "", stream = false, onDelta, jev = null } = opts;
+  const { question, snapshot, creds, chatContext = "", stream = false, onDelta, jev = null, signal = null } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
@@ -2027,6 +2027,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
     maxTokens: 900,
     timeoutMs: 60_000,
     messages,
+    signal: signal || null,
   };
 
   const delta = track.wrapOnDelta(onDelta);
@@ -2109,6 +2110,7 @@ export async function runChatAutoTurn(opts) {
     onProgress,
     runtime = {},
     jevMode = "auto",
+    signal = null,
   } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -2304,6 +2306,7 @@ export async function runChatAutoTurn(opts) {
         tools: AUTO_CHAT_TOOLS,
         // Why: never force a named tool_choice — some providers return “Provider returned error” for that.
         toolChoice: "auto",
+        signal: signal || null,
       });
 
       /**
@@ -2671,6 +2674,7 @@ export async function runChatAutoTurn(opts) {
         ["reply", "queue_goal"].includes(t.function?.name)
       ),
       toolChoice: "auto",
+      signal: signal || null,
     });
     const term = parseAutoToolCalls(forced.toolCalls);
     if (term) {
@@ -2743,6 +2747,7 @@ export async function runChatAutoTurn(opts) {
       stream,
       onDelta,
       jev: jevDecision,
+      signal,
     },
     track
   );
@@ -2967,7 +2972,7 @@ export function resolveConfirmComputerGoalFromMessages(messages, opts = {}) {
  * @returns {Promise<string>}
  */
 export async function streamChatQuestion(opts) {
-  const { question, snapshot, creds, chatContext = "", onDelta } = opts;
+  const { question, snapshot, creds, chatContext = "", onDelta, signal = null } = opts;
   const context = formatAgentPrompt(snapshot);
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -3004,6 +3009,7 @@ export async function streamChatQuestion(opts) {
       maxTokens: 900,
       timeoutMs: 60_000,
       messages,
+      signal: signal || null,
     },
     onDelta
   );

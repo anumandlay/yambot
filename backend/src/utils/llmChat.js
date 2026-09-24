@@ -11,6 +11,9 @@ import {
   normalizeApiKey,
   validateAnthropicApiKey,
 } from "./llmDefaults.js";
+import { withTimeoutSignal, isAbortError } from "./llmAbort.js";
+
+export { isAbortError } from "./llmAbort.js";
 
 /**
  * @param {unknown} content
@@ -56,6 +59,7 @@ export async function llmChatCompletion(opts) {
  *   openAiAccountId?: string,
  *   tools?: object[],
  *   toolChoice?: string|object,
+ *   signal?: AbortSignal|null,
  * }} opts
  * @returns {Promise<{ content: string, toolCalls: { id: string, name: string, arguments: string }[], rawMessage: object }>}
  */
@@ -71,6 +75,7 @@ export async function llmChatCompletionMessage(opts) {
     openAiAccountId,
     tools,
     toolChoice,
+    signal: externalSignal = null,
   } = opts;
   const root = String(baseUrl || "").replace(/\/$/, "");
   const key = normalizeApiKey(apiKey);
@@ -109,14 +114,13 @@ export async function llmChatCompletionMessage(opts) {
     body.tool_choice = toolChoice || "auto";
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const linked = withTimeoutSignal(timeoutMs, externalSignal);
   try {
     const response = await fetch(`${root}/chat/completions`, {
       method: "POST",
       headers: buildLlmAuthHeaders({ apiKey: key, baseUrl: root }),
       body: JSON.stringify(body),
-      signal: controller.signal,
+      signal: linked.signal,
     });
     const text = await response.text();
     if (!response.ok) {
@@ -173,15 +177,25 @@ export async function llmChatCompletionMessage(opts) {
     }
 
     return { content: resolved, toolCalls, rawMessage: message };
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw Object.assign(new Error("LLM request aborted"), {
+        title: "Request cancelled",
+        hint: "The client disconnected or the request timed out.",
+        aborted: true,
+        name: "AbortError",
+      });
+    }
+    throw err;
   } finally {
-    clearTimeout(timer);
+    linked.dispose();
   }
 }
 
 /**
  * Streaming OpenAI-compatible chat completion (SSE). Falls back to one-shot when needed.
  * Why: Hermes-like fast chat — tokens appear before the full answer finishes.
- * @param {{ apiKey: string, baseUrl: string, model: string, messages: object[], temperature?: number, maxTokens?: number, timeoutMs?: number, openAiAccountId?: string }} opts
+ * @param {{ apiKey: string, baseUrl: string, model: string, messages: object[], temperature?: number, maxTokens?: number, timeoutMs?: number, openAiAccountId?: string, signal?: AbortSignal|null }} opts
  * @param {(chunk: string) => void} [onDelta]
  * @returns {Promise<string>} Full assistant text
  */
@@ -195,6 +209,7 @@ export async function llmChatCompletionStream(opts, onDelta) {
     maxTokens = 256,
     timeoutMs = 60_000,
     openAiAccountId,
+    signal: externalSignal = null,
   } = opts;
   const root = String(baseUrl || "").replace(/\/$/, "");
   const key = normalizeApiKey(apiKey);
@@ -217,13 +232,13 @@ export async function llmChatCompletionStream(opts, onDelta) {
       maxTokens,
       timeoutMs,
       openAiAccountId,
+      signal: externalSignal,
     });
     if (typeof onDelta === "function" && text) onDelta(text);
     return text;
   }
 
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  const linked = withTimeoutSignal(timeoutMs, externalSignal);
   try {
     const response = await fetch(`${root}/chat/completions`, {
       method: "POST",
@@ -235,7 +250,7 @@ export async function llmChatCompletionStream(opts, onDelta) {
         messages,
         stream: true,
       }),
-      signal: controller.signal,
+      signal: linked.signal,
     });
 
     if (!response.ok) {
@@ -284,6 +299,18 @@ export async function llmChatCompletionStream(opts, onDelta) {
     let buffer = "";
     let full = "";
     while (true) {
+      if (linked.signal.aborted) {
+        try {
+          await reader.cancel();
+        } catch {
+          /* ignore */
+        }
+        throw Object.assign(new Error("LLM request aborted"), {
+          title: "Request cancelled",
+          aborted: true,
+          name: "AbortError",
+        });
+      }
       const { done, value } = await reader.read();
       if (done) break;
       buffer += decoder.decode(value, { stream: true });
@@ -320,10 +347,21 @@ export async function llmChatCompletionStream(opts, onDelta) {
       maxTokens,
       timeoutMs,
       openAiAccountId,
+      signal: externalSignal,
     });
     if (typeof onDelta === "function" && fallback) onDelta(fallback);
     return String(fallback || "").trim();
+  } catch (err) {
+    if (isAbortError(err)) {
+      throw Object.assign(new Error("LLM request aborted"), {
+        title: "Request cancelled",
+        hint: "The client disconnected or the request timed out.",
+        aborted: true,
+        name: "AbortError",
+      });
+    }
+    throw err;
   } finally {
-    clearTimeout(timer);
+    linked.dispose();
   }
 }

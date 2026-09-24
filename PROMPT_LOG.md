@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:50] Latency Phase 1 — parallel prep + disconnect abort
+
+- **Prompt Provided:** Hermes fast-reply write-up — Phase 1 parallel context/memory, abort on disconnect, Answer must not await summary.
+- **Architectural Flow:** `prepareChatPromptContext` runs chat pack + curated/Mem0 in `Promise.all`; summary refresh stays async. `linkClientAbort` + `withTimeoutSignal` cancel LLM fetch when the NDJSON client leaves. Auto/Answer/queue snapshot paths use the helper; abort returns “Cancelled.”
+- **Impacted Files:** llmAbort.js, chatPromptPrepare.js, llmChat.js, chatAutoTurn.js, messageIntent.js, chats.js, llmAbort.test.js, PROMPT_LOG
+
 ## [2026-09-24 13:45] Memory Phase 2 — scratch, untrusted, extract idempotency, compress
 
 - **Prompt Provided:** Hermes memory Phase 2 — scoped scratch, untrusted labels, async extract reliability, tool-result retention, observability.

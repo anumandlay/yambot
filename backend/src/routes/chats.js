@@ -41,10 +41,10 @@ import {
   normalizeToolkitSlug,
 } from "../utils/composioService.js";
 import {
-  buildChatContextPrompt,
   refreshChatContextIfNeeded,
-  withChatContext,
 } from "../utils/chatContext.js";
+import { prepareChatPromptContext } from "../utils/chatPromptPrepare.js";
+import { linkClientAbort, isAbortError } from "../utils/llmAbort.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
@@ -1115,49 +1115,39 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hint: "Add an LLM key in Settings, or use Computer mode / /run …",
           });
         }
-        // Why: never block the first chat token on a summary LLM — use current context, refresh later.
-        const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
-          excludeIds: [String(message._id)],
-          creds: qaCreds,
-        });
-        void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
-        const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
-        const curated = await resolveCuratedMemoryForPrompt({
-          userEntries: userForLlm?.curatedMemory?.entries,
-          agentEntries: agentDoc.curatedMemory?.entries,
-          goal: questionText,
-          creds: qaCreds,
-          userId: String(req.userId),
-          agentId: String(agentDoc._id),
-        });
-        const qaSnapshot = withChatContext(
-          toAgentSnapshot(agentDoc, {
-            goal: questionText,
-            userCuratedEntries: curated.userCuratedEntries,
-            agentCuratedEntries: curated.agentCuratedEntries,
-          }),
-          chatContextBlock
-        );
-        turn = await runChatAutoTurn({
-          question: questionText,
-          snapshot: qaSnapshot,
-          creds: qaCreds,
-          chatContext: chatContextBlock,
-          stream: wantStream,
-          onDelta: wantStream
-            ? (chunk) => writeNdjson({ type: "delta", text: chunk })
-            : undefined,
-          onProgress: wantStream
-            ? (step) =>
-                writeNdjson({
-                  type: "progress",
-                  id: step?.id || "composio",
-                  label: step?.label || "Working…",
-                  pct: Number(step?.pct) || 0,
-                })
-            : undefined,
-          // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
-          runtime: {
+        // Why: parallel context + memory (Hermes-style) — never block TTFT on sequential awaits.
+        const clientAbort = linkClientAbort(req, res);
+        try {
+          const prepared = await prepareChatPromptContext({
+            chat,
+            messageId: String(message._id),
+            questionText,
+            userDoc: userForLlm,
+            agentDoc,
+            creds: qaCreds,
+            userId: String(req.userId),
+          });
+          turn = await runChatAutoTurn({
+            question: questionText,
+            snapshot: prepared.snapshot,
+            creds: qaCreds,
+            chatContext: prepared.chatContextBlock,
+            stream: wantStream,
+            signal: clientAbort.signal,
+            onDelta: wantStream
+              ? (chunk) => writeNdjson({ type: "delta", text: chunk })
+              : undefined,
+            onProgress: wantStream
+              ? (step) =>
+                  writeNdjson({
+                    type: "progress",
+                    id: step?.id || "composio",
+                    label: step?.label || "Working…",
+                    pct: Number(step?.pct) || 0,
+                  })
+              : undefined,
+            // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
+            runtime: {
             checkRunStatus: async () => {
               const [active, pendingCount] = await Promise.all([
                 Task.findOne({
@@ -1244,9 +1234,21 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         } catch (persistErr) {
           console.warn("[chats] composio toolkit expand persist failed:", persistErr?.message || persistErr);
         }
+        } finally {
+          clientAbort.dispose();
+        }
         }
       } catch (err) {
         answerError = err;
+        if (isAbortError(err) || err?.aborted) {
+          turn = {
+            action: "reply",
+            content: "Cancelled.",
+            goal: "",
+            ack: "",
+            reason: "auto_turn_aborted",
+          };
+        } else {
         turn = {
           action: "reply",
           content:
@@ -1256,6 +1258,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           ack: "",
           reason: "auto_turn_error",
         };
+        }
       }
 
       if (turn.action === "queue_goal") {
@@ -1493,50 +1496,49 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hint: "Add an LLM key in Settings, or send /run … to use the computer.",
           });
         }
-        await refreshChatContextIfNeeded(chat, qaCreds);
-        const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
-          excludeIds: [String(message._id)],
-          creds: qaCreds,
-        });
-        const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
-        const curated = await resolveCuratedMemoryForPrompt({
-          userEntries: userForLlm?.curatedMemory?.entries,
-          agentEntries: agentDoc.curatedMemory?.entries,
-          goal: questionText,
-          creds: qaCreds,
-          userId: String(req.userId),
-          agentId: String(agentDoc._id),
-        });
-        const qaSnapshot = withChatContext(
-          toAgentSnapshot(agentDoc, {
-            goal: questionText,
-            userCuratedEntries: curated.userCuratedEntries,
-            agentCuratedEntries: curated.agentCuratedEntries,
-          }),
-          chatContextBlock
-        );
-        if (wantStream) {
-          assistantContent = await streamChatQuestion({
-            question: questionText,
-            snapshot: qaSnapshot,
+        // Why: parallel prep + never await summary LLM before first Answer token.
+        const clientAbort = linkClientAbort(req, res);
+        try {
+          const prepared = await prepareChatPromptContext({
+            chat,
+            messageId: String(message._id),
+            questionText,
+            userDoc: userForLlm,
+            agentDoc,
             creds: qaCreds,
-            chatContext: chatContextBlock,
-            onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
+            userId: String(req.userId),
           });
-        } else {
-          assistantContent = await answerChatQuestion({
-            question: questionText,
-            snapshot: qaSnapshot,
-            creds: qaCreds,
-            chatContext: chatContextBlock,
-          });
+          if (wantStream) {
+            assistantContent = await streamChatQuestion({
+              question: questionText,
+              snapshot: prepared.snapshot,
+              creds: qaCreds,
+              chatContext: prepared.chatContextBlock,
+              signal: clientAbort.signal,
+              onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
+            });
+          } else {
+            assistantContent = await answerChatQuestion({
+              question: questionText,
+              snapshot: prepared.snapshot,
+              creds: qaCreds,
+              chatContext: prepared.chatContextBlock,
+              signal: clientAbort.signal,
+            });
+          }
+        } finally {
+          clientAbort.dispose();
         }
         }
       } catch (err) {
         answerError = err;
+        if (isAbortError(err) || err?.aborted) {
+          assistantContent = "Cancelled.";
+        } else {
         assistantContent =
           `I treated that as a question (no computer). ${String(err?.message || err)}\n\n` +
           `Send the same request with /run … to use the browser, or fix LLM settings.`;
+        }
         if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
       }
 
@@ -1786,28 +1788,17 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     try {
       const userForCtx = await User.findById(req.userId);
       const ctxCreds = await resolveLlmCredentialsForAgent(userForCtx, agentDoc);
-      const { resolveCuratedMemoryForPrompt } = await import("../utils/semanticMemory.js");
-      const curated = await resolveCuratedMemoryForPrompt({
-        userEntries: userForCtx?.curatedMemory?.entries,
-        agentEntries: agentDoc.curatedMemory?.entries,
-        goal: workerGoalText,
+      const prepared = await prepareChatPromptContext({
+        chat,
+        messageId: String(message._id),
+        questionText: workerGoalText,
+        userDoc: userForCtx,
+        agentDoc,
         creds: ctxCreds,
         userId: String(req.userId),
-        agentId: String(agentDoc._id),
       });
-      curatedMeta = curated.meta;
-      snapshot = toAgentSnapshot(agentDoc, {
-        goal: workerGoalText,
-        userCuratedEntries: curated.userCuratedEntries,
-        agentCuratedEntries: curated.agentCuratedEntries,
-      });
-      // Why: never delay queue ack / stream end on a summary LLM call.
-      const { block: chatContextBlock } = await buildChatContextPrompt(chat, {
-        excludeIds: [String(message._id)],
-        creds: ctxCreds,
-      });
-      snapshot = withChatContext(snapshot, chatContextBlock);
-      void refreshChatContextIfNeeded(chat, ctxCreds).catch(() => {});
+      curatedMeta = prepared.curated.meta;
+      snapshot = prepared.snapshot;
     } catch (err) {
       console.warn("[chats] chat context pack failed:", err?.message || err);
       snapshot = toAgentSnapshot(agentDoc, { goal: workerGoalText });

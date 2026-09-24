@@ -718,7 +718,7 @@ export async function refineMessageIntentWithLlm(text, creds, ctx = {}) {
  * @returns {Promise<string>}
  */
 export async function answerChatQuestion(opts) {
-  const { question, snapshot, creds, chatContext = "" } = opts;
+  const { question, snapshot, creds, chatContext = "", signal = null } = opts;
   const context = formatAgentPrompt(snapshot);
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -730,6 +730,7 @@ export async function answerChatQuestion(opts) {
     temperature: 0.3,
     maxTokens: 900,
     timeoutMs: 45_000,
+    signal: signal || null,
     messages: [
       {
         role: "system",
