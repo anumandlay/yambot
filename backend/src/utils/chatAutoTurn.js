@@ -549,13 +549,24 @@ export function looksLikeWriteFromContextRequest(text) {
 }
 
 /**
- * User asked to actually send mail (not just draft).
+ * User asked to actually send mail via agent SMTP (not draft, not Composio Gmail).
  * @param {string} text
  * @returns {boolean}
  */
 export function looksLikeSendEmailRequest(text) {
   const s = String(text || "").trim();
   if (!s) return false;
+  // Why: “Did you send the email?” is status Q&A — not a new SMTP send job.
+  if (
+    /\b(did you|have you|was (the |it )?|were (the |they )?)\s*(already\s+)?(send|sent|email(ed)?)\b/i.test(
+      s
+    ) ||
+    /\b(send|sent)\b.+\?\s*$/i.test(s)
+  ) {
+    return false;
+  }
+  // Why: “Send email using composio” must use Gmail API tools, not agent SMTP harden.
+  if (/\bcomposio\b/i.test(s) || looksLikeComposioAppRequest(s)) return false;
   if (looksLikeWriteFromContextRequest(s) && !/\bsend\b/i.test(s)) return false;
   return (
     /\bsend\b.+\b(them|these|those|the|above)?\s*(the\s+)?(emails?|mails?|reminders?)\b/i.test(s) ||
@@ -874,7 +885,8 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   if (isPromptPlaceholder(goal) || goal.length < 8) goal = "";
 
   // Why: "send them the emails" must become a concrete send_email goal — never browse mangled addresses.
-  if (looksLikeSendEmailRequest(userText)) {
+  // Skip when the user asked for Composio/Gmail API (SMTP harden must not hijack that path).
+  if (looksLikeSendEmailRequest(userText) && !looksLikeComposioAppRequest(userText)) {
     if (!emailConfigured) {
       return {
         action: "reply",
@@ -2089,7 +2101,8 @@ export async function runChatAutoTurn(opts) {
   };
 
   // Why: send-mail follow-ups skip the model and build a hardened send_email goal from chat.
-  if (looksLikeSendEmailRequest(text)) {
+  // Never steal “send … using composio” into the SMTP path.
+  if (looksLikeSendEmailRequest(text) && !looksLikeComposioAppRequest(text)) {
     track.setPath("send_email_harden");
     track.markDecision("queue_goal");
     return finalize({

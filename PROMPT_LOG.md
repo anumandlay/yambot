@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 10:40] SMTP harden must not block Composio send / status asks
+
+- **Prompt Provided:** Chat mistake — “Did you send the email” / “Send email using composio” → SMTP settings missing; “Send using composio” worked.
+- **Architectural Flow:** looksLikeSendEmailRequest was matching status questions and “send … composio”, then send_email_harden short-circuited to SMTP-missing before the LLM/Composio path. Exclude past-tense/status and Composio app asks from SMTP harden.
+- **Impacted Files:** chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-23 22:15] Fix ack-then-nothing for CRM create + email
 
 - **Prompt Provided:** Create a new account in crm and send credentials to fastagconsultant@gmail.com → “On it — creating…” then nothing.

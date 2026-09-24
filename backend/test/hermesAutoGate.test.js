@@ -115,6 +115,7 @@ describe("memory store mis-queue is forced back to reply", () => {
       ensureAutoTurnResult,
       looksLikePromiseOnlyComputerAck,
       looksLikeLiveComputerJobRequest,
+      looksLikeSendEmailRequest,
     } = await import("../src/utils/chatAutoTurn.js");
     const { looksLikeComposioAppRequest } = await import("../src/utils/messageIntent.js");
     const msg =
@@ -136,6 +137,21 @@ describe("memory store mis-queue is forced back to reply", () => {
     assert.equal(out.action, "queue_goal");
     assert.match(out.reason, /promise_ack_to_queue/);
     assert.equal(out.goal, msg);
+  });
+
+  it("SMTP harden does not steal Composio send or status questions", async () => {
+    const { looksLikeSendEmailRequest, ensureAutoTurnResult } = await import(
+      "../src/utils/chatAutoTurn.js"
+    );
+    assert.equal(looksLikeSendEmailRequest("Did you send the email"), false);
+    assert.equal(looksLikeSendEmailRequest("Send email using composio"), false);
+    assert.equal(looksLikeSendEmailRequest("send them the emails"), true);
+    const blocked = ensureAutoTurnResult(
+      { action: "queue_goal", goal: "send them the emails", reason: "x" },
+      { userText: "Send email using composio", emailConfigured: false }
+    );
+    assert.notEqual(blocked.reason, "x_send_email_smtp_missing");
+    assert.notMatch(String(blocked.content || ""), /SMTP settings/i);
   });
 
   it("ensureAutoTurnResult converts queue_goal → reply for remember prefs", async () => {
