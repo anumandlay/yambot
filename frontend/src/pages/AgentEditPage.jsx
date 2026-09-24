@@ -136,6 +136,9 @@ export function AgentEditPage() {
   const [jobBrief, setJobBrief] = useState("");
   const [draftBusy, setDraftBusy] = useState(false);
   const [scheduleIntervals, setScheduleIntervals] = useState([
+    "1m",
+    "2m",
+    "5m",
     "15m",
     "30m",
     "1h",
