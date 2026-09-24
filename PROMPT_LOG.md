@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:55] Keep chat turns alive on tab close
+
+- **Prompt Provided:** Don’t drop/cancel the LLM when closing the browser tab.
+- **Architectural Flow:** Removed `linkClientAbort` from Auto/Answer paths. Parallel prep remains; LLM still has timeout abort only. Closing the tab may stop UI streaming, but the server finishes and saves the reply.
+- **Impacted Files:** chats.js, PROMPT_LOG
+
 ## [2026-09-24 13:50] Latency Phase 1 — parallel prep + disconnect abort
 
 - **Prompt Provided:** Hermes fast-reply write-up — Phase 1 parallel context/memory, abort on disconnect, Answer must not await summary.

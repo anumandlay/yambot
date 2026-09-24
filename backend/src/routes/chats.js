@@ -44,7 +44,6 @@ import {
   refreshChatContextIfNeeded,
 } from "../utils/chatContext.js";
 import { prepareChatPromptContext } from "../utils/chatPromptPrepare.js";
-import { linkClientAbort, isAbortError } from "../utils/llmAbort.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
@@ -1116,38 +1115,36 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           });
         }
         // Why: parallel context + memory (Hermes-style) — never block TTFT on sequential awaits.
-        const clientAbort = linkClientAbort(req, res);
-        try {
-          const prepared = await prepareChatPromptContext({
-            chat,
-            messageId: String(message._id),
-            questionText,
-            userDoc: userForLlm,
-            agentDoc,
-            creds: qaCreds,
-            userId: String(req.userId),
-          });
-          turn = await runChatAutoTurn({
-            question: questionText,
-            snapshot: prepared.snapshot,
-            creds: qaCreds,
-            chatContext: prepared.chatContextBlock,
-            stream: wantStream,
-            signal: clientAbort.signal,
-            onDelta: wantStream
-              ? (chunk) => writeNdjson({ type: "delta", text: chunk })
-              : undefined,
-            onProgress: wantStream
-              ? (step) =>
-                  writeNdjson({
-                    type: "progress",
-                    id: step?.id || "composio",
-                    label: step?.label || "Working…",
-                    pct: Number(step?.pct) || 0,
-                  })
-              : undefined,
-            // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
-            runtime: {
+        // Why: do NOT abort on tab close — user wants the turn to finish and save even if the UI disconnects.
+        const prepared = await prepareChatPromptContext({
+          chat,
+          messageId: String(message._id),
+          questionText,
+          userDoc: userForLlm,
+          agentDoc,
+          creds: qaCreds,
+          userId: String(req.userId),
+        });
+        turn = await runChatAutoTurn({
+          question: questionText,
+          snapshot: prepared.snapshot,
+          creds: qaCreds,
+          chatContext: prepared.chatContextBlock,
+          stream: wantStream,
+          onDelta: wantStream
+            ? (chunk) => writeNdjson({ type: "delta", text: chunk })
+            : undefined,
+          onProgress: wantStream
+            ? (step) =>
+                writeNdjson({
+                  type: "progress",
+                  id: step?.id || "composio",
+                  label: step?.label || "Working…",
+                  pct: Number(step?.pct) || 0,
+                })
+            : undefined,
+          // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
+          runtime: {
             checkRunStatus: async () => {
               const [active, pendingCount] = await Promise.all([
                 Task.findOne({
@@ -1234,21 +1231,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         } catch (persistErr) {
           console.warn("[chats] composio toolkit expand persist failed:", persistErr?.message || persistErr);
         }
-        } finally {
-          clientAbort.dispose();
-        }
         }
       } catch (err) {
         answerError = err;
-        if (isAbortError(err) || err?.aborted) {
-          turn = {
-            action: "reply",
-            content: "Cancelled.",
-            goal: "",
-            ack: "",
-            reason: "auto_turn_aborted",
-          };
-        } else {
         turn = {
           action: "reply",
           content:
@@ -1258,7 +1243,6 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           ack: "",
           reason: "auto_turn_error",
         };
-        }
       }
 
       if (turn.action === "queue_goal") {
@@ -1497,48 +1481,38 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           });
         }
         // Why: parallel prep + never await summary LLM before first Answer token.
-        const clientAbort = linkClientAbort(req, res);
-        try {
-          const prepared = await prepareChatPromptContext({
-            chat,
-            messageId: String(message._id),
-            questionText,
-            userDoc: userForLlm,
-            agentDoc,
+        // Why: do NOT abort on tab close — finish the Answer turn server-side.
+        const prepared = await prepareChatPromptContext({
+          chat,
+          messageId: String(message._id),
+          questionText,
+          userDoc: userForLlm,
+          agentDoc,
+          creds: qaCreds,
+          userId: String(req.userId),
+        });
+        if (wantStream) {
+          assistantContent = await streamChatQuestion({
+            question: questionText,
+            snapshot: prepared.snapshot,
             creds: qaCreds,
-            userId: String(req.userId),
+            chatContext: prepared.chatContextBlock,
+            onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
           });
-          if (wantStream) {
-            assistantContent = await streamChatQuestion({
-              question: questionText,
-              snapshot: prepared.snapshot,
-              creds: qaCreds,
-              chatContext: prepared.chatContextBlock,
-              signal: clientAbort.signal,
-              onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
-            });
-          } else {
-            assistantContent = await answerChatQuestion({
-              question: questionText,
-              snapshot: prepared.snapshot,
-              creds: qaCreds,
-              chatContext: prepared.chatContextBlock,
-              signal: clientAbort.signal,
-            });
-          }
-        } finally {
-          clientAbort.dispose();
+        } else {
+          assistantContent = await answerChatQuestion({
+            question: questionText,
+            snapshot: prepared.snapshot,
+            creds: qaCreds,
+            chatContext: prepared.chatContextBlock,
+          });
         }
         }
       } catch (err) {
         answerError = err;
-        if (isAbortError(err) || err?.aborted) {
-          assistantContent = "Cancelled.";
-        } else {
         assistantContent =
           `I treated that as a question (no computer). ${String(err?.message || err)}\n\n` +
           `Send the same request with /run … to use the browser, or fix LLM settings.`;
-        }
         if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
       }
 
