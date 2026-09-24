@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 16:10] No cheap texts; bare “check email” hits Composio
+
+- **Prompt Provided:** “check email” → “I am here…”; “check email and send summary…” worked; make LLM decide, no cheap texts.
+- **Architectural Flow:** Disabled `cheapChatReplyIfAny`. Removed “I am here” empty fallback. `looksLikeComposioAppRequest("check email")` true; deterministic Composio path keys off `matchComposioIntent` alone when Composio is ready.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, chats.js, hermesAutoGate.test.js, lightweightFastPath.test.js, PROMPT_LOG
+
 ## [2026-09-24 16:00] Schedulers show Last run / Status; list reminders includes last run
 
 - **Prompt Provided:** list shows Check email (off) — is it working? need last run in agent settings.

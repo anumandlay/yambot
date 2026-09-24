@@ -264,7 +264,8 @@ describe("confirm yes after computer offer", () => {
       await import("../src/utils/chatAutoTurn.js");
     assert.equal(cheapChatReplyIfAny("yes"), null);
     assert.equal(cheapChatReplyIfAny("sure"), null);
-    assert.equal(cheapChatReplyIfAny("hi"), "Hi — I'm here. Ask a question or send a computer goal.");
+    // Why: canned greetings disabled — LLM handles “hi”.
+    assert.equal(cheapChatReplyIfAny("hi"), null);
     assert.equal(looksLikeAffirmativeConfirm("yes"), true);
     const goal = resolveConfirmComputerGoalFromMessages([
       { _id: "a1", role: "user", content: "can you open example.com" },

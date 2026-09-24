@@ -1065,8 +1065,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       }
 
       const busyRun = await Task.findOne({
-        agent: agentDoc._id,
-        user: req.userId,
+      agent: agentDoc._id,
+      user: req.userId,
         status: { $in: ["running", "waiting_user"] },
       })
         .select("_id status")
@@ -1315,7 +1315,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       } else {
         let assistantContent =
           String(turn.content || "").trim() ||
-          "I am here — ask a question or send a computer goal.";
+          "I didn’t get a usable reply that turn — please try again.";
         // Why: models emit fake ACTION: memory(...) — persist for real, then replace the ACTION text.
         let rememberMeta = null;
         let forgetMeta = null;
@@ -1409,7 +1409,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           .catch(() => {});
         const systemMessage = await Message.create({
           chat: chat._id,
-          role: "system",
+        role: "system",
           content: [
             busyRun
               ? `Answered in chat (Auto — no computer). The current browser run continues.`
@@ -1723,13 +1723,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           mention: mentionMeta,
         });
       } else {
-        Object.assign(messageMeta, {
-          dispatchAgentId: snapshot?.id || String(agentDoc._id),
-          dispatchAgentName: snapshot?.name || agentDoc.name,
-          goalText,
-          mention: mentionMeta,
-          router: routerMeta,
-        });
+      Object.assign(messageMeta, {
+        dispatchAgentId: snapshot?.id || String(agentDoc._id),
+        dispatchAgentName: snapshot?.name || agentDoc.name,
+        goalText,
+        mention: mentionMeta,
+        router: routerMeta,
+      });
       }
     }
     if (skillSlashMeta) {
@@ -1752,10 +1752,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     const message =
       precreatedUserMessage ||
       (await Message.create({
-        chat: chat._id,
-        role: "user",
-        content,
-        meta: Object.keys(messageMeta).length ? messageMeta : null,
+      chat: chat._id,
+      role: "user",
+      content,
+      meta: Object.keys(messageMeta).length ? messageMeta : null,
       }));
 
     /** @type {object|null} */
@@ -2235,7 +2235,7 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
       task.status = "pending";
       task.claimedAt = null;
     } else {
-      task.status = "running";
+    task.status = "running";
     }
     await task.save();
     if (task.agent) {
@@ -2305,7 +2305,7 @@ chatsRouter.patch("/:id/tasks/:taskId", async (req, res, next) => {
           // Keep a tiny event trail without appending onto a 16MB array.
           events: [
             {
-              type: "goal_edited",
+      type: "goal_edited",
               at: new Date(),
               payload: { goal: goal.slice(0, 500), byChat: String(chat._id), trimmedEvents: true },
             },

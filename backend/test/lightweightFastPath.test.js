@@ -16,6 +16,7 @@ assert.equal(autoTurnNeedsTools("nice weather today"), false);
 
 // Tools needed
 assert.equal(autoTurnNeedsTools("check my gmail inbox"), true);
+assert.equal(autoTurnNeedsTools("check email"), true);
 assert.equal(autoTurnNeedsTools("open google.com and search cats"), true);
 assert.equal(autoTurnNeedsTools("are you still running a task?"), true);
 assert.equal(autoTurnNeedsTools("list my peer agents"), true);

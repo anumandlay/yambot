@@ -274,6 +274,10 @@ export function looksLikeComposioAppRequest(text) {
   ) {
     return true;
   }
+  // Why: bare “check email” must hit Gmail Composio — was falling through to empty “I am here”.
+  if (/\bcheck\b/.test(lower) && /\b(e-?mails?|mails?|inbox|gmail)\b/.test(noAddrs)) {
+    return true;
+  }
   return false;
 }
 

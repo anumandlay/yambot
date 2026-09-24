@@ -1094,9 +1094,12 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     if (looksLikeWriteFromContextRequest(userText)) {
       content =
         "I could not draft that from chat context. Please try again, or paste the emails/details to include.";
+    } else if (looksLikeComposioAppRequest(userText) || matchComposioIntent(userText)) {
+      content =
+        "I couldn’t finish that connected-app request. Try again (e.g. “check email”), or open Agents → Composio and confirm Gmail is connected.";
     } else {
       content =
-        "I am here. Ask a question, or send a computer goal (open a site, ask peers, etc.).";
+        "I didn’t get a usable reply that turn — please try again with a bit more detail.";
     }
   }
 
@@ -2334,13 +2337,9 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: “check email” / known Composio intents must skip the tools LLM loop.
-  // Models otherwise print bare composio_search(query="gmail") (~20s) or invent a send to self.
-  if (
-    composioReady &&
-    looksLikeComposioAppRequest(text) &&
-    matchComposioIntent(text)
-  ) {
+  // Why: “check email” / known Composio intents must run the deterministic app path.
+  // Do not require looksLikeComposioAppRequest alone — matchComposioIntent covers inbox phrases.
+  if (composioReady && matchComposioIntent(text)) {
     return finalize(
       await runDeterministicComposioIntentTurn({
         runtime,
@@ -3059,25 +3058,13 @@ export function looksLikeLightweightChat(text) {
 }
 
 /**
- * Instant replies for greetings / thanks — skip LLM so “hi” is not a long Sending….
- * Why: never cheap-ack yes/ok/sure — those often confirm “Want me to open …?” and must reach Auto.
- * @param {string} question
+ * Instant replies for greetings / thanks — DISABLED.
+ * Why: product wants the LLM to decide every chat reply; canned “hi / I am here” texts hide real asks
+ * like a mis-routed “check email”.
+ * @param {string} _question
  * @returns {string|null}
  */
-export function cheapChatReplyIfAny(question) {
-  const q = String(question || "").trim();
-  if (!q || q.length > 64) return null;
-  if (
-    /^(hi|hello|hey|yo|sup|howdy|good (morning|afternoon|evening))([!?.\s]*)$/i.test(q)
-  ) {
-    return "Hi — I'm here. Ask a question or send a computer goal.";
-  }
-  if (/^(thanks|thank you|thx|ty)([!?.\s]*)$/i.test(q)) {
-    return "You're welcome.";
-  }
-  if (/^(what|huh|hmm+)([!?.\s]*)$/i.test(q)) {
-    return "Could you clarify what you mean?";
-  }
+export function cheapChatReplyIfAny(_question) {
   return null;
 }
 
