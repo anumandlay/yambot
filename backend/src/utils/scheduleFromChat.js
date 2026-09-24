@@ -283,6 +283,54 @@ export function looksLikeChatReminderRequest(text) {
 }
 
 /**
+ * Topic left after “delete/stop reminder …” so we can match one job.
+ * Why: “delete reminder drink water” must hint “drink water”, not the whole sentence
+ * (which never matched haystacks and used to fall back to stopping every schedule).
+ * @param {string} text
+ * @returns {string}
+ */
+export function extractScheduleDisableHint(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return "";
+  const named = raw.match(/\b(?:named|called)\s+["']?([^"'\n]{2,60})/i)?.[1]?.trim();
+  if (named) return named.slice(0, 80);
+
+  let hint = raw
+    .replace(
+      /\b(stop|disable|pause|cancel|remove|delete|turn\s+off|clear)\b/gi,
+      " "
+    )
+    .replace(
+      /\b(all\s+)?(the\s+)?(my\s+)?(schedules?|schedulers?|reminders?|recurring\s+(?:jobs?|tasks?)|cron\s*jobs?)\b/gi,
+      " "
+    )
+    .replace(/\b(named|called|for|about|regarding)\b/gi, " ")
+    .replace(/\s{2,}/g, " ")
+    .trim();
+
+  // Why: bare “stop reminders” / “delete all schedules” → empty tip (caller may stop all).
+  if (!hint || /^(all|them|everything)$/i.test(hint)) {
+    if (/\bemail\b/i.test(raw) && !/\b(drink|water|hydrat)\b/i.test(raw)) return "email";
+    return "";
+  }
+  if (/\bemail\b/i.test(hint) && hint.length <= 12) return "email";
+  return hint.slice(0, 80);
+}
+
+/**
+ * True when the disable ask clearly means every schedule (no topic).
+ * @param {string} text
+ * @param {string} hint
+ * @returns {boolean}
+ */
+export function wantsDisableAllSchedules(text, hint) {
+  const raw = String(text || "").trim();
+  if (/\b(all|every)\b.+\b(schedules?|reminders?)\b/i.test(raw)) return true;
+  if (/\b(schedules?|reminders?)\b.+\b(all|every)\b/i.test(raw)) return true;
+  return !String(hint || "").trim();
+}
+
+/**
  * Create-time reminder body (no per-tick LLM).
  * @param {string} topic
  * @returns {string}
@@ -386,11 +434,7 @@ export function parseScheduleFromChat(text) {
     ).test(raw) ||
     /\b(stop|disable|pause)\s+(the\s+)?(email\s+)?(schedule|reminder|checking|check)\b/i.test(raw)
   ) {
-    const hint =
-      raw.match(/\b(?:named|called)\s+["']?([^"'\n]{2,60})/i)?.[1]?.trim() ||
-      (/\bemail\b/i.test(raw) ? "email" : "") ||
-      stripScheduleCadenceFromGoal(raw).slice(0, 40);
-    return { action: "disable", matchHint: hint || "" };
+    return { action: "disable", matchHint: extractScheduleDisableHint(raw) };
   }
 
   const cadence = parseScheduleIntervalFromText(raw);
@@ -483,40 +527,76 @@ export async function applyScheduleFromChat(opts) {
   }
 
   if (parsed.action === "disable") {
-    const hint = String(parsed.matchHint || "").toLowerCase();
+    const hint = String(parsed.matchHint || "").toLowerCase().trim();
+    const hintTokens = hint
+      .split(/\s+/)
+      .map((t) => t.trim())
+      .filter((t) => t.length >= 3);
+    /** @type {string[]} */
+    const stoppedLabels = [];
     let disabled = 0;
-    for (const j of jobs) {
+
+    /**
+     * @param {object} j
+     * @returns {boolean}
+     */
+    function jobMatchesDisableHint(j) {
+      if (!hint) return false;
       const hay = `${j.name || ""} ${j.goal || ""}`.toLowerCase();
-      const match =
-        !hint ||
-        hay.includes(hint) ||
-        (hint.includes("email") && /email|unread|inbox|gmail/i.test(hay));
-      if (match && j.enabled) {
+      if (hay.includes(hint)) return true;
+      if (hint === "email" && /email|unread|inbox|gmail/i.test(hay)) return true;
+      if (hintTokens.length && hintTokens.every((tok) => hay.includes(tok))) return true;
+      // Why: partial topic (“water”) still unique enough when ≥ half the tokens hit.
+      if (hintTokens.length >= 1) {
+        const hits = hintTokens.filter((tok) => hay.includes(tok)).length;
+        if (hits >= Math.ceil(hintTokens.length / 2) && hits >= 1) return true;
+      }
+      return false;
+    }
+
+    for (const j of jobs) {
+      if (!j.enabled) continue;
+      if (!jobMatchesDisableHint(j)) continue;
+      j.enabled = false;
+      j.nextRunAt = null;
+      disabled += 1;
+      stoppedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
+    }
+
+    // Why: only wipe every schedule when there is no topic (“stop reminders” / “stop all”).
+    // Never fall back to disable-all after a failed topic match (“drink water”).
+    if (!disabled && wantsDisableAllSchedules("stop reminders", hint)) {
+      for (const j of jobs) {
+        if (!j.enabled) continue;
         j.enabled = false;
         j.nextRunAt = null;
         disabled += 1;
+        stoppedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
       }
     }
-    if (!disabled && jobs.length) {
-      // Fallback: disable all enabled if hint empty or no match.
-      for (const j of jobs) {
-        if (j.enabled) {
-          j.enabled = false;
-          j.nextRunAt = null;
-          disabled += 1;
-        }
-      }
-    }
+
     syncLegacyScheduleMirror(agent, jobs);
     agent.markModified?.("schedules");
     agent.markModified?.("schedule");
     await agent.save();
     if (!disabled) {
+      if (hint) {
+        return {
+          ok: true,
+          content: `No enabled reminder matched “${hint}”. Say “list reminders” to see what’s on, or “stop all reminders” to clear everything.`,
+        };
+      }
       return { ok: true, content: "No enabled schedules to stop." };
     }
+    const labelBit =
+      stoppedLabels.length === 1
+        ? ` (“${stoppedLabels[0]}”)`
+        : stoppedLabels.length <= 4
+          ? `: ${stoppedLabels.map((l) => `“${l}”`).join(", ")}`
+          : "";
     return {
       ok: true,
-      content: `Stopped ${disabled} schedule${disabled === 1 ? "" : "s"}.`,
+      content: `Stopped ${disabled} schedule${disabled === 1 ? "" : "s"}${labelBit}.`,
     };
   }
 

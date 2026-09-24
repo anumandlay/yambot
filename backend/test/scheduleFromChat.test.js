@@ -12,6 +12,8 @@ import {
   formatScheduleListReply,
   isMeaningfulScheduleJob,
   looksLikeChatReminderRequest,
+  extractScheduleDisableHint,
+  wantsDisableAllSchedules,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
@@ -126,6 +128,24 @@ test("stop the email schedule", () => {
   const p = parseScheduleFromChat("stop the email schedule");
   assert.equal(p?.action, "disable");
   assert.match(String(p?.matchHint || ""), /email/i);
+});
+
+test("delete reminder drink water hints drink water only", () => {
+  const p = parseScheduleFromChat("delete reminder drink water");
+  assert.equal(p?.action, "disable");
+  assert.match(String(p?.matchHint || ""), /drink\s+water/i);
+  assert.doesNotMatch(String(p?.matchHint || ""), /delete/i);
+});
+
+test("extractScheduleDisableHint", () => {
+  assert.equal(extractScheduleDisableHint("delete reminder drink water").toLowerCase(), "drink water");
+  assert.equal(extractScheduleDisableHint("stop all reminders"), "");
+  assert.equal(extractScheduleDisableHint("stop the email schedule").toLowerCase(), "email");
+});
+
+test("wantsDisableAllSchedules", () => {
+  assert.equal(wantsDisableAllSchedules("stop reminders", ""), true);
+  assert.equal(wantsDisableAllSchedules("stop reminder drink water", "drink water"), false);
 });
 
 test("stripScheduleCadenceFromGoal", () => {

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:25] Targeted reminder delete + hybrid reminder policy
+
+- **Prompt Provided:** “delete reminder drink water” stopped 4 schedules; ask if LLM should own create/list/delete.
+- **Architectural Flow:** Keep deterministic schedule CRUD (real `schedules[]`, ~ms TTFT). Fix disable hint extraction (“drink water”) and never fall back to disable-all on a failed topic match. Reply names the stopped job.
+- **Impacted Files:** scheduleFromChat.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 15:20] Fix check-email: tool leak, empty From/Subject, invented send
 
 - **Prompt Provided:** “check email” showed `composio_search(query="gmail")` (TTFT ~19s), then unread list with Unknown sender / (no subject), then emailed result to agent mailbox.
