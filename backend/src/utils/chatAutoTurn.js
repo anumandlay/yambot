@@ -23,6 +23,7 @@ import {
   looksLikeMultiStepComposioRequest,
   planComposioMultiSteps,
   runComposioMultiStep,
+  COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
 import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
 import {
@@ -1303,8 +1304,9 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
 export async function runDeterministicComposioIntentTurn(opts) {
   const { runtime, userText, creds, onDelta, track } = opts;
 
-  // Why: “list … and send to …” / “unread then Slack …” — run sequenced Composio steps.
-  const multiPlan = planComposioMultiSteps(userText);
+  // Why: LLM understands “check email and give me update” as one step; heuristics split on “and”.
+  const { resolveComposioPlan } = await import("./composioLlmPlan.js");
+  const multiPlan = await resolveComposioPlan(userText, creds);
   if (multiPlan.length >= 2 && runtime?.composioApiKey) {
     track.setPath("composio_multistep");
     track.emitProgress?.(`Multi-step (${multiPlan.length})…`, 10);
@@ -1335,7 +1337,13 @@ export async function runDeterministicComposioIntentTurn(opts) {
     };
   }
 
-  const spec = opts.spec || matchComposioIntent(userText);
+  // Why: LLM may return a single planned intent (compound wording collapsed).
+  const plannedSpec =
+    multiPlan.length === 1 && multiPlan[0].kind === "intent" && multiPlan[0].specId
+      ? COMPOSIO_INTENT_SPECS.find((s) => s.id === multiPlan[0].specId) || null
+      : null;
+
+  const spec = opts.spec || plannedSpec || matchComposioIntent(userText);
   if (!spec) {
     return {
       action: "reply",

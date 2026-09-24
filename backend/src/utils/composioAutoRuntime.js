@@ -1302,7 +1302,30 @@ export function planComposioMultiSteps(userText) {
   }
 
   // Deduplicate accidental double sheets_list+email when one clause already matched list only
-  return steps.slice(0, 6);
+  return collapseAdjacentDuplicateSteps(steps.slice(0, 6));
+}
+
+/**
+ * @param {ComposioPlanStep[]} steps
+ * @returns {ComposioPlanStep[]}
+ */
+function collapseAdjacentDuplicateSteps(steps) {
+  /** @type {ComposioPlanStep[]} */
+  const out = [];
+  for (const s of steps) {
+    const prev = out[out.length - 1];
+    if (
+      prev &&
+      prev.kind === "intent" &&
+      s.kind === "intent" &&
+      prev.specId &&
+      prev.specId === s.specId
+    ) {
+      continue;
+    }
+    out.push(s);
+  }
+  return out;
 }
 
 /**

@@ -41,10 +41,11 @@ import {
 } from "./comboRunner.js";
 import {
   matchComposioIntent,
-  planComposioMultiSteps,
   runComposioMultiStep,
   runComposioIntentExecute,
+  COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
+import { resolveComposioPlan } from "./composioLlmPlan.js";
 import {
   decryptAgentComposioApiKey,
   expandComposioToolkitSlugs,
@@ -153,10 +154,22 @@ async function runScheduledComposioGoal(opts) {
     composioSessionId: String(agent.composio?.sessionId || "").trim() || null,
   };
 
+  /** @type {object|null} */
+  let llmCreds = null;
+  try {
+    const owner = await User.findById(agent.user);
+    if (owner) {
+      const { resolveLlmCredentialsForAgent } = await import("./llmCredentials.js");
+      llmCreds = await resolveLlmCredentialsForAgent(owner, agent);
+    }
+  } catch {
+    llmCreds = null;
+  }
+
   const multiPlan =
-    Array.isArray(opts.planSteps) && opts.planSteps.length
+    Array.isArray(opts.planSteps) && opts.planSteps.length >= 2
       ? opts.planSteps
-      : planComposioMultiSteps(goal);
+      : await resolveComposioPlan(goal, llmCreds);
 
   let content = "";
   let ok = false;
@@ -171,7 +184,12 @@ async function runScheduledComposioGoal(opts) {
     content = String(multi.content || "").trim();
     ok = Boolean(multi.ok);
   } else {
-    const spec = matchComposioIntent(goal);
+    const plannedSpec =
+      multiPlan.length === 1 && multiPlan[0].specId
+        ? COMPOSIO_INTENT_SPECS.find((s) => s.id === multiPlan[0].specId) ||
+          matchComposioIntent(multiPlan[0].userText || goal)
+        : null;
+    const spec = plannedSpec || matchComposioIntent(goal);
     if (!spec) {
       content =
         "Scheduled goal looks like a connected-app job, but I could not map it to a Composio action.";

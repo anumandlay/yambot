@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 13:00] LLM plans Composio compound asks
+
+- **Prompt Provided:** Send compound messages to the LLM so it understands/decides (e.g. check email and give me update ran Gmail twice).
+- **Architectural Flow:** `resolveComposioPlan` calls a small JSON LLM planner for compound wording; collapses duplicate heuristic steps; Auto + schedule ticks use the resolved plan (1 step for update-after-check, multi only for true sequences).
+- **Impacted Files:** composioLlmPlan.js, chatAutoTurn.js, scheduler.js, composioAutoRuntime.js, composioLlmPlan.test.js, PROMPT_LOG
+
 ## [2026-09-24 12:00] Chat-created schedules (multi-step aware ticks)
 
 - **Prompt Provided:** From chat create schedules e.g. check email every 5 minutes; may include multi-steps.
