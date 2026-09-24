@@ -1286,17 +1286,19 @@ export function AgentEditPage() {
                         ? "Once daily (UTC time below)"
                         : iv === "2m"
                           ? "Every 2 minutes"
-                          : iv === "15m"
-                            ? "Every 15 minutes"
-                            : iv === "30m"
-                              ? "Every 30 minutes"
-                              : iv === "1h"
-                                ? "Every hour"
-                                : iv === "6h"
-                                  ? "Every 6 hours"
-                                  : iv === "12h"
-                                    ? "Every 12 hours"
-                                    : "Every 24 hours"}
+                          : iv === "5m"
+                            ? "Every 5 minutes"
+                            : iv === "15m"
+                              ? "Every 15 minutes"
+                              : iv === "30m"
+                                ? "Every 30 minutes"
+                                : iv === "1h"
+                                  ? "Every hour"
+                                  : iv === "6h"
+                                    ? "Every 6 hours"
+                                    : iv === "12h"
+                                      ? "Every 12 hours"
+                                      : "Every 24 hours"}
                     </option>
                   ))}
                 </select>

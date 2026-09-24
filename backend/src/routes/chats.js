@@ -1204,6 +1204,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               };
             },
             userId: String(req.userId),
+            chatId: String(chat._id),
+            agent: agentDoc,
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
             composioApiKey: decryptAgentComposioApiKey(agentDoc),
             composioToolkitSlugs: expandComposioToolkitSlugs(

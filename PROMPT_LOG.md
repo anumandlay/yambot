@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 12:00] Chat-created schedules (multi-step aware ticks)
+
+- **Prompt Provided:** From chat create schedules e.g. check email every 5 minutes; may include multi-steps.
+- **Architectural Flow:** Add `5m` interval. `scheduleFromChat` parses create/list/stop and saves `agent.schedules[]`. Auto turn applies before queue/composio. Scheduler tick routes Composio-only (no Task), hybrid (Task + comboFollowup), or computer. “check email” maps to Gmail unread intent.
+- **Impacted Files:** Agent.js, scheduleFromChat.js, chatAutoTurn.js, chats.js, scheduler.js, composioAutoRuntime.js, AgentEditPage.jsx, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 11:35] General combo runner (hybrid + Composio N-step)
 
 - **Prompt Provided:** Support different combos — create+email, Notion→Slack→email, open Vughy then Notion+Slack+email.

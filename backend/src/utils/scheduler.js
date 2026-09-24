@@ -1,7 +1,7 @@
 /**
  * @fileoverview Agent schedule tick — enqueues goals when nextRunAt is due.
  * Purpose: Run each agent's saved schedule without a separate cron daemon.
- * Downstream: Chat/Message/Task models (same path as a manual chat goal).
+ * Downstream: Chat/Message/Task; Composio multi-step; combo hybrid follow-ups.
  */
 
 import { Agent, computeNextRunAt, listAgentScheduleJobs, toAgentSnapshot } from "../models/Agent.js";
@@ -33,6 +33,22 @@ import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
 import { tickCampaigns } from "./campaignEngine.js";
 import { tickTicketSla } from "./ticketSla.js";
 import { tickScheduledReports } from "./scheduledReports.js";
+import {
+  planComboFromText,
+  buildComboFollowupForTask,
+  enrichComputerGoalForCombo,
+  buildComposioExecuteLookupFromAgent,
+} from "./comboRunner.js";
+import {
+  matchComposioIntent,
+  planComposioMultiSteps,
+  runComposioMultiStep,
+  runComposioIntentExecute,
+} from "./composioAutoRuntime.js";
+import {
+  decryptAgentComposioApiKey,
+  expandComposioToolkitSlugs,
+} from "./composioService.js";
 
 /**
  * Uses the agent's single chat (one chat per agent).
@@ -55,10 +71,150 @@ async function ensureScheduleChat(agent, job = null) {
 }
 
 /**
+ * Advance last/next run timestamps and persist agent.
+ * @param {import('mongoose').Document} agent
+ * @param {object} sched
+ * @param {object|null} job
+ * @param {import('mongoose').Document} chat
+ * @param {Date} now
+ */
+async function markScheduleJobFired(agent, sched, job, chat, now) {
+  sched.lastRunAt = now;
+  sched.nextRunAt = computeNextRunAt(sched, now);
+  sched.chatId = chat._id;
+
+  if (
+    job &&
+    Array.isArray(agent.schedules) &&
+    agent.schedules[0] &&
+    String(agent.schedules[0]._id) === String(job._id)
+  ) {
+    agent.schedule = agent.schedule || {};
+    agent.schedule.lastRunAt = sched.lastRunAt;
+    agent.schedule.nextRunAt = sched.nextRunAt;
+    agent.schedule.chatId = chat._id;
+  } else if (!job) {
+    agent.schedule.lastRunAt = now;
+    agent.schedule.nextRunAt = sched.nextRunAt;
+    agent.schedule.chatId = chat._id;
+  }
+
+  await agent.save();
+}
+
+/**
+ * Run a Composio-only scheduled goal (no browser Task).
+ * @param {{
+ *   agent: import('mongoose').Document,
+ *   chat: import('mongoose').Document,
+ *   goal: string,
+ *   jobLabel: string,
+ *   scheduleJobId: string|null,
+ *   planSteps?: object[],
+ * }} opts
+ */
+async function runScheduledComposioGoal(opts) {
+  const { agent, chat, goal, jobLabel, scheduleJobId } = opts;
+  const userId = String(agent.user || "");
+  const apiKey = decryptAgentComposioApiKey(agent);
+
+  await Message.create({
+    chat: chat._id,
+    role: "user",
+    content: goal,
+    meta: {
+      kind: "scheduled",
+      scheduleJobId,
+      scheduleName: jobLabel || null,
+      route: "composio",
+    },
+  });
+
+  if (!agent.composio?.enabled || !apiKey) {
+    await Message.create({
+      chat: chat._id,
+      role: "assistant",
+      content:
+        `Scheduled${jobLabel ? ` “${jobLabel}”` : ""} needs Composio enabled + API key on this agent (Agents → Composio).`,
+      meta: { kind: "scheduled_result", scheduled: true, success: false },
+    });
+    return { ok: false, skipped: "composio_off" };
+  }
+
+  const toolkitSlugs = expandComposioToolkitSlugs(
+    Array.isArray(agent.composio?.toolkitSlugs) ? agent.composio.toolkitSlugs : []
+  );
+  const executeLookup = buildComposioExecuteLookupFromAgent({ userId, agent });
+  const runtime = {
+    userId,
+    composioApiKey: apiKey,
+    composioEnabled: true,
+    composioToolkitSlugs: toolkitSlugs,
+    composioSessionId: String(agent.composio?.sessionId || "").trim() || null,
+  };
+
+  const multiPlan =
+    Array.isArray(opts.planSteps) && opts.planSteps.length
+      ? opts.planSteps
+      : planComposioMultiSteps(goal);
+
+  let content = "";
+  let ok = false;
+
+  if (multiPlan.length >= 2) {
+    const multi = await runComposioMultiStep({
+      runtime,
+      userText: goal,
+      plan: multiPlan,
+      executeLookup,
+    });
+    content = String(multi.content || "").trim();
+    ok = Boolean(multi.ok);
+  } else {
+    const spec = matchComposioIntent(goal);
+    if (!spec) {
+      content =
+        "Scheduled goal looks like a connected-app job, but I could not map it to a Composio action.";
+      ok = false;
+    } else {
+      const ran = await runComposioIntentExecute({
+        runtime,
+        userText: goal,
+        spec,
+        executeLookup,
+      });
+      content = String(ran.content || "").trim();
+      ok = Boolean(ran.ok);
+      if (ran.needsConnect) {
+        content =
+          content ||
+          `Connect ${spec.toolkit} under Agents → Composio, then the schedule can run.`;
+      }
+    }
+  }
+
+  await Message.create({
+    chat: chat._id,
+    role: "assistant",
+    content: content || (ok ? "Scheduled Composio run finished." : "Scheduled Composio run failed."),
+    meta: {
+      kind: "scheduled_result",
+      scheduled: true,
+      success: ok,
+      scheduleJobId,
+      scheduleName: jobLabel || null,
+    },
+  });
+
+  return { ok, composio: true };
+}
+
+/**
  * Enqueues one scheduled goal for an agent (skips if already busy).
+ * Routes Composio-only / hybrid combo / computer like live Auto chat.
  * @param {import('mongoose').Document} agent
  * @param {object} [job] — one entry from schedules[]; defaults to legacy agent.schedule
- * @returns {Promise<{ ok: boolean, skipped?: string, taskId?: string }>}
+ * @returns {Promise<{ ok: boolean, skipped?: string, taskId?: string, composio?: boolean }>}
  */
 export async function runScheduledAgent(agent, job = null) {
   const sched = job || agent.schedule || {};
@@ -79,27 +235,59 @@ export async function runScheduledAgent(agent, job = null) {
   }
 
   const chat = await ensureScheduleChat(agent, job ? sched : null);
+  const now = new Date();
+  const jobLabel = String(sched.name || "").trim();
+  const scheduleJobId = sched._id ? String(sched._id) : null;
+
+  const comboPlan = planComboFromText(goal);
+  const composioSpec = matchComposioIntent(goal);
+  const isComposioOnly =
+    comboPlan.mode === "composio_only" ||
+    (comboPlan.mode === "none" && Boolean(composioSpec));
+
+  // --- Composio-only (check email, Notion→Slack→email, etc.) — no browser Task ---
+  if (isComposioOnly) {
+    const result = await runScheduledComposioGoal({
+      agent,
+      chat,
+      goal,
+      jobLabel,
+      scheduleJobId,
+      planSteps: comboPlan.composioSteps?.length >= 2 ? comboPlan.composioSteps : undefined,
+    });
+    chat.updatedAt = now;
+    await chat.save();
+    await markScheduleJobFired(agent, sched, job, chat, now);
+    return result;
+  }
+
   const owner = await User.findById(agent.user);
   const { resolveLlmCredentialsForAgent } = await import("./llmCredentials.js");
   const { resolveCuratedMemoryForPrompt, postCuratedPullMessage } = await import(
     "./semanticMemory.js"
   );
   const creds = owner ? await resolveLlmCredentialsForAgent(owner, agent) : null;
+
+  const comboFollowup =
+    comboPlan.mode === "hybrid" ? buildComboFollowupForTask(goal) : null;
+  const workerGoal =
+    comboPlan.mode === "hybrid"
+      ? enrichComputerGoalForCombo(goal, goal, comboFollowup?.steps || [])
+      : goal;
+
   const curated = await resolveCuratedMemoryForPrompt({
     userEntries: owner?.curatedMemory?.entries,
     agentEntries: agent.curatedMemory?.entries,
-    goal,
+    goal: workerGoal,
     creds,
     userId: String(agent.user || owner?._id || ""),
     agentId: String(agent._id),
   });
   const snapshot = toAgentSnapshot(agent, {
-    goal,
+    goal: workerGoal,
     userCuratedEntries: curated.userCuratedEntries,
     agentCuratedEntries: curated.agentCuratedEntries,
   });
-  const now = new Date();
-  const jobLabel = String(sched.name || "").trim();
 
   const message = await Message.create({
     chat: chat._id,
@@ -107,8 +295,9 @@ export async function runScheduledAgent(agent, job = null) {
     content: goal,
     meta: {
       kind: "scheduled",
-      scheduleJobId: sched._id ? String(sched._id) : null,
+      scheduleJobId,
       scheduleName: jobLabel || null,
+      route: comboFollowup ? "hybrid" : "computer",
     },
   });
 
@@ -117,23 +306,26 @@ export async function runScheduledAgent(agent, job = null) {
     user: agent.user,
     chat: chat._id,
     message: message._id,
-    goal,
+    goal: workerGoal,
     agent: agent._id,
     agentSnapshot: snapshot,
     runner,
     status: "pending",
+    comboFollowup: comboFollowup || null,
     events: [
       {
         type: "queued",
         payload: {
-          goal,
+          goal: workerGoal,
           scheduled: true,
-          scheduleJobId: sched._id ? String(sched._id) : null,
+          scheduleJobId,
           scheduleName: jobLabel || null,
           agentId: snapshot.id,
           agentName: snapshot.name,
           runner,
           curatedMemory: curated.meta,
+          comboRecipe: comboFollowup?.recipe || null,
+          comboSteps: comboFollowup?.steps?.length || 0,
         },
       },
     ],
@@ -163,23 +355,7 @@ export async function runScheduledAgent(agent, job = null) {
   chat.updatedAt = now;
   await chat.save();
 
-  sched.lastRunAt = now;
-  sched.nextRunAt = computeNextRunAt(sched, now);
-  sched.chatId = chat._id;
-
-  // Why: keep legacy mirror in sync when firing the first schedules[] job.
-  if (job && Array.isArray(agent.schedules) && agent.schedules[0] && String(agent.schedules[0]._id) === String(job._id)) {
-    agent.schedule = agent.schedule || {};
-    agent.schedule.lastRunAt = sched.lastRunAt;
-    agent.schedule.nextRunAt = sched.nextRunAt;
-    agent.schedule.chatId = chat._id;
-  } else if (!job) {
-    agent.schedule.lastRunAt = now;
-    agent.schedule.nextRunAt = sched.nextRunAt;
-    agent.schedule.chatId = chat._id;
-  }
-
-  await agent.save();
+  await markScheduleJobFired(agent, sched, job, chat, now);
 
   if ((agent.mode || "browser") === "api") {
     const { kickApiAgent } = await import("./apiAgentRunner.js");

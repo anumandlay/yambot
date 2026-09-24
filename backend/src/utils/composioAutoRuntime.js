@@ -63,6 +63,8 @@ export function looksLikeGmailInboxRequest(text) {
   if (mentionsComposio && hasMail && (hasUnread || hasListCue)) return true;
   // give/get/show + emails + unread-ish
   if (hasMail && hasListCue && (hasUnread || /\b(inbox|e-?mails?)\b/.test(noAddrs))) return true;
+  // Why: “check email” / schedule goals — treat as inbox unread, not a browser open.
+  if (/\bcheck\b/.test(t) && /\b(e-?mails?|mails?|inbox|gmail)\b/.test(noAddrs)) return true;
   return false;
 }
 

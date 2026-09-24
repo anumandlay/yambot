@@ -25,6 +25,11 @@ import {
   runComposioMultiStep,
 } from "./composioAutoRuntime.js";
 import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
+import {
+  looksLikeScheduleManageRequest,
+  parseScheduleFromChat,
+  applyScheduleFromChat,
+} from "./scheduleFromChat.js";
 
 export {
   looksLikeGmailInboxRequest,
@@ -1893,6 +1898,7 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
+    "- Schedule manage: “check email every 5 minutes”, “list schedules”, “stop the schedule” — REPLY after saving (runtime handles it); do not QUEUE_GOAL for the manage message itself",
     "- Prefer REPLY when unsure",
     "",
     "2) QUEUE_GOAL / queue_goal — LIVE cloud computer / peers NOW:",
@@ -2102,6 +2108,43 @@ export async function runChatAutoTurn(opts) {
     out.jevMode = String(jevMode || "auto");
     return out;
   };
+
+  // Why: “check email every 5 minutes” saves a schedule — do not run or queue now.
+  if (looksLikeScheduleManageRequest(text) && runtime?.agent) {
+    const parsed = parseScheduleFromChat(text);
+    if (parsed) {
+      track.setPath("schedule_manage");
+      track.markDecision("reply");
+      try {
+        const applied = await applyScheduleFromChat({
+          agent: runtime.agent,
+          parsed,
+          chatId: runtime.chatId || null,
+        });
+        const content = String(applied.content || "Schedule updated.").trim();
+        if (typeof delta === "function" && content) delta(content);
+        return finalize({
+          action: "reply",
+          content,
+          goal: "",
+          ack: "",
+          reason: `schedule_${parsed.action}`,
+          timing: track.finish(),
+        });
+      } catch (err) {
+        const content = `Could not update schedule: ${String(err?.message || err)}`;
+        if (typeof delta === "function") delta(content);
+        return finalize({
+          action: "reply",
+          content,
+          goal: "",
+          ack: "",
+          reason: "schedule_manage_error",
+          timing: track.finish(),
+        });
+      }
+    }
+  }
 
   // Why: send-mail follow-ups skip the model and build a hardened send_email goal from chat.
   // Never steal “send … using composio” into the SMTP path.

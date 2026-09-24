@@ -53,14 +53,17 @@ export function looksLikeHybridCombo(text) {
   if (!raw) return false;
   if (looksLikeComputerThenEmailCombo(raw)) return true;
 
+  // Why: recipient@gmail.com must not count as “browse a .com site”.
+  const noAddrs = raw.replace(/\b[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}\b/gi, " ");
+
   const hasBrowse =
     /\b(open|check|see|browse|visit|look\s*(at|into)|scrape|extract|login|log\s*in)\b/i.test(
-      raw
+      noAddrs
     ) &&
-    /\b(vughy|crm|agency|website|site|portal|admin|http|www\.|\.com|\.io)\b/i.test(raw);
+    /\b(vughy|crm|agency|website|site|portal|admin|https?:\/\/|www\.)\b/i.test(noAddrs);
   const hasCreate =
-    /\b(create|register|sign\s*up|make)\b/i.test(raw) &&
-    /\b(account|crm|agency|vughy|signup|travel\s*agen)\b/i.test(raw);
+    /\b(create|register|sign\s*up|make)\b/i.test(noAddrs) &&
+    /\b(account|crm|agency|vughy|signup|travel\s*agen)\b/i.test(noAddrs);
   const hasComputer = hasBrowse || hasCreate;
 
   const hasNotion = /\bnotion\b/i.test(raw);
