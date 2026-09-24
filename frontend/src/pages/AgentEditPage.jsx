@@ -58,6 +58,7 @@ const EMPTY = {
   schedule: {
     enabled: false,
     name: "",
+    kind: "computer",
     goal: "",
     interval: "1h",
     dailyAt: "09:00",
@@ -70,6 +71,7 @@ const EMPTY = {
     {
       name: "",
       enabled: false,
+      kind: "computer",
       goal: "",
       interval: "1h",
       dailyAt: "09:00",
@@ -242,6 +244,7 @@ export function AgentEditPage() {
             schedule: {
               enabled: Boolean(a.schedule?.enabled),
               name: a.schedule?.name || "",
+              kind: a.schedule?.kind === "chat_reminder" ? "chat_reminder" : "computer",
               goal: a.schedule?.goal || "",
               interval: a.schedule?.interval || "1h",
               dailyAt: a.schedule?.dailyAt || "09:00",
@@ -259,6 +262,7 @@ export function AgentEditPage() {
               _id: j._id || undefined,
               name: j.name || "",
               enabled: Boolean(j.enabled),
+              kind: j.kind === "chat_reminder" ? "chat_reminder" : "computer",
               goal: j.goal || "",
               interval: j.interval || "1h",
               dailyAt: j.dailyAt || "09:00",
@@ -383,6 +387,7 @@ export function AgentEditPage() {
         {
           name: "",
           enabled: true,
+          kind: "computer",
           goal: "",
           interval: "1h",
           dailyAt: "09:00",
@@ -404,6 +409,7 @@ export function AgentEditPage() {
         list[0] = {
           name: "",
           enabled: false,
+          kind: "computer",
           goal: "",
           interval: "1h",
           dailyAt: "09:00",
@@ -1225,8 +1231,8 @@ export function AgentEditPage() {
             </SectionTitle>
           </legend>
           <p className="text-xs text-teal-900/70">
-            Add multiple cron jobs for this agent (different goals and frequencies). Each job
-            enqueues into the agent’s chat when due. A tick is skipped if the agent is already busy.
+            Computer jobs enqueue a goal when due. Chat reminders post a message in this agent’s
+            chat (no browser). A computer tick is skipped if the agent is already busy.
           </p>
           {(form.schedules || []).map((job, index) => (
             <div
@@ -1242,6 +1248,7 @@ export function AgentEditPage() {
                   />
                   <FieldLabel helpId="agent.schedule.enabled">
                     Job {index + 1} enabled
+                    {job.kind === "chat_reminder" ? " · reminder" : ""}
                   </FieldLabel>
                 </label>
                 <button
@@ -1253,22 +1260,40 @@ export function AgentEditPage() {
                 </button>
               </div>
               <label className="flex flex-col gap-1 text-sm">
+                <span className="font-semibold text-teal-900">Type</span>
+                <select
+                  className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
+                  value={job.kind === "chat_reminder" ? "chat_reminder" : "computer"}
+                  onChange={(e) => updateScheduleJob(index, "kind", e.target.value)}
+                  disabled={!job.enabled}
+                >
+                  <option value="computer">Computer / Composio goal</option>
+                  <option value="chat_reminder">Chat reminder (message only)</option>
+                </select>
+              </label>
+              <label className="flex flex-col gap-1 text-sm">
                 <span className="font-semibold text-teal-900">Label (optional)</span>
                 <input
                   className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
                   value={job.name || ""}
                   onChange={(e) => updateScheduleJob(index, "name", e.target.value)}
-                  placeholder="e.g. Morning health check"
+                  placeholder="e.g. Drink water"
                   disabled={!job.enabled}
                 />
               </label>
               <label className="flex flex-col gap-1 text-sm">
-                <FieldLabel helpId="agent.schedule.goal">Scheduled goal</FieldLabel>
+                <FieldLabel helpId="agent.schedule.goal">
+                  {job.kind === "chat_reminder" ? "Reminder message" : "Scheduled goal"}
+                </FieldLabel>
                 <textarea
                   className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2"
                   value={job.goal || ""}
                   onChange={(e) => updateScheduleJob(index, "goal", e.target.value)}
-                  placeholder="Goal to enqueue automatically…"
+                  placeholder={
+                    job.kind === "chat_reminder"
+                      ? "Message posted to chat when due…"
+                      : "Goal to enqueue automatically…"
+                  }
                   disabled={!job.enabled}
                 />
               </label>
@@ -1284,21 +1309,23 @@ export function AgentEditPage() {
                     <option key={iv} value={iv}>
                       {iv === "daily"
                         ? "Once daily (UTC time below)"
-                        : iv === "2m"
-                          ? "Every 2 minutes"
-                          : iv === "5m"
-                            ? "Every 5 minutes"
-                            : iv === "15m"
-                              ? "Every 15 minutes"
-                              : iv === "30m"
-                                ? "Every 30 minutes"
-                                : iv === "1h"
-                                  ? "Every hour"
-                                  : iv === "6h"
-                                    ? "Every 6 hours"
-                                    : iv === "12h"
-                                      ? "Every 12 hours"
-                                      : "Every 24 hours"}
+                        : iv === "1m"
+                          ? "Every minute"
+                          : iv === "2m"
+                            ? "Every 2 minutes"
+                            : iv === "5m"
+                              ? "Every 5 minutes"
+                              : iv === "15m"
+                                ? "Every 15 minutes"
+                                : iv === "30m"
+                                  ? "Every 30 minutes"
+                                  : iv === "1h"
+                                    ? "Every hour"
+                                    : iv === "6h"
+                                      ? "Every 6 hours"
+                                      : iv === "12h"
+                                        ? "Every 12 hours"
+                                        : "Every 24 hours"}
                     </option>
                   ))}
                 </select>

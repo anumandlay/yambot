@@ -20,6 +20,7 @@ import {
  *   goal?: string,
  *   name?: string,
  *   matchHint?: string,
+ *   kind?: "computer"|"chat_reminder",
  * }} ParsedScheduleChat
  */
 
@@ -31,6 +32,8 @@ import {
  */
 export function formatScheduleIntervalLabel(interval, dailyAt = "09:00") {
   switch (String(interval || "")) {
+    case "1m":
+      return "every minute";
     case "2m":
       return "every 2 minutes";
     case "5m":
@@ -80,6 +83,8 @@ export function parseScheduleIntervalFromText(text) {
 
   /** @type {{ re: RegExp, interval: string }[]} */
   const patterns = [
+    { re: /\bevery\s*1\s*m(?:in(?:ute)?s?)?\b/i, interval: "1m" },
+    { re: /\bevery\s*minute\b/i, interval: "1m" },
     { re: /\bevery\s*2\s*m(?:in(?:ute)?s?)?\b/i, interval: "2m" },
     { re: /\bevery\s*5\s*m(?:in(?:ute)?s?)?\b/i, interval: "5m" },
     { re: /\bevery\s*15\s*m(?:in(?:ute)?s?)?\b/i, interval: "15m" },
@@ -102,6 +107,7 @@ export function parseScheduleIntervalFromText(text) {
     const n = Number(m[1]);
     if (!Number.isFinite(n) || n <= 0) continue;
     if (/m(?:in)?/i.test(m[0])) {
+      if (n <= 1) return { interval: "1m", dailyAt: "09:00", matchedSpan: m[0] };
       if (n <= 2) return { interval: "2m", dailyAt: "09:00", matchedSpan: m[0] };
       if (n <= 5) return { interval: "5m", dailyAt: "09:00", matchedSpan: m[0] };
       if (n <= 15) return { interval: "15m", dailyAt: "09:00", matchedSpan: m[0] };
@@ -115,13 +121,27 @@ export function parseScheduleIntervalFromText(text) {
   }
 
   // Compact: "every 5m" / "5 min schedule"
-  const compact = raw.match(/\b(?:every\s+)?(2|5|15|30)\s*m\b/i);
-  if (compact && /\b(every|schedule|repeat)\b/i.test(raw)) {
+  const compact = raw.match(/\b(?:every\s+)?(1|2|5|15|30)\s*m\b/i);
+  if (compact && /\b(every|schedule|repeat|remind|reminder)\b/i.test(raw)) {
     return {
       interval: `${compact[1]}m`,
       dailyAt: "09:00",
       matchedSpan: compact[0],
     };
+  }
+
+  // Bare "1 minutes" / "5 minute" (common: “remind me to drink water 1 minutes”)
+  const bareMin = raw.match(/\b(\d+)\s*m(?:in(?:ute)?s?)?\b/i);
+  if (bareMin && /\b(remind|reminder|schedule|every|nudge|ping)\b/i.test(raw)) {
+    const n = Number(bareMin[1]);
+    let interval = "5m";
+    if (n <= 1) interval = "1m";
+    else if (n <= 2) interval = "2m";
+    else if (n <= 5) interval = "5m";
+    else if (n <= 15) interval = "15m";
+    else if (n <= 30) interval = "30m";
+    else interval = "1h";
+    return { interval, dailyAt: "09:00", matchedSpan: bareMin[0] };
   }
 
   return null;
@@ -143,8 +163,10 @@ export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
       /\b(schedule|schedules|scheduler|repeat|recurring|automatically|auto)\b/gi,
       " "
     )
+    .replace(/\b(remind\s+me(?:\s+to)?|nudge\s+me(?:\s+to)?|ping\s+me(?:\s+to)?|send\s+me\s+a\s+reminder(?:\s+to)?)\b/gi, " ")
     .replace(/\b(every\s+\d+\s*(?:minutes?|mins?|m|hours?|h|days?))\b/gi, " ")
-    .replace(/\b(every\s+(?:hour|day))\b/gi, " ")
+    .replace(/\b(every\s+(?:minute|hour|day))\b/gi, " ")
+    .replace(/\b(\d+\s*m(?:in(?:ute)?s?)?)\b/gi, " ")
     .replace(/\b(daily(?:\s+at\s+\d{1,2}(?::\d{2})?\s*(?:am|pm)?)?)\b/gi, " ")
     .replace(/\b(once\s+a\s+day)\b/gi, " ")
     .replace(/^[:=\-\s]+/, "")
@@ -152,21 +174,76 @@ export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
     .trim();
   // Leading "please" / "can you"
   g = g.replace(/^(please|can you|could you|i want you to|i need you to)\s+/i, "").trim();
+  g = g.replace(/^to\s+/i, "").trim();
   return g.slice(0, 8000);
 }
 
 /**
  * Short name for the job from the goal.
  * @param {string} goal
+ * @param {"computer"|"chat_reminder"} [kind]
  * @returns {string}
  */
-export function defaultScheduleJobName(goal) {
+export function defaultScheduleJobName(goal, kind = "computer") {
   const g = String(goal || "").trim();
-  if (!g) return "Scheduled job";
+  if (!g) return kind === "chat_reminder" ? "Reminder" : "Scheduled job";
   if (/\b(email|unread|inbox|gmail)\b/i.test(g)) return "Check email";
+  if (/\b(drink\s+water|hydrat)\b/i.test(g)) return "Drink water";
   if (/\bnotion\b/i.test(g)) return "Notion sync";
   if (/\bvughy|crm|trial\b/i.test(g)) return "CRM check";
+  if (kind === "chat_reminder") return `Remind: ${g}`.slice(0, 48);
   return g.slice(0, 48);
+}
+
+/**
+ * True when the user wants a chat nudge (not a computer/Composio job).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeChatReminderRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (/\b(remind\s+me|nudge\s+me|ping\s+me|send\s+me\s+a\s+reminder)\b/i.test(raw)) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Create-time reminder body (no per-tick LLM).
+ * @param {string} topic
+ * @returns {string}
+ */
+export function frameChatReminderMessage(topic) {
+  let t = String(topic || "").trim().replace(/^to\s+/i, "");
+  if (!t) return "Reminder — time to check in.";
+  if (/\b(drink\s+water|hydrat|water)\b/i.test(t)) {
+    return "💧 Reminder: drink a glass of water.";
+  }
+  if (/\b(stand|stretch|break)\b/i.test(t)) {
+    return `⏰ Reminder: ${t}.`;
+  }
+  // Capitalize first letter for a clean chat bubble.
+  t = t.charAt(0).toUpperCase() + t.slice(1);
+  if (!/[.!?]$/.test(t)) t += ".";
+  return `⏰ Reminder: ${t}`;
+}
+
+/**
+ * Light framing for computer/Composio scheduled goals.
+ * @param {string} goal
+ * @returns {string}
+ */
+export function frameComputerScheduleGoal(goal) {
+  let g = String(goal || "").trim();
+  if (!g) return g;
+  if (/^check\s+(my\s+)?(email|inbox|gmail)\b/i.test(g) && !/unread|summar/i.test(g)) {
+    return "Check unread email in the inbox and summarize anything important.";
+  }
+  if (/^check\s+spam\b/i.test(g)) {
+    return "Check the spam/junk folder for important misfiled mail and summarize.";
+  }
+  return g;
 }
 
 /**
@@ -246,17 +323,23 @@ export function parseScheduleFromChat(text) {
   const cadence = parseScheduleIntervalFromText(raw);
   if (!cadence || !SCHEDULE_INTERVALS.includes(cadence.interval)) return null;
 
-  const goal = stripScheduleCadenceFromGoal(raw, cadence.matchedSpan);
+  const kind = looksLikeChatReminderRequest(raw) ? "chat_reminder" : "computer";
+  let goal = stripScheduleCadenceFromGoal(raw, cadence.matchedSpan);
   if (!goal || goal.length < 3) {
     return null;
   }
+  goal =
+    kind === "chat_reminder"
+      ? frameChatReminderMessage(goal)
+      : frameComputerScheduleGoal(goal);
 
   return {
     action: "create",
     interval: cadence.interval,
     dailyAt: cadence.dailyAt || "09:00",
     goal,
-    name: defaultScheduleJobName(goal),
+    kind,
+    name: defaultScheduleJobName(goal, kind),
   };
 }
 
@@ -289,10 +372,11 @@ export function formatScheduleListReply(jobs) {
     const on = j.enabled ? "on" : "off";
     const next = j.nextRunAt ? new Date(j.nextRunAt).toISOString() : "—";
     const label = String(j.name || "").trim() || `Job ${i + 1}`;
-    return `${i + 1}. **${label}** (${on}) — ${formatScheduleIntervalLabel(
+    const kindLabel = j.kind === "chat_reminder" ? "chat reminder" : "computer job";
+    return `${i + 1}. **${label}** (${on}, ${kindLabel}) — ${formatScheduleIntervalLabel(
       j.interval,
       j.dailyAt
-    )}\n   Goal: ${String(j.goal || "").slice(0, 200)}\n   Next: ${next}`;
+    )}\n   ${j.kind === "chat_reminder" ? "Message" : "Goal"}: ${String(j.goal || "").slice(0, 200)}\n   Next: ${next}`;
   });
   return `Reminders / schedules on this agent:\n\n${lines.join("\n\n")}`;
 }
@@ -360,10 +444,11 @@ export async function applyScheduleFromChat(opts) {
   }
 
   // create / update: upsert by similar goal/name
+  const kind = parsed.kind === "chat_reminder" ? "chat_reminder" : "computer";
   const goal = String(parsed.goal || "").trim();
   const interval = parsed.interval || "1h";
   const dailyAt = parsed.dailyAt || "09:00";
-  const name = String(parsed.name || defaultScheduleJobName(goal)).slice(0, 80);
+  const name = String(parsed.name || defaultScheduleJobName(goal, kind)).slice(0, 80);
 
   let existingIdx = jobs.findIndex((j) => {
     const g = String(j.goal || "").trim().toLowerCase();
@@ -382,6 +467,7 @@ export async function applyScheduleFromChat(opts) {
     ...(existingIdx >= 0 ? jobs[existingIdx] : {}),
     name,
     enabled: true,
+    kind,
     goal,
     interval,
     dailyAt,
@@ -410,13 +496,14 @@ export async function applyScheduleFromChat(opts) {
     ? new Date(saved.nextRunAt).toISOString()
     : "soon";
   const verb = existingIdx >= 0 ? "Updated" : "Created";
+  const kindLabel = kind === "chat_reminder" ? "chat reminder" : "computer schedule";
   return {
     ok: true,
     job: saved,
     content:
-      `${verb} schedule **${name}** — ${formatScheduleIntervalLabel(interval, dailyAt)}.\n` +
-      `Goal: ${goal.slice(0, 400)}\n` +
+      `${verb} ${kindLabel} **${name}** — ${formatScheduleIntervalLabel(interval, dailyAt)}.\n` +
+      `${kind === "chat_reminder" ? "Message" : "Goal"}: ${goal.slice(0, 400)}\n` +
       `Next run: ${nextIso}\n` +
-      `You can change it under Agents → Schedulers, or say “list schedules” / “stop the schedule”.`,
+      `You can change it under Agents → Schedulers, or say “list reminders” / “stop the reminder”.`,
   };
 }

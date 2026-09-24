@@ -11,11 +11,14 @@ import {
   formatScheduleIntervalLabel,
   formatScheduleListReply,
   isMeaningfulScheduleJob,
+  looksLikeChatReminderRequest,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
-test("SCHEDULE_INTERVALS includes 5m", () => {
+test("SCHEDULE_INTERVALS includes 1m and 5m", () => {
+  assert.ok(SCHEDULE_INTERVALS.includes("1m"));
   assert.ok(SCHEDULE_INTERVALS.includes("5m"));
+  assert.equal(scheduleIntervalMs("1m"), 60 * 1000);
   assert.equal(scheduleIntervalMs("5m"), 5 * 60 * 1000);
 });
 
@@ -32,7 +35,8 @@ test("parseScheduleFromChat create check email every 5 minutes", () => {
   assert.ok(p);
   assert.equal(p.action, "create");
   assert.equal(p.interval, "5m");
-  assert.match(p.goal || "", /check email/i);
+  assert.equal(p.kind, "computer");
+  assert.match(p.goal || "", /unread|email/i);
   assert.doesNotMatch(p.goal || "", /every 5/i);
 });
 
@@ -57,6 +61,26 @@ test("list reminders is schedule list (no LLM)", () => {
   assert.equal(parseScheduleFromChat("list reminders")?.action, "list");
   assert.equal(looksLikeScheduleManageRequest("show my reminders"), true);
   assert.equal(parseScheduleFromChat("show my reminders")?.action, "list");
+});
+
+test("remind me to drink water 1 minutes creates chat_reminder", () => {
+  const t = "remind me to drink water 1 minutes";
+  assert.equal(looksLikeScheduleManageRequest(t), true);
+  assert.equal(looksLikeChatReminderRequest(t), true);
+  const p = parseScheduleFromChat(t);
+  assert.ok(p);
+  assert.equal(p.action, "create");
+  assert.equal(p.kind, "chat_reminder");
+  assert.equal(p.interval, "1m");
+  assert.match(String(p.goal || ""), /water/i);
+  assert.match(String(p.goal || ""), /Reminder/i);
+});
+
+test("check email every 5 minutes frames computer goal", () => {
+  const p = parseScheduleFromChat("check email every 5 minutes");
+  assert.equal(p?.kind, "computer");
+  assert.equal(p?.interval, "5m");
+  assert.match(String(p?.goal || ""), /unread|email/i);
 });
 
 test("empty schedule stubs are not listed as reminders", () => {

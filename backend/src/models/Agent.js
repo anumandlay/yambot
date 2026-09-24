@@ -38,6 +38,7 @@ const agentPolicySchema = new mongoose.Schema(
 
 /** How often a scheduled goal is enqueued. */
 export const SCHEDULE_INTERVALS = [
+  "1m",
   "2m",
   "5m",
   "15m",
@@ -48,6 +49,9 @@ export const SCHEDULE_INTERVALS = [
   "24h",
   "daily",
 ];
+
+/** Schedule job kinds — computer runs a goal; chat_reminder posts a chat message. */
+export const SCHEDULE_KINDS = ["computer", "chat_reminder"];
 
 /**
  * @typedef {object} AgentAutonomy
@@ -78,9 +82,18 @@ const scheduleJobSchema = new mongoose.Schema(
     /** Optional label shown in the agent editor (e.g. "Morning crawl"). */
     name: { type: String, default: "", trim: true, maxlength: 80 },
     enabled: { type: Boolean, default: false },
-    /** Goal text queued on each tick (same as sending a chat goal). */
+    /**
+     * computer — enqueue a browser/Composio goal on each tick.
+     * chat_reminder — post a reminder message into the agent chat (no computer).
+     */
+    kind: {
+      type: String,
+      enum: ["computer", "chat_reminder"],
+      default: "computer",
+    },
+    /** Goal text queued on each tick (same as sending a chat goal), or reminder body. */
     goal: { type: String, default: "", trim: true },
-    /** 15m|30m|1h|6h|12h|24h|daily */
+    /** 1m|2m|5m|15m|30m|1h|6h|12h|24h|daily */
     interval: {
       type: String,
       enum: SCHEDULE_INTERVALS,
@@ -932,6 +945,8 @@ export function encryptCredentialPassword(plaintext) {
  */
 export function scheduleIntervalMs(interval) {
   switch (String(interval || "1h")) {
+    case "1m":
+      return 1 * 60 * 1000;
     case "2m":
       return 2 * 60 * 1000;
     case "5m":
@@ -990,10 +1005,13 @@ export function normalizeScheduleJob(raw = {}) {
   if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
   const goal = String(raw.goal || "").trim().slice(0, 8000);
   const name = String(raw.name || "").trim().slice(0, 80);
+  const kind =
+    String(raw.kind || "").trim() === "chat_reminder" ? "chat_reminder" : "computer";
   /** @type {object} */
   const job = {
     name,
     enabled,
+    kind,
     goal,
     interval,
     dailyAt,
@@ -1047,6 +1065,7 @@ export function syncLegacyScheduleMirror(agent, jobs) {
     agent.schedule = {
       name: first.name || "",
       enabled: Boolean(first.enabled),
+      kind: first.kind === "chat_reminder" ? "chat_reminder" : "computer",
       goal: first.goal || "",
       interval: first.interval || "1h",
       dailyAt: first.dailyAt || "09:00",
@@ -1059,6 +1078,7 @@ export function syncLegacyScheduleMirror(agent, jobs) {
   } else {
     agent.schedule = {
       enabled: false,
+      kind: "computer",
       goal: "",
       interval: "1h",
       dailyAt: "09:00",

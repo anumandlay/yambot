@@ -337,10 +337,13 @@ function pickAgentFields(body, opts = {}) {
         if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
         const goal = String(row.goal || "").trim().slice(0, 8000);
         const name = String(row.name || "").trim().slice(0, 80);
+        const kind =
+          String(row.kind || "").trim() === "chat_reminder" ? "chat_reminder" : "computer";
         /** @type {object} */
         const job = {
           name,
           enabled,
+          kind,
           goal,
           interval,
           dailyAt,

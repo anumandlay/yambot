@@ -241,6 +241,45 @@ export async function runScheduledAgent(agent, job = null) {
     return { ok: false, skipped: "disabled_or_empty" };
   }
 
+  const kind = String(sched.kind || "computer") === "chat_reminder" ? "chat_reminder" : "computer";
+  const chat = await ensureScheduleChat(agent, job ? sched : null);
+  const now = new Date();
+  const jobLabel = String(sched.name || "").trim();
+  const scheduleJobId = sched._id ? String(sched._id) : null;
+
+  // --- Chat reminder: post a message, never start the computer ---
+  if (kind === "chat_reminder") {
+    await Message.create({
+      chat: chat._id,
+      role: "assistant",
+      content: goal,
+      meta: {
+        kind: "chat_reminder",
+        hermesAuto: true,
+        scheduled: true,
+        scheduleJobId,
+        scheduleName: jobLabel || null,
+        intent: "reminder",
+        intentReason: "scheduled_chat_reminder",
+      },
+    });
+    await Message.create({
+      chat: chat._id,
+      role: "system",
+      content: `Reminder${jobLabel ? ` (“${jobLabel}”)` : ""} delivered for “${agent.name}”.`,
+      meta: {
+        kind: "chat_reminder",
+        ui: "icon",
+        scheduled: true,
+        scheduleJobId,
+      },
+    });
+    chat.updatedAt = now;
+    await chat.save();
+    await markScheduleJobFired(agent, sched, job, chat, now);
+    return { ok: true, reminder: true };
+  }
+
   const busy = await Task.exists({
     agent: agent._id,
     status: { $in: ["pending", "running", "waiting_user"] },
@@ -252,11 +291,7 @@ export async function runScheduledAgent(agent, job = null) {
     return { ok: false, skipped: "busy" };
   }
 
-  const chat = await ensureScheduleChat(agent, job ? sched : null);
-  const now = new Date();
-  const jobLabel = String(sched.name || "").trim();
-  const scheduleJobId = sched._id ? String(sched._id) : null;
-
+  // chat already ensured above for computer path too
   const comboPlan = planComboFromText(goal);
   const composioSpec = matchComposioIntent(goal);
   const isComposioOnly =

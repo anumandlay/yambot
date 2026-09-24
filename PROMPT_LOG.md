@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:00] Chat reminders vs computer schedules
+
+- **Prompt Provided:** Implement chat_reminder kind; “remind me to drink water 1 minutes” must save to agent (not LLM fake); frame check-email goals; show in agent Schedulers.
+- **Architectural Flow:** `kind=chat_reminder|computer` on schedule jobs. Remind phrases parse + create-time template framing (no per-tick LLM). Scheduler posts chat message for reminders. Agent edit UI type selector + 1m interval.
+- **Impacted Files:** Agent.js, scheduleFromChat.js, scheduler.js, agents.js, AgentEditPage.jsx, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 14:55] Hide empty schedule stubs from “list reminders”
 
 - **Prompt Provided:** list reminders showed Job 1 (off) with empty goal though nothing is scheduled.
