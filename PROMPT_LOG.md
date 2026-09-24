@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 14:35] Hermes reply flow — answer-direct by default
+
+- **Prompt Provided:** Hermes under-2s flow (Parse → Skills → Tool decision → Respond); align YamBot so most chat is not tools-first.
+- **Architectural Flow:** `autoTurnNeedsTools` gates the tools loop. Default path is streaming `text_fast` (answer from context). Tools only for Composio/computer/status/peers. Light prepare (skip Mem0) whenever tools are not needed.
+- **Impacted Files:** chatAutoTurn.js, chats.js, lightweightFastPath.test.js, PROMPT_LOG
+
 ## [2026-09-24 14:20] Latency Phase 3 — lightweight chat fast path (Hermes-style)
 
 - **Prompt Provided:** “how are you” took ~10s wall / TTFT=total 3.2s; Hermes replies instantly — fix.

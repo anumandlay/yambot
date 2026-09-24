@@ -2305,9 +2305,11 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: Hermes-style fast path — skip tool schema + non-SSE loop for chitchat; stream tokens now.
-  if (looksLikeLightweightChat(text)) {
+  // Why: Hermes flow — Parse → tool decision → Respond.
+  // Default answer-direct (stream text). Tools loop only when intent needs lookups/apps/computer.
+  if (!autoTurnNeedsTools(text, runtime)) {
     track.setPath("text_fast");
+    track.markDecision("reply");
     return finalize(
       await runChatAutoTurnTextFallback(
         {
@@ -2324,8 +2326,7 @@ export async function runChatAutoTurn(opts) {
     );
   }
 
-  // Why: Jev + URL heuristics + deterministic Composio intents removed —
-  // the chat LLM owns normal reply vs live computer vs connected-app tools.
+  // Why: tools needed — Composio / live computer / status / peers.
   const jevDecision = null;
 
   const thread = String(chatContext || snapshot?.chatContext || "").trim();
@@ -2915,19 +2916,54 @@ export function formatDayHistoryChatAnswer(snapshot, question = "") {
 }
 
 /**
- * Short social / chitchat that should stream text immediately (Hermes fast path).
- * Why: full tools schema + Mem0 makes “how are you” feel ~10s vs Hermes’ near-instant tokens.
+ * Hermes-style tool decision: true only when Auto should enter the tools loop.
+ * Why: Hermes answers most chat from context in &lt;2s; attaching the full tool schema
+ * forces a non-streaming completion and kills TTFT. Default is answer-direct.
+ * @param {string} text
+ * @param {{ composioEnabled?: boolean }} [runtime]
+ * @returns {boolean}
+ */
+export function autoTurnNeedsTools(text, runtime = {}) {
+  const q = String(text || "").trim();
+  if (!q) return false;
+  if (looksLikeComposioAppRequest(q)) return true;
+  if (looksLikeLiveComputerJobRequest(q)) return true;
+  if (looksLikeHybridCombo(q)) return true;
+  // Lookup tools — status / peers need live data, not a prose guess.
+  if (
+    /\b(are you (still )?(busy|running)|is (the )?(run|task|job|computer) (still )?(running|active|busy|going)|run status|current (run|task)|what('?s| is) (the )?(run|task) status)\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  if (
+    /\b(peer agents?|other agents?|list (my )?agents|who (else )?(can|is) (help|working|available)|agents? (i|you) can (message|ask))\b/i.test(
+      q
+    )
+  ) {
+    return true;
+  }
+  if (
+    Boolean(runtime?.composioEnabled) &&
+    /\b(composio|connected apps?|toolkits?|list (my )?apps)\b/i.test(q)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
+ * Short social / chitchat — subset of answer-direct (kept for tests / light prepare).
  * @param {string} text
  * @returns {boolean}
  */
 export function looksLikeLightweightChat(text) {
   const q = String(text || "").trim();
   if (!q || q.length > 160) return false;
-  if (looksLikeComposioAppRequest(q)) return false;
+  if (autoTurnNeedsTools(q)) return false;
   if (looksLikeSendEmailRequest(q)) return false;
   if (looksLikeScheduleManageRequest(q)) return false;
-  if (looksLikeLiveComputerJobRequest(q)) return false;
-  if (looksLikeHybridCombo(q)) return false;
   if (looksLikeDayHistoryOrStatusRequest(q)) return false;
   if (looksLikeVagueChatFollowup(q)) return false;
   if (
@@ -2937,7 +2973,6 @@ export function looksLikeLightweightChat(text) {
   ) {
     return true;
   }
-  // Short conversational turns without action / app verbs.
   if (
     q.length <= 72 &&
     !/\b(open|browse|click|fill|send|email|gmail|slack|notion|sheet|github|search|check my|run|queue|go to|navigate|composio|remember|forget|schedule|every \d|peer|@)\b/i.test(
