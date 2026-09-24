@@ -1039,14 +1039,14 @@ export function normalizeScheduleJob(raw = {}) {
  */
 export function listAgentScheduleJobs(agent) {
   const multi = Array.isArray(agent?.schedules) ? agent.schedules.filter(Boolean) : [];
-  // Why: ignore empty off stubs so chat “list reminders” and the tick loop stay honest.
+  // Why: keep named/goal jobs even when disabled so “delete drink water” can still find them.
   const meaningful = multi.filter((j) => {
     const goal = String(j?.goal || "").trim();
     const name = String(j?.name || "").trim();
-    return goal.length >= 2 || (name && Boolean(j.enabled));
+    return goal.length >= 2 || name.length >= 1;
   });
   if (meaningful.length) return meaningful;
-  if (agent?.schedule && (agent.schedule.enabled || String(agent.schedule.goal || "").trim())) {
+  if (agent?.schedule && (agent.schedule.enabled || String(agent.schedule.goal || "").trim() || String(agent.schedule.name || "").trim())) {
     return [agent.schedule];
   }
   return [];

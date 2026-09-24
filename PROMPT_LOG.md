@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 15:45] Delete drink water finds disabled jobs and removes them
+
+- **Prompt Provided:** “delete drink water reminder” → No enabled reminder matched “drink water”.
+- **Architectural Flow:** Delete matches enabled *or* disabled jobs; removes the row from `schedules[]` (not just enabled=false). Named disabled jobs stay visible. Misses list what’s on the agent.
+- **Impacted Files:** scheduleFromChat.js, Agent.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 15:35] LLM parse for reminder create/delete (list stays fast)
 
 - **Prompt Provided:** use LLM for creating/deleting reminders text — opinion + implement.

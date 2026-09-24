@@ -476,9 +476,36 @@ export function isMeaningfulScheduleJob(job) {
   const goal = String(job.goal || "").trim();
   if (goal.length >= 2) return true;
   const name = String(job.name || "").trim();
-  // Named + enabled counts even if goal briefly empty during edit.
-  if (name && Boolean(job.enabled)) return true;
+  // Why: named jobs stay visible/deletable even after disable.
+  if (name) return true;
   return false;
+}
+
+/**
+ * Match a schedule job against a disable/delete topic hint.
+ * @param {object} job
+ * @param {string} hint
+ * @returns {boolean}
+ */
+export function jobMatchesScheduleHint(job, hint) {
+  const h = String(hint || "")
+    .toLowerCase()
+    .trim()
+    .replace(/[“”"']/g, "");
+  if (!h) return false;
+  const hay = `${job?.name || ""} ${job?.goal || ""}`.toLowerCase();
+  if (!hay.trim()) return false;
+  if (hay.includes(h)) return true;
+  if (h === "email" && /email|unread|inbox|gmail/i.test(hay)) return true;
+  // Why: “water” alone should hit “drink a glass of water”.
+  const tokens = h
+    .split(/\s+/)
+    .map((t) => t.trim())
+    .filter((t) => t.length >= 3 && !/^(the|and|for|reminder|schedule|job)$/i.test(t));
+  if (!tokens.length) return false;
+  if (tokens.every((tok) => hay.includes(tok))) return true;
+  const hits = tokens.filter((tok) => hay.includes(tok)).length;
+  return hits >= Math.ceil(tokens.length / 2) && hits >= 1;
 }
 
 /**
@@ -522,7 +549,12 @@ export async function applyScheduleFromChat(opts) {
     return { ok: false, content: "Could not update schedule." };
   }
 
-  const jobs = listAgentScheduleJobs(agent).map((j) => ({
+  // Why: operate on the full schedules[] (including disabled) so delete can remove an already-off water reminder.
+  const sourceJobs =
+    Array.isArray(agent.schedules) && agent.schedules.length > 0
+      ? agent.schedules
+      : listAgentScheduleJobs(agent);
+  const jobs = sourceJobs.map((j) => ({
     ...(typeof j.toObject === "function" ? j.toObject() : j),
   }));
 
@@ -532,75 +564,55 @@ export async function applyScheduleFromChat(opts) {
 
   if (parsed.action === "disable") {
     const hint = String(parsed.matchHint || "").toLowerCase().trim();
-    const hintTokens = hint
-      .split(/\s+/)
-      .map((t) => t.trim())
-      .filter((t) => t.length >= 3);
     /** @type {string[]} */
-    const stoppedLabels = [];
-    let disabled = 0;
+    const removedLabels = [];
+    /** @type {object[]} */
+    let nextJobs = jobs.slice();
 
-    /**
-     * @param {object} j
-     * @returns {boolean}
-     */
-    function jobMatchesDisableHint(j) {
-      if (!hint) return false;
-      const hay = `${j.name || ""} ${j.goal || ""}`.toLowerCase();
-      if (hay.includes(hint)) return true;
-      if (hint === "email" && /email|unread|inbox|gmail/i.test(hay)) return true;
-      if (hintTokens.length && hintTokens.every((tok) => hay.includes(tok))) return true;
-      // Why: partial topic (“water”) still unique enough when ≥ half the tokens hit.
-      if (hintTokens.length >= 1) {
-        const hits = hintTokens.filter((tok) => hay.includes(tok)).length;
-        if (hits >= Math.ceil(hintTokens.length / 2) && hits >= 1) return true;
+    if (hint) {
+      const matched = nextJobs.filter((j) => jobMatchesScheduleHint(j, hint));
+      if (!matched.length) {
+        const available = nextJobs
+          .filter(isMeaningfulScheduleJob)
+          .map((j) => String(j.name || j.goal || "job").trim().slice(0, 40))
+          .filter(Boolean);
+        const availBit = available.length
+          ? ` On this agent: ${available.map((l) => `“${l}”`).join(", ")}.`
+          : " No reminders on this agent.";
+        return {
+          ok: true,
+          content: `No reminder matched “${hint}”.${availBit} Say “list reminders” or “stop all reminders”.`,
+        };
       }
-      return false;
-    }
-
-    for (const j of jobs) {
-      if (!j.enabled) continue;
-      if (!jobMatchesDisableHint(j)) continue;
-      j.enabled = false;
-      j.nextRunAt = null;
-      disabled += 1;
-      stoppedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
-    }
-
-    // Why: only wipe every schedule when there is no topic (“stop reminders” / “stop all”).
-    // Never fall back to disable-all after a failed topic match (“drink water”).
-    if (!disabled && wantsDisableAllSchedules("stop reminders", hint)) {
-      for (const j of jobs) {
-        if (!j.enabled) continue;
-        j.enabled = false;
-        j.nextRunAt = null;
-        disabled += 1;
-        stoppedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
+      // Why: “delete …” removes the row (even if already off) so list stays clean.
+      nextJobs = nextJobs.filter((j) => !jobMatchesScheduleHint(j, hint));
+      for (const j of matched) {
+        removedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
       }
+    } else if (wantsDisableAllSchedules("stop reminders", hint)) {
+      const doomed = nextJobs.filter((j) => isMeaningfulScheduleJob(j));
+      for (const j of doomed) {
+        removedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
+      }
+      nextJobs = nextJobs.filter((j) => !isMeaningfulScheduleJob(j));
     }
 
-    syncLegacyScheduleMirror(agent, jobs);
+    syncLegacyScheduleMirror(agent, nextJobs);
     agent.markModified?.("schedules");
     agent.markModified?.("schedule");
     await agent.save();
-    if (!disabled) {
-      if (hint) {
-        return {
-          ok: true,
-          content: `No enabled reminder matched “${hint}”. Say “list reminders” to see what’s on, or “stop all reminders” to clear everything.`,
-        };
-      }
-      return { ok: true, content: "No enabled schedules to stop." };
+    if (!removedLabels.length) {
+      return { ok: true, content: "No schedules to stop." };
     }
     const labelBit =
-      stoppedLabels.length === 1
-        ? ` (“${stoppedLabels[0]}”)`
-        : stoppedLabels.length <= 4
-          ? `: ${stoppedLabels.map((l) => `“${l}”`).join(", ")}`
+      removedLabels.length === 1
+        ? ` (“${removedLabels[0]}”)`
+        : removedLabels.length <= 4
+          ? `: ${removedLabels.map((l) => `“${l}”`).join(", ")}`
           : "";
     return {
       ok: true,
-      content: `Stopped ${disabled} schedule${disabled === 1 ? "" : "s"}${labelBit}.`,
+      content: `Deleted ${removedLabels.length} reminder${removedLabels.length === 1 ? "" : "s"}${labelBit}.`,
     };
   }
 

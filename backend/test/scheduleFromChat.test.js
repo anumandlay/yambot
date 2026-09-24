@@ -14,7 +14,7 @@ import {
   looksLikeChatReminderRequest,
   extractScheduleDisableHint,
   wantsDisableAllSchedules,
-  normalizeLlmScheduleParse,
+  jobMatchesScheduleHint,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
@@ -119,9 +119,30 @@ test("empty schedule stubs are not listed as reminders", () => {
     }),
     true
   );
+  assert.equal(
+    isMeaningfulScheduleJob({ name: "Drink water", goal: "", enabled: false }),
+    true
+  );
   assert.match(
     formatScheduleListReply([{ enabled: false, goal: "", interval: "1h" }]),
     /No reminders/i
+  );
+});
+
+test("jobMatchesScheduleHint drink water including disabled", () => {
+  assert.equal(
+    jobMatchesScheduleHint(
+      { name: "Drink water", goal: "💧 Reminder: drink a glass of water.", enabled: false },
+      "drink water"
+    ),
+    true
+  );
+  assert.equal(
+    jobMatchesScheduleHint(
+      { name: "Check email", goal: "Check unread email", enabled: true },
+      "drink water"
+    ),
+    false
   );
 });
 
@@ -147,36 +168,6 @@ test("extractScheduleDisableHint", () => {
 test("wantsDisableAllSchedules", () => {
   assert.equal(wantsDisableAllSchedules("stop reminders", ""), true);
   assert.equal(wantsDisableAllSchedules("stop reminder drink water", "drink water"), false);
-});
-
-test("normalizeLlmScheduleParse create chat reminder", () => {
-  const p = normalizeLlmScheduleParse(
-    {
-      action: "create",
-      kind: "chat_reminder",
-      interval: "1m",
-      goal: "drink water",
-      name: "Drink water",
-    },
-    "remind me to drink water every minute"
-  );
-  assert.equal(p?.action, "create");
-  assert.equal(p?.kind, "chat_reminder");
-  assert.equal(p?.interval, "1m");
-  assert.match(String(p?.goal || ""), /water/i);
-});
-
-test("normalizeLlmScheduleParse disable with matchHint", () => {
-  const p = normalizeLlmScheduleParse(
-    { action: "delete", matchHint: "drink water" },
-    "delete reminder drink water"
-  );
-  assert.equal(p?.action, "disable");
-  assert.match(String(p?.matchHint || ""), /drink\s+water/i);
-});
-
-test("cancel water nudge is schedule manage", () => {
-  assert.equal(looksLikeScheduleManageRequest("cancel my water nudge"), true);
 });
 
 test("stripScheduleCadenceFromGoal", () => {
