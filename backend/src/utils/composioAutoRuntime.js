@@ -35,24 +35,34 @@ export function looksLikeGmailInboxRequest(text) {
   }
   // Why: “list spreadsheets using composio” must not become Gmail unread.
   if (/\b(spreadsheets?|google\s*sheets?|gsheets?)\b/.test(t)) return false;
+  // Why: trial/expiry/booking “lists” are Sheets data, not the inbox.
+  if (
+    /\b(trial|expir\w*|renewal|booking)\b/.test(t) &&
+    /\b(list|check|show)\b/.test(t) &&
+    !/\b(unread|inbox)\b/.test(t)
+  ) {
+    return false;
+  }
 
-  const hasMail = /\b(gmail|google\s*mail|inbox|e-?mails?|mails?|messages?)\b/.test(t);
+  // Why: recipient@gmail.com must not count as the Gmail app.
+  const noAddrs = t.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
+  const hasMail = /\b(gmail|google\s*mail|inbox|e-?mails?|mails?|messages?)\b/.test(noAddrs);
   const mentionsComposio = /\bcomposio\b/.test(t);
   const hasUnread = /\bunread\b/.test(t);
   const hasListCue =
     /\b(last|top|recent|latest)\s+\d+\b/.test(t) ||
-    /\b(summarize|list|give\s+me|show\s+me|fetch|get|find|search|pull)\b/.test(t);
+    /\b(summarize|list|give\s+me|show\s+me|fetch|get|find|search|pull)\b/.test(noAddrs);
 
   // unread + mail words in either order
-  if (hasUnread && /\b(e-?mails?|mails?|messages?|gmail|inbox)\b/.test(t)) return true;
+  if (hasUnread && /\b(e-?mails?|mails?|messages?|gmail|inbox)\b/.test(noAddrs)) return true;
   // last/top N emails
-  if (/\b(last|top|recent|latest)\s+\d+\s+(e-?mails?|mails?|messages?)\b/.test(t)) return true;
+  if (/\b(last|top|recent|latest)\s+\d+\s+(e-?mails?|mails?|messages?)\b/.test(noAddrs)) return true;
   // named gmail/inbox + list/unread cue
-  if (/\b(gmail|google\s*mail|inbox)\b/.test(t) && (hasUnread || hasListCue)) return true;
+  if (/\b(gmail|google\s*mail|inbox)\b/.test(noAddrs) && (hasUnread || hasListCue)) return true;
   // “using composio” + real mail words + list/unread (composio alone is not mail)
   if (mentionsComposio && hasMail && (hasUnread || hasListCue)) return true;
   // give/get/show + emails + unread-ish
-  if (hasMail && hasListCue && (hasUnread || /\b(inbox|e-?mails?)\b/.test(t))) return true;
+  if (hasMail && hasListCue && (hasUnread || /\b(inbox|e-?mails?)\b/.test(noAddrs))) return true;
   return false;
 }
 
@@ -138,13 +148,24 @@ export function looksLikeSlackSendRequest(text) {
 export function looksLikeSheetsListRequest(text) {
   const raw = String(text || "").trim();
   const t = raw.toLowerCase();
-  if (!/\b(google\s*sheets?|spreadsheets?|gsheets?)\b/.test(t)) return false;
+  const noAddrs = t.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
   // Explicit read-by-id → sheets_read instead
   if (/\bspreadsheet[_ ]?id\s*[=:]/i.test(raw)) return false;
   if (/\b[a-zA-Z0-9-_]{35,}\b/.test(raw) && /\b(read|values|rows|cells|range)\b/.test(t)) {
     return false;
   }
-  return /\b(list|show|find|search|check|recent|latest|all|my|created)\b/.test(t);
+  if (/\b(google\s*sheets?|spreadsheets?|gsheets?)\b/.test(t)) {
+    return /\b(list|show|find|search|check|recent|latest|all|my|created)\b/.test(t);
+  }
+  // Why: “check trial expiring list” means a Sheet of trials, not Gmail unread.
+  if (
+    /\b(trial|expir\w*|renewal|booking|roster|pipeline)\b/.test(noAddrs) &&
+    /\b(list|check|show|find|get)\b/.test(noAddrs) &&
+    !/\b(unread|inbox|e-?mails?|mails?|messages?)\b/.test(noAddrs)
+  ) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -221,10 +242,19 @@ export function buildSheetsListToolArgs(userText = "") {
   let query = raw
     .replace(/\b(using|via|with|through)\s+composio\b/gi, " ")
     .replace(/\bcomposio\b/gi, " ")
-    .replace(/\b(list|show|find|search|check|get|give\s+me|all|my|the|a|an|recent|latest|created|spreadsheets?|google\s*sheets?|gsheets?|sheets?)\b/gi, " ")
+    .replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ")
+    .replace(
+      /\b(list|show|find|search|check|get|give\s+me|all|my|the|a|an|recent|latest|created|spreadsheets?|google\s*sheets?|gsheets?|sheets?|and\s+send|send\s+the\s+list|send\s+it|send\s+them)\b/gi,
+      " "
+    )
     .replace(/\s+/g, " ")
     .trim();
   if (query.length < 2 || /^(please|now|here|using|via|with)$/i.test(query)) query = "";
+  // Prefer a tighter name search for trial/expiry style asks.
+  if (!query && /\btrial\b/i.test(raw)) query = "trial";
+  if (/\bexpir/i.test(raw) && !/expir/i.test(query)) {
+    query = query ? `${query} expir` : "expir";
+  }
   const orderBy = "modifiedTime desc";
   return {
     query,
@@ -1087,6 +1117,17 @@ export function planComposioMultiSteps(userText) {
     if (!spec && priorExists) {
       spec = matchComposioIntent(`${clause} ${steps[steps.length - 1].userText}`);
     }
+    // Why: “Check trial expiring list” has no “spreadsheet” word — still Sheets when followed by send.
+    if (
+      !spec &&
+      /\b(list|check|show|find|get)\b/i.test(clause) &&
+      !/\b(unread|inbox|e-?mails?|mails?|messages?)\b/i.test(
+        clause.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ")
+      )
+    ) {
+      const sheetsSpec = COMPOSIO_INTENT_SPECS.find((s) => s.id === "sheets_list");
+      if (sheetsSpec) spec = sheetsSpec;
+    }
     if (!spec) continue;
     steps.push({
       kind: "intent",
@@ -1095,6 +1136,26 @@ export function planComposioMultiSteps(userText) {
       toolkit: spec.toolkit,
       specId: spec.id,
     });
+  }
+
+  // If we only got send_email but the full ask had a list/check clause, prepend sheets_list.
+  if (
+    steps.length === 1 &&
+    steps[0].kind === "send_email" &&
+    clauses.length >= 2 &&
+    looksLikeSheetsListRequest(clauses[0] + " spreadsheet")
+  ) {
+    const sheetsSpec = COMPOSIO_INTENT_SPECS.find((s) => s.id === "sheets_list");
+    if (sheetsSpec) {
+      steps.unshift({
+        kind: "intent",
+        label: sheetsSpec.label,
+        userText: clauses[0],
+        toolkit: sheetsSpec.toolkit,
+        specId: sheetsSpec.id,
+      });
+      steps[1] = { ...steps[1], usePriorContent: true };
+    }
   }
 
   // Deduplicate accidental double sheets_list+email when one clause already matched list only
@@ -1532,6 +1593,56 @@ export async function runSheetsList(opts) {
     };
   }
 
+  /**
+   * When the ask names a list (trial/expiry/…), open the best-matching sheet and include its rows.
+   * @param {{ ok: boolean, tool?: string, resultText: string, content: string, needsConnect?: boolean }} listPayload
+   */
+  async function enrichWithSheetValues(listPayload) {
+    const q = String(args.query || "").toLowerCase().trim();
+    if (!listPayload.ok || !q) return listPayload;
+    const parsedList = parseOk(listPayload.resultText);
+    const rows = extractSpreadsheetRows(parsedList?.data ?? parsedList ?? {});
+    if (!rows.length) return listPayload;
+    const tokens = q.split(/\s+/).filter((tok) => tok.length >= 3);
+    const scored = rows
+      .map((r) => {
+        const name = String(r?.name || r?.title || "").toLowerCase();
+        let n = 0;
+        for (const tok of tokens) {
+          if (name.includes(tok)) n += 2;
+        }
+        if (/\btrial\b/.test(name) && /\btrial\b/.test(q)) n += 4;
+        if (/expir/.test(name) && /expir/.test(q)) n += 4;
+        return { r, n };
+      })
+      .sort((a, b) => b.n - a.n);
+    const best = scored[0];
+    const id = String(best?.r?.id || best?.r?.spreadsheetId || "").trim();
+    if (!id || !(best?.n > 0)) return listPayload;
+    const readText = await executeLookup("composio_execute", runtime, {
+      tool: "GOOGLESHEETS_BATCH_GET",
+      arguments: {
+        spreadsheet_id: id,
+        spreadsheetId: id,
+        ranges: ["A1:Z40"],
+        range: "A1:Z40",
+      },
+    });
+    const readJson = parseOk(readText);
+    if (!readJson?.ok) return listPayload;
+    const valuesSummary = formatSheetsReadSummaryFromToolResult(
+      readText,
+      "GOOGLESHEETS_BATCH_GET"
+    );
+    const title = String(best.r.name || best.r.title || id);
+    return {
+      ...listPayload,
+      content:
+        `From spreadsheet “${title}”:\n\n${valuesSummary}\n\n` +
+        `(Matched sheet id ${id})`,
+    };
+  }
+
   const primary = "GOOGLESHEETS_SEARCH_SPREADSHEETS";
   const searchText = await executeLookup("composio_execute", runtime, {
     tool: primary,
@@ -1539,12 +1650,14 @@ export async function runSheetsList(opts) {
   });
   const searchJson = parseOk(searchText);
   if (searchJson?.ok && extractSpreadsheetRows(searchJson.data ?? searchJson).length) {
-    return maybeEmailList({
-      ok: true,
-      tool: primary,
-      resultText: searchText,
-      content: formatSheetsListSummaryFromToolResult(searchText, primary),
-    });
+    return maybeEmailList(
+      await enrichWithSheetValues({
+        ok: true,
+        tool: primary,
+        resultText: searchText,
+        content: formatSheetsListSummaryFromToolResult(searchText, primary),
+      })
+    );
   }
   if (composioResultNeedsConnect(searchText)) {
     return connectLadder("googlesheets");
@@ -1552,8 +1665,13 @@ export async function runSheetsList(opts) {
 
   // Why: empty Sheets search or tool/session issues — list via Drive mime filter.
   const mimeQ = "mimeType = 'application/vnd.google-apps.spreadsheet' and trashed = false";
-  const driveQ = args.query
-    ? `(name contains '${String(args.query).replace(/'/g, "\\'")}') and ${mimeQ}`
+  const nameClauses = String(args.query || "")
+    .split(/\s+/)
+    .map((tok) => tok.trim())
+    .filter((tok) => tok.length >= 3)
+    .map((tok) => `name contains '${tok.replace(/'/g, "\\'")}'`);
+  const driveQ = nameClauses.length
+    ? `(${nameClauses.join(" or ")}) and ${mimeQ}`
     : mimeQ;
   const driveArgs = {
     q: driveQ,
@@ -1580,12 +1698,14 @@ export async function runSheetsList(opts) {
     if (driveJson?.ok) {
       const rows = extractSpreadsheetRows(driveJson.data ?? driveJson);
       if (rows.length) {
-        return maybeEmailList({
-          ok: true,
-          tool: driveTool,
-          resultText: driveText,
-          content: formatSheetsListSummaryFromToolResult(driveText, driveTool),
-        });
+        return maybeEmailList(
+          await enrichWithSheetValues({
+            ok: true,
+            tool: driveTool,
+            resultText: driveText,
+            content: formatSheetsListSummaryFromToolResult(driveText, driveTool),
+          })
+        );
       }
     }
   }

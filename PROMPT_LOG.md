@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 20:00] Trial expiry list → Sheets + email (not Gmail unread)
+
+- **Prompt Provided:** Check trial expiring list and send the list to fastagconsultant@gmail.com using composio → wrongly returned Top unread from Gmail.
+- **Architectural Flow:** Strip recipient emails before Gmail matching; trial/expiry “list/check” → sheets_list; keep trial/expir in SEARCH query; multi-step plan falls back to Sheets for unmatched check/list clauses; after list, enrich best-matching sheet via BATCH_GET then GMAIL_SEND_EMAIL.
+- **Impacted Files:** composioAutoRuntime.js, messageIntent.js, PROMPT_LOG
+
 ## [2026-09-23 19:40] General multi-step Composio (plan → execute → pass prior result)
 
 - **Prompt Provided:** Let’s do multistep composio — not only list+email.
