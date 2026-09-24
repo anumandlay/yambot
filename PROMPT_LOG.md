@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 14:10] Fix TTFT chip when REPLY protocol holds stream
+
+- **Prompt Provided:** TTFT chip showed only total (e.g. 2.4s) with no `TTFT …` — fix first-token marking.
+- **Architectural Flow:** Mark `firstTokenMs` on the first raw SSE chunk (even while REPLY holds the bubble). If the stream ends with zero visible emits, flush via `emitReplyDelta`. Seal `markFirstToken` on reply content. Tools path stamps TTFT on first `llmChatCompletionMessage` return.
+- **Impacted Files:** chatAutoTurn.js, ttftChipFix.test.js, PROMPT_LOG
+
 ## [2026-09-24 14:00] Latency Phase 2 — stream tools reply, chat lock, keep-alive
 
 - **Prompt Provided:** Hermes fast-reply Phase 2 — stream tools-path replies, per-chat lock, LLM keep-alive, TTFT chip.

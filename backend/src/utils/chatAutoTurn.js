@@ -220,6 +220,7 @@ export const AUTO_CHAT_MAX_TOOL_ROUNDS = 6;
  * @param {{ onProgress?: (step: { id: string, label: string, pct: number }) => void }} [opts]
  * @returns {{
  *   markFirstToken: () => void,
+ *   hasFirstToken: () => boolean,
  *   markDecision: (action: string) => void,
  *   addLookup: (name: string) => void,
  *   getLookups: () => string[],
@@ -313,6 +314,12 @@ export function createAutoTimingTracker(opts = {}) {
         if (String(chunk || "").length) this.markFirstToken();
         onDelta(chunk);
       };
+    },
+    /**
+     * @returns {boolean}
+     */
+    hasFirstToken() {
+      return firstTokenMs != null;
     },
     finish(extra = {}) {
       const totalMs = Date.now() - t0;
@@ -2034,11 +2041,14 @@ async function runChatAutoTurnTextFallback(opts, timing) {
   const delta = track.wrapOnDelta(onDelta);
   let raw;
   let usedStream = false;
+  /** Visible chars already pushed to the client (REPLY protocol may hold this at 0). */
+  let emitted = 0;
   if (stream && typeof delta === "function") {
     usedStream = true;
     let buf = "";
-    let emitted = 0;
     raw = await llmChatCompletionStream(llmOpts, (chunk) => {
+      // Why: TTFT = first model token, even while REPLY/QUEUE protocol still hides the bubble.
+      if (String(chunk || "").length) track.markFirstToken();
       buf += chunk;
       const { visible, mode } = streamVisibleFromBuffer(buf);
       if (mode === "queue_goal") return;
@@ -2072,13 +2082,17 @@ async function runChatAutoTurnTextFallback(opts, timing) {
       fromAddress: String(snapshot?.email?.fromAddress || ""),
     }
   );
-  if (
-    normalized.action === "reply" &&
-    normalized.content &&
-    typeof delta === "function" &&
-    !usedStream
-  ) {
-    delta(normalized.content);
+  if (normalized.action === "reply" && normalized.content && typeof delta === "function") {
+    if (!usedStream) {
+      delta(normalized.content);
+    } else if (emitted === 0) {
+      // Why: protocol held the bubble empty for the whole SSE — still paint + seal TTFT.
+      await emitReplyDelta(normalized.content, delta, { chunk: Boolean(stream) });
+    }
+  }
+  // Why: never leave Auto replies without firstTokenMs (chip showed total only).
+  if (normalized.action === "reply" && normalized.content) {
+    track.markFirstToken();
   }
   return { ...normalized, timing: track.finish() };
 }
@@ -2313,6 +2327,8 @@ export async function runChatAutoTurn(opts) {
         toolChoice: "auto",
         signal: signal || null,
       });
+      // Why: tools path is non-SSE — stamp TTFT when the first model message returns.
+      track.markFirstToken();
 
       /**
        * Execute fake ACTION: composio_*() text as real lookups and keep the loop going.
