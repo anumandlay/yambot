@@ -1021,7 +1021,13 @@ export function normalizeScheduleJob(raw = {}) {
  */
 export function listAgentScheduleJobs(agent) {
   const multi = Array.isArray(agent?.schedules) ? agent.schedules.filter(Boolean) : [];
-  if (multi.length) return multi;
+  // Why: ignore empty off stubs so chat “list reminders” and the tick loop stay honest.
+  const meaningful = multi.filter((j) => {
+    const goal = String(j?.goal || "").trim();
+    const name = String(j?.name || "").trim();
+    return goal.length >= 2 || (name && Boolean(j.enabled));
+  });
+  if (meaningful.length) return meaningful;
   if (agent?.schedule && (agent.schedule.enabled || String(agent.schedule.goal || "").trim())) {
     return [agent.schedule];
   }

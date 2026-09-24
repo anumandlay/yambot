@@ -261,12 +261,29 @@ export function parseScheduleFromChat(text) {
 }
 
 /**
+ * True when a schedule row is a real reminder (not an empty legacy shell).
+ * Why: syncLegacyScheduleMirror / default schema leave `{ enabled:false, goal:"" }` stubs
+ * that made “list reminders” show a fake “Job 1 (off)”.
+ * @param {object|null|undefined} job
+ * @returns {boolean}
+ */
+export function isMeaningfulScheduleJob(job) {
+  if (!job || typeof job !== "object") return false;
+  const goal = String(job.goal || "").trim();
+  if (goal.length >= 2) return true;
+  const name = String(job.name || "").trim();
+  // Named + enabled counts even if goal briefly empty during edit.
+  if (name && Boolean(job.enabled)) return true;
+  return false;
+}
+
+/**
  * Format jobs for a chat reply.
  * @param {object[]} jobs
  * @returns {string}
  */
 export function formatScheduleListReply(jobs) {
-  const list = Array.isArray(jobs) ? jobs : [];
+  const list = (Array.isArray(jobs) ? jobs : []).filter(isMeaningfulScheduleJob);
   if (!list.length) return "No reminders/schedules on this agent yet.";
   const lines = list.map((j, i) => {
     const on = j.enabled ? "on" : "off";

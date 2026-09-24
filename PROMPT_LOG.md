@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 14:55] Hide empty schedule stubs from “list reminders”
+
+- **Prompt Provided:** list reminders showed Job 1 (off) with empty goal though nothing is scheduled.
+- **Architectural Flow:** `isMeaningfulScheduleJob` filters empty legacy shells; `listAgentScheduleJobs` + `formatScheduleListReply` only surface real goals/enabled named jobs.
+- **Impacted Files:** scheduleFromChat.js, Agent.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-24 14:45] Instant “list reminders” — schedule path, no LLM
 
 - **Prompt Provided:** “list reminders” took TTFT 7.56s / prep 2s — check why.

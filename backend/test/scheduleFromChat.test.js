@@ -9,6 +9,8 @@ import {
   parseScheduleIntervalFromText,
   stripScheduleCadenceFromGoal,
   formatScheduleIntervalLabel,
+  formatScheduleListReply,
+  isMeaningfulScheduleJob,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
@@ -55,6 +57,26 @@ test("list reminders is schedule list (no LLM)", () => {
   assert.equal(parseScheduleFromChat("list reminders")?.action, "list");
   assert.equal(looksLikeScheduleManageRequest("show my reminders"), true);
   assert.equal(parseScheduleFromChat("show my reminders")?.action, "list");
+});
+
+test("empty schedule stubs are not listed as reminders", () => {
+  assert.equal(
+    isMeaningfulScheduleJob({ enabled: false, goal: "", interval: "1h", name: "" }),
+    false
+  );
+  assert.equal(
+    isMeaningfulScheduleJob({
+      enabled: true,
+      goal: "Remind me to drink water",
+      interval: "1h",
+      name: "Water",
+    }),
+    true
+  );
+  assert.match(
+    formatScheduleListReply([{ enabled: false, goal: "", interval: "1h" }]),
+    /No reminders/i
+  );
 });
 
 test("stop the email schedule", () => {
