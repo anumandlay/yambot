@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 10:45] Clearer Enable agent SMTP checkbox + Composio fallback
+
+- **Prompt Provided:** need a check box in agent settings to enable/disable agent smtp settings.
+- **Architectural Flow:** Promote existing email.enabled control to a prominent “Enable agent SMTP” toggle; hide SMTP fields when off; persist enabled explicitly on save. When SMTP is off/incomplete but Composio is ready, Auto skips SMTP harden so Gmail API can send.
+- **Impacted Files:** AgentEditPage.jsx, helpContent.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-24 10:40] SMTP harden must not block Composio send / status asks
 
 - **Prompt Provided:** Chat mistake — “Did you send the email” / “Send email using composio” → SMTP settings missing; “Send using composio” worked.

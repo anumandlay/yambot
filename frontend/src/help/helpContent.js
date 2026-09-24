@@ -699,10 +699,10 @@ export const HELP = {
     ),
   },
   "agent.email.enabled": {
-    title: "Agent email",
+    title: "Enable agent SMTP",
     body: helpBody(
-      "Gives this agent its own SMTP/IMAP identity so it can send_email and check_email actions — verification codes, outreach, human-like mail without Gmail web UI.",
-      "Credentials encrypted at rest. Prefer app passwords for Gmail/Outlook."
+      "Turns this agent’s own SMTP/IMAP mailbox on or off. When On, fill host / from / password and Save — Auto can use send_email / check_email.",
+      "When Off, SMTP settings are ignored. Prefer Composio Gmail for mail in Auto chat instead."
     ),
   },
   "agent.composio.enabled": {

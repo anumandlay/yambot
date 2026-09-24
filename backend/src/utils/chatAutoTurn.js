@@ -891,7 +891,7 @@ export function ensureAutoTurnResult(result, ctx = {}) {
       return {
         action: "reply",
         content:
-          "I can’t send mail until this agent’s Email / SMTP settings are filled in (from address, SMTP host, user, password). Add them on the agent page, then ask me to send again.",
+          "Agent SMTP is off or incomplete. Open Agents → Edit → Email (SMTP), turn on “Enable agent SMTP”, fill host/from/password, and Save — or say “send using composio” if Gmail is connected.",
         goal: "",
         ack: "",
         reason: `${reason}_send_email_smtp_missing`,
@@ -2102,7 +2102,15 @@ export async function runChatAutoTurn(opts) {
 
   // Why: send-mail follow-ups skip the model and build a hardened send_email goal from chat.
   // Never steal “send … using composio” into the SMTP path.
-  if (looksLikeSendEmailRequest(text) && !looksLikeComposioAppRequest(text)) {
+  // Why: SMTP checkbox Off + Composio available → fall through so Gmail API can send.
+  const smtpConfigured = Boolean(snapshot?.email?.configured);
+  const composioReady =
+    Boolean(runtime?.composioEnabled) && Boolean(String(runtime?.composioApiKey || "").trim());
+  if (
+    looksLikeSendEmailRequest(text) &&
+    !looksLikeComposioAppRequest(text) &&
+    (smtpConfigured || !composioReady)
+  ) {
     track.setPath("send_email_harden");
     track.markDecision("queue_goal");
     return finalize({

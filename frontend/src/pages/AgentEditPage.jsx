@@ -676,6 +676,11 @@ export function AgentEditPage() {
         // Why: preserve pre-profile inline override until the user picks Default or a named profile.
         useCustom: Boolean(!form.llm?.profileId && form.llm?.useCustom),
       },
+      email: {
+        ...(form.email || {}),
+        enabled: Boolean(form.email?.enabled),
+        smtpPassword: String(form.email?.smtpPassword || ""),
+      },
       composio: {
         enabled: Boolean(form.composio?.enabled),
         apiKey: String(form.composio?.apiKey || "").trim(),
@@ -1448,17 +1453,29 @@ export function AgentEditPage() {
             </SectionTitle>
           </legend>
           <p className="text-xs text-teal-900/60">
-            Give this agent a real mailbox so it can send mail and read the inbox (verification codes,
-            outreach) like a human. Password is stored encrypted on the server.
+            Optional agent mailbox for worker send_email / inbox. Turn off to use Composio Gmail
+            instead. Password is stored encrypted on the server.
           </p>
-          <label className="flex min-h-11 items-center gap-2 text-sm">
+          <label className="flex min-h-11 cursor-pointer items-start gap-3 rounded-xl border border-teal-100 bg-teal-50/60 px-3 py-2.5 text-sm">
             <input
               type="checkbox"
+              className="mt-1 h-5 w-5 shrink-0 accent-teal-700"
               checked={Boolean(form.email?.enabled)}
               onChange={(e) => updateEmail("enabled", e.target.checked)}
             />
-            <FieldLabel helpId="agent.email.enabled">Enable email for this agent</FieldLabel>
+            <span className="flex min-w-0 flex-col gap-0.5">
+              <FieldLabel helpId="agent.email.enabled">Enable agent SMTP</FieldLabel>
+              <span className="text-xs text-teal-900/65">
+                {form.email?.enabled
+                  ? form.email?.configured || form.email?.hasSmtpPassword
+                    ? "On — Auto may use this mailbox for send/check email."
+                    : "On — fill host, from address, and password below, then Save."
+                  : "Off — SMTP ignored; use Composio Gmail for mail in Auto."}
+              </span>
+            </span>
           </label>
+          {form.email?.enabled ? (
+          <>
           <div className="grid gap-3 sm:grid-cols-2">
             <label className="flex flex-col gap-1 text-sm">
               <FieldLabel helpId="agent.email.fromName">From name</FieldLabel>
@@ -1467,7 +1484,6 @@ export function AgentEditPage() {
                 value={form.email?.fromName || ""}
                 onChange={(e) => updateEmail("fromName", e.target.value)}
                 placeholder="Alex Rivera"
-                disabled={!form.email?.enabled}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -1478,7 +1494,6 @@ export function AgentEditPage() {
                 value={form.email?.fromAddress || ""}
                 onChange={(e) => updateEmail("fromAddress", e.target.value)}
                 placeholder="alex@example.com"
-                disabled={!form.email?.enabled}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -1488,7 +1503,6 @@ export function AgentEditPage() {
                 value={form.email?.smtpHost || ""}
                 onChange={(e) => updateEmail("smtpHost", e.target.value)}
                 placeholder="smtp.gmail.com"
-                disabled={!form.email?.enabled}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -1498,7 +1512,6 @@ export function AgentEditPage() {
                 type="number"
                 value={form.email?.smtpPort ?? 587}
                 onChange={(e) => updateEmail("smtpPort", Number(e.target.value) || 587)}
-                disabled={!form.email?.enabled}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -1508,7 +1521,6 @@ export function AgentEditPage() {
                 value={form.email?.smtpUser || ""}
                 onChange={(e) => updateEmail("smtpUser", e.target.value)}
                 placeholder="usually same as from address"
-                disabled={!form.email?.enabled}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -1521,7 +1533,6 @@ export function AgentEditPage() {
                 placeholder={
                   form.email?.hasSmtpPassword ? "Saved — leave blank to keep" : "App password / SMTP secret"
                 }
-                disabled={!form.email?.enabled}
                 autoComplete="new-password"
               />
             </label>
@@ -1532,7 +1543,6 @@ export function AgentEditPage() {
                 value={form.email?.imapHost || ""}
                 onChange={(e) => updateEmail("imapHost", e.target.value)}
                 placeholder="imap.gmail.com (optional if smtp.* → imap.*)"
-                disabled={!form.email?.enabled}
               />
             </label>
             <label className="flex flex-col gap-1 text-sm">
@@ -1542,7 +1552,6 @@ export function AgentEditPage() {
                 type="number"
                 value={form.email?.imapPort ?? 993}
                 onChange={(e) => updateEmail("imapPort", Number(e.target.value) || 993)}
-                disabled={!form.email?.enabled}
               />
             </label>
           </div>
@@ -1551,7 +1560,6 @@ export function AgentEditPage() {
               type="checkbox"
               checked={Boolean(form.email?.smtpSecure)}
               onChange={(e) => updateEmail("smtpSecure", e.target.checked)}
-              disabled={!form.email?.enabled}
             />
             <FieldLabel helpId="agent.email.smtpSecure">SMTP TLS on connect (port 465)</FieldLabel>
           </label>
@@ -1559,7 +1567,7 @@ export function AgentEditPage() {
             <ButtonWithHelp helpId="agent.email.test">
               <button
                 type="button"
-                disabled={busy || !form.email?.enabled}
+                disabled={busy}
                 onClick={async () => {
                   setBusy(true);
                   setError(null);
@@ -1606,6 +1614,8 @@ export function AgentEditPage() {
           ) : (
             <p className="text-xs text-teal-900/60">Save the agent first, then you can send a test email.</p>
           )}
+          </>
+          ) : null}
         </fieldset>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/70 p-3 sm:p-4">
