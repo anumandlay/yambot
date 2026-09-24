@@ -761,6 +761,64 @@ export function userConditionReflectedInGoal(userText, goal) {
 }
 
 /**
+ * True when the user asked for a LIVE browser/CRM job (not Composio-only, not chat Q&A).
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeLiveComputerJobRequest(text) {
+  const t = String(text || "").trim();
+  if (!t) return false;
+  if (looksLikeComposioAppRequest(t)) return false;
+  if (looksLikeMemoryStoreRequest(t)) return false;
+  if (looksLikeDayHistoryOrStatusRequest(t)) return false;
+  if (looksLikeVagueChatFollowup(t)) return false;
+  const lower = t.toLowerCase();
+  if (
+    /\b(create|register|sign\s*up|open|log\s*in|navigate|go to|visit|fill|submit|click)\b/i.test(
+      lower
+    ) &&
+    /\b(crm|vughy|account|agency|admin|website|site|page|form|browser)\b/i.test(lower)
+  ) {
+    return true;
+  }
+  const c = classifyMessageIntent(t, {});
+  return (
+    c.intent === "goal" &&
+    (c.reason === "has_url_or_domain" ||
+      c.reason === "explicit_task" ||
+      c.reason === "question_shaped_but_actionable")
+  );
+}
+
+/**
+ * True when the model only promised to start work (“On it — creating…”) without a result.
+ * Why: after tool exhaustion the LLM often REPLY-acks instead of queue_goal — no task is created.
+ * @param {string} content
+ * @returns {boolean}
+ */
+export function looksLikePromiseOnlyComputerAck(content) {
+  const t = String(content || "").replace(/\s+/g, " ").trim();
+  if (!t || t.length > 320) return false;
+  if (/\b(done|created|registered|here(?:'s| is)|credentials\s*:|username\s*:|password\s*(is|:))\b/i.test(t)) {
+    return false;
+  }
+  if (
+    /^(on it|starting|working on (it|this|that)|got it|sure|okay|ok)\b/i.test(t) &&
+    /\b(creat|register|open|check|run|brows|comput|account|crm|vughy|now|process)\b/i.test(t)
+  ) {
+    return true;
+  }
+  if (
+    /\b(creating|registering|starting the (process|computer|browser)|will (create|register|open|start))\b/i.test(
+      t
+    )
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Default short ack when Auto queues a computer goal without one.
  * @param {string} goal
  * @param {string} [agentName]
@@ -864,8 +922,12 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     };
   }
 
-  // Why: Gmail/Slack/… via Composio must never start Playwright.
-  if (action === "queue_goal" && looksLikeComposioAppRequest(userText)) {
+  // Why: Gmail/Slack/… via Composio must never start Playwright — unless this is clearly a CRM/register live job.
+  if (
+    action === "queue_goal" &&
+    looksLikeComposioAppRequest(userText) &&
+    !looksLikeLiveComputerJobRequest(userText)
+  ) {
     return {
       action: "reply",
       content:
@@ -956,6 +1018,25 @@ export function ensureAutoTurnResult(result, ctx = {}) {
       content =
         "I am here. Ask a question, or send a computer goal (open a site, ask peers, etc.).";
     }
+  }
+
+  // Why: model REPLY’d “On it — creating…” after tool exhaustion — no Task was created.
+  if (
+    action === "reply" &&
+    userText &&
+    looksLikeLiveComputerJobRequest(userText) &&
+    looksLikePromiseOnlyComputerAck(content)
+  ) {
+    const g = userText;
+    const a = content || defaultQueueAck(g, agentName);
+    return {
+      action: "queue_goal",
+      content: a,
+      goal: g,
+      ack: a,
+      reason: `${reason}_promise_ack_to_queue`,
+      timing: result?.timing,
+    };
   }
 
   return {
@@ -1803,11 +1884,13 @@ function buildAutoSystemPrompt(snapshot, agentName, thread, mode) {
     "",
     "2) QUEUE_GOAL / queue_goal — LIVE cloud computer / peers NOW:",
     "- Imperative browse: open/go to/navigate/visit a site, click, fill, submit, log in (now)",
+    "- Create/register accounts in CRM / Vughy / agency admin (even if they also want credentials emailed after)",
     "- Live research that needs browsing this turn",
     "- Peer message / fan-out / handoff",
     "- Worker send_email / download / change something in the browser",
     "- NEVER turn an email address into a https:// URL",
     "- NEVER use QUEUE_GOAL for Gmail/Sheets/Slack/Drive via connected apps — that is mode 3",
+    "- NEVER reply with only “On it / Starting…” for a live job — you MUST call queue_goal so a Task is created",
     "",
     "3) Composio tools — connected apps (Gmail, Google Sheets, Slack, Drive, Notion, …):",
     "- Use composio_search → composio_connect (if needed) → composio_wait → composio_execute",

@@ -110,6 +110,34 @@ describe("capability questions vs concrete goals", () => {
 });
 
 describe("memory store mis-queue is forced back to reply", () => {
+  it("ensureAutoTurnResult converts promise-only ack → queue for CRM create", async () => {
+    const {
+      ensureAutoTurnResult,
+      looksLikePromiseOnlyComputerAck,
+      looksLikeLiveComputerJobRequest,
+    } = await import("../src/utils/chatAutoTurn.js");
+    const { looksLikeComposioAppRequest } = await import("../src/utils/messageIntent.js");
+    const msg =
+      "Create a new account in crm and send credentials to fastagconsultant@gmail.com";
+    assert.equal(looksLikeComposioAppRequest(msg), false);
+    assert.equal(looksLikeLiveComputerJobRequest(msg), true);
+    assert.equal(
+      looksLikePromiseOnlyComputerAck("On it — creating the new Vughy account now."),
+      true
+    );
+    const out = ensureAutoTurnResult(
+      {
+        action: "reply",
+        content: "On it — creating the new Vughy account now.",
+        reason: "model_auto_turn_text",
+      },
+      { userText: msg, agentName: "Trial Expiry Checker vughy India" }
+    );
+    assert.equal(out.action, "queue_goal");
+    assert.match(out.reason, /promise_ack_to_queue/);
+    assert.equal(out.goal, msg);
+  });
+
   it("ensureAutoTurnResult converts queue_goal → reply for remember prefs", async () => {
     const { ensureAutoTurnResult } = await import("../src/utils/chatAutoTurn.js");
     const msg =

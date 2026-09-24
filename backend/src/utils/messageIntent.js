@@ -162,10 +162,21 @@ export function looksLikeComposioAppRequest(text) {
     return false;
   }
 
+  // Why: “create account in CRM and send credentials to x@gmail.com” is a live computer job,
+  // not Gmail API — recipient addresses must not count as the Gmail app.
+  if (
+    /\b(create|register|sign\s*up)\b/i.test(lower) &&
+    /\b(crm|vughy|agency|account|admin)\b/i.test(lower)
+  ) {
+    return false;
+  }
+
   if (/\bcomposio\b/i.test(lower)) return true;
+  // Why: recipient@gmail.com must not trip the Gmail-app detector.
+  const noAddrs = lower.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
   if (
     /\b(gmail|google\s*mail|google\s*sheets?|spreadsheets?|gsheets?|slack|notion|github|hubspot|google\s*drive|googledrive)\b/i.test(
-      lower
+      noAddrs
     )
   ) {
     return true;

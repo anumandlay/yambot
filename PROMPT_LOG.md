@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-23 22:15] Fix ack-then-nothing for CRM create + email
+
+- **Prompt Provided:** Create a new account in crm and send credentials to fastagconsultant@gmail.com → “On it — creating…” then nothing.
+- **Architectural Flow:** `@gmail.com` falsely matched Composio; LLM burned tool rounds then REPLY-acked without queue_goal. Strip emails from Composio detector; treat CRM create/register as live computer; convert promise-only “On it” replies into queue_goal so a Task is created.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-23 20:10] Remove Jev — LLM owns chat vs computer vs Composio
 
 - **Prompt Provided:** This is not good, lets remove Jeb, let the llm decide its a normal chat or live computer chat or related to composio.
