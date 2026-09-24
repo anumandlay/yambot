@@ -59,18 +59,27 @@ export function messageStatusChipsFromMeta(message) {
     });
   }
 
-  if (timing && (timing.totalMs != null || timing.decisionMs != null)) {
+  if (timing && (timing.totalMs != null || timing.decisionMs != null || timing.firstTokenMs != null)) {
     const ms = Number(timing.totalMs ?? timing.decisionMs) || 0;
-    if (ms > 0) {
-      const sec = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : `${ms}ms`;
+    const ttft = Number(timing.firstTokenMs);
+    if (ms > 0 || ttft > 0) {
+      const sec = ms >= 1000 ? `${(ms / 1000).toFixed(1)}s` : ms > 0 ? `${ms}ms` : "";
+      const ttftLabel =
+        Number.isFinite(ttft) && ttft > 0
+          ? ttft >= 1000
+            ? `TTFT ${(ttft / 1000).toFixed(2)}s`
+            : `TTFT ${ttft}ms`
+          : "";
       chips.push({
         key: "timing",
         icon: "⏱",
-        label: sec,
+        label: [ttftLabel, sec].filter(Boolean).join(" · ") || "timing",
         title: [
+          Number.isFinite(ttft) && ttft > 0 ? `firstTokenMs=${ttft}` : null,
           timing.path ? `path=${timing.path}` : null,
           timing.decisionAction ? `decision=${timing.decisionAction}` : null,
           lookups.length ? `lookups=${lookups.join(",")}` : null,
+          ms > 0 ? `totalMs=${ms}` : null,
         ]
           .filter(Boolean)
           .join(" · ") || "Auto timing",

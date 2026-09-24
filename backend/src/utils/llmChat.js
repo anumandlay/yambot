@@ -15,6 +15,45 @@ import { withTimeoutSignal, isAbortError } from "./llmAbort.js";
 
 export { isAbortError } from "./llmAbort.js";
 
+/** @type {import('undici').Agent|false|null} */
+let llmDispatcher = null;
+
+/**
+ * Lazy keep-alive dispatcher for OpenAI-compatible fetch calls.
+ * Why: reuse TCP/TLS to the LLM host across Auto turns (Hermes-style connection reuse).
+ * @returns {Promise<import('undici').Agent|null>}
+ */
+async function resolveLlmDispatcher() {
+  if (llmDispatcher === false) return null;
+  if (llmDispatcher) return llmDispatcher;
+  try {
+    const { Agent } = await import("undici");
+    llmDispatcher = new Agent({
+      keepAliveTimeout: 30_000,
+      keepAliveMaxTimeout: 60_000,
+      connections: 32,
+      pipelining: 1,
+    });
+    return llmDispatcher;
+  } catch {
+    llmDispatcher = false;
+    return null;
+  }
+}
+
+/**
+ * @param {string} url
+ * @param {RequestInit & { signal?: AbortSignal }} init
+ * @returns {Promise<Response>}
+ */
+async function llmFetch(url, init) {
+  const dispatcher = await resolveLlmDispatcher();
+  if (dispatcher) {
+    return fetch(url, { ...init, dispatcher });
+  }
+  return fetch(url, init);
+}
+
 /**
  * @param {unknown} content
  * @returns {string}
@@ -116,7 +155,7 @@ export async function llmChatCompletionMessage(opts) {
 
   const linked = withTimeoutSignal(timeoutMs, externalSignal);
   try {
-    const response = await fetch(`${root}/chat/completions`, {
+    const response = await llmFetch(`${root}/chat/completions`, {
       method: "POST",
       headers: buildLlmAuthHeaders({ apiKey: key, baseUrl: root }),
       body: JSON.stringify(body),
@@ -240,7 +279,7 @@ export async function llmChatCompletionStream(opts, onDelta) {
 
   const linked = withTimeoutSignal(timeoutMs, externalSignal);
   try {
-    const response = await fetch(`${root}/chat/completions`, {
+    const response = await llmFetch(`${root}/chat/completions`, {
       method: "POST",
       headers: buildLlmAuthHeaders({ apiKey: key, baseUrl: root }),
       body: JSON.stringify({

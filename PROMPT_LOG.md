@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-24 14:00] Latency Phase 2 — stream tools reply, chat lock, keep-alive
+
+- **Prompt Provided:** Hermes fast-reply Phase 2 — stream tools-path replies, per-chat lock, LLM keep-alive, TTFT chip.
+- **Architectural Flow:** Tools/terminal Auto replies chunk via `emitReplyDelta` when streaming. `withChatAutoLock` serializes Auto/Answer per chat. `llmFetch` uses undici Agent keep-alive. Timing chip shows TTFT. Tab-close still does not abort (Phase 1 preference).
+- **Impacted Files:** chatAutoLock.js, replyDelta.js, chatAutoTurn.js, llmChat.js, chats.js, MessageStatusChips.jsx, latencyPhase2.test.js, PROMPT_LOG
+
 ## [2026-09-24 13:55] Keep chat turns alive on tab close
 
 - **Prompt Provided:** Don’t drop/cancel the LLM when closing the browser tab.

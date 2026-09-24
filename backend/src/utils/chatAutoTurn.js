@@ -17,6 +17,7 @@ import {
   looksLikeVagueChatFollowup,
   looksLikeComposioAppRequest,
 } from "./messageIntent.js";
+import { emitReplyDelta } from "./replyDelta.js";
 import {
   matchComposioIntent,
   compactComposioExecuteResult,
@@ -2116,6 +2117,10 @@ export async function runChatAutoTurn(opts) {
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
   const track = createAutoTimingTracker({ onProgress });
   const delta = track.wrapOnDelta(onDelta);
+  /** @param {string} content */
+  const pushReply = async (content) => {
+    await emitReplyDelta(content, delta, { chunk: Boolean(stream) });
+  };
   const threadEarly = String(chatContext || snapshot?.chatContext || "").trim();
   const ensureCtx = {
     userText: text,
@@ -2151,7 +2156,7 @@ export async function runChatAutoTurn(opts) {
           chatId: runtime.chatId || null,
         });
         const content = String(applied.content || "Schedule updated.").trim();
-        if (typeof delta === "function" && content) delta(content);
+        if (content) await pushReply(content);
         return finalize({
           action: "reply",
           content,
@@ -2162,7 +2167,7 @@ export async function runChatAutoTurn(opts) {
         });
       } catch (err) {
         const content = `Could not update schedule: ${String(err?.message || err)}`;
-        if (typeof delta === "function") delta(content);
+        await pushReply(content);
         return finalize({
           action: "reply",
           content,
@@ -2211,8 +2216,8 @@ export async function runChatAutoTurn(opts) {
       if (tp.handled) {
         track.setPath("taskplan");
         track.markDecision(tp.action === "queue_goal" ? "queue_goal" : "reply");
-        if (tp.action === "reply" && typeof delta === "function" && tp.content) {
-          delta(tp.content);
+        if (tp.action === "reply" && tp.content) {
+          await pushReply(tp.content);
         }
         return finalize({
           action: tp.action === "queue_goal" ? "queue_goal" : "reply",
@@ -2255,8 +2260,8 @@ export async function runChatAutoTurn(opts) {
     } else {
       // Why: build from dayLogs directly — LLM was echoing Mem0 prefs (“long scratchpads”) instead.
       content = formatDayHistoryChatAnswer(snapshot, text);
-      if (stream && typeof delta === "function" && content) {
-        delta(content);
+      if (stream && content) {
+        await pushReply(content);
       }
     }
     return finalize({
@@ -2503,8 +2508,8 @@ export async function runChatAutoTurn(opts) {
           reason: round === 0 ? "model_auto_tool_call" : "model_auto_tool_loop",
           timing: track.finish(),
         });
-        if (out.action === "reply" && out.content && typeof delta === "function") {
-          delta(out.content);
+        if (out.action === "reply" && out.content) {
+          await pushReply(out.content);
         }
         return out;
       }
@@ -2639,8 +2644,8 @@ export async function runChatAutoTurn(opts) {
           reason: "model_auto_turn_after_tools",
           timing: track.finish(),
         });
-        if (out.action === "reply" && out.content && typeof delta === "function") {
-          delta(out.content);
+        if (out.action === "reply" && out.content) {
+          await pushReply(out.content);
         }
         return out;
       }
@@ -2684,8 +2689,8 @@ export async function runChatAutoTurn(opts) {
         reason: "model_auto_tool_loop_cap",
         timing: track.finish(),
       });
-      if (out.action === "reply" && out.content && typeof delta === "function") {
-        delta(out.content);
+      if (out.action === "reply" && out.content) {
+        await pushReply(out.content);
       }
       return out;
     }
@@ -2700,8 +2705,8 @@ export async function runChatAutoTurn(opts) {
         reason: "model_auto_tool_loop_cap_text",
         timing: track.finish(),
       });
-      if (out.action === "reply" && out.content && typeof delta === "function") {
-        delta(out.content);
+      if (out.action === "reply" && out.content) {
+        await pushReply(out.content);
       }
       return out;
     }
