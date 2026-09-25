@@ -1033,6 +1033,20 @@ function formatMemoryBlock(memory) {
 export async function appendAgentMemory(agentDoc, entry, cap = 50) {
   const content = String(entry.content || "").trim();
   if (!content) return agentDoc;
+  // Why: list/fetch results belong in chat only — never park them in Short notes.
+  try {
+    const { isEphemeralListResult, looksLikeListDumpBody } = await import(
+      "../utils/curatedMemoryFilter.js"
+    );
+    if (
+      looksLikeListDumpBody(content) ||
+      isEphemeralListResult({ goal: content.slice(0, 400), summary: content })
+    ) {
+      return agentDoc;
+    }
+  } catch {
+    /* ignore filter load failures */
+  }
   agentDoc.memory = agentDoc.memory || [];
   const { findNearDuplicateIndex } = await import("../utils/curatedMemory.js");
   const nearIdx = findNearDuplicateIndex(

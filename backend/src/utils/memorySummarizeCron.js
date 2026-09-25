@@ -20,6 +20,10 @@ import {
   mem0AddFact,
   mem0DeleteByContent,
 } from "./mem0Service.js";
+import {
+  isEphemeralListResult,
+  looksLikeListDumpBody,
+} from "./curatedMemoryFilter.js";
 
 /** How often the global tick runs. */
 export const MEMORY_SUMMARIZE_INTERVAL_MS = 30 * 60 * 1000;
@@ -229,26 +233,34 @@ export async function summarizeAgentMemory(agent) {
   for (const n of notes) {
     const c = String(n?.content || "").trim();
     if (!c) continue;
+    if (looksLikeListDumpBody(c) || isEphemeralListResult({ summary: c })) continue;
     if (findNearDuplicateIndex(kept.map((x) => ({ content: String(x.content || "") })), c) >= 0) {
       continue;
     }
     kept.push(n);
   }
   if (parsed.episodicNote) {
-    const rollup = {
-      kind: "note",
-      content: parsed.episodicNote.slice(0, 2000),
-      sourceTask: null,
-      at: now,
-    };
-    const near = findNearDuplicateIndex(
-      kept.map((x) => ({ content: String(x.content || "") })),
-      rollup.content
-    );
-    if (near >= 0) {
-      kept[near] = { ...kept[near], content: rollup.content, at: now };
-    } else {
-      kept.unshift(rollup);
+    const rollupContent = parsed.episodicNote.slice(0, 2000);
+    // Why: summarizer must not re-introduce trial/account list dumps into Short notes.
+    if (
+      !looksLikeListDumpBody(rollupContent) &&
+      !isEphemeralListResult({ summary: rollupContent })
+    ) {
+      const rollup = {
+        kind: "note",
+        content: rollupContent,
+        sourceTask: null,
+        at: now,
+      };
+      const near = findNearDuplicateIndex(
+        kept.map((x) => ({ content: String(x.content || "") })),
+        rollup.content
+      );
+      if (near >= 0) {
+        kept[near] = { ...kept[near], content: rollup.content, at: now };
+      } else {
+        kept.unshift(rollup);
+      }
     }
   }
   agent.memory = kept.slice(0, 50);

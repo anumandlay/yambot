@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:35] Memory: scrub Short notes list dumps + block future writes
+
+- **Prompt Provided:** agents/.../memory Short notes still showing list
+- **Architectural Flow:** Scrubbed existing list/run dumps from agent `6ab060232c2616e2dcd84e5d` short notes + trimmed day-log list detail. `appendAgentMemory` and memory summarizer now refuse list-dump bodies so they cannot reappear.
+- **Impacted Files:** Agent.js, memorySummarizeCron.js, scrub scripts, PROMPT_LOG
+
 ## [2026-09-25 15:25] Chat: force summarize now (+ API)
 
 - **Prompt Provided:** once summarize the chat now
