@@ -594,6 +594,52 @@ export async function composioAuthorizeToolkit(opts) {
 }
 
 /**
+ * Flatten Connected Accounts list across Composio pagination cursors.
+ * Why: API returns ~10 per page — Gmail can sit on page 2+ while Notion/Drive fill page 1.
+ * @param {any} client
+ * @param {Record<string, unknown>} [baseParams]
+ * @returns {Promise<any[]>}
+ */
+async function listAllConnectedAccounts(client, baseParams = {}) {
+  /** @type {any[]} */
+  const all = [];
+  /** @type {string|null|undefined} */
+  let cursor = undefined;
+  for (let page = 0; page < 20; page++) {
+    /** @type {Record<string, unknown>} */
+    const params = { ...baseParams };
+    if (cursor) {
+      params.cursor = cursor;
+      params.nextCursor = cursor;
+    }
+    let listed = null;
+    try {
+      listed = await client.connectedAccounts.list(params);
+    } catch (err) {
+      if (page === 0) throw err;
+      break;
+    }
+    const items = Array.isArray(listed?.items)
+      ? listed.items
+      : Array.isArray(listed?.data)
+        ? listed.data
+        : Array.isArray(listed)
+          ? listed
+          : [];
+    all.push(...items);
+    const next =
+      listed?.nextCursor ||
+      listed?.next_cursor ||
+      listed?.cursor?.next ||
+      null;
+    if (!next || !items.length) break;
+    if (String(next) === String(cursor || "")) break;
+    cursor = String(next);
+  }
+  return all;
+}
+
+/**
  * List connected accounts for this user.
  * @param {{ userId: string, apiKey: string, toolkitSlugs?: string[] }} opts
  */
@@ -626,27 +672,42 @@ export async function composioListStatus(opts) {
   if (!client || !uid) return { ...base, error: "client_unavailable" };
 
   try {
-    // Why: some SDK builds ignore userIds — fall back to unfiltered list then filter client-side.
-    let listed = await client.connectedAccounts.list({ userIds: [uid] });
-    let items = Array.isArray(listed?.items)
-      ? listed.items
-      : Array.isArray(listed?.data)
-        ? listed.data
-        : Array.isArray(listed)
-          ? listed
-          : [];
+    // Why: paginate — first page often fills with other apps and omits gmail.
+    let items = await listAllConnectedAccounts(client, { userIds: [uid] });
     if (!items.length) {
       try {
-        listed = await client.connectedAccounts.list({});
-        items = Array.isArray(listed?.items)
-          ? listed.items
-          : Array.isArray(listed?.data)
-            ? listed.data
-            : Array.isArray(listed)
-              ? listed
-              : [];
+        items = await listAllConnectedAccounts(client, {});
       } catch {
-        /* keep empty */
+        items = [];
+      }
+    }
+
+    // Why: even after pagination, Gmail can be absent if the cursor API truncates;
+    // targeted toolkitSlugs queries find ACTIVE rows the broad list missed.
+    const seenToolkits = new Set(
+      items.map((row) => extractConnectedAccountToolkit(row)).filter(Boolean)
+    );
+    const missing = (
+      enabledToolkits.length
+        ? enabledToolkits
+        : COMPOSIO_DEFAULT_TOOLKITS.map((t) => t.slug)
+    ).filter((slug) => !seenToolkits.has(slug));
+    for (const slug of missing.slice(0, 12)) {
+      try {
+        const extra = await listAllConnectedAccounts(client, {
+          userIds: [uid],
+          toolkitSlugs: [slug],
+        });
+        if (!extra.length) {
+          const unfiltered = await listAllConnectedAccounts(client, {
+            toolkitSlugs: [slug],
+          });
+          items.push(...unfiltered);
+        } else {
+          items.push(...extra);
+        }
+      } catch {
+        /* toolkit-specific list unsupported — keep paginated results */
       }
     }
 
@@ -662,10 +723,20 @@ export async function composioListStatus(opts) {
           row?.status || row?.connectionStatus || row?.state || ""
         ).toLowerCase();
         const rowUser = String(
-          row?.userId || row?.user_id || row?.entityId || row?.entity_id || ""
+          row?.userId ||
+            row?.user_id ||
+            row?.entityId ||
+            row?.entity_id ||
+            row?.wordId ||
+            ""
         );
         // Why: unfiltered list may include other YamBot users — keep ours when id is present.
-        if (rowUser && rowUser !== uid && !rowUser.endsWith(String(opts.userId || ""))) {
+        if (
+          rowUser &&
+          rowUser !== uid &&
+          !rowUser.endsWith(String(opts.userId || "")) &&
+          rowUser !== String(opts.userId || "")
+        ) {
           return null;
         }
         return {
@@ -686,7 +757,21 @@ export async function composioListStatus(opts) {
       .filter(Boolean)
       .filter((c) => c.toolkit && (allow.size === 0 || allow.has(c.toolkit)));
 
-    return { ...base, connections };
+    // Prefer ACTIVE over EXPIRED when multiple rows share a toolkit.
+    /** @type {Map<string, (typeof connections)[0]>} */
+    const bestByToolkit = new Map();
+    for (const c of connections) {
+      const prev = bestByToolkit.get(c.toolkit);
+      if (!prev) {
+        bestByToolkit.set(c.toolkit, c);
+        continue;
+      }
+      const prevActive = isComposioConnectionActive(prev.status);
+      const nextActive = isComposioConnectionActive(c.status);
+      if (!prevActive && nextActive) bestByToolkit.set(c.toolkit, c);
+    }
+
+    return { ...base, connections: [...bestByToolkit.values()] };
   } catch (err) {
     console.warn("[composio] list failed:", err?.message || err);
     return { ...base, error: String(err?.message || err || "list_failed") };

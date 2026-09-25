@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:15] Composio status: paginate + toolkit-targeted Gmail list
+
+- **Prompt Provided:** gmail, still showing to connect
+- **Architectural Flow:** Composio `connectedAccounts.list` returns ~10/page; Gmail sat on page 2+ so status UI showed Connect while chat still worked. `composioListStatus` now walks `nextCursor` via `listAllConnectedAccounts`, prefers ACTIVE over EXPIRED per toolkit, and for any enabled slug still missing does a targeted `toolkitSlugs` list.
+- **Impacted Files:** composioService.js, PROMPT_LOG
+
 ## [2026-09-25 14:10] Composio: optional auto-approve for send/write + schedules
 
 - **Prompt Provided:** Keep confirm-before-send for risky actions, but add option to auto-approve so schedules run when away (or remove confirm if needed).
