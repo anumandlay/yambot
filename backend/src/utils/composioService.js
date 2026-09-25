@@ -1,7 +1,8 @@
 /**
  * @fileoverview Composio integration — per-agent API key + selected toolkits.
  * Purpose: Agents connect apps via Composio OAuth; Auto chat can list/connect/execute
- * without loading the full 1500-app catalog into every prompt.
+ * without loading the full 1500-app catalog into every prompt. After Connect we cache
+ * that app's tools on the agent and inject matching catalogs into Auto LLM turns.
  * Downstream: Agent edit UI, agents composio catalog route, chatAutoTurn lookup tools.
  */
 
@@ -95,12 +96,20 @@ export function publicComposioSummary(agent) {
   const toolkitSlugs = (Array.isArray(c.toolkitSlugs) ? c.toolkitSlugs : [])
     .map((s) => normalizeToolkitSlug(s))
     .filter(Boolean);
+  const cache = c.toolkitToolCache && typeof c.toolkitToolCache === "object" ? c.toolkitToolCache : {};
+  /** @type {Record<string, number>} */
+  const toolkitToolCacheCounts = {};
+  for (const [slug, entry] of Object.entries(cache)) {
+    const n = Array.isArray(entry?.tools) ? entry.tools.length : 0;
+    if (n > 0) toolkitToolCacheCounts[normalizeToolkitSlug(slug) || slug] = n;
+  }
   return {
     enabled: Boolean(c.enabled),
     hasApiKey,
     apiKeyMasked: hasApiKey ? "••••••••" : "",
     toolkitSlugs,
     autoApproveRisky: Boolean(c.autoApproveRisky),
+    toolkitToolCacheCounts,
     configured: Boolean(c.enabled && hasApiKey && toolkitSlugs.length > 0),
   };
 }
@@ -418,6 +427,368 @@ export async function composioSearchTools(opts) {
       error: String(err?.message || err || "search_failed"),
     };
   }
+}
+
+/** Default max age for toolkit tool cache (7 days). */
+export const COMPOSIO_TOOL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Normalize one Composio tool row into our cache/search shape.
+ * @param {any} row
+ * @param {string} [fallbackToolkit]
+ * @returns {{ slug: string, name: string, description: string, toolkit: string }|null}
+ */
+function normalizeComposioToolRow(row, fallbackToolkit = "") {
+  const slug = String(
+    row?.slug || row?.name || row?.function?.name || row?.tool_slug || ""
+  ).trim();
+  if (!slug) return null;
+  const toolkit = normalizeToolkitSlug(
+    row?.toolkit?.slug ||
+      row?.toolkit ||
+      row?.appName ||
+      fallbackToolkit ||
+      slug.split("_")[0] ||
+      ""
+  );
+  return {
+    slug,
+    name: String(row?.displayName || row?.name || slug).trim(),
+    description: String(row?.description || row?.function?.description || "")
+      .trim()
+      .slice(0, 240),
+    toolkit,
+  };
+}
+
+/**
+ * List tools for one toolkit (broader than composioSearchTools — for Connect cache).
+ * @param {{ apiKey: string, toolkit: string, limit?: number }} opts
+ * @returns {Promise<{
+ *   ok: boolean,
+ *   tools: { slug: string, name: string, description: string, toolkit: string }[],
+ *   error?: string,
+ * }>}
+ */
+export async function composioListToolkitTools(opts) {
+  const apiKey = String(opts.apiKey || "").trim();
+  const toolkit = normalizeToolkitSlug(opts.toolkit);
+  if (!apiKey) return { ok: false, tools: [], error: "missing_api_key" };
+  if (!toolkit) return { ok: false, tools: [], error: "toolkit required" };
+
+  const client = await getClient(apiKey);
+  if (!client) return { ok: false, tools: [], error: "client_unavailable" };
+
+  const limit = Math.min(100, Math.max(10, Number(opts.limit) || 60));
+  /** @type {Map<string, { slug: string, name: string, description: string, toolkit: string }>} */
+  const bySlug = new Map();
+
+  /**
+   * @param {Record<string, unknown>} listParams
+   */
+  async function pull(listParams) {
+    /** @type {any} */
+    let raw = null;
+    try {
+      if (typeof client.tools?.getRawComposioTools === "function") {
+        raw = await client.tools.getRawComposioTools(listParams);
+      } else if (typeof client.tools?.get === "function") {
+        raw = await client.tools.get("default", listParams);
+      }
+    } catch {
+      return;
+    }
+    const items = Array.isArray(raw)
+      ? raw
+      : Array.isArray(raw?.items)
+        ? raw.items
+        : Array.isArray(raw?.data)
+          ? raw.data
+          : Array.isArray(raw?.tools)
+            ? raw.tools
+            : [];
+    for (const row of items) {
+      const tool = normalizeComposioToolRow(row, toolkit);
+      if (!tool || bySlug.has(tool.slug)) continue;
+      if (!isToolAllowedForToolkits(tool.slug, [toolkit])) continue;
+      bySlug.set(tool.slug, { ...tool, toolkit: tool.toolkit || toolkit });
+      if (bySlug.size >= limit) return;
+    }
+  }
+
+  // Why: broad list by toolkit first; then keyword sweeps fill gaps if the SDK requires search.
+  await pull({ toolkits: [toolkit], limit });
+  if (bySlug.size < Math.min(20, limit)) {
+    const queries = [toolkit, `${toolkit} list`, `${toolkit} send`, `${toolkit} create`, `${toolkit} get`];
+    for (const search of queries) {
+      if (bySlug.size >= limit) break;
+      await pull({ toolkits: [toolkit], search, limit });
+    }
+  }
+
+  const tools = [...bySlug.values()].slice(0, limit);
+  return { ok: tools.length > 0, tools, error: tools.length ? undefined : "no_tools" };
+}
+
+/**
+ * @param {unknown} entry
+ * @param {number} [maxAgeMs]
+ * @returns {boolean}
+ */
+export function isComposioToolkitCacheFresh(entry, maxAgeMs = COMPOSIO_TOOL_CACHE_MAX_AGE_MS) {
+  if (!entry || typeof entry !== "object") return false;
+  const tools = /** @type {{ tools?: unknown, fetchedAt?: unknown }} */ (entry).tools;
+  if (!Array.isArray(tools) || tools.length === 0) return false;
+  const at = new Date(
+    /** @type {{ fetchedAt?: unknown }} */ (entry).fetchedAt || 0
+  ).getTime();
+  if (!Number.isFinite(at) || at <= 0) return false;
+  return Date.now() - at < Math.max(60_000, Number(maxAgeMs) || COMPOSIO_TOOL_CACHE_MAX_AGE_MS);
+}
+
+/**
+ * Read cached tools for one toolkit from an agent doc.
+ * @param {object|null|undefined} agent
+ * @param {string} toolkit
+ * @returns {{ slug: string, name: string, description: string, toolkit: string }[]}
+ */
+export function getAgentComposioCachedTools(agent, toolkit) {
+  const slug = normalizeToolkitSlug(toolkit);
+  if (!slug) return [];
+  const cache = agent?.composio?.toolkitToolCache;
+  if (!cache || typeof cache !== "object") return [];
+  const entry = cache[slug] || cache[toolkit];
+  if (!entry || !Array.isArray(entry.tools)) return [];
+  return entry.tools
+    .map((t) => ({
+      slug: String(t?.slug || "").trim(),
+      name: String(t?.name || t?.slug || "").trim(),
+      description: String(t?.description || "").trim().slice(0, 240),
+      toolkit: slug,
+    }))
+    .filter((t) => t.slug);
+}
+
+/**
+ * Write toolkit tools onto agent.composio.toolkitToolCache (does not save).
+ * @param {object} agent
+ * @param {string} toolkit
+ * @param {{ slug: string, name?: string, description?: string }[]} tools
+ */
+export function setAgentComposioToolkitToolCache(agent, toolkit, tools) {
+  const slug = normalizeToolkitSlug(toolkit);
+  if (!agent || !slug) return;
+  agent.composio = agent.composio || {};
+  const prev =
+    agent.composio.toolkitToolCache && typeof agent.composio.toolkitToolCache === "object"
+      ? { ...agent.composio.toolkitToolCache }
+      : {};
+  prev[slug] = {
+    fetchedAt: new Date().toISOString(),
+    tools: (Array.isArray(tools) ? tools : [])
+      .map((t) => ({
+        slug: String(t?.slug || "").trim(),
+        name: String(t?.name || t?.slug || "").trim().slice(0, 120),
+        description: String(t?.description || "").trim().slice(0, 240),
+      }))
+      .filter((t) => t.slug)
+      .slice(0, 100),
+  };
+  agent.composio.toolkitToolCache = prev;
+  if (typeof agent.markModified === "function") agent.markModified("composio");
+}
+
+/**
+ * Remove one toolkit (or all) from the agent tool cache (does not save).
+ * @param {object} agent
+ * @param {string} [toolkit]
+ */
+export function clearAgentComposioToolkitToolCache(agent, toolkit) {
+  if (!agent) return;
+  agent.composio = agent.composio || {};
+  const slug = normalizeToolkitSlug(toolkit);
+  if (!slug) {
+    agent.composio.toolkitToolCache = {};
+  } else {
+    const prev =
+      agent.composio.toolkitToolCache && typeof agent.composio.toolkitToolCache === "object"
+        ? { ...agent.composio.toolkitToolCache }
+        : {};
+    delete prev[slug];
+    agent.composio.toolkitToolCache = prev;
+  }
+  if (typeof agent.markModified === "function") agent.markModified("composio");
+}
+
+/**
+ * Fetch + persist tool catalogs for connected toolkits that are missing/stale.
+ * @param {object} agent Mongoose agent doc (saved when updated)
+ * @param {{
+ *   apiKey: string,
+ *   toolkits: string[],
+ *   force?: boolean,
+ *   maxAgeMs?: number,
+ *   limitPerToolkit?: number,
+ * }} opts
+ * @returns {Promise<{ updated: string[], skipped: string[], errors: Record<string, string> }>}
+ */
+export async function ensureComposioToolkitToolCache(agent, opts) {
+  const apiKey = String(opts?.apiKey || "").trim();
+  /** @type {string[]} */
+  const updated = [];
+  /** @type {string[]} */
+  const skipped = [];
+  /** @type {Record<string, string>} */
+  const errors = {};
+  if (!agent || !apiKey) return { updated, skipped, errors: { _: "missing_agent_or_key" } };
+
+  const force = Boolean(opts.force);
+  const maxAgeMs = Number(opts.maxAgeMs) || COMPOSIO_TOOL_CACHE_MAX_AGE_MS;
+  const limitPerToolkit = Math.min(100, Math.max(10, Number(opts.limitPerToolkit) || 60));
+  const toolkits = (Array.isArray(opts.toolkits) ? opts.toolkits : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+
+  for (const toolkit of toolkits.slice(0, 12)) {
+    const existing = agent.composio?.toolkitToolCache?.[toolkit];
+    if (!force && isComposioToolkitCacheFresh(existing, maxAgeMs)) {
+      skipped.push(toolkit);
+      continue;
+    }
+    try {
+      const listed = await composioListToolkitTools({
+        apiKey,
+        toolkit,
+        limit: limitPerToolkit,
+      });
+      if (!listed.ok || !listed.tools.length) {
+        errors[toolkit] = listed.error || "no_tools";
+        continue;
+      }
+      setAgentComposioToolkitToolCache(agent, toolkit, listed.tools);
+      updated.push(toolkit);
+    } catch (err) {
+      errors[toolkit] = String(err?.message || err || "cache_failed");
+    }
+  }
+
+  if (updated.length) {
+    try {
+      await agent.save();
+    } catch (err) {
+      errors._save = String(err?.message || err || "save_failed");
+    }
+  }
+  return { updated, skipped, errors };
+}
+
+/**
+ * Which enabled toolkits the user text likely refers to (for prompt injection).
+ * @param {string} userText
+ * @param {string[]} toolkitSlugs
+ * @returns {string[]}
+ */
+export function matchToolkitsForUserText(userText, toolkitSlugs) {
+  const enabled = (Array.isArray(toolkitSlugs) ? toolkitSlugs : [])
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  if (!enabled.length) return [];
+  const lower = String(userText || "").toLowerCase();
+  const noAddrs = lower.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
+
+  /** @type {Record<string, RegExp>} */
+  const cues = {
+    gmail: /\b(gmail|google\s*mail|inbox|e-?mails?|mails?)\b/i,
+    googlesheets: /\b(google\s*sheets?|spreadsheets?|gsheets?|sheets?)\b/i,
+    googledrive: /\b(google\s*drive|googledrive|gdrive)\b/i,
+    googlemeet: /\b(google\s*meet|gmeet)\b/i,
+    googleads: /\b(google\s*ads|adwords|googleads)\b/i,
+    slack: /\bslack\b/i,
+    notion: /\bnotion\b/i,
+    github: /\bgithub\b/i,
+    apollo: /\bapollo\b/i,
+    hubspot: /\bhubspot\b/i,
+  };
+
+  /** @type {string[]} */
+  const hit = [];
+  for (const slug of enabled) {
+    const re = cues[slug] || new RegExp(`\\b${slug.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`, "i");
+    if (re.test(noAddrs)) hit.push(slug);
+  }
+  // Why: bare “composio” / generic app ask → inject all enabled that have a cache.
+  if (!hit.length && /\bcomposio\b/i.test(lower)) return enabled;
+  return hit;
+}
+
+/**
+ * Format cached tool catalogs for Auto LLM system prompt (matching apps only).
+ * @param {object|null|undefined} agent
+ * @param {{
+ *   userText?: string,
+ *   toolkitSlugs?: string[],
+ *   maxChars?: number,
+ * }} [opts]
+ * @returns {string}
+ */
+export function formatComposioToolkitCatalogForPrompt(agent, opts = {}) {
+  if (!agent?.composio?.enabled) return "";
+  const enabled = (
+    Array.isArray(opts.toolkitSlugs) && opts.toolkitSlugs.length
+      ? opts.toolkitSlugs
+      : Array.isArray(agent.composio?.toolkitSlugs)
+        ? agent.composio.toolkitSlugs
+        : []
+  )
+    .map((s) => normalizeToolkitSlug(s))
+    .filter(Boolean);
+  if (!enabled.length) return "";
+
+  const match = matchToolkitsForUserText(opts.userText || "", enabled);
+  // Why: only inject catalogs for apps the user message actually refers to (token budget).
+  if (!match.length) return "";
+
+  const maxChars = Math.min(8000, Math.max(800, Number(opts.maxChars) || 4500));
+  /** @type {string[]} */
+  const lines = [
+    "=== CONNECTED APP TOOLS (cached after Connect — prefer these slugs with composio_execute) ===",
+    "Pick a tool slug below when it fits. Call composio_search only if you need a tool not listed.",
+  ];
+  let used = lines.join("\n").length;
+  const perAppCap = match.length <= 2 ? 40 : match.length <= 4 ? 18 : 10;
+
+  for (const slug of match) {
+    const tools = getAgentComposioCachedTools(agent, slug);
+    if (!tools.length) continue;
+    const header = `\n[${slug}] (${tools.length} tools cached)`;
+    if (used + header.length + 40 > maxChars) break;
+    lines.push(header);
+    used += header.length + 1;
+    let n = 0;
+    for (const tool of tools) {
+      if (n >= perAppCap) {
+        const more = `\n- … +${tools.length - n} more (composio_search to find them)`;
+        if (used + more.length <= maxChars) {
+          lines.push(more.trimStart());
+          used += more.length;
+        }
+        break;
+      }
+      const desc = String(tool.description || "")
+        .replace(/\s+/g, " ")
+        .trim()
+        .slice(0, 90);
+      const row = desc ? `- ${tool.slug} — ${desc}` : `- ${tool.slug}`;
+      if (used + row.length + 2 > maxChars) break;
+      lines.push(row);
+      used += row.length + 1;
+      n += 1;
+    }
+  }
+
+  if (lines.length <= 2) return "";
+  lines.push("=== END CONNECTED APP TOOLS ===");
+  return lines.join("\n");
 }
 
 /**

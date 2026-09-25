@@ -352,13 +352,26 @@ export function buildComposioExecuteLookupFromAgent(opts) {
       return JSON.stringify(data).slice(0, 4000);
     }
     if (kind === "composio_wait") {
+      const toolkit = String(args.toolkit || "").trim();
       const data = await composioWaitForToolkit({
         userId,
         apiKey,
-        toolkit: args.toolkit || "",
+        toolkit,
         toolkitSlugs,
         timeoutMs: Number(args.timeoutMs) || 25_000,
       });
+      if (data?.ok && data?.connected && toolkit) {
+        try {
+          const { ensureComposioToolkitToolCache } = await import("./composioService.js");
+          await ensureComposioToolkitToolCache(agent, {
+            apiKey,
+            toolkits: [toolkit],
+            force: true,
+          });
+        } catch {
+          /* non-fatal */
+        }
+      }
       return JSON.stringify(data).slice(0, 4000);
     }
     if (kind === "composio_execute") {

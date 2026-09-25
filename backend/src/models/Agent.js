@@ -357,6 +357,12 @@ const agentSchema = new mongoose.Schema(
        * Why: schedules and unattended runs cannot answer yes/cancel in chat.
        */
       autoApproveRisky: { type: Boolean, default: false },
+      /**
+       * Per-toolkit tool catalog cached after Connect (ACTIVE).
+       * Shape: { [slug]: { fetchedAt: ISODate|string, tools: [{ slug, name, description }] } }
+       * Why: Auto LLM gets real tool slugs for matching apps without a live search every turn.
+       */
+      toolkitToolCache: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     /**
      * Execution target — always cloud (kept for legacy task snapshots).

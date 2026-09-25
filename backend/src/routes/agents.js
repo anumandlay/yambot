@@ -2056,7 +2056,8 @@ agentsRouter.get("/:id/composio/status", async (req, res, next) => {
       });
       return;
     }
-    const { composioListStatus } = await import("../utils/composioService.js");
+    const { composioListStatus, ensureComposioToolkitToolCache, isComposioConnectionActive } =
+      await import("../utils/composioService.js");
     const status = await composioListStatus({
       userId: req.userId,
       apiKey: ctx.apiKey,
@@ -2064,11 +2065,40 @@ agentsRouter.get("/:id/composio/status", async (req, res, next) => {
         ? ctx.agent.composio.toolkitSlugs
         : [],
     });
+    // Why: Refresh status is the natural post-OAuth hook — cache tools for ACTIVE apps.
+    /** @type {string[]} */
+    const activeToolkits = (status.connections || [])
+      .filter((c) => isComposioConnectionActive(c.status))
+      .map((c) => String(c.toolkit || "").trim())
+      .filter(Boolean);
+    /** @type {{ updated: string[], skipped: string[], errors: Record<string, string> }|null} */
+    let toolCache = null;
+    if (activeToolkits.length) {
+      try {
+        toolCache = await ensureComposioToolkitToolCache(ctx.agent, {
+          apiKey: ctx.apiKey,
+          toolkits: activeToolkits,
+          force: false,
+        });
+      } catch (cacheErr) {
+        console.warn("[composio] tool cache on status failed:", cacheErr?.message || cacheErr);
+      }
+    }
+    const cacheCounts = {};
+    const cacheObj = ctx.agent.composio?.toolkitToolCache;
+    if (cacheObj && typeof cacheObj === "object") {
+      for (const [slug, entry] of Object.entries(cacheObj)) {
+        const n = Array.isArray(entry?.tools) ? entry.tools.length : 0;
+        if (n > 0) cacheCounts[slug] = n;
+      }
+    }
     res.json({
       ok: true,
       enabled: Boolean(ctx.agent.composio?.enabled),
       toolkitSlugs: status.toolkits?.map((t) => t.slug) || [],
       connections: status.connections || [],
+      toolkitToolCacheCounts: cacheCounts,
+      toolCacheUpdated: toolCache?.updated || [],
       error: status.error || null,
     });
   } catch (err) {
@@ -2181,17 +2211,33 @@ agentsRouter.post("/:id/composio/wait", async (req, res, next) => {
       });
       return;
     }
-    const { composioWaitForToolkit } = await import("../utils/composioService.js");
+    const { composioWaitForToolkit, ensureComposioToolkitToolCache, normalizeToolkitSlug } =
+      await import("../utils/composioService.js");
+    const toolkit = normalizeToolkitSlug(req.body?.toolkit);
     const result = await composioWaitForToolkit({
       userId: req.userId,
       apiKey: ctx.apiKey,
-      toolkit: req.body?.toolkit,
+      toolkit,
       toolkitSlugs: Array.isArray(ctx.agent.composio?.toolkitSlugs)
         ? ctx.agent.composio.toolkitSlugs
         : [],
       timeoutMs: Number(req.body?.timeoutMs) || 25_000,
     });
-    res.status(result.ok ? 200 : 408).json(result);
+    /** @type {string[]} */
+    let toolCacheUpdated = [];
+    if (result.ok && result.connected && toolkit) {
+      try {
+        const cached = await ensureComposioToolkitToolCache(ctx.agent, {
+          apiKey: ctx.apiKey,
+          toolkits: [toolkit],
+          force: true,
+        });
+        toolCacheUpdated = cached.updated || [];
+      } catch (cacheErr) {
+        console.warn("[composio] tool cache on wait failed:", cacheErr?.message || cacheErr);
+      }
+    }
+    res.status(result.ok ? 200 : 408).json({ ...result, toolCacheUpdated });
   } catch (err) {
     next(err);
   }
@@ -2215,10 +2261,30 @@ agentsRouter.delete("/:id/composio/connections/:connId", async (req, res, next) 
       });
       return;
     }
-    const { composioDisconnectAccount } = await import("../utils/composioService.js");
+    const {
+      composioDisconnectAccount,
+      composioListStatus,
+      clearAgentComposioToolkitToolCache,
+      normalizeToolkitSlug,
+    } = await import("../utils/composioService.js");
+    const connId = String(req.params.connId || "").trim();
+    let toolkitToClear = "";
+    try {
+      const status = await composioListStatus({
+        userId: req.userId,
+        apiKey: ctx.apiKey,
+        toolkitSlugs: Array.isArray(ctx.agent.composio?.toolkitSlugs)
+          ? ctx.agent.composio.toolkitSlugs
+          : [],
+      });
+      const hit = (status.connections || []).find((c) => String(c.id || "") === connId);
+      toolkitToClear = normalizeToolkitSlug(hit?.toolkit || "");
+    } catch {
+      /* best-effort */
+    }
     const result = await composioDisconnectAccount({
       apiKey: ctx.apiKey,
-      connectedAccountId: req.params.connId,
+      connectedAccountId: connId,
     });
     if (!result.ok) {
       res.status(400).json({
@@ -2228,7 +2294,15 @@ agentsRouter.delete("/:id/composio/connections/:connId", async (req, res, next) 
       });
       return;
     }
-    res.json({ ok: true, message: "Disconnected." });
+    if (toolkitToClear) {
+      clearAgentComposioToolkitToolCache(ctx.agent, toolkitToClear);
+      try {
+        await ctx.agent.save();
+      } catch (saveErr) {
+        console.warn("[composio] clear tool cache after disconnect failed:", saveErr?.message || saveErr);
+      }
+    }
+    res.json({ ok: true, message: "Disconnected.", clearedToolkitCache: toolkitToClear || null });
   } catch (err) {
     next(err);
   }

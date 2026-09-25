@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:45] Composio: cache tools on Connect + inject into Auto LLM
+
+- **Prompt Provided:** next step is: cache tools on connect + inject that catalog into the Auto LLM turn for matching apps. lets do this
+- **Architectural Flow:** On status refresh / wait ACTIVE (UI + chat + combo), fetch that toolkit’s tools via Composio and store on `agent.composio.toolkitToolCache`. Auto tools-mode system prompt injects a bounded CONNECTED APP TOOLS block for apps matching the user message. Deterministic intents prefer the cache before live `composio_search`. Disconnect clears that toolkit’s cache.
+- **Impacted Files:** Agent.js, composioService.js, agents.js, chatAutoTurn.js, composioAutoRuntime.js, comboRunner.js, composioToolkitToolCache.test.js, PROMPT_LOG
+
 ## [2026-09-25 14:20] Composio status: stop filtering out accounts via wordId
 
 - **Prompt Provided:** gmail, still showing to connect

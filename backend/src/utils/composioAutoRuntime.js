@@ -2246,14 +2246,28 @@ export async function runComposioIntentExecute(opts) {
 
   /** @type {{ slug: string }[]} */
   let tools = [];
-  for (const q of spec.searchQueries) {
-    const searchText = await executeLookup("composio_search", runtime, { query: q });
-    try {
-      const searchJson = JSON.parse(searchText);
-      if (Array.isArray(searchJson?.tools)) tools.push(...searchJson.tools);
-      if (pickBestComposioTool(tools, spec.preferredTools, composioToolScoreForSpec(spec.id))) break;
-    } catch {
-      /* continue */
+  // Why: Connect-time cache often already has preferred tools — skip live search when we can.
+  try {
+    const { getAgentComposioCachedTools } = await import("./composioService.js");
+    const cached = getAgentComposioCachedTools(runtime?.agent, spec.toolkit);
+    if (cached.length) {
+      tools = cached.map((t) => ({ slug: t.slug, name: t.name, description: t.description }));
+    }
+  } catch {
+    /* fall through to live search */
+  }
+  if (!pickBestComposioTool(tools, spec.preferredTools, composioToolScoreForSpec(spec.id))) {
+    for (const q of spec.searchQueries) {
+      const searchText = await executeLookup("composio_search", runtime, { query: q });
+      try {
+        const searchJson = JSON.parse(searchText);
+        if (Array.isArray(searchJson?.tools)) tools.push(...searchJson.tools);
+        if (pickBestComposioTool(tools, spec.preferredTools, composioToolScoreForSpec(spec.id))) {
+          break;
+        }
+      } catch {
+        /* continue */
+      }
     }
   }
 
