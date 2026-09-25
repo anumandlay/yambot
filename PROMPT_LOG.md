@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 13:45] Trial expiry list → live computer (not Sheets)
+
+- **Prompt Provided:** “India trial expiry list” should open the live computer on Vughy — not a Google Sheet.
+- **Architectural Flow:** Removed trial/expiry → Sheets/Composio heuristics. `looksLikeSiteTrialExpiryComputerRequest` classifies as goal and Auto deterministically `queue_goal` before any Sheets match. Explicit “google spreadsheet” wording still uses Composio Sheets.
+- **Impacted Files:** messageIntent.js, composioAutoRuntime.js, chatAutoTurn.js, hermesPhase3.test.js, PROMPT_LOG
+
 ## [2026-09-25 13:40] Sheets: don’t dump password workbooks for trial-list asks
 
 - **Prompt Provided:** Chat showed “vughy.com passwords…” sheet rows (with passwords) when user asked to check trial expiring list for India on Vughy.

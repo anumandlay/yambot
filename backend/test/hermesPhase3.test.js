@@ -160,11 +160,41 @@ describe("buildAutoObservabilityMeta (Phase 3)", () => {
 
 describe("Sheets match scoring (password vault guard)", () => {
   it("penalizes password workbooks for trial/expiry asks", () => {
-    const q = "check the trial expiring list for India on Vughy";
+    const q = "read trial expiry from my google spreadsheet for India on Vughy";
     assert.equal(isPasswordVaultSheetTitle("vughy.com passwords for yamu never delete"), true);
     assert.ok(scoreSpreadsheetForQuery("vughy.com passwords for yamu never delete", q) < 0);
     assert.ok(scoreSpreadsheetForQuery("Trial Expiry Checker vughy India", q) > 8);
     assert.equal(sheetTitleMatchesQueryTopic(q, "Trial Expiry Checker vughy India"), true);
     assert.equal(sheetTitleMatchesQueryTopic(q, "vughy.com passwords for yamu never delete"), false);
+  });
+});
+
+describe("trial expiry list → live computer (not Sheets)", () => {
+  it("routes India trial expiry list to computer, not Composio Sheets", async () => {
+    const { looksLikeSiteTrialExpiryComputerRequest, looksLikeComposioAppRequest, classifyMessageIntent } =
+      await import("../src/utils/messageIntent.js");
+    const { looksLikeSheetsListRequest, matchComposioIntent } = await import(
+      "../src/utils/composioAutoRuntime.js"
+    );
+    const { looksLikeLiveComputerJobRequest } = await import("../src/utils/chatAutoTurn.js");
+    for (const msg of [
+      "India trial expiry list",
+      "check the trial expiring list for India on Vughy",
+      "open trial expiry list India",
+    ]) {
+      assert.equal(looksLikeSiteTrialExpiryComputerRequest(msg), true, msg);
+      assert.equal(looksLikeComposioAppRequest(msg), false, msg);
+      assert.equal(looksLikeSheetsListRequest(msg), false, msg);
+      assert.equal(matchComposioIntent(msg), null, msg);
+      assert.equal(looksLikeLiveComputerJobRequest(msg), true, msg);
+      assert.equal(classifyMessageIntent(msg).intent, "goal", msg);
+      assert.equal(classifyMessageIntent(msg).reason, "site_trial_expiry_list", msg);
+    }
+    // Explicit spreadsheet still Sheets
+    assert.equal(
+      looksLikeSiteTrialExpiryComputerRequest("check trial expiry list in google sheets"),
+      false
+    );
+    assert.equal(looksLikeSheetsListRequest("list my google spreadsheets"), true);
   });
 });

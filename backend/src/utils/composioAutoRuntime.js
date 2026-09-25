@@ -5,6 +5,7 @@
  */
 
 import { redactCredentialLeaks } from "./hermesUntrusted.js";
+import { looksLikeSiteTrialExpiryComputerRequest } from "./messageIntent.js";
 
 /**
  * @typedef {{
@@ -37,7 +38,8 @@ export function looksLikeGmailInboxRequest(text) {
   }
   // Why: “list spreadsheets using composio” must not become Gmail unread.
   if (/\b(spreadsheets?|google\s*sheets?|gsheets?)\b/.test(t)) return false;
-  // Why: trial/expiry/booking “lists” are Sheets data, not the inbox.
+  // Why: trial/expiry “lists” are live Vughy admin checks (computer), not Gmail unread.
+  if (looksLikeSiteTrialExpiryComputerRequest(t)) return false;
   if (
     /\b(trial|expir\w*|renewal|booking)\b/.test(t) &&
     /\b(list|check|show)\b/.test(t) &&
@@ -162,22 +164,16 @@ export function looksLikeSlackSendRequest(text) {
 export function looksLikeSheetsListRequest(text) {
   const raw = String(text || "").trim();
   const t = raw.toLowerCase();
-  const noAddrs = t.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
   // Explicit read-by-id → sheets_read instead
   if (/\bspreadsheet[_ ]?id\s*[=:]/i.test(raw)) return false;
   if (/\b[a-zA-Z0-9-_]{35,}\b/.test(raw) && /\b(read|values|rows|cells|range)\b/.test(t)) {
     return false;
   }
+  // Why: Vughy/CRM “trial expiry list” is a live admin UI job — not Google Sheets.
+  if (looksLikeSiteTrialExpiryComputerRequest(raw)) return false;
+  // Only explicit spreadsheet / Google Sheets wording → Composio Sheets list.
   if (/\b(google\s*sheets?|spreadsheets?|gsheets?)\b/.test(t)) {
     return /\b(list|show|find|search|check|recent|latest|all|my|created)\b/.test(t);
-  }
-  // Why: “check trial expiring list” means a Sheet of trials, not Gmail unread.
-  if (
-    /\b(trial|expir\w*|renewal|booking|roster|pipeline)\b/.test(noAddrs) &&
-    /\b(list|check|show|find|get)\b/.test(noAddrs) &&
-    !/\b(unread|inbox|e-?mails?|mails?|messages?)\b/.test(noAddrs)
-  ) {
-    return true;
   }
   return false;
 }
@@ -1463,9 +1459,10 @@ export function planComposioMultiSteps(userText) {
         spec = matchComposioIntent(`${clause} ${steps[steps.length - 1].userText}`);
       }
     }
-    // Why: “Check trial expiring list” has no “spreadsheet” word — still Sheets when followed by send.
+    // Why: only force Sheets when the clause actually names spreadsheets — not trial/expiry UI checks.
     if (
       !spec &&
+      /\b(google\s*sheets?|spreadsheets?|gsheets?)\b/i.test(clause) &&
       /\b(list|check|show|find|get)\b/i.test(clause) &&
       !/\b(unread|inbox|e-?mails?|mails?|messages?)\b/i.test(
         clause.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ")

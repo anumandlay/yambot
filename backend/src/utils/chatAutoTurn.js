@@ -18,6 +18,7 @@ import {
   looksLikeDayHistoryOrStatusRequest,
   looksLikeVagueChatFollowup,
   looksLikeComposioAppRequest,
+  looksLikeSiteTrialExpiryComputerRequest,
 } from "./messageIntent.js";
 import { emitReplyDelta } from "./replyDelta.js";
 import {
@@ -871,12 +872,14 @@ export function userConditionReflectedInGoal(userText, goal) {
 export function looksLikeLiveComputerJobRequest(text) {
   const t = String(text || "").trim();
   if (!t) return false;
-  if (looksLikeComposioAppRequest(t)) return false;
   if (looksLikeMemoryStoreRequest(t)) return false;
   if (looksLikeMemoryForgetRequest(t)) return false;
   if (looksLikeSessionScratchRequest(t)) return false;
   if (looksLikeDayHistoryOrStatusRequest(t)) return false;
   if (looksLikeVagueChatFollowup(t)) return false;
+  // Why: trial-expiry admin lists must queue the cloud computer (not Sheets).
+  if (looksLikeSiteTrialExpiryComputerRequest(t)) return true;
+  if (looksLikeComposioAppRequest(t)) return false;
   const lower = t.toLowerCase();
   if (
     /\b(create|register|sign\s*up|open|log\s*in|navigate|go to|visit|fill|submit|click)\b/i.test(
@@ -891,6 +894,8 @@ export function looksLikeLiveComputerJobRequest(text) {
     c.intent === "goal" &&
     (c.reason === "has_url_or_domain" ||
       c.reason === "explicit_task" ||
+      c.reason === "action_verbs" ||
+      c.reason === "site_trial_expiry_list" ||
       c.reason === "question_shaped_but_actionable")
   );
 }
@@ -2613,6 +2618,22 @@ export async function runChatAutoTurn(opts) {
 
   // Why: “check email” / known Composio intents must run the deterministic app path.
   // Do not require looksLikeComposioAppRequest alone — matchComposioIntent covers inbox phrases.
+  // Why: trial-expiry admin lists queue the computer before any Sheets match.
+  if (looksLikeSiteTrialExpiryComputerRequest(text)) {
+    track.setPath("site_trial_expiry_queue");
+    track.markDecision("queue_goal");
+    const ack = defaultQueueAck(text, agentName);
+    await pushReply(ack);
+    return finalize({
+      action: "queue_goal",
+      content: ack,
+      goal: text,
+      ack,
+      reason: "site_trial_expiry_computer",
+      timing: track.finish(),
+    });
+  }
+
   if (composioReady && matchComposioIntent(text)) {
     return finalize(
       await runDeterministicComposioIntentTurn({

@@ -227,6 +227,29 @@ export function looksLikeMemoryForgetRequest(text) {
 }
 
 /**
+ * Trial / expiry list checks on Vughy (or similar admin) — live computer, not Sheets/Composio.
+ * Why: “India trial expiry list” must open the cloud browser, not dump a Drive workbook.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeSiteTrialExpiryComputerRequest(text) {
+  const t = String(text || "")
+    .toLowerCase()
+    .trim();
+  if (!t) return false;
+  // User explicitly asked for a spreadsheet → leave to Sheets.
+  if (/\b(google\s*sheets?|spreadsheets?|gsheets?|from\s+(the\s+)?sheet)\b/.test(t)) {
+    return false;
+  }
+  if (!/\btrial\b/.test(t)) return false;
+  if (!/\bexpir\w*\b/.test(t) && !/\brenewal\b/.test(t)) return false;
+  if (/\b(list|check|show|open|get|see|find)\b/.test(t)) return true;
+  if (/\bindia\b/.test(t)) return true;
+  if (/\b(vughy|crm|admin|agency)\b/.test(t)) return true;
+  return false;
+}
+
+/**
  * True when the user wants a connected Composio app action (Gmail/Slack/…) — never Chromium.
  * Why: "Search my Gmail…" was force-queued by Jev as a live computer job.
  * @param {string} text
@@ -256,6 +279,11 @@ export function looksLikeComposioAppRequest(text) {
     return false;
   }
 
+  // Why: India / Vughy trial-expiry list is a live admin check — never Sheets/Composio.
+  if (looksLikeSiteTrialExpiryComputerRequest(raw)) {
+    return false;
+  }
+
   if (/\bcomposio\b/i.test(lower)) return true;
   // Why: recipient@gmail.com must not trip the Gmail-app detector.
   const noAddrs = lower.replace(/\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi, " ");
@@ -268,7 +296,7 @@ export function looksLikeComposioAppRequest(text) {
   }
   // Phrases that almost always mean API inbox/app, not “open the site”.
   if (
-    /\b(unread\s+(e-?mails?|mail|messages?)|(e-?mails?|mail|messages?)\s+unread|last\s+\d+\s+(e-?mails?|mails?|messages?)|summarize .{0,40}(inbox|e-?mails?)|list .{0,40}(inbox|e-?mails?)|move .{0,60}(e-?mails?|messages?).{0,40}labels?|(e-?mails?|messages?).{0,40}to .{0,40}labels?|do (it|that|this )?(for|to) all .{0,40}(e-?mails?|messages?)|all (the )?(e-?mails?|messages?) from|list .{0,40}spreadsheets?|recent .{0,40}spreadsheets?|check .{0,40}(trial|expir\w*) .{0,20}list|(trial|expir\w*) .{0,20}list|send (a )?slack|post (to|in) (slack|#))\b/i.test(
+    /\b(unread\s+(e-?mails?|mail|messages?)|(e-?mails?|mail|messages?)\s+unread|last\s+\d+\s+(e-?mails?|mails?|messages?)|summarize .{0,40}(inbox|e-?mails?)|list .{0,40}(inbox|e-?mails?)|move .{0,60}(e-?mails?|messages?).{0,40}labels?|(e-?mails?|messages?).{0,40}to .{0,40}labels?|do (it|that|this )?(for|to) all .{0,40}(e-?mails?|messages?)|all (the )?(e-?mails?|messages?) from|list .{0,40}spreadsheets?|recent .{0,40}spreadsheets?|send (a )?slack|post (to|in) (slack|#))\b/i.test(
       lower
     )
   ) {
@@ -536,6 +564,16 @@ export function classifyMessageIntent(text, opts = {}) {
       intent: "question",
       confidence: 0.96,
       reason: looksLikeVagueChatFollowup(cleaned) ? "vague_chat_followup" : "day_history_or_status",
+      text: cleaned,
+    };
+  }
+
+  // Why: India / Vughy trial-expiry list → live computer (skill), never Sheets Q&A.
+  if (looksLikeSiteTrialExpiryComputerRequest(cleaned)) {
+    return {
+      intent: "goal",
+      confidence: 0.94,
+      reason: "site_trial_expiry_list",
       text: cleaned,
     };
   }
