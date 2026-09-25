@@ -712,6 +712,13 @@ export const HELP = {
       "OAuth tokens stay in Composio. Configure per agent only — there is no Settings → Composio page."
     ),
   },
+  "agent.composio.autoApproveRisky": {
+    title: "Auto-approve send / write",
+    body: helpBody(
+      "When on, Composio send/write runs without a chat “confirm send” (useful for schedules while you’re away).",
+      "When off, Auto chat pauses risky actions until you reply yes. Scheduled Composio goals always skip confirm."
+    ),
+  },
   "agent.composio.apiKey": {
     title: "Composio API key",
     body: helpBody(

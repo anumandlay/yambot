@@ -79,6 +79,18 @@ describe("composio read-only vs send approval", () => {
     assert.equal(looksLikeComposioRiskyDeny("send the weekly report"), false);
   });
 
+  it("agentComposioAutoApprovesRisky respects agent setting", async () => {
+    const { agentComposioAutoApprovesRisky } = await import(
+      "../src/utils/composioApprovalGate.js"
+    );
+    assert.equal(agentComposioAutoApprovesRisky(null), false);
+    assert.equal(agentComposioAutoApprovesRisky({ composio: {} }), false);
+    assert.equal(
+      agentComposioAutoApprovesRisky({ composio: { autoApproveRisky: true } }),
+      true
+    );
+  });
+
   it("formats a clear pending reply", () => {
     const text = formatPendingComposioApprovalReply({
       label: "GMAIL_SEND_EMAIL",

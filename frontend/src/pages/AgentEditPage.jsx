@@ -118,6 +118,7 @@ const EMPTY = {
     apiKey: "",
     hasApiKey: false,
     toolkitSlugs: [],
+    autoApproveRisky: false,
   },
   /**
    * Desktop engine is always Playwright Chromium (CUA removed from product UI).
@@ -353,6 +354,7 @@ export function AgentEditPage() {
               toolkitSlugs: Array.isArray(a.composio?.toolkitSlugs)
                 ? a.composio.toolkitSlugs
                 : [],
+              autoApproveRisky: Boolean(a.composio?.autoApproveRisky),
             },
             computerEngine: "playwright",
           });
@@ -600,6 +602,7 @@ export function AgentEditPage() {
               toolkitSlugs: Array.isArray(form.composio?.toolkitSlugs)
                 ? form.composio.toolkitSlugs
                 : [],
+              autoApproveRisky: Boolean(form.composio?.autoApproveRisky),
             },
           }),
         });
@@ -773,6 +776,7 @@ export function AgentEditPage() {
         toolkitSlugs: Array.isArray(form.composio?.toolkitSlugs)
           ? form.composio.toolkitSlugs
           : [],
+        autoApproveRisky: Boolean(form.composio?.autoApproveRisky),
       },
     };
     try {
@@ -814,6 +818,7 @@ export function AgentEditPage() {
                 toolkitSlugs: Array.isArray(data.agent.composio.toolkitSlugs)
                   ? data.agent.composio.toolkitSlugs
                   : [],
+                autoApproveRisky: Boolean(data.agent.composio.autoApproveRisky),
               }
             : prev.composio,
         }));
@@ -1866,6 +1871,24 @@ export function AgentEditPage() {
               onChange={(e) => updateComposio("enabled", e.target.checked)}
             />
             <FieldLabel helpId="agent.composio.enabled">Enable Composio for this agent</FieldLabel>
+          </label>
+          <label className="flex items-start gap-2 text-sm text-teal-950">
+            <input
+              type="checkbox"
+              className="mt-1"
+              checked={Boolean(form.composio?.autoApproveRisky)}
+              onChange={(e) => updateComposio("autoApproveRisky", e.target.checked)}
+              disabled={!form.composio?.enabled}
+            />
+            <span>
+              <FieldLabel helpId="agent.composio.autoApproveRisky">
+                Auto-approve send / write (no chat confirm)
+              </FieldLabel>
+              <span className="mt-0.5 block text-xs text-teal-900/65">
+                Turn on for schedules when you’re away. When off, chat asks “confirm send” before
+                Gmail/Slack/Notion writes. Scheduled Composio jobs always skip confirm.
+              </span>
+            </span>
           </label>
           <div className="grid gap-3 sm:grid-cols-2">
             <div className="sm:col-span-2">

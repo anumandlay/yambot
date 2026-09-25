@@ -352,6 +352,11 @@ const agentSchema = new mongoose.Schema(
       toolkitSlugs: { type: [String], default: [] },
       /** Reused Composio session id for this agent’s owner. */
       sessionId: { type: String, default: "" },
+      /**
+       * When true, skip chat “confirm send” for Composio SEND/write (and hybrid follow-ups).
+       * Why: schedules and unattended runs cannot answer yes/cancel in chat.
+       */
+      autoApproveRisky: { type: Boolean, default: false },
     },
     /**
      * Execution target — always cloud (kept for legacy task snapshots).

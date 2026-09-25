@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:10] Composio: optional auto-approve for send/write + schedules
+
+- **Prompt Provided:** Keep confirm-before-send for risky actions, but add option to auto-approve so schedules run when away (or remove confirm if needed).
+- **Architectural Flow:** Agent setting `composio.autoApproveRisky` (UI checkbox). When on, Auto chat skips confirm for SEND/write and hybrid combo follow-ups. Schedules always set `composioExecuteApproved` so cron never waits for chat. Default remains confirm-on for interactive chat.
+- **Impacted Files:** Agent.js, composioService.js, composioApprovalGate.js, agents.js, chats.js, scheduler.js, worker.js, AgentEditPage.jsx, helpContent.js, hermesPhase2.test.js, PROMPT_LOG
+
 ## [2026-09-25 14:05] Composio tab: show Connected for working Gmail
 
 - **Prompt Provided:** Agent Composio tab still shows Connect for Gmail even though Gmail works in chat.

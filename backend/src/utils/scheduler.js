@@ -260,6 +260,8 @@ async function runScheduledComposioGoal(opts) {
     composioEnabled: true,
     composioToolkitSlugs: toolkitSlugs,
     composioSessionId: String(agent.composio?.sessionId || "").trim() || null,
+    // Why: cron cannot answer chat confirm — always unlock SEND/write for schedules.
+    composioExecuteApproved: true,
   };
 
   /** @type {object|null} */

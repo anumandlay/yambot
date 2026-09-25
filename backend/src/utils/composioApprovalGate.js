@@ -36,6 +36,15 @@ const RISKY_SPEC_IDS = new Set([
 const RISKY_PLAN_KINDS = new Set(["send_email", "send_slack"]);
 
 /**
+ * True when this agent should skip chat confirm for Composio SEND/write.
+ * @param {object|null|undefined} agent
+ * @returns {boolean}
+ */
+export function agentComposioAutoApprovesRisky(agent) {
+  return Boolean(agent?.composio?.autoApproveRisky);
+}
+
+/**
  * True when a Composio tool slug looks read-only (search / get / list / fetch).
  * @param {string} toolSlug
  * @returns {boolean}

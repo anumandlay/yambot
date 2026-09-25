@@ -749,6 +749,8 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
               task,
               success: true,
               summary,
+              // Why: auto-approve agents / unattended schedules must not wait for chat “yes”.
+              skipConfirm: Boolean(agentDoc?.composio?.autoApproveRisky),
             }).catch((err) => {
               console.warn("[worker] combo followup failed", err?.message || err);
               return null;

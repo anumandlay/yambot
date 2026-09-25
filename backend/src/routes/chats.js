@@ -57,6 +57,7 @@ import {
   resolvePendingComposioApprovalFromMessages,
   looksLikeComposioRiskyConfirm,
   looksLikeComposioRiskyDeny,
+  agentComposioAutoApprovesRisky,
 } from "../utils/composioApprovalGate.js";
 import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
@@ -1330,7 +1331,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             composioSessionId: String(agentDoc?.composio?.sessionId || "").trim() || null,
             pendingComposioApproval,
             composioExecuteApproved:
-              Boolean(pendingComposioApproval) && looksLikeComposioRiskyConfirm(questionText),
+              agentComposioAutoApprovesRisky(agentDoc) ||
+              (Boolean(pendingComposioApproval) &&
+                looksLikeComposioRiskyConfirm(questionText)),
             saveComposioSessionId: async (sessionId) => {
               const sid = String(sessionId || "").trim();
               if (!sid || !agentDoc) return;

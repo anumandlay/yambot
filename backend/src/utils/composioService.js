@@ -100,6 +100,7 @@ export function publicComposioSummary(agent) {
     hasApiKey,
     apiKeyMasked: hasApiKey ? "••••••••" : "",
     toolkitSlugs,
+    autoApproveRisky: Boolean(c.autoApproveRisky),
     configured: Boolean(c.enabled && hasApiKey && toolkitSlugs.length > 0),
   };
 }

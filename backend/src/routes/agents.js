@@ -426,6 +426,8 @@ function pickAgentFields(body, opts = {}) {
     const composio = {
       enabled: Boolean(c.enabled),
       toolkitSlugs,
+      // Why: schedules / unattended agents need send without sitting at chat confirm.
+      autoApproveRisky: Boolean(c.autoApproveRisky),
     };
     const key = String(c.apiKey || "").trim();
     if (key) {
@@ -2421,6 +2423,7 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
         toolkitSlugs: Array.isArray(src.composio?.toolkitSlugs)
           ? src.composio.toolkitSlugs.map((s) => normalizeToolkitSlug(s)).filter(Boolean)
           : [],
+        autoApproveRisky: Boolean(src.composio?.autoApproveRisky),
         // Why: new copy gets a fresh Composio session on first connect.
         sessionId: "",
       },
