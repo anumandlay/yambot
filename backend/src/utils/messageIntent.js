@@ -797,6 +797,13 @@ export async function answerChatQuestion(opts) {
     userContent: String(question || "").slice(0, 4000),
   });
   void chatContext;
+  const { buildLlmPromptDebugMeta } = await import("./hermesUntrusted.js");
+  const llmPrompt = buildLlmPromptDebugMeta({
+    mode: "qa",
+    model: String(creds?.llmModel || ""),
+    messages,
+    note: "Answer/Q&A completion (no Auto tools).",
+  });
   const reply = await llmChatCompletion({
     apiKey: creds.apiKey,
     baseUrl: creds.llmBaseUrl || "",
@@ -809,5 +816,10 @@ export async function answerChatQuestion(opts) {
     messages,
   });
   const cleaned = stripModelThinking(reply);
-  return cleaned || "I could not draft an answer. Try rephrasing, or switch to Computer mode to use the browser.";
+  return {
+    content:
+      cleaned ||
+      "I could not draft an answer. Try rephrasing, or switch to Computer mode to use the browser.",
+    llmPrompt,
+  };
 }

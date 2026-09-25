@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:55] Chat: Prompt peek bubble with exact LLM prompt per user message
+
+- **Prompt Provided:** for every message i send, small bubble right side with all the exact prompt sent to LLM
+- **Architectural Flow:** Auto/QA/queue turns capture the assembled LLM messages (redacted) via `buildLlmPromptDebugMeta`, stamp `meta.llmPrompt` on the user message (+ assistant). Chat UI shows a **Prompt** chip to the right of each user bubble; click opens copyable full system/history/user text. NDJSON `llm_prompt` updates the chip during stream.
+- **Impacted Files:** hermesUntrusted.js, chatAutoTurn.js, messageIntent.js, chats.js, api.js, ChatDetailPage.jsx, LlmPromptPeek.jsx, PROMPT_LOG
+
 ## [2026-09-25 14:50] Composio Connect: auto-poll status + cache tools
 
 - **Prompt Provided:** yes (auto-save tools after Connect without Refresh status)

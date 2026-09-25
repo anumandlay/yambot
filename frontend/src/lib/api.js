@@ -241,6 +241,7 @@ export async function apiNdjson(path, options = {}) {
  *   onRouting?: (info: object) => void,
  *   onTiming?: (timing: object) => void,
  *   onProgress?: (step: { id: string, label: string, pct: number }) => void,
+ *   onLlmPrompt?: (llmPrompt: object) => void,
  * }} [options]
  * @returns {Promise<object>} Final result event
  */
@@ -254,6 +255,7 @@ export async function apiChatMessageStream(path, options = {}) {
     onRouting,
     onTiming,
     onProgress,
+    onLlmPrompt,
   } = options;
   const h = new Headers();
   h.set("Content-Type", "application/json");
@@ -333,6 +335,8 @@ export async function apiChatMessageStream(path, options = {}) {
           if (typeof onDelta === "function") onDelta(String(obj.text));
         } else if (obj.type === "timing" && obj.timing) {
           if (typeof onTiming === "function") onTiming(obj.timing);
+        } else if (obj.type === "llm_prompt" && obj.llmPrompt) {
+          if (typeof onLlmPrompt === "function") onLlmPrompt(obj.llmPrompt);
         } else if (obj.type === "progress") {
           if (typeof onProgress === "function") {
             onProgress({

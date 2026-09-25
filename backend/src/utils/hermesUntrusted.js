@@ -1,7 +1,8 @@
 /**
  * @fileoverview Hermes Phase 3 — untrusted-content wrapping + Auto observability meta.
  * Purpose: Delimit tool/web/Mem0 payloads so models treat them as data, not instructions;
- * build a redacted lightweight meta blob for assistant messages / NDJSON.
+ * build a redacted lightweight meta blob for assistant messages / NDJSON; capture exact
+ * LLM prompts for the chat “Prompt” peek bubble.
  * Downstream: chatAutoTurn.js (tool results), mem0Service.js (retrieved facts), chats.js (meta).
  */
 
@@ -197,3 +198,83 @@ export function buildAutoObservabilityMeta(timing, opts = {}) {
   if (aborted) meta.aborted = true;
   return meta;
 }
+
+/**
+ * Serialize the exact messages sent to the LLM for the chat Prompt peek bubble.
+ * Why: users want to inspect system + history + user content for each turn (secrets redacted).
+ * @param {{
+ *   mode?: string,
+ *   model?: string,
+ *   messages?: object[],
+ *   toolNames?: string[],
+ *   note?: string,
+ *   maxChars?: number,
+ * }} opts
+ * @returns {{
+ *   mode: string,
+ *   model: string,
+ *   toolNames: string[],
+ *   note: string,
+ *   messageCount: number,
+ *   text: string,
+ *   capturedAt: string,
+ * }}
+ */
+export function buildLlmPromptDebugMeta(opts = {}) {
+  const mode = String(opts.mode || "unknown").slice(0, 40);
+  const model = String(opts.model || "").slice(0, 120);
+  const note = String(opts.note || "").slice(0, 400);
+  const maxChars = Math.min(200_000, Math.max(4_000, Number(opts.maxChars) || 100_000));
+  const toolNames = (Array.isArray(opts.toolNames) ? opts.toolNames : [])
+    .map((n) => String(n || "").trim())
+    .filter(Boolean)
+    .slice(0, 48);
+
+  /** @type {{ role: string, content: string }[]} */
+  const safeMsgs = [];
+  for (const m of Array.isArray(opts.messages) ? opts.messages : []) {
+    const role = String(m?.role || "unknown");
+    let content = m?.content;
+    if (content != null && typeof content !== "string") {
+      try {
+        content = JSON.stringify(content, null, 2);
+      } catch {
+        content = String(content);
+      }
+    }
+    safeMsgs.push({
+      role,
+      content: redactCredentialLeaks(String(content || "")),
+    });
+  }
+
+  /** @type {string[]} */
+  const parts = [];
+  if (mode) parts.push(`mode: ${mode}`);
+  if (model) parts.push(`model: ${model}`);
+  if (toolNames.length) parts.push(`tools: ${toolNames.join(", ")}`);
+  if (note) parts.push(`note: ${note}`);
+  if (parts.length) parts.push("");
+
+  for (const m of safeMsgs) {
+    parts.push(`========== ${m.role.toUpperCase()} ==========`);
+    parts.push(m.content || "(empty)");
+    parts.push("");
+  }
+
+  let text = parts.join("\n").trim();
+  if (text.length > maxChars) {
+    text = `${text.slice(0, maxChars)}\n\n…[truncated ${text.length - maxChars} chars]`;
+  }
+
+  return {
+    mode,
+    model,
+    toolNames,
+    note,
+    messageCount: safeMsgs.length,
+    text: text || "(no prompt captured)",
+    capturedAt: new Date().toISOString(),
+  };
+}
+

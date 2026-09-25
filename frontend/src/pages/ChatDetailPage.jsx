@@ -33,6 +33,7 @@ import { MessageStatusChips } from "../components/MessageStatusChips.jsx";
 import { StreamProgressBar } from "../components/StreamProgressBar.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
+import { LlmPromptPeek } from "../components/LlmPromptPeek.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 export function ChatDetailPage() {
@@ -808,6 +809,19 @@ export function ChatDetailPage() {
             console.debug("[yambot auto timing]", timing);
           }
         },
+        onLlmPrompt: (llmPrompt) => {
+          setMessages((prev) =>
+            prev.map((m) => {
+              const id = String(m?._id || "");
+              if (id !== streamId && id !== `${streamId}-user`) return m;
+              if (m.role !== "user") return m;
+              return {
+                ...m,
+                meta: { ...(m.meta || {}), llmPrompt },
+              };
+            })
+          );
+        },
         onRouting: (info) => {
           const ack =
             String(info?.ack || "").trim() ||
@@ -1523,15 +1537,15 @@ export function ChatDetailPage() {
                     : m.role === "assistant" || m.role === "agent"
                       ? agentDisplayName(m)
                       : m.role;
-                return (
+                const llmPrompt = m.meta?.llmPrompt || null;
+                const bubble = (
                   <article
-                    key={m._id}
-                    className={`max-w-[95%] break-words rounded-xl px-3 py-2 text-sm sm:max-w-[85%] ${
+                    className={`max-w-full break-words rounded-xl px-3 py-2 text-sm ${
                       m.role === "user"
-                        ? "self-end bg-teal-700 text-white"
+                        ? "bg-teal-700 text-white"
                         : m.role === "assistant" || m.role === "agent"
-                          ? "self-start bg-teal-50 text-teal-950"
-                          : "self-start bg-slate-50 text-slate-700"
+                          ? "bg-teal-50 text-teal-950"
+                          : "bg-slate-50 text-slate-700"
                     }`}
                   >
                     <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
@@ -1569,6 +1583,22 @@ export function ChatDetailPage() {
                       ) : null}
                     </>
                   </article>
+                );
+                if (m.role === "user") {
+                  return (
+                    <div
+                      key={m._id}
+                      className="flex max-w-[95%] items-start justify-end gap-1.5 self-end sm:max-w-[85%]"
+                    >
+                      {bubble}
+                      <LlmPromptPeek prompt={llmPrompt} />
+                    </div>
+                  );
+                }
+                return (
+                  <div key={m._id} className="max-w-[95%] self-start sm:max-w-[85%]">
+                    {bubble}
+                  </div>
                 );
               });
             })()}

@@ -55,12 +55,13 @@ import {
   formatAutoBudgetStopReply,
   isComposioReadOnlyTool,
 } from "./composioApprovalGate.js";
-import { wrapUntrustedToolResult, redactCredentialLeaks } from "./hermesUntrusted.js";
+import { wrapUntrustedToolResult, redactCredentialLeaks, buildLlmPromptDebugMeta } from "./hermesUntrusted.js";
 
 export {
   wrapUntrustedToolResult,
   buildAutoObservabilityMeta,
   redactCredentialLeaks,
+  buildLlmPromptDebugMeta,
 } from "./hermesUntrusted.js";
 
 export {
@@ -2319,6 +2320,12 @@ async function runChatAutoTurnTextFallback(opts, timing) {
     historyMessages,
     userContent: buildAutoUserContent(text, { jev }),
   });
+  const llmPrompt = buildLlmPromptDebugMeta({
+    mode: "text",
+    model: String(creds?.llmModel || ""),
+    messages,
+    note: "Text-protocol Auto fallback (REPLY / QUEUE_GOAL).",
+  });
 
   const llmOpts = {
     apiKey: creds.apiKey,
@@ -2388,7 +2395,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
   if (normalized.action === "reply" && normalized.content) {
     track.markFirstToken();
   }
-  return { ...normalized, timing: track.finish() };
+  return { ...normalized, timing: track.finish(), llmPrompt };
 }
 
 /**
@@ -2428,6 +2435,17 @@ export async function runChatAutoTurn(opts) {
   // Why: chats.js may start the tracker before prepare so prepMs lands in the chip.
   const track = timing || createAutoTimingTracker({ onProgress });
   const delta = track.wrapOnDelta(onDelta);
+  /** @type {ReturnType<typeof buildLlmPromptDebugMeta>|null} */
+  let llmPromptCapture = null;
+  /**
+   * @param {Parameters<typeof buildLlmPromptDebugMeta>[0]} partial
+   */
+  function captureLlmPrompt(partial) {
+    llmPromptCapture = buildLlmPromptDebugMeta({
+      model: String(creds?.llmModel || ""),
+      ...partial,
+    });
+  }
   /** @param {string} content */
   const pushReply = async (content) => {
     await emitReplyDelta(content, delta, { chunk: Boolean(stream) });
@@ -2458,6 +2476,19 @@ export async function runChatAutoTurn(opts) {
     }
     if (partial?.clearPendingComposioApproval) {
       out.clearPendingComposioApproval = true;
+    }
+    // Why: chat UI Prompt bubble — exact messages sent to the LLM (or a no-LLM note).
+    if (partial?.llmPrompt) {
+      out.llmPrompt = partial.llmPrompt;
+    } else if (llmPromptCapture) {
+      out.llmPrompt = llmPromptCapture;
+    } else {
+      out.llmPrompt = buildLlmPromptDebugMeta({
+        mode: "none",
+        model: String(creds?.llmModel || ""),
+        note: `No LLM call this turn (${out.reason || track.path || "short_circuit"}).`,
+        messages: [],
+      });
     }
     return out;
   };
@@ -2739,6 +2770,12 @@ export async function runChatAutoTurn(opts) {
     }),
     historyMessages: historyEarly,
     userContent: buildAutoUserContent(text),
+  });
+  captureLlmPrompt({
+    mode: "tools",
+    messages,
+    toolNames: AUTO_CHAT_TOOLS.map((t) => String(t?.function?.name || "")).filter(Boolean),
+    note: "First Auto tools-mode request (before tool rounds).",
   });
 
   try {
@@ -3679,6 +3716,13 @@ export async function streamChatQuestion(opts) {
   // chatContext kept for callers that still build email drafts from the text block
   void chatContext;
 
+  const llmPrompt = buildLlmPromptDebugMeta({
+    mode: "qa",
+    model: String(creds?.llmModel || ""),
+    messages,
+    note: "Answer/Q&A stream (no Auto tools).",
+  });
+
   const raw = await llmChatCompletionStream(
     {
       apiKey: creds.apiKey,
@@ -3693,5 +3737,8 @@ export async function streamChatQuestion(opts) {
     },
     onDelta
   );
-  return stripModelThinking(raw) || "I could not draft an answer.";
+  return {
+    content: stripModelThinking(raw) || "I could not draft an answer.",
+    llmPrompt,
+  };
 }

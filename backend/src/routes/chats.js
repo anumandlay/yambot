@@ -26,6 +26,26 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, autoTurnNeedsTools, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker, buildAutoObservabilityMeta } from "../utils/chatAutoTurn.js";
+
+/**
+ * Attach the exact LLM prompt snapshot onto the user message for the Prompt peek bubble.
+ * @param {object|null|undefined} userMessage
+ * @param {object|null|undefined} llmPrompt
+ */
+async function stampUserMessageLlmPrompt(userMessage, llmPrompt) {
+  if (!userMessage?._id || !llmPrompt || typeof llmPrompt !== "object") return;
+  try {
+    await Message.updateOne(
+      { _id: userMessage._id },
+      { $set: { "meta.llmPrompt": llmPrompt } }
+    );
+    const prev =
+      userMessage.meta && typeof userMessage.meta === "object" ? userMessage.meta : {};
+    userMessage.meta = { ...prev, llmPrompt };
+  } catch (err) {
+    console.warn("[chats] llmPrompt stamp failed:", err?.message || err);
+  }
+}
 import {
   enrichComputerGoalForCombo,
   buildComboFollowupForTask,
@@ -958,6 +978,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let autoAck = "";
     /** @type {object|null} */
     let autoTiming = null;
+    /** @type {object|null} */
+    let autoLlmPrompt = null;
     /** @type {string} */
     let autoTaskPlanId = "";
 
@@ -1391,17 +1413,20 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           text: goalText,
         };
         autoTiming = turn.timing || null;
+        autoLlmPrompt = turn.llmPrompt || null;
         autoTaskPlanId = String(turn.taskPlanId || "").trim();
         // Why: always show a short ack — model ack, or a clear default (never silent queue).
         autoAck =
           String(turn.ack || turn.content || "").trim() ||
           defaultQueueAck(goalText, agentDoc.name);
+        if (autoLlmPrompt) await stampUserMessageLlmPrompt(message, autoLlmPrompt);
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           const routeObs = buildAutoObservabilityMeta(autoTiming, {
             reason: turn.reason,
           });
           if (routeObs) writeNdjson({ type: "auto_meta", ...routeObs });
+          if (autoLlmPrompt) writeNdjson({ type: "llm_prompt", llmPrompt: autoLlmPrompt });
           writeNdjson({
             type: "routing",
             action: "queue_goal",
@@ -1480,6 +1505,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         const autoObs = buildAutoObservabilityMeta(autoTiming, {
           reason: turn.reason,
         });
+        const llmPrompt = turn.llmPrompt || null;
+        if (llmPrompt) await stampUserMessageLlmPrompt(message, llmPrompt);
         const assistantMessage = await Message.create({
           chat: chat._id,
           role: "assistant",
@@ -1496,6 +1523,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hermesTiming: autoTiming || undefined,
             // Why: Hermes Phase 3 — lightweight Auto observability (redacted; no secrets).
             ...(autoObs || {}),
+            llmPrompt: llmPrompt || undefined,
             rememberSaved: rememberMeta || undefined,
             rememberForgotten: forgetMeta || undefined,
             sessionScratchSaved: scratchMeta || undefined,
@@ -1542,6 +1570,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           if (autoObs) writeNdjson({ type: "auto_meta", ...autoObs });
+          if (llmPrompt) writeNdjson({ type: "llm_prompt", llmPrompt });
           writeNdjson({
             type: "result",
             ok: true,
@@ -1642,7 +1671,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             userId: String(req.userId),
           });
           if (wantStream) {
-            assistantContent = await streamChatQuestion({
+            const qaStream = await streamChatQuestion({
               question: questionText,
               snapshot: prepared.snapshot,
               creds: qaCreds,
@@ -1651,8 +1680,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
               signal: clientAbort.signal,
             });
+            assistantContent =
+              typeof qaStream === "string" ? qaStream : String(qaStream?.content || "");
+            if (qaStream?.llmPrompt) {
+              await stampUserMessageLlmPrompt(message, qaStream.llmPrompt);
+              message._llmPrompt = qaStream.llmPrompt;
+            }
           } else {
-            assistantContent = await answerChatQuestion({
+            const qaReply = await answerChatQuestion({
               question: questionText,
               snapshot: prepared.snapshot,
               creds: qaCreds,
@@ -1660,6 +1695,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               historyMessages: prepared.historyMessages || [],
               signal: clientAbort.signal,
             });
+            assistantContent =
+              typeof qaReply === "string" ? qaReply : String(qaReply?.content || "");
+            if (qaReply?.llmPrompt) {
+              await stampUserMessageLlmPrompt(message, qaReply.llmPrompt);
+              message._llmPrompt = qaReply.llmPrompt;
+            }
           }
         });
         } finally {
@@ -1749,6 +1790,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentId: String(agentDoc._id),
           agentName: agentDoc.name,
           answeredWhileBusy: Boolean(busyRun),
+          llmPrompt: message._llmPrompt || message.meta?.llmPrompt || undefined,
           rememberSaved: rememberMeta || undefined,
           rememberForgotten: forgetMeta || undefined,
           sessionScratchSaved: scratchMeta || undefined,
@@ -1788,6 +1830,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       }
 
       if (wantStream) {
+        const qp = message._llmPrompt || message.meta?.llmPrompt;
+        if (qp) writeNdjson({ type: "llm_prompt", llmPrompt: qp });
         writeNdjson({
           type: "result",
           ok: true,
@@ -1885,6 +1929,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let autoAckMessage = null;
     if (autoAck) {
       const ackObs = buildAutoObservabilityMeta(autoTiming);
+      const llmPrompt = autoLlmPrompt || null;
+      if (llmPrompt) await stampUserMessageLlmPrompt(message, llmPrompt);
       autoAckMessage = await Message.create({
         chat: chat._id,
         role: "assistant",
@@ -1897,6 +1943,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentId: String(agentDoc._id),
           agentName: agentDoc.name,
           hermesTiming: autoTiming || undefined,
+          llmPrompt: llmPrompt || undefined,
           ...(ackObs || {}),
         },
       });
