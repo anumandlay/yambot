@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 10:35] Clearer LLM failure: OpenRouter 429 rate limit
+
+- **Prompt Provided:** “how are you” on General agent → Provider returned error / fix LLM settings.
+- **Architectural Flow:** VPS logs: HTTP 429 on `qwen/qwen3.7-flash` (OpenRouter). Surface status + OpenRouter rate-limit hint via `formatLlmTurnFailureMessage` instead of opaque provider text.
+- **Impacted Files:** llmTest.js, llmChat.js, chats.js, PROMPT_LOG
+
 ## [2026-09-24 17:55] Wrong-agent water change must not ask which app
 
 - **Prompt Provided:** water schedule on agent A; on agent B “change drink water…” → Google Calendar / which app clarify.

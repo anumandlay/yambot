@@ -35,6 +35,7 @@ import {
 } from "../utils/chatRememberPersist.js";
 import { formatPeerAgentsBlock, sendAgentMessage, shouldAnswerPeerCheaply, maybeWakeWaitingPeerParent } from "../utils/agentMessageBus.js";
 import { resolveLlmCredentialsForAgent } from "../utils/llmCredentials.js";
+import { formatLlmTurnFailureMessage } from "../utils/llmTest.js";
 import {
   decryptAgentComposioApiKey,
   expandComposioToolkitSlugs,
@@ -1261,9 +1262,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         answerError = err;
         turn = {
           action: "reply",
-          content:
-            `I could not complete that turn. ${String(err?.message || err)}\n\n` +
-            `Try Computer mode for a browser goal, or fix LLM settings.`,
+          content: formatLlmTurnFailureMessage(err, {
+            model: String(qaCreds?.llmModel || "").trim(),
+            baseUrl: String(qaCreds?.llmBaseUrl || "").trim(),
+          }),
           goal: "",
           ack: "",
           reason: "auto_turn_error",
@@ -1537,9 +1539,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         }
       } catch (err) {
         answerError = err;
-        assistantContent =
-          `I treated that as a question (no computer). ${String(err?.message || err)}\n\n` +
-          `Send the same request with /run … to use the browser, or fix LLM settings.`;
+        assistantContent = formatLlmTurnFailureMessage(err, {
+          model: String(qaCreds?.llmModel || "").trim(),
+          baseUrl: String(qaCreds?.llmBaseUrl || "").trim(),
+        }).replace(
+          /^I could not complete that turn\./,
+          "I treated that as a question (no computer)."
+        );
         if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
       }
 

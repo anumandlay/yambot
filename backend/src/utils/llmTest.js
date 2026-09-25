@@ -103,9 +103,45 @@ export function hintForLlmStatus(status, bodyText, baseUrl = "") {
   }
   if (status === 401 || status === 403) return "Check your API key (and model access).";
   if (status === 404) return "Check the base URL ends with /v1 and the model name.";
-  if (status === 429) return "Rate limited or out of quota.";
+  if (status === 429) {
+    if (/openrouter\.ai/i.test(String(baseUrl || ""))) {
+      return "OpenRouter rate-limited this model (429). Wait a minute, switch model/profile on the agent, or raise OpenRouter limits.";
+    }
+    return "Rate limited or out of quota (HTTP 429). Wait and retry, or switch LLM profile/model.";
+  }
   if (status >= 500) return "Provider server error. Retry shortly.";
   return "Verify API key, base URL, and model.";
+}
+
+/**
+ * User-facing one-liner when Auto chat fails on the LLM call.
+ * Why: OpenRouter often returns opaque “Provider returned error” — include HTTP status + hint.
+ * @param {any} err
+ * @param {{ model?: string, baseUrl?: string }} [ctx]
+ * @returns {string}
+ */
+export function formatLlmTurnFailureMessage(err, ctx = {}) {
+  const status = Number(err?.status) || 0;
+  const raw = String(err?.message || err || "LLM request failed").trim();
+  const model = String(ctx.model || err?.model || "").trim();
+  const baseUrl = String(ctx.baseUrl || err?.baseUrl || "").trim();
+  const hint =
+    String(err?.hint || "").trim() ||
+    (status ? hintForLlmStatus(status, String(err?.bodyText || ""), baseUrl) : "");
+
+  const opaque = !raw || /^provider returned error$/i.test(raw);
+  let head = opaque && status
+    ? `LLM request failed (HTTP ${status}${model ? `, model ${model}` : ""})`
+    : opaque
+      ? `LLM request failed${model ? ` (${model})` : ""}`
+      : status && !raw.includes(String(status))
+        ? `${raw} (HTTP ${status}${model ? `, ${model}` : ""})`
+        : raw;
+
+  const lines = [`I could not complete that turn. ${head}`];
+  if (hint) lines.push(hint);
+  lines.push("Open Agents → Edit → LLM profile, or Settings → LLM, then try again.");
+  return lines.join("\n\n");
 }
 
 /**

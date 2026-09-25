@@ -169,9 +169,11 @@ export async function llmChatCompletionMessage(opts) {
       );
       const err = Object.assign(new Error(detail), {
         title: `LLM request failed (${response.status})`,
-        hint: hintForLlmStatus(response.status, text),
+        hint: hintForLlmStatus(response.status, text, root),
         status: response.status,
         bodyText: text.slice(0, 500),
+        model,
+        baseUrl: root,
       });
       throw err;
     }
@@ -298,7 +300,11 @@ export async function llmChatCompletionStream(opts, onDelta) {
         extractLlmApiMessage(errText) || errText.slice(0, 300) || `HTTP ${response.status}`;
       throw Object.assign(new Error(detail), {
         title: `LLM request failed (${response.status})`,
-        hint: hintForLlmStatus(response.status, errText),
+        hint: hintForLlmStatus(response.status, errText, root),
+        status: response.status,
+        bodyText: errText.slice(0, 500),
+        model,
+        baseUrl: root,
       });
     }
 
