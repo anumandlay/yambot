@@ -88,8 +88,18 @@ export function ChatDetailPage() {
   const hasOlderRef = useRef(false);
   /** Why: overlapping 2.5s polls stack and hit the 20s client abort → false "Request timed out" toasts. */
   const loadInFlightRef = useRef(false);
-  /** Why: setBusy is async — a second Enter/click can fire another POST before re-render. */
+  /**
+   * Why: setBusy is async — a second Enter/click can fire another POST before re-render.
+   * Cleared as soon as the optimistic stream bubble is up (see unlockSend), not when the LLM finishes.
+   */
   const sendInFlightRef = useRef(false);
+  /** Why: monotonic token so an older send’s finally cannot clear a newer send’s gate. */
+  const sendSeqRef = useRef(0);
+  /**
+   * Why: while Auto NDJSON is open, silent polls must not merge durable rows next to stream-* bubbles.
+   * Count (not bool) so overlapping streams stay blocked until the last one ends.
+   */
+  const streamPollBlockRef = useRef(0);
 
   /**
    * True for durable Mongo message ids (not optimistic stream rows).
@@ -174,8 +184,8 @@ export function ChatDetailPage() {
    */
   const load = useCallback(async (opts = {}) => {
     const silent = Boolean(opts.silent);
-    // Why: mid-send polls merge real DB rows next to optimistic stream-* rows → duplicate thread.
-    if (silent && sendInFlightRef.current) return;
+    // Why: mid-send / mid-stream polls merge durable rows next to optimistic stream-* → duplicate thread.
+    if (silent && (sendInFlightRef.current || streamPollBlockRef.current > 0)) return;
     if (loadInFlightRef.current) return;
     loadInFlightRef.current = true;
     try {
@@ -188,8 +198,8 @@ export function ChatDetailPage() {
         ? `?limit=${MESSAGE_PAGE}&after=${encodeURIComponent(newestId)}`
         : `?limit=${MESSAGE_PAGE}`;
       const data = await api(`/api/chats/${chatId}${qs}`);
-      // Why: a send may have started while this request was in flight — don't clobber the bubble.
-      if (silent && sendInFlightRef.current) return;
+      // Why: a send/stream may have started while this request was in flight — don't clobber the bubble.
+      if (silent && (sendInFlightRef.current || streamPollBlockRef.current > 0)) return;
       setChat(data.chat);
       setIsCommon(Boolean(data.isCommon));
       if (newestId) {
@@ -593,7 +603,15 @@ export function ChatDetailPage() {
     const content = input.trim();
     if (!content) return;
     if (sendInFlightRef.current || busy) return;
+    const sendSeq = ++sendSeqRef.current;
     sendInFlightRef.current = true;
+    /** @returns {void} */
+    const releaseSendGate = () => {
+      // Why: an older stream’s finally must not unlock/clear a newer in-flight send.
+      if (sendSeqRef.current !== sendSeq) return;
+      sendInFlightRef.current = false;
+      setBusy(false);
+    };
 
     // Why: waiting_user still uses the dedicated answer endpoint (blocks the run until answered).
     if (waitingTask) {
@@ -611,8 +629,7 @@ export function ChatDetailPage() {
       } catch (err) {
         setError(err);
       } finally {
-        sendInFlightRef.current = false;
-        setBusy(false);
+        releaseSendGate();
       }
       return;
     }
@@ -635,8 +652,7 @@ export function ChatDetailPage() {
       } catch (err) {
         setError(err);
       } finally {
-        sendInFlightRef.current = false;
-        setBusy(false);
+        releaseSendGate();
       }
       return;
     }
@@ -646,7 +662,7 @@ export function ChatDetailPage() {
     const slash = parseSkillSlash(afterMention);
     const goalAfterMention = slash ? slash.goal : afterMention;
     if (mention?.matched && !goalAfterMention && !slash) {
-      sendInFlightRef.current = false;
+      releaseSendGate();
       setError({
         title: "Add a goal",
         detail: "Type instructions after the @mention.",
@@ -659,7 +675,7 @@ export function ChatDetailPage() {
     setError(null);
     stickToBottomRef.current = true;
     try {
-      await postGoalMessage(content);
+      await postGoalMessage(content, { unlockSend: releaseSendGate });
     } catch (err) {
       if (err?.status === 409 && err?.needsConfirm && err?.suggestion) {
         setPendingRoute({ content, suggestion: err.suggestion });
@@ -668,8 +684,7 @@ export function ChatDetailPage() {
         setError(err);
       }
     } finally {
-      sendInFlightRef.current = false;
-      setBusy(false);
+      releaseSendGate();
     }
   }
 
@@ -694,7 +709,13 @@ export function ChatDetailPage() {
 
   /**
    * @param {string} content
-   * @param {{ confirmRoute?: boolean, agentId?: string, forceAsk?: boolean, forceGoal?: boolean }} [opts]
+   * @param {{
+   *   confirmRoute?: boolean,
+   *   agentId?: string,
+   *   forceAsk?: boolean,
+   *   forceGoal?: boolean,
+   *   unlockSend?: () => void,
+   * }} [opts]
    */
   async function postGoalMessage(content, opts = {}) {
     const mention = resolveAgentMention(content, mentionAgents);
@@ -753,8 +774,14 @@ export function ChatDetailPage() {
       },
     ]);
     scrollThreadToBottom(true);
-    // Why: unlock Send as soon as the optimistic bubble is up — don’t wait for the full LLM stream.
-    setBusy(false);
+    // Why: block silent polls for this stream, but unlock Send immediately (button looked enabled while
+    // sendInFlightRef stayed true for the whole LLM RTT → clicks silently no-op’d).
+    streamPollBlockRef.current += 1;
+    if (typeof opts.unlockSend === "function") opts.unlockSend();
+    else {
+      sendInFlightRef.current = false;
+      setBusy(false);
+    }
 
     try {
       const result = await apiChatMessageStream(`/api/chats/${chatId}/messages`, {
@@ -844,24 +871,23 @@ export function ChatDetailPage() {
         },
       });
 
-      // Why: swap optimistic stream rows for durable ids — never leave stream-* in the thread.
+      // Why: swap THIS stream’s optimistic rows for durable ids — leave other in-flight stream-* alone.
       const realUser = result?.message;
       const realAssistant = result?.assistantMessage;
       const realSystem = result?.systemMessage;
       setMessages((prev) => {
-        const withoutOptimistic = prev.filter((m) => {
+        const withoutMine = prev.filter((m) => {
           const id = String(m?._id || "");
-          return !id.startsWith("stream-") && !id.includes("-pending-");
+          return id !== `${streamId}-user` && id !== `${streamId}-assistant`;
         });
-        const next = [...withoutOptimistic];
+        const next = [...withoutMine];
         if (realUser) next.push(realUser);
         if (realAssistant) next.push(realAssistant);
         if (realSystem) next.push(realSystem);
         return mergeMessages(next, []);
       });
     } finally {
-      // Clear send lock before silent load so the refresh is allowed.
-      sendInFlightRef.current = false;
+      streamPollBlockRef.current = Math.max(0, streamPollBlockRef.current - 1);
       void load({ silent: true });
       scrollThreadToBottom(true);
     }
@@ -870,20 +896,27 @@ export function ChatDetailPage() {
   async function confirmPendingRoute() {
     if (!pendingRoute) return;
     if (sendInFlightRef.current || busy) return;
+    const sendSeq = ++sendSeqRef.current;
     sendInFlightRef.current = true;
     setBusy(true);
     setError(null);
+    /** @returns {void} */
+    const releaseSendGate = () => {
+      if (sendSeqRef.current !== sendSeq) return;
+      sendInFlightRef.current = false;
+      setBusy(false);
+    };
     try {
       await postGoalMessage(pendingRoute.content, {
         confirmRoute: true,
         agentId: pendingRoute.suggestion.agentId,
+        unlockSend: releaseSendGate,
       });
       setDispatchAgentId(String(pendingRoute.suggestion.agentId));
     } catch (err) {
       setError(err);
     } finally {
-      sendInFlightRef.current = false;
-      setBusy(false);
+      releaseSendGate();
     }
   }
 

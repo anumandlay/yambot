@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 18:55] Chat: Send button silent no-op during Auto stream
+
+- **Prompt Provided:** Sometimes send button not working
+- **Architectural Flow:** Button was unlocked (`busy=false`) after the optimistic bubble, but `sendInFlightRef` stayed true until the full NDJSON stream finished — clicks returned early with no feedback. Unlock the send gate with the button; use a separate stream poll-block count for silent refresh; seq-token so older finally can’t clear a newer send.
+- **Impacted Files:** ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 17:10] Worker: cut ~15s step latency (smaller prompts + fast mode)
 
 - **Prompt Provided:** solve it (why 15 seconds between steps)
