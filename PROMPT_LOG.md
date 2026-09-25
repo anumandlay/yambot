@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 11:15] Agent memory: curated + Mem0 as one block each
+
+- **Prompt Provided:** `/agents/…/memory` — curated memory and Mem0 agent facts should show all in one block, not many chips.
+- **Architectural Flow:** AgentMemoryPage joins filtered curated entries and Mem0 facts into single scrollable `pre` blocks (blank-line separated). Per-entry Remove chips removed; Clear curated / Clear Mem0 + Add curated remain.
+- **Impacted Files:** AgentMemoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 10:40] Agent editor sections as same-page tabs
 
 - **Prompt Provided:** `/agents/6ab060232c2616e2dcd84e5d` — instead of all sections on one page, divide into tabs on the same page.

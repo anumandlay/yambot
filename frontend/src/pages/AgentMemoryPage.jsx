@@ -1,6 +1,7 @@
 /**
  * @fileoverview Agent memory viewer — curated MEMORY, Mem0 facts, day history, notes, credentials.
  * Purpose: Inspect Mongo curated notes plus Mem0/Qdrant agent facts from chat “remember”.
+ * UI: curated + Mem0 render as one text block each (not per-entry chips).
  * Downstream: GET/POST `/api/agents/:id/memory`, curated-memory, curated-memory/mem0, credentials.
  */
 
@@ -169,9 +170,27 @@ export function AgentMemoryPage() {
     () => curatedItems.filter((item) => textMatches(filter, item.content)),
     [curatedItems, filter]
   );
+  /** One readable block for the curated section (no per-entry chips). */
+  const curatedBlockText = useMemo(
+    () =>
+      filteredCurated
+        .map((item) => String(item?.content || "").trim())
+        .filter(Boolean)
+        .join("\n\n"),
+    [filteredCurated]
+  );
   const filteredMem0 = useMemo(
     () => mem0Items.filter((item) => textMatches(filter, item.content)),
     [mem0Items, filter]
+  );
+  /** One block for Mem0 agent facts (no per-fact chips). */
+  const mem0BlockText = useMemo(
+    () =>
+      filteredMem0
+        .map((item) => String(item?.content || "").trim())
+        .filter(Boolean)
+        .join("\n\n"),
+    [filteredMem0]
   );
   const filteredCreds = useMemo(
     () => credentials.filter((c) => credMatches(filter, c)),
@@ -316,33 +335,6 @@ export function AgentMemoryPage() {
     }
   }
 
-  /**
-   * @param {string} entry
-   */
-  async function onRemoveCurated(entry) {
-    if (!agentId || !window.confirm("Remove this curated MEMORY entry?")) return;
-    setCuratedBusy(true);
-    try {
-      const data = await api(`/api/agents/${agentId}/curated-memory`, {
-        method: "POST",
-        body: JSON.stringify({ action: "remove", oldText: entry.slice(0, 80) }),
-      });
-      setCuratedEntries(data.entries || []);
-      setCuratedItems(
-        Array.isArray(data.items)
-          ? data.items
-          : (data.entries || []).map((content) => ({ content: String(content), at: null }))
-      );
-      setCuratedUsage(data.usage || "");
-      setCuratedUpdatedAt(data.updatedAt || new Date().toISOString());
-      setOkMsg(data.message || "Entry removed.");
-    } catch (err) {
-      setError(err);
-    } finally {
-      setCuratedBusy(false);
-    }
-  }
-
   async function clearCurated() {
     if (!agentId || !window.confirm("Clear this agent's curated MEMORY store?")) return;
     setCuratedBusy(true);
@@ -353,28 +345,6 @@ export function AgentMemoryPage() {
       setCuratedUsage("0% — 0/20,000 chars");
       setCuratedUpdatedAt(new Date().toISOString());
       setOkMsg("Curated MEMORY cleared.");
-    } catch (err) {
-      setError(err);
-    } finally {
-      setCuratedBusy(false);
-    }
-  }
-
-  /**
-   * @param {string} id
-   */
-  async function onRemoveMem0(id) {
-    if (!agentId || !window.confirm("Remove this Mem0 agent fact?")) return;
-    setCuratedBusy(true);
-    setError(null);
-    setOkMsg("");
-    try {
-      const data = await api(
-        `/api/agents/${agentId}/curated-memory/mem0/${encodeURIComponent(id)}`,
-        { method: "DELETE" }
-      );
-      setMem0Items(Array.isArray(data.mem0Items) ? data.mem0Items : []);
-      setOkMsg(data.message || "Mem0 entry removed.");
     } catch (err) {
       setError(err);
     } finally {
@@ -519,46 +489,21 @@ export function AgentMemoryPage() {
               Agent notes / env lessons. Agents can also write via the memory tool. Usage:{" "}
               {curatedUsage || "—"}
               {curatedUpdatedAt ? ` · last changed ${fmtWhen(curatedUpdatedAt)}` : ""}
+              {filteredCurated.length > 0
+                ? ` · ${filteredCurated.length} entr${filteredCurated.length === 1 ? "y" : "ies"} shown as one block`
+                : ""}
             </p>
-            <ul className="mb-3 space-y-2">
-              {filteredCurated.length === 0 ? (
-                <li className="text-sm text-teal-900/60">
-                  {curatedItems.length === 0
-                    ? "No curated entries yet."
-                    : "No curated entries match this search."}
-                </li>
-              ) : (
-                filteredCurated.map((item) => (
-                  <li
-                    key={`${item.content.slice(0, 48)}-${item.at || "legacy"}`}
-                    className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-teal-50 bg-teal-50/40 px-3 py-2 text-sm"
-                  >
-                    <div className="min-w-0 flex-1">
-                      {item.at ? (
-                        <div className="text-[0.7rem] font-semibold text-teal-800/60">
-                          Added {fmtWhen(item.at)}
-                        </div>
-                      ) : (
-                        <div className="text-[0.7rem] font-semibold text-teal-800/45">
-                          Added (before timestamps)
-                        </div>
-                      )}
-                      <span className="mt-0.5 block whitespace-pre-wrap text-teal-950">
-                        {item.content}
-                      </span>
-                    </div>
-                    <button
-                      type="button"
-                      disabled={curatedBusy}
-                      onClick={() => onRemoveCurated(item.content)}
-                      className="min-h-9 shrink-0 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-800"
-                    >
-                      Remove
-                    </button>
-                  </li>
-                ))
-              )}
-            </ul>
+            {filteredCurated.length === 0 ? (
+              <p className="mb-3 text-sm text-teal-900/60">
+                {curatedItems.length === 0
+                  ? "No curated entries yet."
+                  : "No curated entries match this search."}
+              </p>
+            ) : (
+              <pre className="mb-3 max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-xl border border-teal-100 bg-teal-50/40 px-3 py-3 text-sm leading-relaxed text-teal-950">
+                {curatedBlockText}
+              </pre>
+            )}
             <form onSubmit={onAddCurated} className="flex flex-col gap-2">
               <FieldLabel htmlFor="curated-draft">Add curated entry</FieldLabel>
               <textarea
@@ -620,42 +565,17 @@ export function AgentMemoryPage() {
               <p className="text-sm text-teal-900/60">Mem0 is disabled on this server.</p>
             ) : (
               <>
-                <ul className="mb-3 space-y-2">
-                  {filteredMem0.length === 0 ? (
-                    <li className="text-sm text-teal-900/60">
-                      {mem0Items.length === 0
-                        ? "No Mem0 agent facts yet — say “remember …” in chat to save one, or check Settings → Memory for USER prefs."
-                        : "No Mem0 facts match this search."}
-                    </li>
-                  ) : (
-                    filteredMem0.map((item) => (
-                      <li
-                        key={item.id}
-                        className="flex flex-wrap items-start justify-between gap-2 rounded-xl border border-amber-100 bg-white px-3 py-2 text-sm"
-                      >
-                        <div className="min-w-0 flex-1">
-                          {item.createdAt ? (
-                            <div className="text-[0.7rem] font-semibold text-amber-900/60">
-                              {fmtWhen(item.createdAt)}
-                              {item.source ? ` · ${item.source}` : ""}
-                            </div>
-                          ) : null}
-                          <span className="mt-0.5 block whitespace-pre-wrap text-teal-950">
-                            {item.content}
-                          </span>
-                        </div>
-                        <button
-                          type="button"
-                          disabled={curatedBusy}
-                          onClick={() => onRemoveMem0(item.id)}
-                          className="min-h-9 shrink-0 rounded-lg border border-rose-200 bg-white px-2 text-xs font-semibold text-rose-800"
-                        >
-                          Remove
-                        </button>
-                      </li>
-                    ))
-                  )}
-                </ul>
+                {filteredMem0.length === 0 ? (
+                  <p className="mb-3 text-sm text-teal-900/60">
+                    {mem0Items.length === 0
+                      ? "No Mem0 agent facts yet — say “remember …” in chat to save one, or check Settings → Memory for USER prefs."
+                      : "No Mem0 facts match this search."}
+                  </p>
+                ) : (
+                  <pre className="mb-3 max-h-[28rem] overflow-auto whitespace-pre-wrap rounded-xl border border-amber-100 bg-white px-3 py-3 text-sm leading-relaxed text-teal-950">
+                    {mem0BlockText}
+                  </pre>
+                )}
                 <button
                   type="button"
                   disabled={curatedBusy || mem0Items.length === 0}
