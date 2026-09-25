@@ -1565,8 +1565,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hermesTiming: autoTiming || undefined,
           },
         });
+        let contextSummaryMessage = null;
         if (qaCreds?.apiKey) {
-          void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
+          try {
+            const folded = await refreshChatContextIfNeeded(chat, qaCreds);
+            contextSummaryMessage = folded?.summaryMessage || null;
+          } catch {
+            /* ignore */
+          }
         }
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
@@ -1579,6 +1585,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             message,
             assistantMessage,
             systemMessage,
+            contextSummaryMessage,
             task: null,
             timing: autoTiming,
           });
@@ -1591,6 +1598,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           message,
           assistantMessage,
           systemMessage,
+          contextSummaryMessage,
           task: null,
           timing: autoTiming,
         });
@@ -1827,8 +1835,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         },
       });
 
+      let contextSummaryMessage = null;
       if (qaCreds?.apiKey) {
-        void refreshChatContextIfNeeded(chat, qaCreds).catch(() => {});
+        try {
+          const folded = await refreshChatContextIfNeeded(chat, qaCreds);
+          contextSummaryMessage = folded?.summaryMessage || null;
+        } catch {
+          /* ignore */
+        }
       }
 
       if (wantStream) {
@@ -1841,6 +1855,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           message,
           assistantMessage,
           systemMessage,
+          contextSummaryMessage,
           task: null,
         });
         res.end();
@@ -1853,6 +1868,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         message,
         assistantMessage,
         systemMessage,
+        contextSummaryMessage,
         task: null,
       });
       return;

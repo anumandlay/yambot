@@ -1,7 +1,7 @@
 /**
  * @fileoverview Per-chat conversation context — remember until the chat is deleted.
- * Purpose: Pack summary + recent turns into LLM prompts; compress older turns when the
- * thread grows. Budgets scale to the agent’s LLM context window (settings / profile).
+ * Purpose: Pack summary + recent turns into LLM prompts; fold older turns when the
+ * thread reaches ~50% of the model context window, and show that summary in the chat UI.
  * Downstream: chats routes (Q&A + Task.agentSnapshot); worker formatAgentSnapshot.
  */
 
@@ -19,6 +19,9 @@ export const CHAT_CONTEXT_RECENT = 16;
 export const CHAT_CONTEXT_SUMMARIZE_MIN = 24;
 export const CHAT_CONTEXT_SUMMARIZE_CHARS = 14_000;
 export const CHAT_CONTEXT_SUMMARY_MAX = 3_500;
+
+/** Rough chars-per-token for fill estimates (OpenAI-style heuristic). */
+const CHARS_PER_TOKEN = 4;
 
 /**
  * Compress noisy tool/observe payloads for chat packing.
@@ -83,6 +86,8 @@ export function isContextEligibleMessage(m) {
   if (type === "llm_request" || type === "llm_response") return false;
   const kind = m.meta?.kind;
   if (kind === "intent_question" || kind === "superseded") return false;
+  // Why: the visible summary bubble is already folded into chat.contextSummary — don't re-fold it.
+  if (kind === "context_summary") return false;
   if (m.role === "user" || m.role === "assistant" || m.role === "agent") return true;
   if (m.role === "system") {
     // Why: keep short operational notes; drop long dumps.
@@ -300,33 +305,96 @@ function totalChars(messages) {
 }
 
 /**
- * When the thread is large, compress older turns into chat.contextSummary.
- * Why: full transcript would blow the LLM context; summary + recent tail keeps memory.
- * Budgets come from the agent’s LLM contextTokens / model.
+ * Estimate how many tokens the conversation currently occupies (summary + eligible turns).
+ * @param {object} chat
+ * @param {object[]} eligible
+ * @returns {number}
+ */
+export function estimateChatFillTokens(chat, eligible) {
+  const summaryLen = String(chat?.contextSummary || "").length;
+  const bodyChars = totalChars(eligible) + summaryLen;
+  return Math.max(0, Math.ceil(bodyChars / CHARS_PER_TOKEN));
+}
+
+/**
+ * Post a visible chat bubble so the operator sees when context was folded.
+ * @param {object} chat
+ * @param {{ summary: string, summarizedThrough: string, estimatedTokens: number, contextTokens: number }} opts
+ * @returns {Promise<object|null>}
+ */
+async function postContextSummaryMessage(chat, opts) {
+  const through = String(opts.summarizedThrough || "").trim();
+  const summary = String(opts.summary || "").trim();
+  if (!chat?._id || !through || !summary) return null;
+  try {
+    const existing = await Message.findOne({
+      chat: chat._id,
+      "meta.kind": "context_summary",
+      "meta.summarizedThrough": through,
+    })
+      .select("_id")
+      .lean();
+    if (existing) return null;
+
+    const pct = opts.contextTokens
+      ? Math.min(100, Math.round((opts.estimatedTokens / opts.contextTokens) * 100))
+      : 50;
+    const content = [
+      `Chat summarized (~${pct}% of context window).`,
+      "",
+      summary,
+    ].join("\n");
+
+    return await Message.create({
+      chat: chat._id,
+      role: "assistant",
+      content: content.slice(0, 8_000),
+      meta: {
+        kind: "context_summary",
+        summarizedThrough: through,
+        estimatedTokens: opts.estimatedTokens,
+        contextTokens: opts.contextTokens,
+        fillRatio: opts.contextTokens
+          ? Number((opts.estimatedTokens / opts.contextTokens).toFixed(3))
+          : 0.5,
+      },
+    });
+  } catch (err) {
+    console.warn("[chatContext] post summary message failed:", err?.message || err);
+    return null;
+  }
+}
+
+/**
+ * When conversation fill reaches ~50% of the model context window, fold older turns
+ * into chat.contextSummary and post a visible summary message in the thread.
  * @param {object} chat — mongoose Chat document
  * @param {{ apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, contextTokens?: number }|null} creds
- * @returns {Promise<object>} updated chat
+ * @returns {Promise<{ chat: object, summaryMessage: object|null }>}
  */
 export async function refreshChatContextIfNeeded(chat, creds) {
-  if (!chat?._id) return chat;
+  if (!chat?._id) return { chat, summaryMessage: null };
   const budget = budgetFor(creds);
   const eligible = await loadEligibleChatMessages(chat._id);
-  const chars = totalChars(eligible);
-  const needs =
-    eligible.length >= budget.summarizeMin || chars >= budget.summarizeChars;
-  if (!needs) return chat;
+  const estimatedTokens = estimateChatFillTokens(chat, eligible);
+  const needs = estimatedTokens >= budget.summarizeAtTokens;
+  if (!needs) return { chat, summaryMessage: null };
 
   const recent = eligible.slice(-budget.recent);
   const older = eligible.slice(0, Math.max(0, eligible.length - budget.recent));
-  if (!older.length) return chat;
+  // Why: need a meaningful older block — tiny threads shouldn't invent a summary bubble.
+  if (older.length < 4) return { chat, summaryMessage: null };
 
   const lastOlderId = String(older[older.length - 1]._id);
   if (
     String(chat.contextSummarizedThrough || "") === lastOlderId &&
     String(chat.contextSummary || "").trim()
   ) {
-    return chat;
+    return { chat, summaryMessage: null };
   }
+
+  /** @type {object|null} */
+  let summaryMessage = null;
 
   if (!creds?.apiKey) {
     // Why: no LLM — keep a crude truncation so something still lands in prompts.
@@ -337,7 +405,13 @@ export async function refreshChatContextIfNeeded(chat, creds) {
     chat.contextSummary = crude;
     chat.contextSummarizedThrough = older[older.length - 1]._id;
     await chat.save();
-    return chat;
+    summaryMessage = await postContextSummaryMessage(chat, {
+      summary: crude,
+      summarizedThrough: lastOlderId,
+      estimatedTokens,
+      contextTokens: budget.contextTokens,
+    });
+    return { chat, summaryMessage };
   }
 
   const prior = String(chat.contextSummary || "").trim();
@@ -389,11 +463,17 @@ export async function refreshChatContextIfNeeded(chat, creds) {
       chat.contextSummary = next;
       chat.contextSummarizedThrough = older[older.length - 1]._id;
       await chat.save();
+      summaryMessage = await postContextSummaryMessage(chat, {
+        summary: next,
+        summarizedThrough: lastOlderId,
+        estimatedTokens,
+        contextTokens: budget.contextTokens,
+      });
     }
   } catch (err) {
     console.warn("[chatContext] summarize failed:", err?.message || err);
   }
-  return chat;
+  return { chat, summaryMessage };
 }
 
 /**

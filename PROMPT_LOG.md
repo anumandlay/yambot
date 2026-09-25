@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:20] Chat: summarize at 50% context + show in thread
+
+- **Prompt Provided:** instead of 30m cron for chat summarise, summarize at 50% of LLM context window and show the summary in the chat
+- **Architectural Flow:** `refreshChatContextIfNeeded` triggers when estimated chat tokens ≥ 50% of `contextTokens` (not time-based). After fold, posts an assistant `meta.kind=context_summary` bubble (shown as “Chat summary”). Auto/Q&A returns `contextSummaryMessage` so the UI appends it immediately. Agent memory 30m cron is unchanged (dayLogs/curated/Mem0).
+- **Impacted Files:** llmContextWindow.js, chatContext.js, chats.js, ChatDetailPage.jsx, chatContextSummarizeFill.test.js, PROMPT_LOG
+
 ## [2026-09-25 15:15] Memory: do not store list-fetch results
 
 - **Prompt Provided:** if i say to get the list, after showing in chat, no need to store that data or the result

@@ -97,16 +97,22 @@ export function resolveContextTokens(source) {
  * @typedef {object} ChatContextBudget
  * @property {number} contextTokens
  * @property {number} recent — verbatim turns kept at the tail
- * @property {number} summarizeMin — summarize when eligible count ≥ this
- * @property {number} summarizeChars — summarize when raw eligible chars ≥ this
+ * @property {number} summarizeMin — legacy count fallback
+ * @property {number} summarizeChars — legacy char fallback
+ * @property {number} summarizeFillRatio — share of window that triggers summarize (0.5)
+ * @property {number} summarizeAtTokens — absolute token threshold for summarize
  * @property {number} summaryMax — stored summary cap (chars)
  * @property {number} lineMax — per-message line cap in the packed block
  * @property {number} chatChars — target budget for the packed chat block
  */
 
+/** Fraction of the model context window at which we fold older chat turns into a summary. */
+export const CHAT_SUMMARIZE_FILL_RATIO = 0.5;
+
 /**
  * Derive chat packing limits from a model context window.
  * Why: leave most of the window for system/agent/tools/output; pack ~20–25% as chat memory.
+ * Summarize when estimated chat tokens hit ~50% of the model context (not a timed cron).
  * @param {unknown} contextTokensOrCreds
  * @returns {ChatContextBudget}
  */
@@ -119,11 +125,18 @@ export function chatContextBudgetFromTokens(contextTokensOrCreds) {
   const summarizeChars = clamp(Math.floor(chatChars * 1.2), chatChars, 500_000);
   const summaryMax = clamp(Math.floor(contextTokens * 0.015 * 4), 2_500, 24_000);
   const lineMax = clamp(Math.floor(contextTokens * 0.004 * 4), 800, 6_000);
+  const summarizeFillRatio = CHAT_SUMMARIZE_FILL_RATIO;
+  const summarizeAtTokens = Math.max(
+    2_000,
+    Math.floor(contextTokens * summarizeFillRatio)
+  );
   return {
     contextTokens,
     recent,
     summarizeMin,
     summarizeChars,
+    summarizeFillRatio,
+    summarizeAtTokens,
     summaryMax,
     lineMax,
     chatChars,

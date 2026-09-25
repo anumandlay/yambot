@@ -848,6 +848,7 @@ export function ChatDetailPage() {
       const realUser = result?.message;
       const realAssistant = result?.assistantMessage;
       const realSystem = result?.systemMessage;
+      const realContextSummary = result?.contextSummaryMessage;
       setMessages((prev) => {
         const withoutOptimistic = prev.filter((m) => {
           const id = String(m?._id || "");
@@ -857,6 +858,7 @@ export function ChatDetailPage() {
         if (realUser) next.push(realUser);
         if (realAssistant) next.push(realAssistant);
         if (realSystem) next.push(realSystem);
+        if (realContextSummary) next.push(realContextSummary);
         return mergeMessages(next, []);
       });
     } finally {
@@ -1538,20 +1540,23 @@ export function ChatDetailPage() {
                       ? agentDisplayName(m)
                       : m.role;
                 const llmPrompt = m.meta?.llmPrompt || null;
+                const isContextSummary = m.meta?.kind === "context_summary";
                 const bubble = (
                   <article
                     className={`max-w-full break-words rounded-xl px-3 py-2 text-sm ${
-                      m.role === "user"
-                        ? "bg-teal-700 text-white"
-                        : m.role === "assistant" || m.role === "agent"
-                          ? "bg-teal-50 text-teal-950"
-                          : "bg-slate-50 text-slate-700"
+                      isContextSummary
+                        ? "border border-amber-200/80 bg-amber-50/90 text-amber-950"
+                        : m.role === "user"
+                          ? "bg-teal-700 text-white"
+                          : m.role === "assistant" || m.role === "agent"
+                            ? "bg-teal-50 text-teal-950"
+                            : "bg-slate-50 text-slate-700"
                     }`}
                   >
                     <div className="mb-1 flex items-baseline justify-between gap-2 text-[0.7rem] opacity-70">
                       <span className="font-semibold normal-case">
-                        {speaker}
-                        {agentLabel && m.role === "user" ? (
+                        {isContextSummary ? "Chat summary" : speaker}
+                        {!isContextSummary && agentLabel && m.role === "user" ? (
                           <span className="ml-1.5 font-normal">· {agentLabel}</span>
                         ) : null}
                       </span>
@@ -1579,7 +1584,9 @@ export function ChatDetailPage() {
                         />
                       ) : null}
                       {m.role === "assistant" || m.role === "agent" ? (
-                        <MessageStatusChips message={m} tone="light" />
+                        isContextSummary ? null : (
+                          <MessageStatusChips message={m} tone="light" />
+                        )
                       ) : null}
                     </>
                   </article>
