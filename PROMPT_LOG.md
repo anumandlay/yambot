@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:15] Memory: do not store list-fetch results
+
+- **Prompt Provided:** if i say to get the list, after showing in chat, no need to store that data or the result
+- **Architectural Flow:** `isEphemeralListResult` detects get/show/list goals with row dumps. Task complete (worker + API) skips short notes + full dayLog detail (one-line “listed in chat” only), skips curated extract, and Mem0 chat ingest early-returns. List dumps also count as ephemeral curated facts.
+- **Impacted Files:** curatedMemoryFilter.js, worker.js, apiAgentRunner.js, curatedMemoryExtract.js, mem0Service.js, curatedMemoryFilter.test.js, PROMPT_LOG
+
 ## [2026-09-25 15:06] Chat: Prompt peek is 8px “P”
 
 - **Prompt Provided:** still too much width, just have p in the label and make it 8px

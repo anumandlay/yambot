@@ -8,7 +8,7 @@
 
 import { randomUUID } from "crypto";
 import { env } from "./env.js";
-import { isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
+import { isEphemeralCuratedFact, isEphemeralListResult } from "./curatedMemoryFilter.js";
 import { scanMemoryContent } from "./curatedMemory.js";
 import { wrapUntrustedToolResult } from "./hermesUntrusted.js";
 
@@ -515,6 +515,15 @@ export async function mem0IngestChatTurn(opts) {
   if (!userText || userText.length < 2) return { ok: false, skipped: "short" };
   if (/^(hi|hello|hey|ok|okay|thanks|thank you|yo|sup)[.!\s]*$/i.test(userText)) {
     return { ok: false, skipped: "greeting" };
+  }
+  // Why: list/fetch answers already shown in chat must not land in Mem0.
+  if (
+    isEphemeralListResult({
+      goal: userText,
+      summary: assistantText,
+    })
+  ) {
+    return { ok: true, skipped: "ephemeral_list", saved: 0 };
   }
   if (!(await ensureCollection())) return { ok: false, skipped: "disabled" };
 

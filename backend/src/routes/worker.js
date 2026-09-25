@@ -28,6 +28,7 @@ import { Approval } from "../models/Approval.js";
 import { pickHighestPriorityTask } from "../utils/priorityArbitrator.js";
 import { unblockDependentTasks } from "../utils/enqueueTask.js";
 import { emitEvent } from "../utils/eventBus.js";
+import { isEphemeralListResult } from "../utils/curatedMemoryFilter.js";
 import { TrainingRequest } from "../models/TrainingRequest.js";
 import {
   slimTaskEventPayload,
@@ -694,14 +695,6 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
     if (task.agent && (summary || error)) {
       const agentDoc = await Agent.findOne({ _id: task.agent, user: req.userId });
       if (agentDoc) {
-        const memContent = success
-          ? `Run completed. Goal: ${task.goal}\nResult: ${summary}`.slice(0, 2000)
-          : `Run failed. Goal: ${task.goal}\nError: ${error || summary}`.slice(0, 2000);
-        await appendAgentMemory(agentDoc, {
-          kind: success ? "run" : "avoid",
-          content: memContent,
-          sourceTask: task._id,
-        });
         const traj = Array.isArray(task.trajectory) ? task.trajectory : [];
         const trajDigest = traj
           .slice(-12)
@@ -711,25 +704,49 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
             return `${i + 1}. ${act}${note ? `: ${String(note).slice(0, 120)}` : ""}`;
           })
           .join("\n");
-        const detail = [
-          `Goal: ${task.goal}`,
-          success ? `Result: ${summary}` : `Error: ${error || summary}`,
-          trajDigest ? `Trajectory:\n${trajDigest}` : "",
-        ]
-          .filter(Boolean)
-          .join("\n\n")
-          .slice(0, 4000);
-        const keywords = extractMemoryKeywords(
-          `${task.goal}\n${summary}\n${error}\n${trajDigest}`
-        );
-        await appendAgentDayLog(agentDoc, {
-          summary: success
-            ? `${String(summary || "Done").slice(0, 400)} — goal: ${String(task.goal).slice(0, 200)}`
-            : `Failed: ${String(error || summary || "error").slice(0, 300)} — goal: ${String(task.goal).slice(0, 200)}`,
-          detail,
-          keywords,
-          sourceTask: task._id,
-        });
+        // Why: list/fetch results already shown in chat must not pollute notes / day history.
+        const ephemeralList =
+          success &&
+          isEphemeralListResult({
+            goal: String(task.goal || ""),
+            summary: String(summary || ""),
+          });
+        if (ephemeralList) {
+          await appendAgentDayLog(agentDoc, {
+            summary: `Listed in chat (result not stored) — ${String(task.goal || "").slice(0, 220)}`,
+            detail: "",
+            keywords: extractMemoryKeywords(String(task.goal || "")),
+            sourceTask: task._id,
+          });
+        } else {
+          const memContent = success
+            ? `Run completed. Goal: ${task.goal}\nResult: ${summary}`.slice(0, 2000)
+            : `Run failed. Goal: ${task.goal}\nError: ${error || summary}`.slice(0, 2000);
+          await appendAgentMemory(agentDoc, {
+            kind: success ? "run" : "avoid",
+            content: memContent,
+            sourceTask: task._id,
+          });
+          const detail = [
+            `Goal: ${task.goal}`,
+            success ? `Result: ${summary}` : `Error: ${error || summary}`,
+            trajDigest ? `Trajectory:\n${trajDigest}` : "",
+          ]
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 4000);
+          const keywords = extractMemoryKeywords(
+            `${task.goal}\n${summary}\n${error}\n${trajDigest}`
+          );
+          await appendAgentDayLog(agentDoc, {
+            summary: success
+              ? `${String(summary || "Done").slice(0, 400)} — goal: ${String(task.goal).slice(0, 200)}`
+              : `Failed: ${String(error || summary || "error").slice(0, 300)} — goal: ${String(task.goal).slice(0, 200)}`,
+            detail,
+            keywords,
+            sourceTask: task._id,
+          });
+        }
         // Why: Hermes TaskPlan — advance remaining email/verify steps after browser.
         if (success && summary) {
           if (task.taskPlanId) {
@@ -770,7 +787,8 @@ workerRouter.post("/tasks/:id/complete", async (req, res, next) => {
         }
         // Why: day logs are episodic; also distill durable facts into curated agent MEMORY for next-run top-k.
         // Fire-and-forget so the worker HTTP complete returns without waiting on an extra LLM call.
-        if (success && summary) {
+        // Skip for ephemeral list fetches — the rows already live in the chat bubble.
+        if (success && summary && !ephemeralList) {
           void import("../utils/curatedMemoryExtract.js")
             .then(({ persistCuratedMemoryFromRun }) =>
               persistCuratedMemoryFromRun({

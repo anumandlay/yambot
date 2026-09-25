@@ -31,6 +31,7 @@ import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "./policy.js
 import { stripModelThinking } from "./llmSanitize.js";
 import { CompanyMemory } from "../models/CompanyMemory.js";
 import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
+import { isEphemeralListResult } from "./curatedMemoryFilter.js";
 import { formatPeerAgentsBlock, sendAgentMessage, consumePendingPeerResults, consumePendingOperatorMessages, softPauseForDuePeers, listSoftDuePeerWaits, listSoftActivePeerWaits, guardFinishAgainstSoftWaits, expandMessageAgentTargetsForFanOut, finalizeAgentMessagesForChildTask, pollAgentMessageStatus, normalizeMessageWaitMode, AGENT_MESSAGE_WAIT_MS } from "./agentMessageBus.js";
 
 const MAX_STEPS = 40;
@@ -941,13 +942,6 @@ async function finalizeApiTask(task, userId, result) {
   if (task.agent) {
     const agentDoc = await Agent.findOne({ _id: task.agent, user: userId });
     if (agentDoc && (summary || error)) {
-      await appendAgentMemory(agentDoc, {
-        kind: success ? "run" : "avoid",
-        content: success
-          ? `API run completed. Goal: ${task.goal}\nResult: ${summary}`.slice(0, 2000)
-          : `API run failed. Goal: ${task.goal}\nError: ${error || summary}`.slice(0, 2000),
-        sourceTask: task._id,
-      });
       const trajDigest = trajectory
         .slice(-12)
         .map((step, i) => {
@@ -956,18 +950,41 @@ async function finalizeApiTask(task, userId, result) {
           return `${i + 1}. ${act}${note ? `: ${String(note).slice(0, 120)}` : ""}`;
         })
         .join("\n");
-      await appendAgentDayLog(agentDoc, {
-        summary: success
-          ? `${String(summary || "Done").slice(0, 400)} — goal: ${String(task.goal).slice(0, 200)}`
-          : `Failed: ${String(error || summary || "error").slice(0, 300)} — goal: ${String(task.goal).slice(0, 200)}`,
-        detail: [`Goal: ${task.goal}`, success ? `Result: ${summary}` : `Error: ${error || summary}`, trajDigest]
-          .filter(Boolean)
-          .join("\n\n")
-          .slice(0, 4000),
-        keywords: extractMemoryKeywords(`${task.goal}\n${summary}\n${error}\n${trajDigest}`),
-        sourceTask: task._id,
-      });
-      if (success && summary) {
+      // Why: list/fetch results already shown in chat must not pollute notes / day history.
+      const ephemeralList =
+        success &&
+        isEphemeralListResult({
+          goal: String(task.goal || ""),
+          summary: String(summary || ""),
+        });
+      if (ephemeralList) {
+        await appendAgentDayLog(agentDoc, {
+          summary: `Listed in chat (result not stored) — ${String(task.goal || "").slice(0, 220)}`,
+          detail: "",
+          keywords: extractMemoryKeywords(String(task.goal || "")),
+          sourceTask: task._id,
+        });
+      } else {
+        await appendAgentMemory(agentDoc, {
+          kind: success ? "run" : "avoid",
+          content: success
+            ? `API run completed. Goal: ${task.goal}\nResult: ${summary}`.slice(0, 2000)
+            : `API run failed. Goal: ${task.goal}\nError: ${error || summary}`.slice(0, 2000),
+          sourceTask: task._id,
+        });
+        await appendAgentDayLog(agentDoc, {
+          summary: success
+            ? `${String(summary || "Done").slice(0, 400)} — goal: ${String(task.goal).slice(0, 200)}`
+            : `Failed: ${String(error || summary || "error").slice(0, 300)} — goal: ${String(task.goal).slice(0, 200)}`,
+          detail: [`Goal: ${task.goal}`, success ? `Result: ${summary}` : `Error: ${error || summary}`, trajDigest]
+            .filter(Boolean)
+            .join("\n\n")
+            .slice(0, 4000),
+          keywords: extractMemoryKeywords(`${task.goal}\n${summary}\n${error}\n${trajDigest}`),
+          sourceTask: task._id,
+        });
+      }
+      if (success && summary && !ephemeralList) {
         void import("./curatedMemoryExtract.js")
           .then(({ persistCuratedMemoryFromRun }) =>
             persistCuratedMemoryFromRun({

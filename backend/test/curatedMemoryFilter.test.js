@@ -9,6 +9,8 @@ import assert from "node:assert/strict";
 import {
   filterDurableCuratedFacts,
   isEphemeralCuratedFact,
+  isEphemeralListResult,
+  looksLikeListDumpBody,
 } from "../src/utils/curatedMemoryFilter.js";
 
 describe("isEphemeralCuratedFact", () => {
@@ -23,6 +25,18 @@ describe("isEphemeralCuratedFact", () => {
     assert.equal(isEphemeralCuratedFact("QUEUE_GOAL do the thing"), true);
   });
 
+  it("flags multi-row trial list dumps", () => {
+    const dump = [
+      "Trial expiry list:",
+      "- a@x.com expires 2026-01-01",
+      "- b@y.com expires 2026-01-02",
+      "- c@z.com expires 2026-01-03",
+      "- d@w.com expires 2026-01-04",
+    ].join("\n");
+    assert.equal(looksLikeListDumpBody(dump), true);
+    assert.equal(isEphemeralCuratedFact(dump), true);
+  });
+
   it("keeps durable site facts", () => {
     assert.equal(
       isEphemeralCuratedFact(
@@ -32,6 +46,35 @@ describe("isEphemeralCuratedFact", () => {
     );
     assert.equal(
       isEphemeralCuratedFact("CRM means https://vughy.com for this workspace."),
+      false
+    );
+  });
+});
+
+describe("isEphemeralListResult", () => {
+  it("flags get-the-list goals with row dumps", () => {
+    const summary = [
+      "Found 4 trial accounts:",
+      "1. a@x.com — expires tomorrow",
+      "2. b@y.com — expires in 3 days",
+      "3. c@z.com — expires next week",
+      "4. d@w.com — expires in 10 days",
+    ].join("\n");
+    assert.equal(
+      isEphemeralListResult({
+        goal: "get the India trial expiry list",
+        summary,
+      }),
+      true
+    );
+  });
+
+  it("keeps short durable run results", () => {
+    assert.equal(
+      isEphemeralListResult({
+        goal: "register a CRM account with dummy data",
+        summary: "Created account demo@example.com on Vughy.",
+      }),
       false
     );
   });

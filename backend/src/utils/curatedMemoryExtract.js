@@ -12,7 +12,11 @@ import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { mutateCuratedMemory } from "./curatedMemoryOps.js";
 import { normalizeEntries } from "./curatedMemory.js";
-import { filterDurableCuratedFacts, isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
+import {
+  filterDurableCuratedFacts,
+  isEphemeralCuratedFact,
+  isEphemeralListResult,
+} from "./curatedMemoryFilter.js";
 import { writeAudit } from "./audit.js";
 
 const MAX_FACTS = 5;
@@ -196,6 +200,15 @@ export async function persistCuratedMemoryFromRun(opts) {
   // Why: failed runs still get day logs / avoid notes — curated MEMORY stays for durable wins.
   if (opts.success === false) {
     return { ok: true, saved: [], skipped: "failed_run" };
+  }
+  // Why: “get the list” results belong in chat only — do not distill rows into curated MEMORY.
+  if (
+    isEphemeralListResult({
+      goal: String(opts.goal || ""),
+      summary,
+    })
+  ) {
+    return { ok: true, saved: [], skipped: "ephemeral_list" };
   }
 
   // Phase 2: idempotent extract — complete retries must not re-LLM and re-save.
