@@ -115,6 +115,7 @@ export function formatStateProjection({
   telemetry = null,
   maxInteractives = 65,
   maxText = 1800,
+  skipA11y = false,
 }) {
   const lines = [];
   const subgoal = currentSubgoal || "";
@@ -157,22 +158,24 @@ export function formatStateProjection({
   const framesBlock = formatFramesBlock(obs);
   if (framesBlock) lines.push("", framesBlock);
 
-  // Why: structures/a11y are secondary context — trim when the action surface is already rich.
-  if (surface.count < 12) {
+  // Why: structures/a11y are secondary — skip when ACTION SURFACE already has enough refs.
+  if (surface.count < 8) {
     const structures = buildStructuresFromObs(obs);
     const structuresBlock = formatStructuresBlock(structures);
     if (structuresBlock) lines.push("", structuresBlock);
   }
 
-  const a11yBlock = formatA11yBlock(obs.a11y);
-  if (a11yBlock && surface.count < 20) {
-    lines.push("", a11yBlock);
+  if (!skipA11y) {
+    const a11yBlock = formatA11yBlock(obs.a11y);
+    if (a11yBlock && surface.count < 12) {
+      lines.push("", a11yBlock);
+    }
   }
 
   const telBlock = formatTelemetryBlock(telemetry);
   if (telBlock) lines.push("", telBlock);
 
-  const textBudget = surface.count >= 25 ? Math.min(maxText, 900) : maxText;
+  const textBudget = surface.count >= 20 ? Math.min(maxText, 700) : maxText;
   const text = String(obs.text || "").slice(0, textBudget);
   if (text) {
     lines.push("", "Page text (truncated):", text);

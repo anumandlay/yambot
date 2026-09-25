@@ -220,13 +220,17 @@ async function ensureRunning(agent) {
       "YAMBOT_NOVNC_PORT=6080",
       "YAMBOT_VNC_PORT=5900",
       ...(wantEngine === "cua" ? ["YAMBOT_CUA=1"] : []),
-      // Why: experiment branch — set YAMBOT_FAST_MODE=1 on the manager to speed agent boxes.
-      ...(process.env.YAMBOT_FAST_MODE
-        ? [`YAMBOT_FAST_MODE=${process.env.YAMBOT_FAST_MODE}`]
-        : []),
+      // Why: smaller page snapshots + bigger action batches cut MiniMax RTT (~15s → lower).
+      `YAMBOT_FAST_MODE=${process.env.YAMBOT_FAST_MODE || "1"}`,
       ...(process.env.YAMBOT_OBSERVE_LIMIT
         ? [`YAMBOT_OBSERVE_LIMIT=${process.env.YAMBOT_OBSERVE_LIMIT}`]
-        : []),
+        : ["YAMBOT_OBSERVE_LIMIT=30"]),
+      ...(process.env.YAMBOT_OBSERVE_TEXT
+        ? [`YAMBOT_OBSERVE_TEXT=${process.env.YAMBOT_OBSERVE_TEXT}`]
+        : ["YAMBOT_OBSERVE_TEXT=1000"]),
+      ...(process.env.YAMBOT_INCLUDE_A11Y
+        ? [`YAMBOT_INCLUDE_A11Y=${process.env.YAMBOT_INCLUDE_A11Y}`]
+        : ["YAMBOT_INCLUDE_A11Y=false"]),
     ],
     HostConfig: {
       NetworkMode: DOCKER_NETWORK,

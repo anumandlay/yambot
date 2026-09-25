@@ -1390,6 +1390,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         telemetry: extras.telemetry,
         maxInteractives: profile.maxInteractives,
         maxText: profile.maxText,
+        skipA11y: profile.skipA11y,
       });
     }
     const lines = [
@@ -1829,7 +1830,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const { traceLabel, traceStep, ...llmOpts } = opts || {};
       const model = String(llmOpts.model || "llm");
       const formatted = formatLlmMessagesForChat(llmOpts.messages || []);
-      await mirror(taskId, "llm_request", {
+      // Why: do not block MiniMax on API chat mirror — was adding RTT before every LLM call.
+      void mirror(taskId, "llm_request", {
         payload: {
           label: traceLabel || "call",
           step: traceStep ?? null,
@@ -1837,7 +1839,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
           roles: formatted.roles,
           truncated: formatted.truncated,
           chars: formatted.text.length,
-          // Why: chat LLM chip popup shows this; keep under formatLlmMessagesForChat cap.
           text: formatted.text,
         },
       }).catch((err) => log(`[${config.workerName}] llm_request mirror failed:`, err?.message || err));
@@ -1852,7 +1853,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         addLlmUsage(llmUsage, result.usage);
         const reply = String(result.content || "").slice(0, 12000);
         const replyTruncated = String(result.content || "").length > 12000;
-        await mirror(taskId, "llm_response", {
+        void mirror(taskId, "llm_response", {
           payload: {
             label: traceLabel || "call",
             step: traceStep ?? null,
@@ -1866,7 +1867,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         return result;
       } catch (err) {
         const detail = String(err?.detail || err?.message || err);
-        await mirror(taskId, "llm_response", {
+        void mirror(taskId, "llm_response", {
           payload: {
             label: traceLabel || "call",
             step: traceStep ?? null,
@@ -2505,9 +2506,21 @@ export function createCloudAgent({ api, config, log = console.log }) {
           })(),
           summarizeSessionContext(history),
           history.length
-            ? `RECENT ACTIONS (last 6 only — current refs; do not treat this as the whole run):\n${history
+            ? `RECENT ACTIONS (last 6 — compact; do not treat as whole run):\n${history
                 .slice(-6)
-                .map((h) => JSON.stringify(h))
+                .map((h) => {
+                  const a = h?.action && typeof h.action === "object" ? h.action : {};
+                  const r = h?.result && typeof h.result === "object" ? h.result : {};
+                  return JSON.stringify({
+                    step: h.step ?? null,
+                    type: a.type || h.type || null,
+                    ref: a.ref || a.element || null,
+                    name: a.name ? String(a.name).slice(0, 60) : null,
+                    text: a.text != null ? String(a.text).slice(0, 40) : null,
+                    ok: r.ok !== false,
+                    err: r.error ? String(r.error).slice(0, 80) : null,
+                  });
+                })
                 .join("\n")}`
             : "",
           `CURRENT PAGE SNAPSHOT:\n${snapshotText}`,

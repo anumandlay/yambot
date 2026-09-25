@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 17:10] Worker: cut ~15s step latency (smaller prompts + fast mode)
+
+- **Prompt Provided:** solve it (why 15 seconds between steps)
+- **Architectural Flow:** Compact RECENT ACTIONS (no full result JSON). Don’t await chat mirrors before/after MiniMax. Tighter page snapshot (skip a11y/structures sooner). Computer-manager defaults YAMBOT_FAST_MODE=1 + observe caps for new boxes.
+- **Impacted Files:** worker/agent.js, worker/browserState/format.js, computer-manager/index.js, PROMPT_LOG
+
 ## [2026-09-25 16:25] Chat: hide context summary bubbles
 
 - **Prompt Provided:** chat context summarised showing all the time — don’t show it anymore
