@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 11:30] Memory page: Day history + Short notes side-by-side boxes
+
+- **Prompt Provided:** show Day history and Short notes in boxes layout so I don’t need to scroll the whole page.
+- **Architectural Flow:** AgentMemoryPage places both sections in a `md:grid-cols-2` panel; each box has fixed max-height (~22rem) and internal overflow scroll. Stacks on mobile. Page max-width widened to 5xl for the pair.
+- **Impacted Files:** AgentMemoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 11:15] Agent memory: curated + Mem0 as one block each
 
 - **Prompt Provided:** `/agents/…/memory` — curated memory and Mem0 agent facts should show all in one block, not many chips.

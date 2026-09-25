@@ -1,7 +1,8 @@
 /**
  * @fileoverview Agent memory viewer — curated MEMORY, Mem0 facts, day history, notes, credentials.
  * Purpose: Inspect Mongo curated notes plus Mem0/Qdrant agent facts from chat “remember”.
- * UI: curated + Mem0 render as one text block each (not per-entry chips).
+ * UI: curated + Mem0 as one text block each; Day history + Short notes sit in a 2-box grid
+ * with internal scroll so the page stays short.
  * Downstream: GET/POST `/api/agents/:id/memory`, curated-memory, curated-memory/mem0, credentials.
  */
 
@@ -391,7 +392,7 @@ export function AgentMemoryPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-wrap items-center gap-2">
         <Link
           to={fromHistory ? "/history" : "/agents"}
@@ -724,101 +725,110 @@ export function AgentMemoryPage() {
             </form>
           </section>
 
-          <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-            <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
-              <SectionTitle helpId="agent.memory.dayHistory">Day history</SectionTitle>
-              <button
-                type="button"
-                onClick={() => void clearHistory()}
-                className="min-h-11 rounded-xl border border-rose-200 px-3 text-xs font-semibold text-rose-800"
-              >
-                Clear history
-              </button>
-            </div>
-            <p className="mb-3 text-xs text-teal-900/55">
-              Filtered by the search box above when you type a keyword.
-            </p>
-            {filteredDays.length === 0 ? (
-              <p className="text-sm text-teal-900/60">
-                {dayLogs.length === 0
-                  ? "No day history yet — it fills in when runs complete."
-                  : "No days match this search."}
+          <div className="grid gap-4 md:grid-cols-2 md:items-stretch">
+            <section className="flex min-h-0 flex-col rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <SectionTitle helpId="agent.memory.dayHistory">Day history</SectionTitle>
+                <button
+                  type="button"
+                  onClick={() => void clearHistory()}
+                  className="min-h-11 rounded-xl border border-rose-200 px-3 text-xs font-semibold text-rose-800"
+                >
+                  Clear history
+                </button>
+              </div>
+              <p className="mb-2 text-xs text-teal-900/55">
+                Daily run rollups. Scroll inside this box — search above filters both panels.
               </p>
-            ) : (
-              <ul className="space-y-3">
-                {filteredDays.map((d) => {
-                  const key = d.id || d.day;
-                  const open = Boolean(expanded[key]);
-                  return (
-                    <li key={key} className="rounded-xl border border-teal-50 bg-teal-50/30 px-3 py-2">
-                      <button
-                        type="button"
-                        className="flex w-full min-h-11 items-start justify-between gap-2 text-left"
-                        onClick={() =>
-                          setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
-                        }
-                      >
-                        <div>
-                          <div className="flex flex-wrap items-baseline gap-2">
-                            <div className="text-sm font-bold text-teal-950">{d.day}</div>
-                            {d.at ? (
-                              <span className="text-[0.7rem] text-teal-800/55">
-                                updated {fmtWhen(d.at)}
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="mt-1 whitespace-pre-wrap text-sm text-teal-900/85">
-                            {d.summary || "(no summary)"}
-                          </div>
-                          {d.keywords?.length ? (
-                            <div className="mt-1 text-xs text-teal-800/60">
-                              {d.keywords.slice(0, 12).join(" · ")}
+              <div className="min-h-[14rem] max-h-[22rem] flex-1 overflow-y-auto overscroll-contain pr-1">
+                {filteredDays.length === 0 ? (
+                  <p className="text-sm text-teal-900/60">
+                    {dayLogs.length === 0
+                      ? "No day history yet — it fills in when runs complete."
+                      : "No days match this search."}
+                  </p>
+                ) : (
+                  <ul className="space-y-3">
+                    {filteredDays.map((d) => {
+                      const key = d.id || d.day;
+                      const open = Boolean(expanded[key]);
+                      return (
+                        <li key={key} className="rounded-xl border border-teal-50 bg-teal-50/30 px-3 py-2">
+                          <button
+                            type="button"
+                            className="flex w-full min-h-11 items-start justify-between gap-2 text-left"
+                            onClick={() =>
+                              setExpanded((prev) => ({ ...prev, [key]: !prev[key] }))
+                            }
+                          >
+                            <div>
+                              <div className="flex flex-wrap items-baseline gap-2">
+                                <div className="text-sm font-bold text-teal-950">{d.day}</div>
+                                {d.at ? (
+                                  <span className="text-[0.7rem] text-teal-800/55">
+                                    updated {fmtWhen(d.at)}
+                                  </span>
+                                ) : null}
+                              </div>
+                              <div className="mt-1 whitespace-pre-wrap text-sm text-teal-900/85">
+                                {d.summary || "(no summary)"}
+                              </div>
+                              {d.keywords?.length ? (
+                                <div className="mt-1 text-xs text-teal-800/60">
+                                  {d.keywords.slice(0, 12).join(" · ")}
+                                </div>
+                              ) : null}
                             </div>
+                            <span className="shrink-0 text-xs font-semibold text-teal-700">
+                              {open ? "Hide" : "Detail"}
+                            </span>
+                          </button>
+                          {open && d.detail ? (
+                            <pre className="mt-2 max-h-40 overflow-auto whitespace-pre-wrap rounded-lg bg-white/80 p-2 text-xs text-teal-950">
+                              {d.detail}
+                            </pre>
                           ) : null}
-                        </div>
-                        <span className="shrink-0 text-xs font-semibold text-teal-700">
-                          {open ? "Hide" : "Detail"}
-                        </span>
-                      </button>
-                      {open && d.detail ? (
-                        <pre className="mt-2 max-h-64 overflow-auto whitespace-pre-wrap rounded-lg bg-white/80 p-2 text-xs text-teal-950">
-                          {d.detail}
-                        </pre>
-                      ) : null}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </section>
+                        </li>
+                      );
+                    })}
+                  </ul>
+                )}
+              </div>
+            </section>
 
-          <section className="rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
-            <SectionTitle helpId="agent.memory.notes" className="mb-2">
-              Short notes
-            </SectionTitle>
-            {filteredNotes.length === 0 ? (
-              <p className="text-sm text-teal-900/60">
-                {memory.length === 0
-                  ? "No short notes yet."
-                  : "No short notes match this search."}
+            <section className="flex min-h-0 flex-col rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+              <SectionTitle helpId="agent.memory.notes" className="mb-2">
+                Short notes
+              </SectionTitle>
+              <p className="mb-2 text-xs text-teal-900/55">
+                Per-run receipts (“From a run”) and other notes. Scroll inside this box.
               </p>
-            ) : (
-              <ul className="space-y-2">
-                {filteredNotes.map((m) => (
-                  <li
-                    key={m.id || `${m.at}-${m.content?.slice(0, 24)}`}
-                    className="rounded-xl border border-teal-50 bg-white px-3 py-2 text-sm"
-                  >
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-teal-800/70">
-                      <span className="font-semibold">{KIND_LABEL[m.kind] || m.kind}</span>
-                      <span>{fmtWhen(m.at)}</span>
-                    </div>
-                    <p className="mt-1 whitespace-pre-wrap text-teal-950">{m.content}</p>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </section>
+              <div className="min-h-[14rem] max-h-[22rem] flex-1 overflow-y-auto overscroll-contain pr-1">
+                {filteredNotes.length === 0 ? (
+                  <p className="text-sm text-teal-900/60">
+                    {memory.length === 0
+                      ? "No short notes yet."
+                      : "No short notes match this search."}
+                  </p>
+                ) : (
+                  <ul className="space-y-2">
+                    {filteredNotes.map((m) => (
+                      <li
+                        key={m.id || `${m.at}-${m.content?.slice(0, 24)}`}
+                        className="rounded-xl border border-teal-50 bg-teal-50/20 px-3 py-2 text-sm"
+                      >
+                        <div className="flex flex-wrap items-center gap-2 text-xs text-teal-800/70">
+                          <span className="font-semibold">{KIND_LABEL[m.kind] || m.kind}</span>
+                          <span>{fmtWhen(m.at)}</span>
+                        </div>
+                        <p className="mt-1 whitespace-pre-wrap text-teal-950">{m.content}</p>
+                      </li>
+                    ))}
+                  </ul>
+                )}
+              </div>
+            </section>
+          </div>
         </>
       )}
     </div>
