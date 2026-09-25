@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:50] Composio Connect: auto-poll status + cache tools
+
+- **Prompt Provided:** yes (auto-save tools after Connect without Refresh status)
+- **Architectural Flow:** After Connect opens OAuth, Agent edit polls `/composio/status` every ~2.5s (up to 3 min). When the toolkit is ACTIVE, status already caches tools to `toolkitToolCache`. UI shows Waiting… and a success message with tool count. Refresh status remains as fallback.
+- **Impacted Files:** AgentEditPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-25 14:45] Composio: cache tools on Connect + inject into Auto LLM
 
 - **Prompt Provided:** next step is: cache tools on connect + inject that catalog into the Auto LLM turn for matching apps. lets do this

@@ -728,7 +728,8 @@ export const HELP = {
   "agent.composio.apps": {
     title: "Enabled Composio apps",
     body: helpBody(
-      "Only selected toolkit slugs can be listed, connected, or executed in Auto chat. Load apps after pasting a valid API key."
+      "Only selected toolkit slugs can be listed, connected, or executed in Auto chat. Load apps after pasting a valid API key.",
+      "After you click Connect and finish OAuth, YamBot polls until Connected and saves that app’s tools for Auto chat — no Refresh status required (Refresh still works as a fallback)."
     ),
   },
   "agent.llm.useCustom": {

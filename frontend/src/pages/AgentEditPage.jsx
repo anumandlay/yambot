@@ -5,7 +5,7 @@
  * Downstream: PUT/POST /api/agents, LiveScreen, Composio connect, schedulers, memory.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
@@ -221,6 +221,10 @@ export function AgentEditPage() {
   const [composioConnectBusy, setComposioConnectBusy] = useState("");
   /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
   const [composioConnectUrl, setComposioConnectUrl] = useState("");
+  /** Toolkit slug we are polling for after OAuth (empty = not waiting). */
+  const [composioAwaitingToolkit, setComposioAwaitingToolkit] = useState("");
+  /** Why: cancel in-flight poll when user starts Connect on another app or leaves. */
+  const composioAwaitRef = useRef("");
 
 
   useEffect(() => {
@@ -376,6 +380,13 @@ export function AgentEditPage() {
     void refreshComposioStatus();
     // eslint-disable-next-line react-hooks/exhaustive-deps -- refresh when enable/key flags change
   }, [agentId, isNew, form.composio?.enabled, form.composio?.hasApiKey]);
+
+  // Why: cancel Connect polling when leaving the agent page.
+  useEffect(() => {
+    return () => {
+      composioAwaitRef.current = "";
+    };
+  }, []);
 
   // Why: worker reports sizes on heartbeat — poll live so the Clear section stays current.
   useEffect(() => {
@@ -562,18 +573,101 @@ export function AgentEditPage() {
   }
 
   /**
+   * Whether a Composio connection row means the app is usable.
+   * @param {object|null|undefined} conn
+   * @returns {boolean}
+   */
+  function isComposioRowConnected(conn) {
+    if (!conn) return false;
+    const st = String(conn.status || "");
+    if (
+      /active|connected|success|enabled|authorized|authenticated|ok|valid|live/i.test(st)
+    ) {
+      return true;
+    }
+    // Why: some Composio rows omit status but still have a connection id.
+    return Boolean(conn.id && !/expired|revoked|failed|inactive|initiat/i.test(st));
+  }
+
+  /**
    * Refresh OAuth connection status for selected toolkits.
+   * Status API also caches tools for ACTIVE apps.
+   * @returns {Promise<object|null>}
    */
   async function refreshComposioStatus() {
-    if (isNew || !agentId) return;
+    if (isNew || !agentId) return null;
     setComposioStatusBusy(true);
     try {
       const data = await api(`/api/agents/${agentId}/composio/status`);
       setComposioConnections(Array.isArray(data.connections) ? data.connections : []);
+      return data;
     } catch {
       setComposioConnections([]);
+      return null;
     } finally {
       setComposioStatusBusy(false);
+    }
+  }
+
+  /**
+   * After Connect opens OAuth, poll status until ACTIVE — tools are saved on that refresh.
+   * @param {string} toolkit
+   */
+  async function awaitComposioToolkitAfterConnect(toolkit) {
+    const slug = String(toolkit || "").trim();
+    if (!slug || isNew || !agentId) return;
+    composioAwaitRef.current = slug;
+    setComposioAwaitingToolkit(slug);
+    setOkMsg(
+      `Finish authorizing ${slug} in the other tab — we’ll detect Connected and save its tools automatically.`
+    );
+    const deadline = Date.now() + 3 * 60 * 1000;
+    try {
+      while (Date.now() < deadline) {
+        if (composioAwaitRef.current !== slug) return;
+        const data = await api(`/api/agents/${agentId}/composio/status`);
+        if (composioAwaitRef.current !== slug) return;
+        const connections = Array.isArray(data.connections) ? data.connections : [];
+        setComposioConnections(connections);
+        const conn =
+          connections.find((c) => {
+            const t = String(c.toolkit || "")
+              .toLowerCase()
+              .replace(/_/g, "")
+              .replace(/-/g, "");
+            const s = slug.toLowerCase().replace(/_/g, "").replace(/-/g, "");
+            return t === s || (s === "gmail" && (t === "googlemail" || t === "googlegmail"));
+          }) || null;
+        if (isComposioRowConnected(conn)) {
+          const count = Number(data.toolkitToolCacheCounts?.[slug]) || 0;
+          const updated = Array.isArray(data.toolCacheUpdated) ? data.toolCacheUpdated : [];
+          setOkMsg(
+            count > 0
+              ? `Connected ${slug} — ${count} tools saved for Auto chat.`
+              : updated.includes(slug)
+                ? `Connected ${slug} — tools saved for Auto chat.`
+                : `Connected ${slug}.`
+          );
+          setComposioConnectUrl("");
+          return;
+        }
+        await new Promise((r) => setTimeout(r, 2500));
+      }
+      if (composioAwaitRef.current === slug) {
+        setOkMsg(
+          `Still waiting for ${slug}. Finish OAuth in the other tab, or click Refresh status.`
+        );
+      }
+    } catch (err) {
+      if (composioAwaitRef.current === slug) {
+        setError(err);
+        setOkMsg(`Could not auto-detect ${slug}. Click Refresh status after you finish OAuth.`);
+      }
+    } finally {
+      if (composioAwaitRef.current === slug) {
+        composioAwaitRef.current = "";
+        setComposioAwaitingToolkit("");
+      }
     }
   }
 
@@ -589,6 +683,9 @@ export function AgentEditPage() {
     setOkMsg("");
     setComposioConnectUrl("");
     setComposioConnectBusy(toolkit);
+    // Why: starting a new Connect cancels any previous post-OAuth poll.
+    composioAwaitRef.current = "";
+    setComposioAwaitingToolkit("");
     try {
       // Persist current app list so Connect works even if the user hasn’t clicked Save yet.
       try {
@@ -628,14 +725,15 @@ export function AgentEditPage() {
       const opened = window.open(url, "_blank", "noopener,noreferrer");
       if (!opened) {
         setOkMsg(
-          "Popup blocked — click the Connect link below to authorize, then Refresh status."
+          "Popup blocked — click the Connect link below to authorize. We’ll save tools when Connected."
         );
       } else {
         setOkMsg(
-          data.message ||
-            "Opened the connect page. Finish authorizing, then click Refresh status."
+          "Opened the connect page. Finish authorizing — we’ll save tools automatically when Connected."
         );
       }
+      // Why: do not require Refresh status — poll until ACTIVE; status API caches tools.
+      void awaitComposioToolkitAfterConnect(toolkit);
     } catch (err) {
       setError(err);
     } finally {
@@ -1941,10 +2039,21 @@ export function AgentEditPage() {
                         onClick={() => void refreshComposioStatus()}
                         className="rounded-lg border border-teal-200 bg-white px-2 py-1 text-xs font-semibold text-teal-900 disabled:opacity-50"
                       >
-                        {composioStatusBusy ? "Refreshing…" : "Refresh status"}
+                        {composioStatusBusy
+                          ? "Refreshing…"
+                          : composioAwaitingToolkit
+                            ? `Waiting for ${composioAwaitingToolkit}…`
+                            : "Refresh status"}
                       </button>
                     ) : null}
                   </div>
+                  {composioAwaitingToolkit ? (
+                    <p className="text-xs text-teal-800">
+                      Waiting for you to finish OAuth for{" "}
+                      <span className="font-semibold">{composioAwaitingToolkit}</span>. Tools
+                      save automatically when Connected (up to 3 minutes).
+                    </p>
+                  ) : null}
                   {composioConnectUrl ? (
                     <div className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-950">
                       <p className="font-semibold">Authorize this app</p>
@@ -1969,14 +2078,8 @@ export function AgentEditPage() {
                   <ul className="flex flex-col gap-2">
                     {(form.composio.toolkitSlugs || []).map((slug) => {
                       const conn = composioConnectionFor(slug);
-                      const connected = Boolean(
-                        conn &&
-                          (/active|connected|success|enabled|authorized|authenticated|ok|valid|live/i.test(
-                            String(conn.status || "")
-                          ) ||
-                            // Why: some Composio rows omit status but still have a connection id.
-                            (conn.id && !/expired|revoked|failed|inactive|initiat/i.test(String(conn.status || ""))))
-                      );
+                      const connected = isComposioRowConnected(conn);
+                      const awaiting = composioAwaitingToolkit === slug;
                       return (
                         <li
                           key={slug}
@@ -1985,26 +2088,30 @@ export function AgentEditPage() {
                           <div>
                             <span className="font-semibold text-teal-950">{slug}</span>
                             <span className="ml-2 text-xs text-teal-900/60">
-                              {connected
-                                ? `Connected${conn.status ? ` (${conn.status})` : ""}`
-                                : conn
-                                  ? `Status: ${conn.status || "unknown"}`
-                                  : "Not connected"}
+                              {awaiting
+                                ? "Waiting for OAuth…"
+                                : connected
+                                  ? `Connected${conn.status ? ` (${conn.status})` : ""}`
+                                  : conn
+                                    ? `Status: ${conn.status || "unknown"}`
+                                    : "Not connected"}
                             </span>
                           </div>
                           {!isNew && form.composio?.enabled ? (
                             <div className="flex flex-wrap gap-2">
                               <button
                                 type="button"
-                                disabled={Boolean(composioConnectBusy)}
+                                disabled={Boolean(composioConnectBusy) || Boolean(composioAwaitingToolkit)}
                                 onClick={() => void connectComposioToolkit(slug)}
                                 className="min-h-9 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white disabled:opacity-50"
                               >
                                 {composioConnectBusy === slug
                                   ? "Opening…"
-                                  : connected
-                                    ? "Reconnect"
-                                    : "Connect"}
+                                  : awaiting
+                                    ? "Waiting…"
+                                    : connected
+                                      ? "Reconnect"
+                                      : "Connect"}
                               </button>
                               {conn?.id ? (
                                 <button
