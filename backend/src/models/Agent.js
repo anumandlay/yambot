@@ -548,6 +548,15 @@ const agentSchema = new mongoose.Schema(
       default: [],
     },
     /**
+     * When dayLogs / short notes / curated / Mem0 / chat last changed for this agent.
+     * Why: 30m memory summarizer only runs when this is newer than lastMemorySummarizeAt.
+     */
+    memoryContentChangedAt: { type: Date, default: null, index: true },
+    /**
+     * Last successful 30m memory summarizer pass for this agent.
+     */
+    lastMemorySummarizeAt: { type: Date, default: null },
+    /**
      * User-managed site logins for this agent only.
      * Why: agent reuses what you saved; never invents or auto-stores passwords.
      * passwordEnc is AES-GCM at rest; UI/API decrypt for display and worker prompts.
@@ -1016,6 +1025,7 @@ function formatMemoryBlock(memory) {
 
 /**
  * Appends a memory entry and keeps the list capped.
+ * Why: skip near-duplicates (same trial list pasted again) so Short notes stay readable.
  * @param {import('mongoose').Document} agentDoc
  * @param {{ kind?: string, content: string, sourceTask?: string }} entry
  * @param {number} [cap]
@@ -1024,6 +1034,27 @@ export async function appendAgentMemory(agentDoc, entry, cap = 50) {
   const content = String(entry.content || "").trim();
   if (!content) return agentDoc;
   agentDoc.memory = agentDoc.memory || [];
+  const { findNearDuplicateIndex } = await import("../utils/curatedMemory.js");
+  const nearIdx = findNearDuplicateIndex(
+    agentDoc.memory.map((m) => ({ content: String(m?.content || "") })),
+    content
+  );
+  if (nearIdx >= 0) {
+    // Why: refresh timestamp on the existing note instead of stacking another copy.
+    const row = agentDoc.memory[nearIdx];
+    if (row) {
+      row.at = new Date();
+      if (entry.sourceTask) row.sourceTask = entry.sourceTask;
+      // Prefer the longer write when both are near-dupes (more complete summary).
+      if (content.length > String(row.content || "").length) {
+        row.content = content.slice(0, 2000);
+      }
+      agentDoc.markModified("memory");
+    }
+    touchAgentMemoryContentChanged(agentDoc);
+    await agentDoc.save();
+    return agentDoc;
+  }
   agentDoc.memory.unshift({
     kind: entry.kind || "note",
     content: content.slice(0, 2000),
@@ -1033,6 +1064,7 @@ export async function appendAgentMemory(agentDoc, entry, cap = 50) {
   if (agentDoc.memory.length > cap) {
     agentDoc.memory = agentDoc.memory.slice(0, cap);
   }
+  touchAgentMemoryContentChanged(agentDoc);
   await agentDoc.save();
   return agentDoc;
 }
@@ -1069,15 +1101,34 @@ export async function appendAgentDayLog(agentDoc, entry, opts = {}) {
     row = agentDoc.dayLogs[0];
   }
 
+  const { normalizeFactKey } = await import("../utils/curatedMemory.js");
   const prevSummary = String(row.summary || "").trim();
-  row.summary = (prevSummary ? `${prevSummary}\n• ${summaryLine}` : `• ${summaryLine}`)
-    .slice(0, 4000);
+  const summaryKey = normalizeFactKey(summaryLine);
+  const alreadyHasSummary =
+    summaryKey &&
+    prevSummary
+      .split(/\n•\s*|\n/)
+      .map((line) => normalizeFactKey(line.replace(/^•\s*/, "")))
+      .some((k) => k && (k === summaryKey || k.includes(summaryKey) || summaryKey.includes(k)));
+  if (summaryLine && !alreadyHasSummary) {
+    row.summary = (prevSummary ? `${prevSummary}\n• ${summaryLine}` : `• ${summaryLine}`).slice(
+      0,
+      4000
+    );
+  }
   const prevDetail = String(row.detail || "").trim();
   if (detailChunk) {
-    row.detail = (prevDetail ? `${prevDetail}\n\n---\n${detailChunk}` : detailChunk).slice(
-      0,
-      8000
-    );
+    const detailKey = normalizeFactKey(detailChunk.slice(0, 400));
+    const alreadyHasDetail =
+      detailKey &&
+      normalizeFactKey(prevDetail).includes(detailKey) &&
+      detailKey.length >= 40;
+    if (!alreadyHasDetail) {
+      row.detail = (prevDetail ? `${prevDetail}\n\n---\n${detailChunk}` : detailChunk).slice(
+        0,
+        8000
+      );
+    }
   }
   const kwSet = new Set([...(row.keywords || []).map(String), ...kw]);
   row.keywords = [...kwSet].slice(0, 60);
@@ -1096,8 +1147,35 @@ export async function appendAgentDayLog(agentDoc, entry, opts = {}) {
     agentDoc.dayLogs = agentDoc.dayLogs.slice(0, dayCap);
   }
   agentDoc.markModified("dayLogs");
+  touchAgentMemoryContentChanged(agentDoc);
   await agentDoc.save();
   return agentDoc;
+}
+
+/**
+ * Stamp memoryContentChangedAt on an agent doc (caller saves, or use ById).
+ * @param {object|null|undefined} agentDoc
+ */
+export function touchAgentMemoryContentChanged(agentDoc) {
+  if (!agentDoc) return;
+  agentDoc.memoryContentChangedAt = new Date();
+}
+
+/**
+ * Bump memoryContentChangedAt without loading full agent (chat / Mem0 paths).
+ * @param {string|import('mongoose').Types.ObjectId} agentId
+ */
+export async function markAgentMemoryContentChangedById(agentId) {
+  const id = String(agentId || "").trim();
+  if (!id || !mongoose.isValidObjectId(id)) return;
+  try {
+    await Agent.updateOne(
+      { _id: id },
+      { $set: { memoryContentChangedAt: new Date() } }
+    );
+  } catch (err) {
+    console.warn("[agent] markMemoryContentChanged failed:", err?.message || err);
+  }
 }
 
 /**

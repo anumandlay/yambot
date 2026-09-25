@@ -10,7 +10,7 @@ import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { Skill } from "../models/Skill.js";
 import { User } from "../models/User.js";
-import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl } from "../models/Agent.js";
+import { Agent, toAgentSnapshot, clearAgentNeedsAttention, clearAgentHumanControl, markAgentMemoryContentChangedById } from "../models/Agent.js";
 import {
   resolveAgentMention,
   resolvePeerAskAssignments,
@@ -1095,6 +1095,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         content,
         meta: messageMeta,
       });
+      void markAgentMemoryContentChangedById(agentDoc._id);
 
       if (wantStream) {
         startNdjson();
@@ -1626,6 +1627,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         content,
         meta: messageMeta,
       });
+      void markAgentMemoryContentChangedById(agentDoc._id);
 
       if (wantStream) {
         startNdjson();
@@ -1924,6 +1926,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       content,
       meta: Object.keys(messageMeta).length ? messageMeta : null,
       }));
+    // Why: precreated Auto path already bumped; goal path still needs the dirty flag.
+    void markAgentMemoryContentChangedById(agentDoc._id);
 
     /** @type {object|null} */
     let autoAckMessage = null;
@@ -2337,6 +2341,7 @@ chatsRouter.post("/:id/tasks/:taskId/inject", async (req, res, next) => {
         senderName: resolveHumanDisplayName(owner),
       },
     });
+    if (task.agent) void markAgentMemoryContentChangedById(task.agent);
 
     const { injectOperatorMessage } = await import("../utils/agentMessageBus.js");
     const injected = await injectOperatorMessage({
@@ -2428,6 +2433,7 @@ chatsRouter.post("/:id/tasks/:taskId/answer", async (req, res, next) => {
         senderName: resolveHumanDisplayName(owner),
       },
     });
+    if (task.agent) void markAgentMemoryContentChangedById(task.agent);
     if (isApi && task.agent) {
       const { kickApiAgent } = await import("../utils/apiAgentRunner.js");
       kickApiAgent(task.agent, req.userId);

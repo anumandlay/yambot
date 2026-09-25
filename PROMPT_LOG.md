@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:10] Memory: dedupe notes + 30m all-agents summarize cron
+
+- **Prompt Provided:** stop duplicate notes; summarize curated + Mem0 too; cron every 30m only if new content (incl. chat messages); cron for all agents
+- **Architectural Flow:** `appendAgentMemory` / day-log append skip near-duplicates. Agents track `memoryContentChangedAt` (bumped on dayLog, notes, curated, Mem0, chat user messages) and `lastMemorySummarizeAt`. Global 30m `tickMemorySummarize` scans all dirty agents, LLM-compresses day history + curated + episodic + Mem0, then stamps last summarize.
+- **Impacted Files:** Agent.js, memorySummarizeCron.js, scheduler.js, curatedMemoryOps.js, mem0Service.js, chats.js, memorySummarizeDedup.test.js, PROMPT_LOG
+
 ## [2026-09-25 15:00] Composio tab: View tools per app
 
 - **Prompt Provided:** on agent Composio tab, after each app need a view tools link to show all tools available

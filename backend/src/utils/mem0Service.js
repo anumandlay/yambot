@@ -308,6 +308,16 @@ export async function mem0AddFact(opts) {
         },
       ],
     });
+    // Why: chat/cron dirty check — skip when the summarizer itself wrote the fact.
+    const src = String(opts.metadata?.source || "");
+    if (scope === "agent" && opts.agentId && src !== "memory_summarize_cron") {
+      try {
+        const { markAgentMemoryContentChangedById } = await import("../models/Agent.js");
+        await markAgentMemoryContentChangedById(opts.agentId);
+      } catch {
+        /* ignore */
+      }
+    }
     return { ok: true };
   } catch (err) {
     console.warn("[mem0] addFact failed:", err?.message || err);

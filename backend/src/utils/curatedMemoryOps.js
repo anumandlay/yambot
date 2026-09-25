@@ -236,6 +236,7 @@ export async function mutateCuratedMemory(opts) {
       entries: persistable,
       updatedAt: now,
     };
+    agent.memoryContentChangedAt = now;
     await agent.save();
 
     if (action === "remove") {
@@ -387,6 +388,9 @@ export async function setCuratedMemoryEntries(opts) {
   const agent = await Agent.findOne({ _id: opts.agentId, user: opts.userId });
   if (!agent) return { success: false, target, error: "Agent not found." };
   agent.curatedMemory = { entries: persistable, updatedAt: now };
+  if (!opts.skipContentChangedBump) {
+    agent.memoryContentChangedAt = now;
+  }
   await agent.save();
   if (clearing) {
     try {
