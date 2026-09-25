@@ -17,6 +17,11 @@ import {
   UNTRUSTED_TOOL_RESULT_OPEN,
   UNTRUSTED_TOOL_RESULT_CLOSE,
 } from "../src/utils/hermesUntrusted.js";
+import {
+  scoreSpreadsheetForQuery,
+  isPasswordVaultSheetTitle,
+  sheetTitleMatchesQueryTopic,
+} from "../src/utils/composioAutoRuntime.js";
 import { createAutoTimingTracker, sanitizeAutoReplyContent } from "../src/utils/chatAutoTurn.js";
 
 describe("skill summary truncation (Phase 3)", () => {
@@ -69,6 +74,24 @@ describe("redactCredentialLeaks", () => {
 
   it("redacts password: value", () => {
     assert.doesNotMatch(redactCredentialLeaks("password: SuperSecret99!"), /SuperSecret99/);
+  });
+
+  it("redacts pipe-delimited sheet credential rows", () => {
+    const raw = [
+      "From spreadsheet “vughy.com passwords for yamu never delete”:",
+      "Google Sheet (Sheet1!A1:Z40) — first rows:",
+      "",
+      "1. vughy.com/appy/admin |  | admin@vc.com | 123456",
+      "2. vughy.com/apply/manager |  | yamunesh | 123456789",
+      "7. https://api.vughy.com/admin/login |  | email ayamunesh@gmail.com | 123123",
+    ].join("\n");
+    const out = redactCredentialLeaks(raw);
+    assert.doesNotMatch(out, /\b123456\b/);
+    assert.doesNotMatch(out, /123456789/);
+    assert.doesNotMatch(out, /\b123123\b/);
+    assert.match(out, /\[REDACTED\]/);
+    assert.match(out, /admin@vc\.com/);
+    assert.match(out, /Google Sheet/);
   });
 
   it("sanitizeAutoReplyContent strips leaked passwords from skill dumps", () => {
@@ -132,5 +155,16 @@ describe("buildAutoObservabilityMeta (Phase 3)", () => {
     const blob = JSON.stringify(meta);
     assert.doesNotMatch(blob, /sk-secretVALUE123/);
     assert.doesNotMatch(blob, /password/i);
+  });
+});
+
+describe("Sheets match scoring (password vault guard)", () => {
+  it("penalizes password workbooks for trial/expiry asks", () => {
+    const q = "check the trial expiring list for India on Vughy";
+    assert.equal(isPasswordVaultSheetTitle("vughy.com passwords for yamu never delete"), true);
+    assert.ok(scoreSpreadsheetForQuery("vughy.com passwords for yamu never delete", q) < 0);
+    assert.ok(scoreSpreadsheetForQuery("Trial Expiry Checker vughy India", q) > 8);
+    assert.equal(sheetTitleMatchesQueryTopic(q, "Trial Expiry Checker vughy India"), true);
+    assert.equal(sheetTitleMatchesQueryTopic(q, "vughy.com passwords for yamu never delete"), false);
   });
 });

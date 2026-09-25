@@ -4,6 +4,8 @@
  * Downstream: chatAutoTurn.js (Gmail / Slack / Sheets starters); executeAutoLookupTool compact.
  */
 
+import { redactCredentialLeaks } from "./hermesUntrusted.js";
+
 /**
  * @typedef {{
  *   id: string,
@@ -771,6 +773,72 @@ export function formatSheetsListSummaryFromToolResult(resultText, tool = "") {
 }
 
 /**
+ * True when a Drive/Sheets title looks like a password / credentials vault.
+ * Why: never auto-open these for trial/expiry list asks.
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function isPasswordVaultSheetTitle(name) {
+  const n = String(name || "").toLowerCase();
+  if (!n) return false;
+  return /\b(passwords?|passwd|credentials?|secrets?|login\s*vault|never\s*delete)\b/i.test(n);
+}
+
+/**
+ * User explicitly asked to see passwords / credentials from a sheet.
+ * @param {string} query
+ * @returns {boolean}
+ */
+export function queryWantsSheetPasswords(query) {
+  const q = String(query || "").toLowerCase();
+  return /\b(password|passwd|credential|secret|login\s*detail)\b/.test(q);
+}
+
+/**
+ * Score a spreadsheet name against a user query for auto-open.
+ * Why: “vughy” alone must not beat / open a password workbook for trial-expiry asks.
+ * @param {string} name
+ * @param {string} query
+ * @returns {number}
+ */
+export function scoreSpreadsheetForQuery(name, query) {
+  const n = String(name || "").toLowerCase();
+  const q = String(query || "").toLowerCase().trim();
+  if (!n || !q) return 0;
+  const tokens = q.split(/\s+/).filter((tok) => tok.length >= 3);
+  let score = 0;
+  for (const tok of tokens) {
+    if (n.includes(tok)) score += 2;
+  }
+  if (/\btrial\b/.test(n) && /\btrial\b/.test(q)) score += 4;
+  if (/expir/.test(n) && /expir/.test(q)) score += 4;
+  if (/\bindia\b/.test(n) && /\bindia\b/.test(q)) score += 3;
+  if (/\bvughy\b/.test(n) && /\bvughy\b/.test(q)) score += 1;
+  if (isPasswordVaultSheetTitle(n) && !queryWantsSheetPasswords(q)) {
+    score -= 50;
+  }
+  return score;
+}
+
+/**
+ * Whether query topic words (trial/expiry/…) require the sheet name to match them.
+ * @param {string} query
+ * @param {string} name
+ * @returns {boolean}
+ */
+export function sheetTitleMatchesQueryTopic(query, name) {
+  const q = String(query || "").toLowerCase();
+  const n = String(name || "").toLowerCase();
+  /** @type {RegExp[]} */
+  const need = [];
+  if (/\btrial\b/.test(q)) need.push(/\btrial\b/);
+  if (/expir/.test(q)) need.push(/expir/);
+  if (/\brenewal\b/.test(q)) need.push(/\brenewal\b/);
+  if (!need.length) return true;
+  return need.some((re) => re.test(n));
+}
+
+/**
  * @param {string} resultText
  * @param {string} [tool]
  * @returns {string}
@@ -803,7 +871,10 @@ export function formatSheetsReadSummaryFromToolResult(resultText, tool = "") {
     const cells = Array.isArray(row) ? row.map((c) => String(c ?? "")).join(" | ") : String(row);
     return `${i + 1}. ${cells.slice(0, 160)}`;
   });
-  return `Google Sheet${data?.range ? ` (${data.range})` : ""} — first rows:\n\n${lines.join("\n")}`;
+  // Why: Sheets often store login tables — never echo secrets in chat summaries.
+  return redactCredentialLeaks(
+    `Google Sheet${data?.range ? ` (${data.range})` : ""} — first rows:\n\n${lines.join("\n")}`
+  );
 }
 
 /**
@@ -1946,22 +2017,28 @@ export async function runSheetsList(opts) {
     const parsedList = parseOk(listPayload.resultText);
     const rows = extractSpreadsheetRows(parsedList?.data ?? parsedList ?? {});
     if (!rows.length) return listPayload;
-    const tokens = q.split(/\s+/).filter((tok) => tok.length >= 3);
     const scored = rows
       .map((r) => {
-        const name = String(r?.name || r?.title || "").toLowerCase();
-        let n = 0;
-        for (const tok of tokens) {
-          if (name.includes(tok)) n += 2;
-        }
-        if (/\btrial\b/.test(name) && /\btrial\b/.test(q)) n += 4;
-        if (/expir/.test(name) && /expir/.test(q)) n += 4;
-        return { r, n };
+        const name = String(r?.name || r?.title || "");
+        return { r, n: scoreSpreadsheetForQuery(name, q) };
       })
       .sort((a, b) => b.n - a.n);
     const best = scored[0];
     const id = String(best?.r?.id || best?.r?.spreadsheetId || "").trim();
-    if (!id || !(best?.n > 0)) return listPayload;
+    const title = String(best?.r?.name || best?.r?.title || id);
+    // Why: “vughy” alone must not open a password workbook for trial-expiry asks.
+    if (!id || !(best?.n > 2)) return listPayload;
+    // Why: trial/expiry asks must not open a weakly related sheet; allow strong multi-token hits.
+    if (!sheetTitleMatchesQueryTopic(q, title) && !(best.n >= 8)) return listPayload;
+    if (isPasswordVaultSheetTitle(title) && !queryWantsSheetPasswords(q)) {
+      return {
+        ...listPayload,
+        content:
+          String(listPayload.content || "").trim() +
+          `\n\nI won’t open credentials workbook “${title.slice(0, 80)}” in chat. ` +
+          `Name the trial/expiry sheet more specifically, or open passwords yourself in Drive.`,
+      };
+    }
     const readText = await executeLookup("composio_execute", runtime, {
       tool: "GOOGLESHEETS_BATCH_GET",
       arguments: {
@@ -1977,12 +2054,11 @@ export async function runSheetsList(opts) {
       readText,
       "GOOGLESHEETS_BATCH_GET"
     );
-    const title = String(best.r.name || best.r.title || id);
     return {
       ...listPayload,
-      content:
-        `From spreadsheet “${title}”:\n\n${valuesSummary}\n\n` +
-        `(Matched sheet id ${id})`,
+      content: redactCredentialLeaks(
+        `From spreadsheet “${title}”:\n\n${valuesSummary}\n\n` + `(Matched sheet id ${id})`
+      ),
     };
   }
 

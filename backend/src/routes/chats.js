@@ -58,6 +58,7 @@ import {
   looksLikeComposioRiskyConfirm,
   looksLikeComposioRiskyDeny,
 } from "../utils/composioApprovalGate.js";
+import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
@@ -1455,6 +1456,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           assistantContent = sanitizeFakeMemoryActionReply(assistantContent);
         }
         assistantContent = sanitizeFakeComposioActionReply(assistantContent);
+        assistantContent = redactCredentialLeaks(assistantContent);
         if (!String(assistantContent || "").trim()) {
           assistantContent =
             "I couldn’t finish that Composio step. Check Agent → Composio (API key, the app enabled + connected), then send the same request again.";
@@ -1715,6 +1717,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         assistantContent = sanitizeFakeMemoryActionReply(String(assistantContent || ""));
       }
       assistantContent = sanitizeFakeComposioActionReply(String(assistantContent || ""));
+      assistantContent = redactCredentialLeaks(assistantContent);
       if (!String(assistantContent || "").trim()) {
         assistantContent =
           "I couldn’t finish that Composio step. Check Agent → Composio (API key, the app enabled + connected), then send the same request again.";

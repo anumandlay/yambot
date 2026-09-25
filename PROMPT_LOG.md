@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 13:40] Sheets: don’t dump password workbooks for trial-list asks
+
+- **Prompt Provided:** Chat showed “vughy.com passwords…” sheet rows (with passwords) when user asked to check trial expiring list for India on Vughy.
+- **Architectural Flow:** Trial/expiry sheet matching no longer opens weakly related or password-vault workbooks (`scoreSpreadsheetForQuery` + topic match + refuse vault dumps). Sheet summaries and chat replies run through stronger `redactCredentialLeaks` (pipe-delimited credential rows). Persist path in chats.js also redacts.
+- **Impacted Files:** composioAutoRuntime.js, hermesUntrusted.js, chats.js, hermesPhase3.test.js, PROMPT_LOG
+
 ## [2026-09-25 13:30] Hybrid combo: confirm before Composio follow-ups
 
 - **Prompt Provided:** After computer finishes a hybrid job, ask confirm before running connected-app follow-ups (yes to “ask confirm before running”).

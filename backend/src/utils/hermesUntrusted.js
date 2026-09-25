@@ -27,7 +27,7 @@ export function wrapUntrustedToolResult(body) {
 
 /**
  * Strip password-like values from text before prompts / chat replies.
- * Why: credentials often linger in Skill, Instructions, or prior assistant messages;
+ * Why: credentials often linger in Skill, Instructions, Sheets dumps, or prior assistant messages;
  * Phase 1 vault redaction does not cover free-text skill dumps.
  * @param {unknown} text
  * @param {{ knownSecrets?: string[] }} [opts]
@@ -53,19 +53,57 @@ export function redactCredentialLeaks(text, opts = {}) {
   );
   // "password field with xxx" (allow markdown **password**)
   out = out.replace(
-    /\b((?:fill(?:ing)?\s+(?:the\s+)?)?\*{0,2}password\*{0,2}\s+field\s+with\s+)([`'"]?)([^\s`'";,*]{3,64})\2/gi,
+    /\b((?:fill(?:ing)?\s+(?:the\s+)?)?\*{0,2}passwords?\*{0,2}\s+field\s+with\s+)([`'"]?)([^\s`'";,*]{3,64})\2/gi,
     "$1$2[REDACTED]$2"
   );
   // "password is xxx"
   out = out.replace(
-    /\b(password\s+(?:is|was)\s+)([`'"]?)([^\s`'";,]{3,64})\2/gi,
+    /\b(passwords?\s+(?:is|are|was|were)\s+)([`'"]?)([^\s`'";,]{3,64})\2/gi,
     "$1$2[REDACTED]$2"
   );
-  // Markdown: **password** … with `value`
+  // Markdown: **password** … with `value` — require "with"/=/":" immediately after password word
   out = out.replace(
-    /(\*{0,2}password\*{0,2}[^\n]{0,40}?(?:with|=|:)\s*)([`'"]?)([^\s`'";,*]{3,64})\2/gi,
+    /(\*{0,2}passwords?\*{0,2}\s*(?:with|=|:)\s*)([`'"]?)([^\s`'";,*]{3,64})\2/gi,
     "$1$2[REDACTED]$2"
   );
+
+  // email | secret  (Sheets / credential tables)
+  out = out.replace(
+    /([a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\s*\|\s*)([^\s|\n]{3,64})/gi,
+    "$1[REDACTED]"
+  );
+  // login URL rows: … | user-or-blank | secret at end of line
+  out = out.replace(
+    /(https?:\/\/[^\s|]+(?:\/[^\s|]*)?(?:\s*\|\s*[^|\n]*){1,4}\|\s*)([^\s|\n]{4,64})\s*$/gim,
+    "$1[REDACTED]"
+  );
+
+  // Why: password workbooks dump pipe rows — redact last non-empty cell when the dump mentions passwords.
+  if (/\b(passwords?|passwd|credentials?|secrets?)\b/i.test(out)) {
+    out = out
+      .split("\n")
+      .map((line) => {
+        if (!line.includes("|")) return line;
+        const parts = line.split("|");
+        if (parts.length < 2) return line;
+        let lastIdx = -1;
+        for (let i = parts.length - 1; i >= 0; i--) {
+          if (String(parts[i] || "").trim()) {
+            lastIdx = i;
+            break;
+          }
+        }
+        if (lastIdx <= 0) return line;
+        const cell = String(parts[lastIdx] || "").trim();
+        if (!cell || cell === "[REDACTED]") return line;
+        if (/@/.test(cell) || /^https?:\/\//i.test(cell) || /^Sheet\d/i.test(cell)) return line;
+        if (cell.length < 3 || cell.length > 64) return line;
+        if (/\s/.test(cell)) return line;
+        parts[lastIdx] = parts[lastIdx].replace(cell, "[REDACTED]");
+        return parts.join("|");
+      })
+      .join("\n");
+  }
 
   return out;
 }
