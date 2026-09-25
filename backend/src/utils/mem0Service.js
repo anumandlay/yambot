@@ -10,6 +10,7 @@ import { randomUUID } from "crypto";
 import { env } from "./env.js";
 import { isEphemeralCuratedFact } from "./curatedMemoryFilter.js";
 import { scanMemoryContent } from "./curatedMemory.js";
+import { wrapUntrustedToolResult } from "./hermesUntrusted.js";
 
 /** Sentinel agent_id for account-wide USER prefs. */
 export const MEM0_USER_SCOPE_AGENT = "yambot_user_profile";
@@ -612,8 +613,10 @@ export function mergeMem0IntoCurated(curated, mem0Hits, charLimit) {
     if (!t || isEphemeralCuratedFact(t)) return;
     const key = t.toLowerCase();
     if (seen.has(key)) return;
-    // Why: Mem0 / external retrieval is labeled untrusted so it cannot masquerade as system rules.
-    const labeled = fromMem0 ? `[untrusted·retrieved] ${t}` : t;
+    // Why: Mem0 / external retrieval is labeled + delimited (Hermes Phase 3) so it cannot masquerade as system rules.
+    const labeled = fromMem0
+      ? wrapUntrustedToolResult(`[untrusted·retrieved] ${t}`)
+      : t;
     if (chars + labeled.length > limit && out.length) return;
     seen.add(key);
     out.push(labeled);

@@ -787,10 +787,59 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
 }
 
 /**
+ * Short skill blurb for Auto/Answer system prompts (Hermes Phase 3 progressive skills).
+ * Uses the first paragraph when short enough, else ~maxChars (word-boundary trim).
+ * Skills shorter than shortFullThreshold are returned in full by callers via formatSkillPromptBlock.
+ * @param {unknown} skill
+ * @param {{ maxChars?: number }} [opts]
+ * @returns {string}
+ */
+export function summarizeSkillText(skill, opts = {}) {
+  const full = String(skill || "").trim();
+  if (!full) return "";
+  const maxChars = Math.max(80, Number(opts.maxChars) || 400);
+  const paraBreak = full.search(/\n\s*\n/);
+  let summary =
+    paraBreak > 0 && paraBreak <= Math.floor(maxChars * 1.5)
+      ? full.slice(0, paraBreak).trim()
+      : full.slice(0, maxChars).trim();
+  if (summary.length >= full.length) return full;
+  if (summary.length >= maxChars) {
+    const cut = summary.lastIndexOf(" ");
+    if (cut > maxChars * 0.6) summary = summary.slice(0, cut).trim();
+  }
+  return `${summary.replace(/\s+$/g, "")}…`;
+}
+
+/**
+ * SKILL / SKILL SUMMARY block for formatAgentPrompt.
+ * Why: Auto/Answer default to a short summary + load_skill; worker/computer keeps full skill.
+ * @param {unknown} skill
+ * @param {"summary"|"full"} [skillMode]
+ * @returns {string}
+ */
+export function formatSkillPromptBlock(skill, skillMode = "full") {
+  const full = String(skill || "").trim();
+  if (!full) return "";
+  if (skillMode !== "summary") return `SKILL: ${full}`;
+  // Why: short skills cost little — inject full text and skip load_skill round-trip.
+  if (full.length < 500) return `SKILL: ${full}`;
+  const summary = summarizeSkillText(full, { maxChars: 400 });
+  return (
+    `SKILL SUMMARY (call load_skill for the full skill text when you need detail):\n${summary}`
+  );
+}
+
+/**
  * Formats a snapshot into LLM system-prompt text.
  * @param {object} snapshot
- * @param {{ includeCredentialSecrets?: boolean, includeChatContext?: boolean }} [opts]
+ * @param {{
+ *   includeCredentialSecrets?: boolean,
+ *   includeChatContext?: boolean,
+ *   skillMode?: "summary"|"full",
+ * }} [opts]
  * Why: Auto chat keeps system stable (no thread, no passwords). Worker/API may opt into secrets.
+ * skillMode "summary" (Auto/Answer) injects a short skill blurb; "full" (default, worker) injects all.
  * @returns {string}
  */
 export function formatAgentPrompt(snapshot, opts = {}) {
@@ -798,6 +847,8 @@ export function formatAgentPrompt(snapshot, opts = {}) {
   const includeCredentialSecrets = opts.includeCredentialSecrets === true;
   // Why: Hermes Phase 1 — chat history is role messages, not stuffed into system.
   const includeChatContext = opts.includeChatContext === true;
+  // Why: Hermes Phase 3 — progressive skills for chat Auto/Answer only.
+  const skillMode = opts.skillMode === "summary" ? "summary" : "full";
   const isApi = snapshot.mode === "api";
   const factLines = (snapshot.facts || [])
     .filter((f) => f?.key)
@@ -811,7 +862,7 @@ export function formatAgentPrompt(snapshot, opts = {}) {
     isApi
       ? "MODE: API-only — you have NO browser / live computer. Do not navigate or click. Use http_request, email, entities, tickets, and other integration actions only."
       : "MODE: Browser + APIs — you control a Chromium computer and may also call HTTP/integrations.",
-    snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
+    formatSkillPromptBlock(snapshot.skill, skillMode),
     snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
     snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
     snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",

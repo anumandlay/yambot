@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 12:45] Hermes Phase 3: progressive skills + untrusted wrap + Auto meta
+
+- **Prompt Provided:** Implement Hermes Phase 3 — skill summary + load_skill for Auto/Answer; wrap untrusted tool/Mem0 content; persist Auto observability meta + optional auto_meta NDJSON; tests; commit/push/deploy.
+- **Architectural Flow:** `formatAgentPrompt({ skillMode: "summary"|"full" })` injects ~400-char SKILL SUMMARY (full if <500 chars) for chat Auto/Answer; worker keeps full skill. Auto tool `load_skill` returns full `agent.skill`. Composio/tool results (and Mem0 merges) wrapped with `[UNTRUSTED TOOL RESULT …]` delimiters. `buildAutoObservabilityMeta` writes `{ autoTiming, toolRounds, wallMs, aborted?, path }` onto assistant Message.meta (redacted) and emits `{ type: "auto_meta" }` on stream end.
+- **Impacted Files:** Agent.js, hermesUntrusted.js, chatAutoTurn.js, mem0Service.js, messageIntent.js, chats.js, hermesPhase3.test.js, memoryPhase2.test.js, PROMPT_LOG
+
 ## [2026-09-25 12:10] Hermes Phase 2: risky Composio confirm + cancel-on-disconnect + Auto wall budget
 
 - **Prompt Provided:** Implement Hermes Phase 2 — approval for Composio SEND/write on Auto, AbortSignal on disconnect for Auto/Answer, hard wall budget; keep Phase 1 tests green.

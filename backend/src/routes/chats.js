@@ -25,7 +25,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, autoTurnNeedsTools, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, autoTurnNeedsTools, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker, buildAutoObservabilityMeta } from "../utils/chatAutoTurn.js";
 import { enrichComputerGoalForCombo, buildComboFollowupForTask } from "../utils/comboRunner.js";
 import {
   persistChatRememberFact,
@@ -1245,6 +1245,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             userId: String(req.userId),
             chatId: String(chat._id),
             agent: agentDoc,
+            // Why: Hermes Phase 3 load_skill — full agent.skill for progressive skill tool.
+            agentSkill: String(prepared?.snapshot?.skill || agentDoc?.skill || ""),
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
             composioApiKey: decryptAgentComposioApiKey(agentDoc),
             composioToolkitSlugs: expandComposioToolkitSlugs(
@@ -1320,6 +1322,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           defaultQueueAck(goalText, agentDoc.name);
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
+          const routeObs = buildAutoObservabilityMeta(autoTiming, {
+            reason: turn.reason,
+          });
+          if (routeObs) writeNdjson({ type: "auto_meta", ...routeObs });
           writeNdjson({
             type: "routing",
             action: "queue_goal",
@@ -1394,6 +1400,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         }
         autoTiming = turn.timing || null;
         const timingLine = formatAutoTimingSummary(autoTiming);
+        const autoObs = buildAutoObservabilityMeta(autoTiming, {
+          reason: turn.reason,
+        });
         const assistantMessage = await Message.create({
           chat: chat._id,
           role: "assistant",
@@ -1408,6 +1417,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             answeredWhileBusy: Boolean(busyRun),
             hermesAuto: true,
             hermesTiming: autoTiming || undefined,
+            // Why: Hermes Phase 3 — lightweight Auto observability (redacted; no secrets).
+            ...(autoObs || {}),
             rememberSaved: rememberMeta || undefined,
             rememberForgotten: forgetMeta || undefined,
             sessionScratchSaved: scratchMeta || undefined,
@@ -1453,6 +1464,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         }
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
+          if (autoObs) writeNdjson({ type: "auto_meta", ...autoObs });
           writeNdjson({
             type: "result",
             ok: true,
@@ -1794,6 +1806,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     /** @type {object|null} */
     let autoAckMessage = null;
     if (autoAck) {
+      const ackObs = buildAutoObservabilityMeta(autoTiming);
       autoAckMessage = await Message.create({
         chat: chat._id,
         role: "assistant",
@@ -1805,6 +1818,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           hermesAuto: true,
           agentId: String(agentDoc._id),
           agentName: agentDoc.name,
+          hermesTiming: autoTiming || undefined,
+          ...(ackObs || {}),
         },
       });
     }
@@ -2050,6 +2065,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               ? "Queued for API agent (no live computer — saves VPS RAM)."
               : "Queued for this agent's cloud computer on the VPS (Playwright Chromium profile).";
     const timingLine = formatAutoTimingSummary(autoTiming);
+    const queueObs = buildAutoObservabilityMeta(autoTiming);
     const agentNote = await Message.create({
       chat: chat._id,
       role: "system",
@@ -2089,6 +2105,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         hermesAuto: Boolean(autoTiming),
         curatedMemory: curatedMeta,
         hermesTiming: autoTiming || undefined,
+        ...(queueObs || {}),
       },
     });
     if (curatedMeta) {
@@ -2107,6 +2124,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
 
     if (wantStream && writeNdjson) {
       if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
+      if (queueObs) writeNdjson({ type: "auto_meta", ...queueObs });
       writeNdjson({
         type: "result",
         ok: true,

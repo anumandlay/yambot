@@ -750,6 +750,7 @@ export async function answerChatQuestion(opts) {
       formatAgentPrompt(snapshot, {
         includeCredentialSecrets: false,
         includeChatContext: false,
+        skillMode: "summary",
       }) || "(no extra agent context)",
     ]
       .filter(Boolean)
