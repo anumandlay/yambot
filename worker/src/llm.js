@@ -4,6 +4,7 @@
  */
 
 import { codexChatCompletion, isOpenAiCodexBaseUrl } from "./openaiCodex.js";
+import { withCurrentDateTimeInMessages } from "./promptClock.js";
 
 /**
  * @param {{ title: string, detail: string, hint?: string, status?: number, url?: string }} opts
@@ -137,7 +138,7 @@ export async function chatCompletion({
   apiKey,
   baseUrl,
   model,
-  messages,
+  messages: rawMessages,
   temperature = 0.2,
   timeoutMs = 120_000,
   maxTokens,
@@ -151,6 +152,7 @@ export async function chatCompletion({
     });
   }
 
+  const messages = withCurrentDateTimeInMessages(rawMessages);
   const root = normalizeBaseUrl(baseUrl);
 
   if (isOpenAiCodexBaseUrl(root)) {

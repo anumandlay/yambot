@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 16:05] LLM: stamp CURRENT DATE/TIME on every prompt
+
+- **Prompt Provided:** Put the current date and time in each prompt so the LLM understands now
+- **Architectural Flow:** `promptClock.js` builds a UTC + ISO line; injected in API `llmChat` / stream, agent `formatAgentPrompt`, worker `chatCompletion`, and Prompt-peek debug meta.
+- **Impacted Files:** promptClock.js (api+worker), llmChat.js, Agent.js, hermesUntrusted.js, worker/llm.js, promptClock.test.js, PROMPT_LOG
+
 ## [2026-09-25 15:55] Memory: one store per fact (no double/triple save)
 
 - **Prompt Provided:** make sure data is not saving twice or thrice

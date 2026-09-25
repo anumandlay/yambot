@@ -12,6 +12,7 @@ import {
   validateAnthropicApiKey,
 } from "./llmDefaults.js";
 import { withTimeoutSignal, isAbortError } from "./llmAbort.js";
+import { withCurrentDateTimeInMessages } from "./promptClock.js";
 
 export { isAbortError } from "./llmAbort.js";
 
@@ -107,7 +108,7 @@ export async function llmChatCompletionMessage(opts) {
     apiKey,
     baseUrl,
     model,
-    messages,
+    messages: rawMessages,
     temperature = 0,
     maxTokens = 256,
     timeoutMs = 20_000,
@@ -116,6 +117,8 @@ export async function llmChatCompletionMessage(opts) {
     toolChoice,
     signal: externalSignal = null,
   } = opts;
+  // Why: every completion must know “now” for relative dates (today / this week / …).
+  const messages = withCurrentDateTimeInMessages(rawMessages);
   const root = String(baseUrl || "").replace(/\/$/, "");
   const key = normalizeApiKey(apiKey);
   const keyErr = validateAnthropicApiKey(key, root);
@@ -245,13 +248,14 @@ export async function llmChatCompletionStream(opts, onDelta) {
     apiKey,
     baseUrl,
     model,
-    messages,
+    messages: rawMessages,
     temperature = 0,
     maxTokens = 256,
     timeoutMs = 60_000,
     openAiAccountId,
     signal: externalSignal = null,
   } = opts;
+  const messages = withCurrentDateTimeInMessages(rawMessages);
   const root = String(baseUrl || "").replace(/\/$/, "");
   const key = normalizeApiKey(apiKey);
   const keyErr = validateAnthropicApiKey(key, root);

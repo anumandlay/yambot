@@ -9,6 +9,7 @@ import mongoose from "mongoose";
 import { decryptSecret, encryptSecret } from "../utils/crypto.js";
 import { renderCuratedBlock } from "../utils/curatedMemory.js";
 import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
+import { formatCurrentDateTimeForPrompt } from "../utils/promptClock.js";
 
 /**
  * Where queued goals run — cloud-only product (legacy values may exist in Mongo).
@@ -889,6 +890,7 @@ export function formatAgentPrompt(snapshot, opts = {}) {
   const scrub = (s) =>
     includeCredentialSecrets ? String(s || "") : redactCredentialLeaks(String(s || ""));
   return [
+    formatCurrentDateTimeForPrompt(),
     `AGENT NAME: ${snapshot.name}`,
     "IDENTITY: You know this name. Do not open replies with “I’m …” or echo “AGENT NAME:” — the chat UI already labels you.",
     isApi
