@@ -452,6 +452,7 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
             "Write a concise third-person summary of goals, decisions, sites visited, outcomes, and open follow-ups.",
             "Keep facts the agent must remember later. Omit UI chrome and repeated fluff.",
             "Do NOT include chain-of-thought, analysis, or <think> tags — return the summary text only.",
+            "Do NOT copy passwords, API keys, or secrets. Do NOT paste full account/trial lists — say counts or that a list was shown in chat.",
             "Do NOT copy account identity, location, or tone/personality prefs into the summary — those live in Settings → Memory (USER PROFILE) and change independently.",
             `Max ~${budget.summaryMax} characters. Plain text only.`,
           ].join(" "),
@@ -471,9 +472,9 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
         },
       ],
     });
-    const next = stripModelThinking(String(reply || ""))
-      .trim()
-      .slice(0, budget.summaryMax);
+    const next = redactCredentialLeaks(
+      stripModelThinking(String(reply || "")).trim()
+    ).slice(0, budget.summaryMax);
     if (next) {
       chat.contextSummary = next;
       chat.contextSummarizedThrough = older[older.length - 1]._id;
