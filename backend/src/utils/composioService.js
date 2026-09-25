@@ -723,14 +723,10 @@ export async function composioListStatus(opts) {
           row?.status || row?.connectionStatus || row?.state || ""
         ).toLowerCase();
         const rowUser = String(
-          row?.userId ||
-            row?.user_id ||
-            row?.entityId ||
-            row?.entity_id ||
-            row?.wordId ||
-            ""
+          row?.userId || row?.user_id || row?.entityId || row?.entity_id || ""
         );
         // Why: unfiltered list may include other YamBot users — keep ours when id is present.
+        // Do not use wordId — that is not a Composio user id and was wiping every connection.
         if (
           rowUser &&
           rowUser !== uid &&

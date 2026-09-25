@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:20] Composio status: stop filtering out accounts via wordId
+
+- **Prompt Provided:** gmail, still showing to connect
+- **Architectural Flow:** After pagination found ACTIVE Gmail rows, `composioListStatus` still returned empty connections because `wordId` was treated as a user id and failed the ownership check for every row. Removed `wordId` from that filter so ACTIVE Gmail (and other apps) surface as Connected.
+- **Impacted Files:** composioService.js, PROMPT_LOG
+
 ## [2026-09-25 14:15] Composio status: paginate + toolkit-targeted Gmail list
 
 - **Prompt Provided:** gmail, still showing to connect
