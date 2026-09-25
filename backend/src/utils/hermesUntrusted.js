@@ -26,6 +26,51 @@ export function wrapUntrustedToolResult(body) {
 }
 
 /**
+ * Strip password-like values from text before prompts / chat replies.
+ * Why: credentials often linger in Skill, Instructions, or prior assistant messages;
+ * Phase 1 vault redaction does not cover free-text skill dumps.
+ * @param {unknown} text
+ * @param {{ knownSecrets?: string[] }} [opts]
+ * @returns {string}
+ */
+export function redactCredentialLeaks(text, opts = {}) {
+  let out = String(text ?? "");
+  if (!out) return out;
+
+  const known = Array.isArray(opts.knownSecrets)
+    ? opts.knownSecrets.map((s) => String(s || "").trim()).filter((s) => s.length >= 4)
+    : [];
+  for (const secret of known) {
+    // Escape regex special chars in the secret.
+    const esc = secret.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    out = out.replace(new RegExp(esc, "g"), "[REDACTED]");
+  }
+
+  // password: xxx / password = xxx / password=`xxx`
+  out = out.replace(
+    /\b(passwords?\s*[:=]\s*)([`'"]?)([^\s`'";,]{3,64})\2/gi,
+    "$1$2[REDACTED]$2"
+  );
+  // "password field with xxx" (allow markdown **password**)
+  out = out.replace(
+    /\b((?:fill(?:ing)?\s+(?:the\s+)?)?\*{0,2}password\*{0,2}\s+field\s+with\s+)([`'"]?)([^\s`'";,*]{3,64})\2/gi,
+    "$1$2[REDACTED]$2"
+  );
+  // "password is xxx"
+  out = out.replace(
+    /\b(password\s+(?:is|was)\s+)([`'"]?)([^\s`'";,]{3,64})\2/gi,
+    "$1$2[REDACTED]$2"
+  );
+  // Markdown: **password** … with `value`
+  out = out.replace(
+    /(\*{0,2}password\*{0,2}[^\n]{0,40}?(?:with|=|:)\s*)([`'"]?)([^\s`'";,*]{3,64})\2/gi,
+    "$1$2[REDACTED]$2"
+  );
+
+  return out;
+}
+
+/**
  * Keys / substrings that must never appear in persisted Auto meta.
  * Why: timing/path are safe; API keys and passwords are not.
  */

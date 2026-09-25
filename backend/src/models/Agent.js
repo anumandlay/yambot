@@ -8,6 +8,7 @@
 import mongoose from "mongoose";
 import { decryptSecret, encryptSecret } from "../utils/crypto.js";
 import { renderCuratedBlock } from "../utils/curatedMemory.js";
+import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
 
 /**
  * Where queued goals run — cloud-only product (legacy values may exist in Mongo).
@@ -818,8 +819,16 @@ export function summarizeSkillText(skill, opts = {}) {
  * @param {"summary"|"full"} [skillMode]
  * @returns {string}
  */
+/**
+ * SKILL / SKILL SUMMARY block for formatAgentPrompt.
+ * Why: Auto/Answer default to a short summary + load_skill; worker/computer keeps full skill.
+ * Passwords in free-text skill are redacted before prompt injection.
+ * @param {unknown} skill
+ * @param {"summary"|"full"} [skillMode]
+ * @returns {string}
+ */
 export function formatSkillPromptBlock(skill, skillMode = "full") {
-  const full = String(skill || "").trim();
+  const full = redactCredentialLeaks(String(skill || "").trim());
   if (!full) return "";
   if (skillMode !== "summary") return `SKILL: ${full}`;
   // Why: short skills cost little — inject full text and skip load_skill round-trip.
@@ -856,6 +865,9 @@ export function formatAgentPrompt(snapshot, opts = {}) {
     .join("\n");
   const domains = (snapshot.allowedDomains || []).filter(Boolean).join(", ");
   const auto = snapshot.autonomy || {};
+  // Why: free-text fields often contain pasted passwords — redact for Auto; worker may keep secrets via includeCredentialSecrets.
+  const scrub = (s) =>
+    includeCredentialSecrets ? String(s || "") : redactCredentialLeaks(String(s || ""));
   return [
     `AGENT NAME: ${snapshot.name}`,
     "IDENTITY: You know this name. Do not open replies with “I’m …” or echo “AGENT NAME:” — the chat UI already labels you.",
@@ -863,12 +875,15 @@ export function formatAgentPrompt(snapshot, opts = {}) {
       ? "MODE: API-only — you have NO browser / live computer. Do not navigate or click. Use http_request, email, entities, tickets, and other integration actions only."
       : "MODE: Browser + APIs — you control a Chromium computer and may also call HTTP/integrations.",
     formatSkillPromptBlock(snapshot.skill, skillMode),
-    snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
-    snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
-    snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",
-    factLines ? `FACTS YOU MAY USE:\n${factLines}` : "",
+    snapshot.description ? `DESCRIPTION: ${scrub(snapshot.description)}` : "",
+    snapshot.profile ? `PROFILE / PERSONA:\n${scrub(snapshot.profile)}` : "",
+    snapshot.instructions ? `STANDING INSTRUCTIONS:\n${scrub(snapshot.instructions)}` : "",
+    factLines ? `FACTS YOU MAY USE:\n${scrub(factLines)}` : "",
     snapshot.successCriteria
-      ? `SUCCESS CRITERIA (call finish when met):\n${snapshot.successCriteria}`
+      ? `SUCCESS CRITERIA (call finish when met):\n${scrub(snapshot.successCriteria)}`
+      : "",
+    !includeCredentialSecrets
+      ? "SECRET RULE: Never echo passwords, API keys, or vault secrets in chat. Say “use Saved logins” instead. Login secrets are filled by the computer from the vault."
       : "",
     !isApi && domains ? `ALLOWED DOMAINS ONLY: ${domains}` : "",
     !isApi && snapshot.startUrl

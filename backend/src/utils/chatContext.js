@@ -12,6 +12,7 @@ import {
   DEFAULT_CONTEXT_TOKENS,
 } from "./llmContextWindow.js";
 import { formatSessionScratchBlock } from "./sessionScratch.js";
+import { redactCredentialLeaks } from "./hermesUntrusted.js";
 
 /** Fallback constants when no creds are passed (legacy / tests). */
 export const CHAT_CONTEXT_RECENT = 16;
@@ -523,7 +524,8 @@ export function formatChatHistoryAsMessages(chat, eligible, budget = null) {
     } else if (storeRole === "system") {
       body = `[system note] ${body}`;
     }
-    out.push({ role: llmRole, content: body });
+    // Why: prior assistant replies may still contain leaked passwords — strip before re-prompting.
+    out.push({ role: llmRole, content: redactCredentialLeaks(body) });
   }
 
   const scratch = formatSessionScratchBlock(chat?.sessionScratch);

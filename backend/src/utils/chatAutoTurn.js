@@ -53,9 +53,13 @@ import {
   formatAutoBudgetStopReply,
   isComposioReadOnlyTool,
 } from "./composioApprovalGate.js";
-import { wrapUntrustedToolResult } from "./hermesUntrusted.js";
+import { wrapUntrustedToolResult, redactCredentialLeaks } from "./hermesUntrusted.js";
 
-export { wrapUntrustedToolResult, buildAutoObservabilityMeta } from "./hermesUntrusted.js";
+export {
+  wrapUntrustedToolResult,
+  buildAutoObservabilityMeta,
+  redactCredentialLeaks,
+} from "./hermesUntrusted.js";
 
 export {
   looksLikeGmailInboxRequest,
@@ -576,14 +580,14 @@ export function sanitizeAutoReplyContent(text) {
   if (isPromptPlaceholder(s)) return "";
   // Why: never strip email drafts / multi-line answers as “planning notes”.
   if (looksLikeSubstantiveUserReply(s)) {
-    return s
-      .replace(/^["'“”]+|["'“”]+$/g, "")
-      .trim();
+    return redactCredentialLeaks(
+      s.replace(/^["'“”]+|["'“”]+$/g, "").trim()
+    );
   }
   // Why: models often dump planning notes then the real ack in quotes — keep only the ack.
   if (looksLikeAutoDeliberation(s)) {
     const extracted = extractQuotedOrFinalAck(s);
-    if (extracted) return extracted;
+    if (extracted) return redactCredentialLeaks(extracted);
     // Why: never keep scratchpad just because it is long — empty is better than leaking notes.
     return "";
   }
@@ -596,10 +600,10 @@ export function sanitizeAutoReplyContent(text) {
     )
     .trim();
   if (looksLikeAutoDeliberation(s)) {
-    if (looksLikeSubstantiveUserReply(s)) return s;
-    return extractQuotedOrFinalAck(s);
+    if (looksLikeSubstantiveUserReply(s)) return redactCredentialLeaks(s);
+    return redactCredentialLeaks(extractQuotedOrFinalAck(s) || "");
   }
-  return s;
+  return redactCredentialLeaks(s);
 }
 
 /**
@@ -1754,10 +1758,12 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
           detail: "No skill text configured on this agent.",
         });
       }
+      const safe = redactCredentialLeaks(skill);
       return JSON.stringify({
         ok: true,
-        skill,
-        chars: skill.length,
+        skill: safe,
+        chars: safe.length,
+        note: "Passwords/secrets are redacted. Use Saved logins vault via queue_goal for live login.",
       }).slice(0, 12000);
     }
     if (kind === "check_run_status") {

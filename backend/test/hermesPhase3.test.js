@@ -13,10 +13,11 @@ import {
 import {
   wrapUntrustedToolResult,
   buildAutoObservabilityMeta,
+  redactCredentialLeaks,
   UNTRUSTED_TOOL_RESULT_OPEN,
   UNTRUSTED_TOOL_RESULT_CLOSE,
 } from "../src/utils/hermesUntrusted.js";
-import { createAutoTimingTracker } from "../src/utils/chatAutoTurn.js";
+import { createAutoTimingTracker, sanitizeAutoReplyContent } from "../src/utils/chatAutoTurn.js";
 
 describe("skill summary truncation (Phase 3)", () => {
   it("returns short skills in full via formatSkillPromptBlock", () => {
@@ -53,6 +54,29 @@ describe("skill summary truncation (Phase 3)", () => {
     assert.ok(!summaryPrompt.includes(longSkill));
     assert.match(fullPrompt, new RegExp(`SKILL: ${"X".repeat(20)}`));
     assert.ok(fullPrompt.includes(longSkill));
+  });
+});
+
+describe("redactCredentialLeaks", () => {
+  it("redacts password field with value patterns", () => {
+    const raw =
+      "3. Locate and fill the **password** field with `12345678`\n4. Click login";
+    const out = redactCredentialLeaks(raw);
+    assert.doesNotMatch(out, /12345678/);
+    assert.match(out, /\[REDACTED\]/);
+    assert.match(out, /password/i);
+  });
+
+  it("redacts password: value", () => {
+    assert.doesNotMatch(redactCredentialLeaks("password: SuperSecret99!"), /SuperSecret99/);
+  });
+
+  it("sanitizeAutoReplyContent strips leaked passwords from skill dumps", () => {
+    const reply =
+      "Standing procedure:\nfill the password field with 12345678\nthen click login";
+    const out = sanitizeAutoReplyContent(reply);
+    assert.doesNotMatch(out, /12345678/);
+    assert.match(out, /\[REDACTED\]/);
   });
 });
 
