@@ -1,8 +1,8 @@
 /**
- * @fileoverview Post-run curated MEMORY extraction for agents.
- * Purpose: After a successful task, distill durable facts into agent MEMORY (Hermes-style),
- * not just day logs / short notes — so “CRM = vughy.com” style knowledge persists for top-k pull.
- * Downstream: worker task complete, apiAgentRunner; mutateCuratedMemory; chat Memory chip.
+ * @fileoverview Post-run durable-fact extraction for agents.
+ * Purpose: After a successful task, distill durable facts into Mem0 only (not curated Mongo),
+ * so Memory-page curated stays operator-owned and facts are not double-saved.
+ * Downstream: worker task complete, apiAgentRunner; mem0AddFact; chat Mem0 chip.
  */
 
 import { Agent } from "../models/Agent.js";
@@ -10,7 +10,6 @@ import { Message } from "../models/Chat.js";
 import { Task } from "../models/Task.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
-import { mutateCuratedMemory } from "./curatedMemoryOps.js";
 import { normalizeEntries } from "./curatedMemory.js";
 import {
   filterDurableCuratedFacts,
@@ -294,20 +293,22 @@ export async function persistCuratedMemoryFromRun(opts) {
     const saved = [];
     /** @type {string[]} */
     const rejected = [];
+    const { mem0AddFact } = await import("./mem0Service.js");
     for (const content of facts) {
-      const result = await mutateCuratedMemory({
+      // Why: run extract writes Mem0 only — curated MEMORY stays for Memory-page / tool edits.
+      const result = await mem0AddFact({
         userId,
         agentId,
-        action: "add",
-        target: "memory",
+        scope: "agent",
         content,
-        source: "run_extract",
-        sourceRef: taskId || null,
-        confidence: 0.75,
-        taskId: taskId || null,
+        metadata: { source: "run_extract", sourceRef: taskId || null },
       });
-      if (result?.success) saved.push(content);
-      else if (result?.error) rejected.push(`${content.slice(0, 60)}… (${result.error.slice(0, 80)})`);
+      if (result?.ok) saved.push(content);
+      else if (result?.skipped === "duplicate") {
+        /* already present — not a failure */
+      } else if (result?.skipped) {
+        rejected.push(`${content.slice(0, 60)}… (${result.skipped})`);
+      }
     }
 
     if (taskId) {
@@ -326,7 +327,7 @@ export async function persistCuratedMemoryFromRun(opts) {
 
     if (saved.length && opts.chatId) {
       const lines = [
-        `Memory saved · ${saved.length} agent fact${saved.length === 1 ? "" : "s"}`,
+        `Mem0 saved · ${saved.length} agent fact${saved.length === 1 ? "" : "s"}`,
         "",
         ...saved.map((f, i) => `${i + 1}. ${f}`),
       ];
@@ -342,7 +343,7 @@ export async function persistCuratedMemoryFromRun(opts) {
           ui: "icon",
           taskId: taskId || null,
           curatedSave: {
-            target: "memory",
+            target: "mem0",
             count: saved.length,
             facts: saved,
             source: "run_extract",

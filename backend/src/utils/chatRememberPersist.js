@@ -1,9 +1,9 @@
 /**
  * @fileoverview Persist chat “remember …” / “forget …” / session-scratch facts.
  * Purpose: Auto used to only reply (or emit fake ACTION: memory) without writing.
- * Phase 1: forget removes Mongo + Mem0; remember stamps provenance.
+ * Remember → Mem0 only (one store). Forget clears Mem0 + legacy Mongo curated rows.
  * Phase 2: “for this chat / for now” → Chat.sessionScratch (TTL), not durable MEMORY.
- * Downstream: chats.js Auto/Answer reply path; Settings / Agents → View Mem0.
+ * Downstream: chats.js Auto/Answer reply path; Agents → View Mem0.
  */
 
 import {
@@ -15,6 +15,7 @@ import {
   extractSessionScratchFact,
 } from "./messageIntent.js";
 import { mutateCuratedMemory } from "./curatedMemoryOps.js";
+import { mem0AddFact } from "./mem0Service.js";
 import { addScratchNote, removeScratchNotes } from "./sessionScratch.js";
 import { Chat } from "../models/Chat.js";
 
@@ -70,8 +71,8 @@ export async function persistChatSessionScratchFact(opts) {
 }
 
 /**
- * Save a remember-fact from chat. Writes agent MEMORY (+ Mem0 agent) always;
- * also USER prefs (+ Mem0 USER) for personal identity lines.
+ * Save a remember-fact from chat into Mem0 only (one store, one scope).
+ * Personal identity → USER Mem0; otherwise → this agent’s Mem0.
  * @param {{
  *   userId: string,
  *   agentId: string,
@@ -96,46 +97,43 @@ export async function persistChatRememberFact(opts) {
   const fact = extractRememberFact(userText);
   if (!fact || fact.length < 3) return { ok: false, skipped: "empty_fact" };
 
+  const personal =
+    looksPersonalAccountFact(userText) || looksPersonalAccountFact(fact);
+  const scope = personal ? "user" : "agent";
   /** @type {string[]} */
-  const targets = ["memory"];
-  if (looksPersonalAccountFact(userText) || looksPersonalAccountFact(fact)) {
-    targets.push("user");
-  }
+  const targets = [personal ? "user" : "memory"];
 
-  for (const target of targets) {
-    const result = await mutateCuratedMemory({
-      userId,
-      agentId,
-      action: "add",
-      target,
-      content: fact,
+  const result = await mem0AddFact({
+    userId,
+    agentId: personal ? null : agentId,
+    scope,
+    content: fact,
+    metadata: {
       source: "chat_remember",
       sourceRef: opts.messageId || null,
-      confidence: 0.95,
-      messageId: opts.messageId || null,
-    });
-    if (!result.success) {
-      return {
-        ok: false,
-        skipped: result.error || "mutate_failed",
-        fact,
-        targets,
-      };
-    }
+    },
+  });
+  if (!result.ok && result.skipped !== "duplicate") {
+    return {
+      ok: false,
+      skipped: result.skipped || "mem0_failed",
+      fact,
+      targets,
+    };
   }
 
-  const where =
-    targets.includes("user") && targets.includes("memory")
-      ? "account USER prefs and this agent’s MEMORY (View Mem0)"
-      : targets.includes("user")
-        ? "account USER prefs (Settings → Memory)"
-        : "this agent’s MEMORY (View Mem0)";
+  const where = personal
+    ? "account Mem0 (Settings → Memory / USER)"
+    : "this agent’s Mem0 (View Mem0)";
 
   return {
     ok: true,
     fact,
     targets,
-    reply: `Got it — saved “${fact}” to ${where}.`,
+    reply:
+      result.skipped === "duplicate"
+        ? `Already saved — “${fact}” is in ${where}.`
+        : `Got it — saved “${fact}” to ${where}.`,
   };
 }
 

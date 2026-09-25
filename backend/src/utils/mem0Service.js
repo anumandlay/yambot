@@ -280,6 +280,32 @@ export async function mem0AddFact(opts) {
     scope === "user" ? MEM0_USER_SCOPE_AGENT : mem0AgentKey(opts.agentId);
   if (!agentKey) return { ok: false, skipped: "no_agent" };
 
+  // Why: never insert the same fact twice (remember + ingest + cron used to stack copies).
+  try {
+    const { normalizeFactKey } = await import("./curatedMemory.js");
+    const key = normalizeFactKey(content);
+    if (key.length >= 8) {
+      const existing = await mem0ListFacts({
+        userId: opts.userId,
+        scope,
+        agentId: opts.agentId,
+        limit: 80,
+      });
+      const dup = existing.some((row) => {
+        const other = normalizeFactKey(row.content);
+        if (!other) return false;
+        if (other === key) return true;
+        if (key.length >= 12 && other.length >= 12) {
+          return key.includes(other) || other.includes(key);
+        }
+        return false;
+      });
+      if (dup) return { ok: false, skipped: "duplicate" };
+    }
+  } catch {
+    /* ignore list failures — still try to add */
+  }
+
   const vector = await embedText(content);
   if (!vector) return { ok: false, skipped: "embed_failed" };
 
@@ -301,7 +327,7 @@ export async function mem0AddFact(opts) {
             user_id: userKey,
             agent_id: agentKey,
             scope,
-            source: "yambot_curated",
+            source: "yambot_mem0",
             created_at: new Date().toISOString(),
             ...(opts.metadata && typeof opts.metadata === "object" ? opts.metadata : {}),
           },
@@ -515,6 +541,17 @@ export async function mem0IngestChatTurn(opts) {
   if (!userText || userText.length < 2) return { ok: false, skipped: "short" };
   if (/^(hi|hello|hey|ok|okay|thanks|thank you|yo|sup)[.!\s]*$/i.test(userText)) {
     return { ok: false, skipped: "greeting" };
+  }
+  // Why: “remember …” already wrote Mem0 once — don’t re-extract the same fact.
+  try {
+    const { looksLikeMemoryStoreRequest, looksLikeMemoryForgetRequest } = await import(
+      "./messageIntent.js"
+    );
+    if (looksLikeMemoryStoreRequest(userText) || looksLikeMemoryForgetRequest(userText)) {
+      return { ok: true, skipped: "remember_or_forget", saved: 0 };
+    }
+  } catch {
+    /* ignore */
   }
   // Why: list/fetch answers already shown in chat must not land in Mem0.
   if (

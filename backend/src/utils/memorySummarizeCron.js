@@ -14,7 +14,6 @@ import {
   findNearDuplicateIndex,
   normalizeFactKey,
 } from "./curatedMemory.js";
-import { setCuratedMemoryEntries } from "./curatedMemoryOps.js";
 import {
   mem0ListFacts,
   mem0AddFact,
@@ -270,25 +269,9 @@ export async function summarizeAgentMemory(agent) {
   // Why: do not clear memoryContentChangedAt — new writes after this stamp will still trigger.
   await agent.save();
 
-  // --- Curated MEMORY: replace with deduped durable list (same char cap) ---
-  if (parsed.curatedEntries.length) {
-    try {
-      await setCuratedMemoryEntries({
-        userId: String(agent.user),
-        target: "memory",
-        agentId: String(agent._id),
-        entries: parsed.curatedEntries.map((content) => ({ content, at: now })),
-        skipContentChangedBump: true,
-      });
-    } catch (err) {
-      console.warn(
-        "[memorySummarize] curated replace failed:",
-        err?.message || err
-      );
-    }
-  }
+  // Why: curated MEMORY is operator-owned (Memory page) — cron must not rewrite it.
 
-  // --- Mem0: delete near-dupes of old facts, add compressed set ---
+  // --- Mem0: drop obsolete near-dupes; only add facts not already present ---
   if (parsed.mem0Facts.length) {
     try {
       for (const old of mem0Facts.slice(0, 40)) {

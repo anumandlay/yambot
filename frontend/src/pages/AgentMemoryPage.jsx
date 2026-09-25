@@ -428,9 +428,9 @@ export function AgentMemoryPage() {
       </div>
 
       <p className="text-sm text-teal-900/70">
-        Curated MEMORY (durable facts, 20,000 char cap). Chat “remember …” and Auto ingest also
-        write Mem0 agent facts (separate store — use View Mem0 below). Day history and episodic
-        notes stay separate. Account USER prefs live under Settings → Memory.
+        Curated MEMORY (Mongo — edit here only, 20,000 char cap). Chat “remember …” and Auto
+        ingest write Mem0 instead (View Mem0 below), so the same fact is not saved twice. Day
+        history and short notes stay separate. Account USER prefs: Settings → Memory.
       </p>
 
       {!busy ? (

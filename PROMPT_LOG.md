@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:55] Memory: one store per fact (no double/triple save)
+
+- **Prompt Provided:** make sure data is not saving twice or thrice
+- **Architectural Flow:** Chat “remember” → Mem0 only (one scope). Curated Mongo no longer mirrors to Mem0. Turn ingest skips remember/forget turns. Run extract → Mem0 only. Cron no longer rewrites curated; Mem0 add skips near-duplicates.
+- **Impacted Files:** chatRememberPersist.js, curatedMemoryOps.js, mem0Service.js, chats.js, curatedMemoryExtract.js, memorySummarizeCron.js, AgentMemoryPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 15:35] Memory: scrub Short notes list dumps + block future writes
 
 - **Prompt Provided:** agents/.../memory Short notes still showing list

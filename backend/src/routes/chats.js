@@ -1596,17 +1596,19 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             error: answerError ? String(answerError.message || answerError) : undefined,
           },
         });
-        // Why: Mem0 learns durable facts from chat turns (async; never blocks the reply).
-        void import("../utils/mem0Service.js")
-          .then(({ mem0IngestChatTurn }) =>
-            mem0IngestChatTurn({
-              userId: req.userId,
-              agentId: agentDoc._id,
-              userText: questionText,
-              assistantText: assistantContent,
-            })
-          )
-          .catch(() => {});
+        // Why: Mem0 learns durable facts from chat turns — skip when “remember …” already wrote once.
+        if (!rememberMeta?.fact && !forgetMeta?.needle && !scratchMeta?.fact) {
+          void import("../utils/mem0Service.js")
+            .then(({ mem0IngestChatTurn }) =>
+              mem0IngestChatTurn({
+                userId: req.userId,
+                agentId: agentDoc._id,
+                userText: questionText,
+                assistantText: assistantContent,
+              })
+            )
+            .catch(() => {});
+        }
         const systemMessage = await Message.create({
           chat: chat._id,
         role: "system",
@@ -1871,16 +1873,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           error: answerError ? String(answerError.message || answerError) : undefined,
         },
       });
-      void import("../utils/mem0Service.js")
-        .then(({ mem0IngestChatTurn }) =>
-          mem0IngestChatTurn({
-            userId: req.userId,
-            agentId: agentDoc._id,
-            userText: questionText,
-            assistantText: assistantContent,
-          })
-        )
-        .catch(() => {});
+      if (!rememberMeta?.fact && !forgetMeta?.needle && !scratchMeta?.fact) {
+        void import("../utils/mem0Service.js")
+          .then(({ mem0IngestChatTurn }) =>
+            mem0IngestChatTurn({
+              userId: req.userId,
+              agentId: agentDoc._id,
+              userText: questionText,
+              assistantText: assistantContent,
+            })
+          )
+          .catch(() => {});
+      }
 
       const systemMessage = await Message.create({
         chat: chat._id,

@@ -1,8 +1,8 @@
 /**
- * @fileoverview Persist Hermes-style curated memory mutations on User / Agent.
+ * @fileoverview Persist Hermes-style curated memory mutations on User / Agent (Mongo only).
  * Purpose: Shared add|replace|remove path for JWT UI routes and worker tools.
- * Phase 1: provenance on writes, Mem0 sync on delete/replace, audit ledger.
- * Downstream: settings routes, agents routes, worker tools/memory, apiAgentRunner, chat remember/forget.
+ * Why no Mem0 mirror on add: chat remember / ingest own Mem0 — mirroring caused double saves.
+ * Downstream: settings routes, agents routes, worker tools/memory, apiAgentRunner.
  */
 
 import { User } from "../models/User.js";
@@ -65,35 +65,6 @@ async function stampFocusEmbedding(persistable, focusContent, creds) {
 }
 
 /**
- * Mirror Mongo remove/replace into Mem0 (best-effort).
- * @param {{
- *   userId: string,
- *   agentId?: string|null,
- *   scope: "user"|"agent",
- *   content?: string|null,
- *   alsoRemove?: string|null,
- * }} opts
- */
-async function syncMem0AfterMutation(opts) {
-  try {
-    const { mem0DeleteByContent, mem0AddFact } = await import("./mem0Service.js");
-    const removals = [opts.content, opts.alsoRemove]
-      .map((c) => String(c || "").trim())
-      .filter(Boolean);
-    for (const content of removals) {
-      await mem0DeleteByContent({
-        userId: opts.userId,
-        agentId: opts.agentId,
-        scope: opts.scope,
-        content,
-      });
-    }
-  } catch (err) {
-    console.warn("[curatedMemory] mem0 sync failed:", err?.message || err);
-  }
-}
-
-/**
  * Apply a curated memory tool action and persist.
  * @param {{
  *   userId: string,
@@ -150,43 +121,7 @@ export async function mutateCuratedMemory(opts) {
       console.warn("[curatedMemory] chat summary invalidate failed:", err?.message || err);
     });
 
-    if (action === "remove") {
-      void syncMem0AfterMutation({
-        userId: opts.userId,
-        scope: "user",
-        content: String(result.removedContent || payload.oldText || "").trim(),
-      });
-    } else if (action === "replace") {
-      void syncMem0AfterMutation({
-        userId: opts.userId,
-        scope: "user",
-        content: String(payload.oldText || "").trim(),
-        alsoRemove: result.removedContent || null,
-      }).then(async () => {
-        const { mem0AddFact } = await import("./mem0Service.js");
-        await mem0AddFact({
-          userId: opts.userId,
-          scope: "user",
-          content: String(payload.content || "").trim(),
-          metadata: { source: payload.source || "yambot_curated" },
-        });
-      });
-    } else if (action === "add") {
-      if (result.replaced && result.removedContent) {
-        void syncMem0AfterMutation({
-          userId: opts.userId,
-          scope: "user",
-          content: result.removedContent,
-        });
-      }
-      const { mem0AddFact } = await import("./mem0Service.js");
-      void mem0AddFact({
-        userId: opts.userId,
-        scope: "user",
-        content: String(payload.content || "").trim(),
-        metadata: { source: payload.source || "yambot_curated" },
-      }).catch(() => {});
-    }
+    // Why: curated Mongo is the sole store for Memory-page / tool writes — no Mem0 mirror (avoids double save).
 
     void writeAudit({
       userId: opts.userId,
@@ -239,48 +174,7 @@ export async function mutateCuratedMemory(opts) {
     agent.memoryContentChangedAt = now;
     await agent.save();
 
-    if (action === "remove") {
-      void syncMem0AfterMutation({
-        userId: opts.userId,
-        agentId,
-        scope: "agent",
-        content: String(result.removedContent || payload.oldText || "").trim(),
-      });
-    } else if (action === "replace") {
-      void syncMem0AfterMutation({
-        userId: opts.userId,
-        agentId,
-        scope: "agent",
-        content: String(payload.oldText || "").trim(),
-        alsoRemove: result.removedContent || null,
-      }).then(async () => {
-        const { mem0AddFact } = await import("./mem0Service.js");
-        await mem0AddFact({
-          userId: opts.userId,
-          agentId,
-          scope: "agent",
-          content: String(payload.content || "").trim(),
-          metadata: { source: payload.source || "yambot_curated" },
-        });
-      });
-    } else if (action === "add") {
-      if (result.replaced && result.removedContent) {
-        void syncMem0AfterMutation({
-          userId: opts.userId,
-          agentId,
-          scope: "agent",
-          content: result.removedContent,
-        });
-      }
-      const { mem0AddFact } = await import("./mem0Service.js");
-      void mem0AddFact({
-        userId: opts.userId,
-        agentId,
-        scope: "agent",
-        content: String(payload.content || "").trim(),
-        metadata: { source: payload.source || "yambot_curated" },
-      }).catch(() => {});
-    }
+    // Why: curated Mongo only — Mem0 is separate (chat remember / ingest), not mirrored.
 
     void writeAudit({
       userId: opts.userId,
