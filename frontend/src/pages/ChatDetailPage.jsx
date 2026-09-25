@@ -30,6 +30,7 @@ import { SkillPickNotice } from "../components/SkillPickNotice.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { isOpsIconMessage, RunOpsIconRow } from "../components/RunOpsIconRow.jsx";
 import { MessageStatusChips } from "../components/MessageStatusChips.jsx";
+import { StreamProgressBar } from "../components/StreamProgressBar.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
@@ -779,8 +780,28 @@ export function ChatDetailPage() {
           );
           scrollThreadToBottom(true);
         },
-        // Why: product does not want Working… / % progress on chat bubbles — only stream text.
-        onProgress: undefined,
+        // Why: Composio tool rounds — slim labeled bar under the streaming bubble.
+        onProgress: (step) => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m._id === `${streamId}-assistant`
+                ? {
+                    ...m,
+                    meta: {
+                      ...m.meta,
+                      streaming: true,
+                      progress: {
+                        id: String(step?.id || "composio"),
+                        label: String(step?.label || "Working…"),
+                        pct: Number(step?.pct) || 0,
+                      },
+                    },
+                  }
+                : m
+            )
+          );
+          scrollThreadToBottom(true);
+        },
         onTiming: (timing) => {
           // Why: Hermes-style debug — keep in console; durable copy is on ops icon / message meta.
           if (timing && typeof console !== "undefined" && console.debug) {
@@ -1536,6 +1557,13 @@ export function ChatDetailPage() {
                         </div>
                       ) : null}
                       <ChatMessageBody text={humanizeGoalOrMessage(m.content, m.meta)} />
+                      {m.meta?.streaming && m.meta?.progress ? (
+                        <StreamProgressBar
+                          label={String(m.meta.progress.label || "Working…")}
+                          pct={Number(m.meta.progress.pct) || 0}
+                          indeterminate={!(Number(m.meta.progress.pct) > 0)}
+                        />
+                      ) : null}
                       {m.role === "assistant" || m.role === "agent" ? (
                         <MessageStatusChips message={m} tone="light" />
                       ) : null}

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 13:50] Show progress bar while Composio works
+
+- **Prompt Provided:** if composio is working, it should show the progress bar
+- **Architectural Flow:** Re-enable Auto NDJSON `progress` events from `createAutoTimingTracker` (Composio search/execute/multi-step). ChatDetailPage wires `onProgress` → `meta.progress` and renders `StreamProgressBar` under the streaming assistant bubble.
+- **Impacted Files:** chats.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 13:45] Trial expiry list → live computer (not Sheets)
 
 - **Prompt Provided:** “India trial expiry list” should open the live computer on Vughy — not a Google Sheet.

@@ -1209,8 +1209,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
           });
         const autoTrack = createAutoTimingTracker({
-          // Why: chat bubbles must not show Working… / % progress — stream text only.
-          onProgress: undefined,
+          // Why: Composio/tool rounds stream a slim Working… bar on the chat bubble.
+          onProgress: wantStream
+            ? (step) => {
+                if (!writeNdjson) return;
+                writeNdjson({
+                  type: "progress",
+                  id: step?.id || "composio",
+                  label: step?.label || "Working…",
+                  pct: Number(step?.pct) || 0,
+                });
+              }
+            : undefined,
         });
         const clientAbort = linkClientAbort(req, res);
         try {
@@ -1250,6 +1260,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             onDelta: wantStream
               ? (chunk) => writeNdjson({ type: "delta", text: chunk })
               : undefined,
+            // Why: tracker already owns onProgress → NDJSON; avoid a second unbound callback.
             onProgress: undefined,
             timing: autoTrack,
             signal: clientAbort.signal,
