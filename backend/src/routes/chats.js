@@ -316,7 +316,8 @@ function parseChatPageLimit(raw, fallback = CHAT_PAGE_SIZE) {
  */
 async function loadMessagePage(chatId, opts = {}) {
   const limit = opts.limit != null ? opts.limit : CHAT_PAGE_SIZE;
-  const filter = { chat: chatId };
+  // Why: context_summary bubbles were for ops only — hide from the thread UI forever.
+  const filter = { chat: chatId, "meta.kind": { $ne: "context_summary" } };
   if (opts.after && mongoose.isValidObjectId(opts.after)) {
     filter._id = { $gt: opts.after };
     const messages = await Message.find(filter).sort({ _id: 1 }).limit(limit).lean();
@@ -525,8 +526,7 @@ chatsRouter.get("/:id", async (req, res, next) => {
 });
 
 /**
- * POST /api/chats/:id/summarize — force-fold older turns into a visible Chat summary bubble.
- * Why: operators can summarize before the 50% context-window threshold.
+ * POST /api/chats/:id/summarize — force-fold older turns into chat.contextSummary (LLM only; no bubble).
  */
 chatsRouter.post("/:id/summarize", async (req, res, next) => {
   try {

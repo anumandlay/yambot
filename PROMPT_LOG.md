@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 16:25] Chat: hide context summary bubbles
+
+- **Prompt Provided:** chat context summarised showing all the time — don’t show it anymore
+- **Architectural Flow:** Stop posting `context_summary` messages; fold still updates `Chat.contextSummary` for the LLM. Message list API excludes those kinds; UI skips any leftover.
+- **Impacted Files:** chatContext.js, chats.js, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 16:05] LLM: stamp CURRENT DATE/TIME on every prompt
 
 - **Prompt Provided:** Put the current date and time in each prompt so the LLM understands now

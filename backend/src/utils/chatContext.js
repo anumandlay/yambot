@@ -1,7 +1,7 @@
 /**
  * @fileoverview Per-chat conversation context — remember until the chat is deleted.
  * Purpose: Pack summary + recent turns into LLM prompts; fold older turns when the
- * thread reaches ~50% of the model context window, and show that summary in the chat UI.
+ * thread reaches ~50% of the model context window (silent — no chat bubble).
  * Downstream: chats routes (Q&A + Task.agentSnapshot); worker formatAgentSnapshot.
  */
 
@@ -318,64 +318,8 @@ export function estimateChatFillTokens(chat, eligible) {
 }
 
 /**
- * Post a visible chat bubble so the operator sees when context was folded.
- * @param {object} chat
- * @param {{ summary: string, summarizedThrough: string, estimatedTokens: number, contextTokens: number, replace?: boolean }} opts
- * @returns {Promise<object|null>}
- */
-async function postContextSummaryMessage(chat, opts) {
-  const through = String(opts.summarizedThrough || "").trim();
-  const summary = String(opts.summary || "").trim();
-  if (!chat?._id || !through || !summary) return null;
-  try {
-    const pct = opts.contextTokens
-      ? Math.min(100, Math.round((opts.estimatedTokens / opts.contextTokens) * 100))
-      : 50;
-    const content = [
-      `Chat summarized (~${pct}% of context window).`,
-      "",
-      summary,
-    ].join("\n");
-    const meta = {
-      kind: "context_summary",
-      summarizedThrough: through,
-      estimatedTokens: opts.estimatedTokens,
-      contextTokens: opts.contextTokens,
-      fillRatio: opts.contextTokens
-        ? Number((opts.estimatedTokens / opts.contextTokens).toFixed(3))
-        : 0.5,
-      forced: Boolean(opts.replace),
-    };
-
-    const existing = await Message.findOne({
-      chat: chat._id,
-      "meta.kind": "context_summary",
-      "meta.summarizedThrough": through,
-    });
-    if (existing) {
-      if (!opts.replace) return null;
-      existing.content = content.slice(0, 8_000);
-      existing.meta = { ...(existing.meta || {}), ...meta };
-      existing.markModified("meta");
-      await existing.save();
-      return existing;
-    }
-
-    return await Message.create({
-      chat: chat._id,
-      role: "assistant",
-      content: content.slice(0, 8_000),
-      meta,
-    });
-  } catch (err) {
-    console.warn("[chatContext] post summary message failed:", err?.message || err);
-    return null;
-  }
-}
-
-/**
  * When conversation fill reaches ~50% of the model context window (or force=true), fold
- * older turns into chat.contextSummary and post a visible summary message in the thread.
+ * older turns into chat.contextSummary for LLM packing only — do not post a chat bubble.
  * @param {object} chat — mongoose Chat document
  * @param {{ apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, contextTokens?: number }|null} creds
  * @param {{ force?: boolean }} [opts] — force=true bypasses the 50% fill gate (manual “summarize now”)
@@ -392,7 +336,7 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
 
   const recent = eligible.slice(-budget.recent);
   const older = eligible.slice(0, Math.max(0, eligible.length - budget.recent));
-  // Why: need a meaningful older block — tiny threads shouldn't invent a summary bubble.
+  // Why: need a meaningful older block before folding.
   if (older.length < (force ? 2 : 4)) {
     return { chat, summaryMessage: null, skipped: "too_few_older" };
   }
@@ -406,9 +350,6 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
     return { chat, summaryMessage: null, skipped: "already_current" };
   }
 
-  /** @type {object|null} */
-  let summaryMessage = null;
-
   if (!creds?.apiKey) {
     // Why: no LLM — keep a crude truncation so something still lands in prompts.
     const crude = older
@@ -418,14 +359,7 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
     chat.contextSummary = crude;
     chat.contextSummarizedThrough = older[older.length - 1]._id;
     await chat.save();
-    summaryMessage = await postContextSummaryMessage(chat, {
-      summary: crude,
-      summarizedThrough: lastOlderId,
-      estimatedTokens,
-      contextTokens: budget.contextTokens,
-      replace: force,
-    });
-    return { chat, summaryMessage };
+    return { chat, summaryMessage: null };
   }
 
   const prior = String(chat.contextSummary || "").trim();
@@ -487,19 +421,12 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
       chat.contextSummary = next;
       chat.contextSummarizedThrough = older[older.length - 1]._id;
       await chat.save();
-      summaryMessage = await postContextSummaryMessage(chat, {
-        summary: next,
-        summarizedThrough: lastOlderId,
-        estimatedTokens,
-        contextTokens: budget.contextTokens,
-        replace: force,
-      });
     }
   } catch (err) {
     console.warn("[chatContext] summarize failed:", err?.message || err);
     return { chat, summaryMessage: null, skipped: "llm_failed" };
   }
-  return { chat, summaryMessage };
+  return { chat, summaryMessage: null };
 }
 
 /**
