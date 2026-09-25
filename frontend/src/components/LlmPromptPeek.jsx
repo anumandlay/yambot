@@ -44,9 +44,9 @@ export function LlmPromptPeek({ prompt }) {
         title={title || "View exact LLM prompt for this message"}
         onClick={() => setOpen((v) => !v)}
         aria-label="View exact LLM prompt"
-        className="flex h-4 items-center justify-center rounded border border-teal-200/80 bg-white/90 px-1 text-[0.55rem] font-medium leading-none text-teal-800/80 hover:bg-teal-50 hover:text-teal-900"
+        className="flex h-2 w-2 items-center justify-center rounded-sm border border-teal-200/70 bg-white/90 text-[8px] font-medium leading-none text-teal-800/80 hover:bg-teal-50 hover:text-teal-900"
       >
-        Prompt
+        P
       </button>
       {open ? (
         <div className="absolute right-0 z-30 mt-1 w-[min(92vw,28rem)] overflow-hidden rounded-xl border border-teal-200 bg-white text-teal-950 shadow-lg">

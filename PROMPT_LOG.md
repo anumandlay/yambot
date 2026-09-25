@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:06] Chat: Prompt peek is 8px “P”
+
+- **Prompt Provided:** still too much width, just have p in the label and make it 8px
+- **Architectural Flow:** LlmPromptPeek trigger is an 8×8px “P” affordance (title/aria still say full Prompt).
+- **Impacted Files:** LlmPromptPeek.jsx, PROMPT_LOG
+
 ## [2026-09-25 15:05] Chat: shrink Prompt peek button
 
 - **Prompt Provided:** the Prompt button in chat is too big, make it very small
