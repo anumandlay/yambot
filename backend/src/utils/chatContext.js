@@ -472,9 +472,17 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
         },
       ],
     });
-    const next = redactCredentialLeaks(
+    let next = redactCredentialLeaks(
       stripModelThinking(String(reply || "")).trim()
-    ).slice(0, budget.summaryMax);
+    );
+    // Why: models often write "email / password" credential lines that miss the password: prefix patterns.
+    next = next
+      .replace(
+        /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\s*\/\s*[^\s|]{4,64}/g,
+        "[REDACTED credentials]"
+      )
+      .replace(/\bCredentials:\s*[^\n]+/gi, "Credentials: [REDACTED]")
+      .slice(0, budget.summaryMax);
     if (next) {
       chat.contextSummary = next;
       chat.contextSummarizedThrough = older[older.length - 1]._id;
