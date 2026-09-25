@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 10:40] Agent editor sections as same-page tabs
+
+- **Prompt Provided:** `/agents/6ab060232c2616e2dcd84e5d` — instead of all sections on one page, divide into tabs on the same page.
+- **Architectural Flow:** AgentEditPage uses Company-style tab bar; `?tab=` query keeps selection. Panels: Basics, Computer, Schedulers, LLM, Email, Composio, Team & policy, Memory (edit-only). Form state stays mounted across tabs; Save/Delete always visible under the active panel.
+- **Impacted Files:** AgentEditPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 10:35] Clearer LLM failure: OpenRouter 429 rate limit
 
 - **Prompt Provided:** “how are you” on General agent → Provider returned error / fix LLM settings.

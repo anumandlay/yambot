@@ -1,10 +1,12 @@
 /**
  * @fileoverview Create / edit a YamBot agent definition.
  * Purpose: Capture profile, skill, instructions, facts, autonomy, success criteria.
+ * UI: section groups live in same-page tabs (?tab=) so the editor is not one long scroll.
+ * Downstream: PUT/POST /api/agents, LiveScreen, Composio connect, schedulers, memory.
  */
 
 import { useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import {
@@ -136,10 +138,45 @@ function formatBytes(n) {
   return `${(v / (1024 * 1024 * 1024)).toFixed(2)} GB`;
 }
 
+/** Editor tabs — one section group per tab (same page, no navigation away). */
+const AGENT_EDIT_TABS = [
+  { id: "basics", label: "Basics" },
+  { id: "computer", label: "Computer" },
+  { id: "schedulers", label: "Schedulers" },
+  { id: "llm", label: "LLM" },
+  { id: "email", label: "Email" },
+  { id: "composio", label: "Composio" },
+  { id: "advanced", label: "Team & policy" },
+  { id: "memory", label: "Memory", editOnly: true },
+];
+
 export function AgentEditPage() {
   const { agentId } = useParams();
   const isNew = !agentId || agentId === "new";
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const editTabRaw = String(searchParams.get("tab") || "basics").trim().toLowerCase();
+  const editTab = AGENT_EDIT_TABS.some((t) => t.id === editTabRaw && (!t.editOnly || !isNew))
+    ? editTabRaw
+    : "basics";
+
+  /**
+   * Switch editor tab without leaving the page (preserves form state).
+   * @param {string} id
+   */
+  function setEditTab(id) {
+    const next = String(id || "basics");
+    setSearchParams(
+      (prev) => {
+        const n = new URLSearchParams(prev);
+        if (next === "basics") n.delete("tab");
+        else n.set("tab", next);
+        return n;
+      },
+      { replace: true }
+    );
+  }
+
   const [form, setForm] = useState(EMPTY);
   const [jobBrief, setJobBrief] = useState("");
   const [draftBusy, setDraftBusy] = useState(false);
@@ -864,7 +901,7 @@ export function AgentEditPage() {
   }
 
   return (
-    <div className="mx-auto flex w-full max-w-2xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
+    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 px-3 py-4 sm:px-4 sm:py-6 md:px-6">
       <div className="flex flex-wrap items-center gap-2">
         <Link
           to="/agents"
@@ -939,7 +976,32 @@ export function AgentEditPage() {
         </div>
       ) : null}
 
+      <div
+        className="flex flex-wrap gap-2"
+        role="tablist"
+        aria-label="Agent editor sections"
+      >
+        {AGENT_EDIT_TABS.filter((t) => !t.editOnly || !isNew).map((t) => (
+          <button
+            key={t.id}
+            type="button"
+            role="tab"
+            aria-selected={editTab === t.id}
+            onClick={() => setEditTab(t.id)}
+            className={`min-h-10 rounded-xl px-3 text-sm font-semibold ${
+              editTab === t.id
+                ? "bg-teal-700 text-white"
+                : "border border-teal-100 bg-white text-teal-900"
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
       <form onSubmit={onSave} className="flex flex-col gap-3 rounded-2xl border border-teal-100 bg-white p-4 shadow-sm">
+        {editTab === "basics" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <div className="flex flex-col gap-2 rounded-xl border border-violet-100 bg-violet-50/50 p-3">
           <span className="flex flex-wrap items-center justify-between gap-2">
             <FieldLabel helpId="agent.jobBrief">Describe the job in plain English</FieldLabel>
@@ -1131,6 +1193,11 @@ export function AgentEditPage() {
             placeholder="When to finish, e.g. summarize top 5 links with URLs"
           />
         </label>
+        </div>
+        ) : null}
+
+        {editTab === "computer" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <fieldset className="flex flex-col gap-2 rounded-xl border border-sky-200 bg-sky-50/50 p-3">
           <SectionTitle helpId="agent.needsComputer" className="text-sm font-semibold text-sky-950">
             Live computer
@@ -1251,7 +1318,11 @@ export function AgentEditPage() {
           ) : null}
         </div>
         )}
+        </div>
+        ) : null}
 
+        {editTab === "schedulers" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-teal-50/40 p-3">
           <legend className="px-1">
             <SectionTitle helpId="agent.schedule.enabled" as="div" className="text-sm font-semibold text-teal-900">
@@ -1465,7 +1536,11 @@ export function AgentEditPage() {
             + Add another schedule
           </button>
         </fieldset>
+        </div>
+        ) : null}
 
+        {editTab === "llm" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">
           <legend className="px-1">
             <SectionTitle helpId="agent.llm.profile" as="div" className="text-sm font-semibold text-teal-900">
@@ -1581,7 +1656,11 @@ export function AgentEditPage() {
             </p>
           )}
         </fieldset>
+        </div>
+        ) : null}
 
+        {editTab === "email" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white p-3">
           <legend className="px-1">
             <SectionTitle helpId="agent.email.enabled" as="div" className="text-sm font-semibold text-teal-900">
@@ -1753,7 +1832,11 @@ export function AgentEditPage() {
           </>
           ) : null}
         </fieldset>
+        </div>
+        ) : null}
 
+        {editTab === "composio" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/70 p-3 sm:p-4">
           <SectionTitle helpId="agent.composio.enabled" as="div" className="text-sm font-semibold text-teal-900">
             Composio apps
@@ -1963,7 +2046,11 @@ export function AgentEditPage() {
             </div>
           </div>
         </fieldset>
+        </div>
+        ) : null}
 
+        {editTab === "computer" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         {!isNew && form.mode !== "api" ? (
           <div className="flex flex-col gap-2">
             <SectionTitle helpId="agent.liveScreen">Live cloud screen</SectionTitle>
@@ -2021,7 +2108,11 @@ export function AgentEditPage() {
             placeholder="news.google.com, reuters.com"
           />
         </label>
+        </div>
+        ) : null}
 
+        {editTab === "advanced" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
         <div>
           <SectionTitle helpId="agent.facts" className="mb-2">
             Facts
@@ -2227,9 +2318,12 @@ export function AgentEditPage() {
             <FieldLabel helpId="agent.active">Active</FieldLabel>
           </label>
         </div>
+        </div>
+        ) : null}
 
-        {!isNew ? (
-          <div className="flex flex-col gap-2 border-t border-teal-100 pt-3">
+        {editTab === "memory" && !isNew ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
+        <div className="flex flex-col gap-2 border-t border-teal-100 pt-3">
             <SectionTitle helpId="agent.memory">Memory</SectionTitle>
             <p className="text-xs text-teal-900/60">
               Filled automatically after runs. You can also add notes the agent should remember.
@@ -2297,11 +2391,12 @@ export function AgentEditPage() {
               </button>
             </div>
           </div>
+
+        <SiteProfilesPanel agentId={agentId} />
+        </div>
         ) : null}
 
-        {!isNew ? <SiteProfilesPanel agentId={agentId} /> : null}
-
-        <div className="flex flex-wrap gap-2">
+        <div className="flex flex-wrap gap-2 border-t border-teal-100 pt-3">
           <ButtonWithHelp helpId="agent.save">
             <button
               type="submit"
