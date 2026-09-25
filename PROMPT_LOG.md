@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:00] Composio tab: View tools per app
+
+- **Prompt Provided:** on agent Composio tab, after each app need a view tools link to show all tools available
+- **Architectural Flow:** GET `/api/agents/:id/composio/tools/:toolkit` returns cached tools (optional `?refresh=1`). Agent edit Selected apps row adds View tools / Hide tools; expands an inline list of slug + description with Refresh tools.
+- **Impacted Files:** agents.js, AgentEditPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-25 14:55] Chat: Prompt peek bubble with exact LLM prompt per user message
 
 - **Prompt Provided:** for every message i send, small bubble right side with all the exact prompt sent to LLM

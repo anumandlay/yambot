@@ -217,6 +217,15 @@ export function AgentEditPage() {
   const [composioDropdownOpen, setComposioDropdownOpen] = useState(false);
   /** @type {[Array<{id:string,toolkit:string,status:string,label:string}>, Function]} */
   const [composioConnections, setComposioConnections] = useState([]);
+  /** @type {[Record<string, number>, Function]} */
+  const [composioToolCacheCounts, setComposioToolCacheCounts] = useState({});
+  /** Toolkit whose tools panel is open (empty = closed). */
+  const [composioToolsViewSlug, setComposioToolsViewSlug] = useState("");
+  /** @type {[Array<{slug:string,name?:string,description?:string}>, Function]} */
+  const [composioToolsViewList, setComposioToolsViewList] = useState([]);
+  const [composioToolsViewBusy, setComposioToolsViewBusy] = useState(false);
+  const [composioToolsViewError, setComposioToolsViewError] = useState("");
+  const [composioToolsViewFetchedAt, setComposioToolsViewFetchedAt] = useState("");
   const [composioStatusBusy, setComposioStatusBusy] = useState(false);
   const [composioConnectBusy, setComposioConnectBusy] = useState("");
   /** @type {[string, React.Dispatch<React.SetStateAction<string>>]} */
@@ -600,6 +609,11 @@ export function AgentEditPage() {
     try {
       const data = await api(`/api/agents/${agentId}/composio/status`);
       setComposioConnections(Array.isArray(data.connections) ? data.connections : []);
+      setComposioToolCacheCounts(
+        data.toolkitToolCacheCounts && typeof data.toolkitToolCacheCounts === "object"
+          ? data.toolkitToolCacheCounts
+          : {}
+      );
       return data;
     } catch {
       setComposioConnections([]);
@@ -607,6 +621,52 @@ export function AgentEditPage() {
     } finally {
       setComposioStatusBusy(false);
     }
+  }
+
+  /**
+   * Load cached tools for one app into the View tools panel.
+   * @param {string} toolkit
+   * @param {{ refresh?: boolean }} [opts]
+   */
+  async function openComposioToolsView(toolkit, opts = {}) {
+    const slug = String(toolkit || "").trim();
+    if (!slug || isNew || !agentId) return;
+    setComposioToolsViewSlug(slug);
+    setComposioToolsViewBusy(true);
+    setComposioToolsViewError("");
+    setComposioToolsViewList([]);
+    setComposioToolsViewFetchedAt("");
+    try {
+      const q = opts.refresh ? "?refresh=1" : "";
+      const data = await api(
+        `/api/agents/${agentId}/composio/tools/${encodeURIComponent(slug)}${q}`
+      );
+      const tools = Array.isArray(data.tools) ? data.tools : [];
+      setComposioToolsViewList(tools);
+      setComposioToolsViewFetchedAt(String(data.fetchedAt || ""));
+      setComposioToolCacheCounts((prev) => ({
+        ...prev,
+        [slug]: tools.length,
+      }));
+      if (!tools.length) {
+        setComposioToolsViewError(
+          data.error || "No tools cached yet. Connect the app, then try Refresh tools."
+        );
+      }
+    } catch (err) {
+      setComposioToolsViewError(
+        err?.detail || err?.message || "Could not load tools for this app."
+      );
+    } finally {
+      setComposioToolsViewBusy(false);
+    }
+  }
+
+  function closeComposioToolsView() {
+    setComposioToolsViewSlug("");
+    setComposioToolsViewList([]);
+    setComposioToolsViewError("");
+    setComposioToolsViewFetchedAt("");
   }
 
   /**
@@ -641,6 +701,9 @@ export function AgentEditPage() {
         if (isComposioRowConnected(conn)) {
           const count = Number(data.toolkitToolCacheCounts?.[slug]) || 0;
           const updated = Array.isArray(data.toolCacheUpdated) ? data.toolCacheUpdated : [];
+          if (data.toolkitToolCacheCounts && typeof data.toolkitToolCacheCounts === "object") {
+            setComposioToolCacheCounts(data.toolkitToolCacheCounts);
+          }
           setOkMsg(
             count > 0
               ? `Connected ${slug} — ${count} tools saved for Auto chat.`
@@ -2080,52 +2143,112 @@ export function AgentEditPage() {
                       const conn = composioConnectionFor(slug);
                       const connected = isComposioRowConnected(conn);
                       const awaiting = composioAwaitingToolkit === slug;
+                      const toolCount = Number(composioToolCacheCounts?.[slug]) || 0;
+                      const viewing = composioToolsViewSlug === slug;
                       return (
                         <li
                           key={slug}
-                          className="flex flex-wrap items-center justify-between gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm"
+                          className="flex flex-col gap-2 rounded-xl border border-teal-100 bg-white px-3 py-2 text-sm"
                         >
-                          <div>
-                            <span className="font-semibold text-teal-950">{slug}</span>
-                            <span className="ml-2 text-xs text-teal-900/60">
-                              {awaiting
-                                ? "Waiting for OAuth…"
-                                : connected
-                                  ? `Connected${conn.status ? ` (${conn.status})` : ""}`
-                                  : conn
-                                    ? `Status: ${conn.status || "unknown"}`
-                                    : "Not connected"}
-                            </span>
-                          </div>
-                          {!isNew && form.composio?.enabled ? (
-                            <div className="flex flex-wrap gap-2">
-                              <button
-                                type="button"
-                                disabled={Boolean(composioConnectBusy) || Boolean(composioAwaitingToolkit)}
-                                onClick={() => void connectComposioToolkit(slug)}
-                                className="min-h-9 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white disabled:opacity-50"
-                              >
-                                {composioConnectBusy === slug
-                                  ? "Opening…"
-                                  : awaiting
-                                    ? "Waiting…"
-                                    : connected
-                                      ? "Reconnect"
-                                      : "Connect"}
-                              </button>
-                              {conn?.id ? (
+                          <div className="flex flex-wrap items-center justify-between gap-2">
+                            <div>
+                              <span className="font-semibold text-teal-950">{slug}</span>
+                              <span className="ml-2 text-xs text-teal-900/60">
+                                {awaiting
+                                  ? "Waiting for OAuth…"
+                                  : connected
+                                    ? `Connected${conn.status ? ` (${conn.status})` : ""}`
+                                    : conn
+                                      ? `Status: ${conn.status || "unknown"}`
+                                      : "Not connected"}
+                                {toolCount > 0 ? ` · ${toolCount} tools` : ""}
+                              </span>
+                            </div>
+                            {!isNew && form.composio?.enabled ? (
+                              <div className="flex flex-wrap gap-2">
                                 <button
                                   type="button"
-                                  onClick={() => void disconnectComposioConnection(conn.id)}
-                                  className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
+                                  onClick={() =>
+                                    void (viewing
+                                      ? closeComposioToolsView()
+                                      : openComposioToolsView(slug))
+                                  }
+                                  className="min-h-9 rounded-lg border border-teal-200 bg-white px-3 text-xs font-semibold text-teal-900"
                                 >
-                                  Disconnect
+                                  {viewing
+                                    ? "Hide tools"
+                                    : toolCount > 0
+                                      ? `View tools (${toolCount})`
+                                      : "View tools"}
                                 </button>
-                              ) : null}
+                                <button
+                                  type="button"
+                                  disabled={Boolean(composioConnectBusy) || Boolean(composioAwaitingToolkit)}
+                                  onClick={() => void connectComposioToolkit(slug)}
+                                  className="min-h-9 rounded-lg bg-teal-700 px-3 text-xs font-semibold text-white disabled:opacity-50"
+                                >
+                                  {composioConnectBusy === slug
+                                    ? "Opening…"
+                                    : awaiting
+                                      ? "Waiting…"
+                                      : connected
+                                        ? "Reconnect"
+                                        : "Connect"}
+                                </button>
+                                {conn?.id ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => void disconnectComposioConnection(conn.id)}
+                                    className="min-h-9 rounded-lg border border-rose-200 bg-white px-3 text-xs font-semibold text-rose-800"
+                                  >
+                                    Disconnect
+                                  </button>
+                                ) : null}
+                              </div>
+                            ) : (
+                              <span className="text-xs text-teal-900/50">Save agent to connect</span>
+                            )}
+                          </div>
+                          {viewing ? (
+                            <div className="rounded-lg border border-teal-100 bg-teal-50/60 px-3 py-2">
+                              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                                <p className="text-xs font-semibold text-teal-950">
+                                  Tools for {slug}
+                                  {composioToolsViewFetchedAt
+                                    ? ` · cached ${new Date(composioToolsViewFetchedAt).toLocaleString()}`
+                                    : ""}
+                                </p>
+                                <button
+                                  type="button"
+                                  disabled={composioToolsViewBusy}
+                                  onClick={() => void openComposioToolsView(slug, { refresh: true })}
+                                  className="rounded-lg border border-teal-200 bg-white px-2 py-1 text-[0.65rem] font-semibold text-teal-900 disabled:opacity-50"
+                                >
+                                  {composioToolsViewBusy ? "Loading…" : "Refresh tools"}
+                                </button>
+                              </div>
+                              {composioToolsViewBusy ? (
+                                <p className="text-xs text-teal-900/70">Loading tools…</p>
+                              ) : composioToolsViewError && !composioToolsViewList.length ? (
+                                <p className="text-xs text-amber-800">{composioToolsViewError}</p>
+                              ) : (
+                                <ul className="max-h-64 overflow-y-auto divide-y divide-teal-100/80">
+                                  {composioToolsViewList.map((tool) => (
+                                    <li key={tool.slug} className="py-1.5">
+                                      <p className="font-mono text-[0.7rem] font-semibold text-teal-950">
+                                        {tool.slug}
+                                      </p>
+                                      {tool.description ? (
+                                        <p className="mt-0.5 text-[0.7rem] leading-snug text-teal-900/70">
+                                          {tool.description}
+                                        </p>
+                                      ) : null}
+                                    </li>
+                                  ))}
+                                </ul>
+                              )}
                             </div>
-                          ) : (
-                            <span className="text-xs text-teal-900/50">Save agent to connect</span>
-                          )}
+                          ) : null}
                         </li>
                       );
                     })}

@@ -2107,6 +2107,70 @@ agentsRouter.get("/:id/composio/status", async (req, res, next) => {
 });
 
 /**
+ * GET /api/agents/:id/composio/tools/:toolkit — cached tools for one app (after Connect).
+ * Query: refresh=1 forces a live Composio refetch + cache update.
+ */
+agentsRouter.get("/:id/composio/tools/:toolkit", async (req, res, next) => {
+  try {
+    const ctx = await loadAgentComposioContext(req.userId, req.params.id);
+    if (!ctx) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!ctx.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "API key required",
+        detail: "Save a Composio API key on this agent first.",
+      });
+      return;
+    }
+    const {
+      normalizeToolkitSlug,
+      getAgentComposioCachedTools,
+      ensureComposioToolkitToolCache,
+      isComposioToolkitCacheFresh,
+    } = await import("../utils/composioService.js");
+    const toolkit = normalizeToolkitSlug(req.params.toolkit);
+    if (!toolkit) {
+      res.status(400).json({
+        ok: false,
+        title: "Toolkit required",
+        detail: "Pass a toolkit slug in the path (e.g. /composio/tools/gmail).",
+      });
+      return;
+    }
+    const forceRefresh =
+      String(req.query?.refresh || "") === "1" ||
+      String(req.query?.refresh || "").toLowerCase() === "true";
+    const existing = ctx.agent.composio?.toolkitToolCache?.[toolkit];
+    if (forceRefresh || !isComposioToolkitCacheFresh(existing)) {
+      try {
+        await ensureComposioToolkitToolCache(ctx.agent, {
+          apiKey: ctx.apiKey,
+          toolkits: [toolkit],
+          force: forceRefresh || !isComposioToolkitCacheFresh(existing),
+        });
+      } catch (cacheErr) {
+        console.warn("[composio] tools list cache failed:", cacheErr?.message || cacheErr);
+      }
+    }
+    const tools = getAgentComposioCachedTools(ctx.agent, toolkit);
+    const entry = ctx.agent.composio?.toolkitToolCache?.[toolkit];
+    res.json({
+      ok: true,
+      toolkit,
+      fetchedAt: entry?.fetchedAt || null,
+      count: tools.length,
+      tools,
+      error: tools.length ? null : "No tools cached yet. Connect the app, then Refresh status.",
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * POST /api/agents/:id/composio/connect — start OAuth for one enabled toolkit.
  * Body: { toolkit: string }
  */
