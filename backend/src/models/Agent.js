@@ -789,10 +789,15 @@ export function toAgentSnapshot(agentDoc, opts = {}) {
 /**
  * Formats a snapshot into LLM system-prompt text.
  * @param {object} snapshot
+ * @param {{ includeCredentialSecrets?: boolean, includeChatContext?: boolean }} [opts]
+ * Why: Auto chat keeps system stable (no thread, no passwords). Worker/API may opt into secrets.
  * @returns {string}
  */
-export function formatAgentPrompt(snapshot) {
+export function formatAgentPrompt(snapshot, opts = {}) {
   if (!snapshot) return "";
+  const includeCredentialSecrets = opts.includeCredentialSecrets === true;
+  // Why: Hermes Phase 1 — chat history is role messages, not stuffed into system.
+  const includeChatContext = opts.includeChatContext === true;
   const isApi = snapshot.mode === "api";
   const factLines = (snapshot.facts || [])
     .filter((f) => f?.key)
@@ -833,12 +838,10 @@ export function formatAgentPrompt(snapshot) {
       ? String(snapshot.curatedUserBlock)
       : "USER PROFILE: (none — Settings → Memory is empty. Do not invent tone/identity prefs from chat history.)",
     snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
-    formatCredentialsBlock(snapshot.credentials),
+    formatCredentialsBlock(snapshot.credentials, { includeSecrets: includeCredentialSecrets }),
     formatDayHistoryBlock(snapshot.dayHistoryRecent, snapshot.dayHistoryRelevant),
     formatMemoryBlock(snapshot.memory),
-    snapshot.chatContext
-      ? String(snapshot.chatContext)
-      : "",
+    includeChatContext && snapshot.chatContext ? String(snapshot.chatContext) : "",
     snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
     "CURATED MEMORY TOOL: Use action type memory with action add|replace|remove, target user|memory, content, and old_text (for replace/remove). Writes persist for the next run; this prompt's USER/MEMORY blocks stay frozen until then.",
   ]
@@ -847,28 +850,46 @@ export function formatAgentPrompt(snapshot) {
 }
 
 /**
+ * Formats saved logins for LLM prompts.
+ * Why (Hermes Phase 1): never put raw passwords in chat Auto/Answer prompts — only metadata.
+ * Worker has its own snapshot formatter that still injects secrets for live browser logins.
  * @param {object[]|undefined} credentials
+ * @param {{ includeSecrets?: boolean }} [opts]
  * @returns {string}
  */
-function formatCredentialsBlock(credentials) {
+export function formatCredentialsBlock(credentials, opts = {}) {
   if (!Array.isArray(credentials) || credentials.length === 0) return "";
+  const includeSecrets = opts.includeSecrets === true;
   const lines = credentials
     .slice(0, 20)
     .map((c) => {
       const bits = [
         c.label || c.siteHost || "login",
+        c.id ? `id=${c.id}` : "",
         c.siteHost ? `site=${c.siteHost}` : "",
         c.username ? `username=${c.username}` : "",
         c.email ? `email=${c.email}` : "",
-        c.password ? `password=${c.password}` : "",
-        c.notes ? `notes=${c.notes}` : "",
-      ].filter(Boolean);
-      return `- ${bits.join(" | ")}`;
+      ];
+      if (includeSecrets) {
+        if (c.password) bits.push(`password=${c.password}`);
+      } else if (c.password || c.hasPassword) {
+        bits.push("hasPassword=yes (vault — queue_goal / computer uses secret; never invent)");
+      }
+      if (c.notes && includeSecrets) bits.push(`notes=${c.notes}`);
+      else if (c.notes && !includeSecrets) bits.push("hasNotes=yes");
+      return `- ${bits.filter(Boolean).join(" | ")}`;
     })
     .join("\n");
+  if (includeSecrets) {
+    return (
+      "SAVED LOGINS (use when the site matches; do NOT invent passwords — signup runs auto-save typed credentials to this vault):\n" +
+      lines
+    );
+  }
   return (
-    "SAVED LOGINS (use when the site matches; do NOT invent passwords — signup runs auto-save typed credentials to this vault):\n" +
-    lines
+    "SAVED LOGINS (metadata only — passwords are NOT in this prompt):\n" +
+    lines +
+    "\nTo log in on a live site, QUEUE_GOAL / queue_goal; the cloud computer fills the vault secret. Never invent passwords."
   );
 }
 

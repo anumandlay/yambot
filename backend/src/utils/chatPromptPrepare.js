@@ -2,13 +2,14 @@
  * @fileoverview Parallel chat prompt prep (context + curated memory) for fast TTFT.
  * Purpose: Load session context and memory concurrently before the first LLM call (Hermes-style).
  * Downstream: chats.js Auto / Answer / queue_goal snapshot paths.
+ *
+ * Phase 1: Stable system snapshot (no chat thread / no password plaintext) + history as role messages.
  */
 
 import { toAgentSnapshot } from "../models/Agent.js";
 import {
   buildChatContextPrompt,
   refreshChatContextIfNeeded,
-  withChatContext,
 } from "./chatContext.js";
 
 /**
@@ -26,6 +27,7 @@ import {
  * }} opts
  * @returns {Promise<{
  *   chatContextBlock: string,
+ *   historyMessages: { role: string, content: string }[],
  *   curated: { userCuratedEntries: string[], agentCuratedEntries: string[], meta: object },
  *   snapshot: object,
  * }>}
@@ -65,14 +67,16 @@ export async function prepareChatPromptContext(opts) {
   ]);
 
   const chatContextBlock = String(ctxResult?.block || "");
-  const snapshot = withChatContext(
-    toAgentSnapshot(agentDoc, {
-      goal: questionText,
-      userCuratedEntries: curated.userCuratedEntries,
-      agentCuratedEntries: curated.agentCuratedEntries,
-    }),
-    chatContextBlock
-  );
+  const historyMessages = Array.isArray(ctxResult?.historyMessages)
+    ? ctxResult.historyMessages
+    : [];
 
-  return { chatContextBlock, curated, snapshot };
+  // Why: Hermes Phase 1 — do NOT bake RECENT MESSAGES into snapshot/system; pass as role history.
+  const snapshot = toAgentSnapshot(agentDoc, {
+    goal: questionText,
+    userCuratedEntries: curated.userCuratedEntries,
+    agentCuratedEntries: curated.agentCuratedEntries,
+  });
+
+  return { chatContextBlock, historyMessages, curated, snapshot };
 }

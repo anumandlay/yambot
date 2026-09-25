@@ -269,7 +269,13 @@ export async function invalidateChatContextSummariesForUser(userId) {
  * Loads messages and formats the context block for prompts.
  * @param {object} chat
  * @param {{ excludeIds?: string[], creds?: object|null }} [opts]
- * @returns {Promise<{ block: string, eligible: object[], recent: object[], budget: object }>}
+ * @returns {Promise<{
+ *   block: string,
+ *   historyMessages: { role: string, content: string }[],
+ *   eligible: object[],
+ *   recent: object[],
+ *   budget: object,
+ * }>}
  */
 export async function buildChatContextPrompt(chat, opts = {}) {
   const budget = budgetFor(opts.creds);
@@ -277,6 +283,7 @@ export async function buildChatContextPrompt(chat, opts = {}) {
   const recent = eligible.slice(-budget.recent);
   return {
     block: formatChatContextBlock(chat, eligible, budget),
+    historyMessages: formatChatHistoryAsMessages(chat, eligible, budget),
     eligible,
     recent,
     budget,
@@ -408,4 +415,155 @@ export function withChatContext(snapshot, block) {
   const text = String(block || "").trim();
   if (!text) return snapshot;
   return { ...snapshot, chatContext: text };
+}
+
+/**
+ * Map a stored chat message to an OpenAI-style role for Auto LLM history.
+ * @param {object} m
+ * @returns {"user"|"assistant"|null}
+ */
+export function mapChatMessageToLlmRole(m) {
+  const role = String(m?.role || "");
+  if (role === "user") return "user";
+  if (role === "assistant" || role === "agent") return "assistant";
+  // Why: short system notes can help continuity; long dumps stay out via isContextEligibleMessage.
+  if (role === "system") return "user";
+  return null;
+}
+
+/**
+ * Build conversation history as role messages (Hermes-style), not a system text dump.
+ * @param {object} chat
+ * @param {object[]} eligible — oldest → newest
+ * @param {{ recent?: number, lineMax?: number, chatChars?: number, summaryMax?: number }|null} [budget]
+ * @returns {{ role: "user"|"assistant", content: string }[]}
+ */
+export function formatChatHistoryAsMessages(chat, eligible, budget = null) {
+  const recentN = budget?.recent || CHAT_CONTEXT_RECENT;
+  const lineMax = budget?.lineMax || 1200;
+  const chatChars = budget?.chatChars || CHAT_CONTEXT_SUMMARIZE_CHARS;
+  const summaryMax = budget?.summaryMax || CHAT_CONTEXT_SUMMARY_MAX;
+
+  /** @type {{ role: "user"|"assistant", content: string }[]} */
+  const out = [];
+  const summary = String(chat?.contextSummary || "").trim().slice(0, summaryMax);
+  if (summary) {
+    out.push({
+      role: "user",
+      content:
+        "[EARLIER IN THIS CHAT — running summary; do not invent turns not listed]\n" + summary,
+    });
+    out.push({
+      role: "assistant",
+      content: "Understood — I'll use that summary for continuity.",
+    });
+  }
+
+  const summaryRoom = summary ? summary.length + 120 : 0;
+  const recentBudget = Math.max(2_000, chatChars - summaryRoom);
+
+  const tail = eligible.slice(-Math.max(recentN * 3, 48));
+  const maxLowPriority = Math.max(4, Math.floor(recentN / 3));
+  let lowCount = 0;
+  /** @type {object[]} */
+  const candidates = [];
+  for (let i = tail.length - 1; i >= 0; i -= 1) {
+    const m = tail[i];
+    const pri = contextMessagePriority(m);
+    if (pri <= 30) {
+      if (lowCount >= maxLowPriority) continue;
+      lowCount += 1;
+    }
+    candidates.push(m);
+    if (candidates.length >= recentN * 2) break;
+  }
+  candidates.sort((a, b) => {
+    const pd = contextMessagePriority(b) - contextMessagePriority(a);
+    if (pd !== 0) return pd;
+    return String(b._id || "").localeCompare(String(a._id || ""));
+  });
+
+  /** @type {object[]} */
+  const picked = [];
+  let used = 0;
+  for (const m of candidates) {
+    if (picked.length >= recentN) break;
+    const lineMaxForMsg =
+      String(m?.meta?.kind || "") === "result" ? Math.max(lineMax, 2400) : lineMax;
+    const body = compressToolResultForContext(String(m.content || ""), m).slice(
+      0,
+      Math.max(200, lineMaxForMsg)
+    );
+    if (!body.trim()) continue;
+    if (picked.length && used + body.length + 1 > recentBudget) {
+      if (contextMessagePriority(m) >= 90 && picked.every((p) => contextMessagePriority(p) < 90)) {
+        /* allow overshoot once */
+      } else {
+        continue;
+      }
+    }
+    picked.push(m);
+    used += body.length + 1;
+  }
+  picked.sort((a, b) => String(a._id || "").localeCompare(String(b._id || "")));
+
+  for (const m of picked) {
+    const llmRole = mapChatMessageToLlmRole(m);
+    if (!llmRole) continue;
+    const lineMaxForMsg =
+      String(m?.meta?.kind || "") === "result" ? Math.max(lineMax, 2400) : lineMax;
+    let body = compressToolResultForContext(String(m.content || ""), m).slice(
+      0,
+      Math.max(200, lineMaxForMsg)
+    );
+    const kind = String(m?.meta?.kind || "");
+    const storeRole = String(m?.role || "");
+    if (storeRole === "agent" && kind) {
+      body = `[${kind}] ${body}`;
+    } else if (storeRole === "system") {
+      body = `[system note] ${body}`;
+    }
+    out.push({ role: llmRole, content: body });
+  }
+
+  const scratch = formatSessionScratchBlock(chat?.sessionScratch);
+  if (scratch) {
+    out.push({
+      role: "user",
+      content: "[SESSION SCRATCH]\n" + scratch,
+    });
+    out.push({
+      role: "assistant",
+      content: "Noted the session scratch.",
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Hermes-style Auto message list: stable system + history roles + current user.
+ * @param {{
+ *   system: string,
+ *   historyMessages?: { role: string, content: string }[],
+ *   userContent: string,
+ * }} opts
+ * @returns {{ role: string, content: string }[]}
+ */
+export function assembleAutoLlmMessages(opts) {
+  const system = String(opts?.system || "").trim();
+  const userContent = String(opts?.userContent || "").trim();
+  const history = Array.isArray(opts?.historyMessages) ? opts.historyMessages : [];
+  /** @type {{ role: string, content: string }[]} */
+  const messages = [];
+  if (system) messages.push({ role: "system", content: system });
+  for (const m of history) {
+    const role = String(m?.role || "");
+    const content = String(m?.content || "").trim();
+    if (!content) continue;
+    if (role !== "user" && role !== "assistant" && role !== "system" && role !== "tool") continue;
+    messages.push({ role, content });
+  }
+  if (userContent) messages.push({ role: "user", content: userContent });
+  return messages;
 }

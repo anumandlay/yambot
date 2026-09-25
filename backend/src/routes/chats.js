@@ -1137,6 +1137,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           if (scheduleManage) {
             prepared = {
               chatContextBlock: "",
+              historyMessages: [],
               curated: {
                 userCuratedEntries: [],
                 agentCuratedEntries: [],
@@ -1162,6 +1163,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             snapshot: prepared.snapshot,
             creds: qaCreds,
             chatContext: prepared.chatContextBlock,
+            historyMessages: prepared.historyMessages || [],
             stream: wantStream,
             onDelta: wantStream
               ? (chunk) => writeNdjson({ type: "delta", text: chunk })
@@ -1525,6 +1527,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               snapshot: prepared.snapshot,
               creds: qaCreds,
               chatContext: prepared.chatContextBlock,
+              historyMessages: prepared.historyMessages || [],
               onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
             });
           } else {
@@ -1533,6 +1536,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               snapshot: prepared.snapshot,
               creds: qaCreds,
               chatContext: prepared.chatContextBlock,
+              historyMessages: prepared.historyMessages || [],
             });
           }
         });

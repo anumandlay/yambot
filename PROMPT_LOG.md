@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 12:00] Hermes Phase 1: stable system + role history + no password in prompts
+
+- **Prompt Provided:** Implement Hermes production gaps Phase 1 → 2 → 3. Phase 1 first.
+- **Architectural Flow:** Auto/Answer prompts use metadata-only SAVED LOGINS (no plaintext passwords). Chat history is OpenAI role messages via `formatChatHistoryAsMessages` + `assembleAutoLlmMessages`; system prompt no longer embeds RECENT MESSAGES. Worker keeps its own secret-injected snapshot. `chatContextBlock` still returned for email-draft helpers.
+- **Impacted Files:** Agent.js, chatContext.js, chatPromptPrepare.js, chatAutoTurn.js, messageIntent.js, chats.js, hermesPhase1Prompt.test.js, PROMPT_LOG
+
 ## [2026-09-25 11:30] Memory page: Day history + Short notes side-by-side boxes
 
 - **Prompt Provided:** show Day history and Short notes in boxes layout so I don’t need to scroll the whole page.
