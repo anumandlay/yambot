@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 12:10] Hermes Phase 2: risky Composio confirm + cancel-on-disconnect + Auto wall budget
+
+- **Prompt Provided:** Implement Hermes Phase 2 — approval for Composio SEND/write on Auto, AbortSignal on disconnect for Auto/Answer, hard wall budget; keep Phase 1 tests green.
+- **Architectural Flow:** `composioApprovalGate` allowlists read-only tool slugs; SEND/write (and slack_send / notion_write / gmail_label / multi-step send) pause with a chat confirm (`confirm send` / yes). Pending payload on assistant `meta.pendingComposioApproval`; next affirm resumes. `linkClientAbort` wired into Auto/Answer NDJSON; tool loop stops on abort or `AUTO_CHAT_MAX_WALL_MS` (120s).
+- **Impacted Files:** composioApprovalGate.js, chatAutoTurn.js, chats.js, hermesPhase2.test.js, PROMPT_LOG
+
 ## [2026-09-25 12:00] Hermes Phase 1: stable system + role history + no password in prompts
 
 - **Prompt Provided:** Implement Hermes production gaps Phase 1 → 2 → 3. Phase 1 first.

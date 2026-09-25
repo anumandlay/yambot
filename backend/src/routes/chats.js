@@ -46,6 +46,11 @@ import {
 } from "../utils/chatContext.js";
 import { prepareChatPromptContext } from "../utils/chatPromptPrepare.js";
 import { withChatAutoLock } from "../utils/chatAutoLock.js";
+import { linkClientAbort, isAbortError } from "../utils/llmAbort.js";
+import {
+  resolvePendingComposioApprovalFromMessages,
+  looksLikeComposioRiskyConfirm,
+} from "../utils/composioApprovalGate.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
@@ -1078,18 +1083,31 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let qaCreds = null;
       /** @type {string|null} */
       let confirmGoal = null;
-      if (looksLikeAffirmativeConfirm(questionText)) {
+      /** @type {object|null} */
+      let pendingComposioApproval = null;
+      {
         const recent = await Message.find({ chat: chat._id })
           .sort({ _id: -1 })
           .limit(10)
-          .select("role content _id")
+          .select("role content meta _id")
           .lean();
-        confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
+        pendingComposioApproval = resolvePendingComposioApprovalFromMessages(recent, {
           excludeIds: [String(message._id)],
         });
+        // Why: composio confirm/deny must win over “yes, open the computer” offers.
+        if (
+          looksLikeAffirmativeConfirm(questionText) ||
+          looksLikeComposioRiskyConfirm(questionText)
+        ) {
+          if (!pendingComposioApproval) {
+            confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
+              excludeIds: [String(message._id)],
+            });
+          }
+        }
       }
       // Why: never cheap-ack a “yes” that confirms an offered computer job.
-      const cheapReply = confirmGoal ? null : cheapChatReplyIfAny(questionText);
+      const cheapReply = confirmGoal || pendingComposioApproval ? null : cheapChatReplyIfAny(questionText);
       try {
         if (confirmGoal) {
           turn = {
@@ -1118,7 +1136,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           });
         }
         // Why: parallel context + memory (Hermes-style) — never block TTFT on sequential awaits.
-        // Why: do NOT abort on tab close — user wants the turn to finish and save even if the UI disconnects.
+        // Why: abort LLM/tools when the client disconnects so abandoned Auto turns stop billing.
         // Why: serialize Auto turns per chat so two fast messages cannot race transcript order.
         // Why: Hermes tool-decision — light prep (skip Mem0) whenever tools are not needed.
         // Why: schedule list/create/stop needs no LLM context pack — skip prepare entirely.
@@ -1132,6 +1150,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           // Why: chat bubbles must not show Working… / % progress — stream text only.
           onProgress: undefined,
         });
+        const clientAbort = linkClientAbort(req, res);
+        try {
         await withChatAutoLock(String(chat._id), async () => {
           let prepared;
           if (scheduleManage) {
@@ -1170,6 +1190,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               : undefined,
             onProgress: undefined,
             timing: autoTrack,
+            signal: clientAbort.signal,
             // Why: light Hermes-style loop — lookups only; never starts Playwright from chat tools.
             runtime: {
             checkRunStatus: async () => {
@@ -1232,6 +1253,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
                 : []
             ),
             composioSessionId: String(agentDoc?.composio?.sessionId || "").trim() || null,
+            pendingComposioApproval,
+            composioExecuteApproved:
+              Boolean(pendingComposioApproval) && looksLikeComposioRiskyConfirm(questionText),
             saveComposioSessionId: async (sessionId) => {
               const sid = String(sessionId || "").trim();
               if (!sid || !agentDoc) return;
@@ -1259,18 +1283,23 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           console.warn("[chats] composio toolkit expand persist failed:", persistErr?.message || persistErr);
         }
         });
+        } finally {
+          clientAbort.dispose();
+        }
         }
       } catch (err) {
         answerError = err;
         turn = {
           action: "reply",
-          content: formatLlmTurnFailureMessage(err, {
-            model: String(qaCreds?.llmModel || "").trim(),
-            baseUrl: String(qaCreds?.llmBaseUrl || "").trim(),
-          }),
+          content: isAbortError(err)
+            ? "Stopped — the chat disconnected before this turn finished."
+            : formatLlmTurnFailureMessage(err, {
+                model: String(qaCreds?.llmModel || "").trim(),
+                baseUrl: String(qaCreds?.llmBaseUrl || "").trim(),
+              }),
           goal: "",
           ack: "",
-          reason: "auto_turn_error",
+          reason: isAbortError(err) ? "client_abort" : "auto_turn_error",
         };
       }
 
@@ -1382,6 +1411,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             rememberSaved: rememberMeta || undefined,
             rememberForgotten: forgetMeta || undefined,
             sessionScratchSaved: scratchMeta || undefined,
+            pendingComposioApproval: turn.pendingComposioApproval || undefined,
             error: answerError ? String(answerError.message || answerError) : undefined,
           },
         });
@@ -1509,8 +1539,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             hint: "Add an LLM key in Settings, or send /run … to use the computer.",
           });
         }
-        // Why: parallel prep + never await summary LLM before first Answer token.
-        // Why: do NOT abort on tab close — finish the Answer turn server-side.
+        // Why: parallel prep + abort Answer LLM when the client disconnects.
+        const clientAbort = linkClientAbort(req, res);
+        try {
         await withChatAutoLock(String(chat._id), async () => {
           const prepared = await prepareChatPromptContext({
             chat,
@@ -1529,6 +1560,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               chatContext: prepared.chatContextBlock,
               historyMessages: prepared.historyMessages || [],
               onDelta: (chunk) => writeNdjson({ type: "delta", text: chunk }),
+              signal: clientAbort.signal,
             });
           } else {
             assistantContent = await answerChatQuestion({
@@ -1537,19 +1569,25 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
               creds: qaCreds,
               chatContext: prepared.chatContextBlock,
               historyMessages: prepared.historyMessages || [],
+              signal: clientAbort.signal,
             });
           }
         });
+        } finally {
+          clientAbort.dispose();
+        }
         }
       } catch (err) {
         answerError = err;
-        assistantContent = formatLlmTurnFailureMessage(err, {
-          model: String(qaCreds?.llmModel || "").trim(),
-          baseUrl: String(qaCreds?.llmBaseUrl || "").trim(),
-        }).replace(
-          /^I could not complete that turn\./,
-          "I treated that as a question (no computer)."
-        );
+        assistantContent = isAbortError(err)
+          ? "Stopped — the chat disconnected before this turn finished."
+          : formatLlmTurnFailureMessage(err, {
+              model: String(qaCreds?.llmModel || "").trim(),
+              baseUrl: String(qaCreds?.llmBaseUrl || "").trim(),
+            }).replace(
+              /^I could not complete that turn\./,
+              "I treated that as a question (no computer)."
+            );
         if (wantStream) writeNdjson({ type: "delta", text: assistantContent });
       }
 

@@ -7,6 +7,7 @@
 
 import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
+import { isAbortError } from "./llmAbort.js";
 import { formatAgentPrompt } from "../models/Agent.js";
 import { assembleAutoLlmMessages } from "./chatContext.js";
 import {
@@ -38,6 +39,20 @@ import {
 } from "./scheduleFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
+import {
+  AUTO_CHAT_MAX_WALL_MS,
+  AUTO_CHAT_SOFT_MAX_TOKENS,
+  composioToolRequiresApproval,
+  composioSpecRequiresApproval,
+  composioPlanRequiresApproval,
+  formatPendingComposioApprovalReply,
+  summarizeComposioExecuteForApproval,
+  looksLikeComposioRiskyConfirm,
+  looksLikeComposioRiskyDeny,
+  isAutoWallBudgetExceeded,
+  formatAutoBudgetStopReply,
+  isComposioReadOnlyTool,
+} from "./composioApprovalGate.js";
 
 export {
   looksLikeGmailInboxRequest,
@@ -52,6 +67,18 @@ export {
   buildGmailUnreadToolArgs,
   formatGmailUnreadSummaryFromToolResult,
 } from "./composioAutoRuntime.js";
+
+export {
+  AUTO_CHAT_MAX_WALL_MS,
+  AUTO_CHAT_SOFT_MAX_TOKENS,
+  composioToolRequiresApproval,
+  isComposioReadOnlyTool,
+  looksLikeComposioRiskyConfirm,
+  looksLikeComposioRiskyDeny,
+  isAutoWallBudgetExceeded,
+  formatAutoBudgetStopReply,
+  formatPendingComposioApprovalReply,
+} from "./composioApprovalGate.js";
 
 /**
  * OpenAI-compatible tool schemas for Auto chat (YamBot-only surface).
@@ -218,6 +245,8 @@ export const AUTO_CHAT_TOOLS = [
 
 /** Max model↔tool rounds in one Auto message (lookups + final reply/queue). */
 export const AUTO_CHAT_MAX_TOOL_ROUNDS = 6;
+
+// AUTO_CHAT_MAX_WALL_MS / AUTO_CHAT_SOFT_MAX_TOKENS re-exported from composioApprovalGate.js
 
 /**
  * @param {{ onProgress?: (step: { id: string, label: string, pct: number }) => void }} [opts]
@@ -1414,16 +1443,43 @@ export function sanitizeFakeComposioActionReply(content, fallback) {
  */
 export async function runDeterministicComposioIntentTurn(opts) {
   const { runtime, userText, creds, onDelta, track } = opts;
+  const approved = runtime?.composioExecuteApproved === true;
 
   // Why: LLM understands “check email and give me update” as one step; heuristics split on “and”.
   const { resolveComposioPlan } = await import("./composioLlmPlan.js");
   const multiPlan = await resolveComposioPlan(userText, creds);
   if (multiPlan.length >= 2 && runtime?.composioApiKey) {
+    // Why: pause before any SEND/write step until the user confirms in chat.
+    if (composioPlanRequiresApproval(multiPlan) && !approved) {
+      const labels = multiPlan
+        .map((s) => String(s?.label || s?.kind || s?.specId || "step").trim())
+        .filter(Boolean)
+        .slice(0, 6);
+      const pending = {
+        mode: "rerun_user_text",
+        userText: String(userText || "").slice(0, 4000),
+        summary: `Multi-step plan includes a send/write: ${labels.join(" → ")}`,
+        label: labels.find((l) => /send|slack|email|write|label/i.test(l)) || labels[0] || "send/write",
+      };
+      const content = formatPendingComposioApprovalReply(pending);
+      if (typeof onDelta === "function") onDelta(content);
+      track.setPath("composio_needs_approval");
+      track.markDecision("reply");
+      return {
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "composio_needs_approval",
+        pendingComposioApproval: pending,
+        timing: track.finish(),
+      };
+    }
     track.setPath("composio_multistep");
     track.emitProgress?.(`Multi-step (${multiPlan.length})…`, 10);
     track.addLookup("composio_execute");
     const multi = await runComposioMultiStep({
-      runtime,
+      runtime: { ...runtime, composioExecuteApproved: true },
       userText,
       plan: multiPlan,
       executeLookup: executeAutoLookupTool,
@@ -1465,13 +1521,40 @@ export async function runDeterministicComposioIntentTurn(opts) {
       timing: track.finish(),
     };
   }
+  // Why: Slack send / Notion write / Gmail label mutate external state — require confirm.
+  if (composioSpecRequiresApproval(spec.id) && !approved) {
+    const pending = {
+      mode: "rerun_user_text",
+      userText: String(userText || "").slice(0, 4000),
+      specId: spec.id,
+      summary: `About to run: ${spec.label}`,
+      label: spec.label,
+    };
+    const content = formatPendingComposioApprovalReply(pending);
+    if (typeof onDelta === "function") onDelta(content);
+    track.setPath("composio_needs_approval");
+    track.markDecision("reply");
+    return {
+      action: "reply",
+      content,
+      goal: "",
+      ack: "",
+      reason: "composio_needs_approval",
+      pendingComposioApproval: pending,
+      timing: track.finish(),
+    };
+  }
   track.emitProgress?.(`Working with ${spec.label}…`, 15);
   track.addLookup("composio_search");
   track.addLookup("composio_execute");
   track.setPath(`composio_${spec.id}_direct`);
   track.emitProgress?.(`Running ${spec.label}…`, 55);
   const ran = await runComposioIntentExecute({
-    runtime,
+    runtime: {
+      ...runtime,
+      // Why: preferred tools for write intents are themselves gated; unlock for this confirmed turn.
+      composioExecuteApproved: approved || !composioSpecRequiresApproval(spec.id),
+    },
     userText,
     spec,
     executeLookup: executeAutoLookupTool,
@@ -1749,6 +1832,29 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
           delete toolArgs.action;
           delete toolArgs.arguments;
           delete toolArgs.params;
+        }
+        // Why: Hermes Phase 2 — SEND/write tools need an explicit chat confirm first.
+        if (
+          composioToolRequiresApproval(toolSlug) &&
+          runtime.composioExecuteApproved !== true
+        ) {
+          const summary = summarizeComposioExecuteForApproval(toolSlug, toolArgs);
+          return JSON.stringify({
+            ok: false,
+            needsApproval: true,
+            tool: toolSlug,
+            arguments: toolArgs,
+            summary,
+            detail:
+              "This Composio action sends or writes externally. Ask the user to confirm (reply yes / confirm send) before calling again.",
+            pendingComposioApproval: {
+              mode: "execute",
+              tool: toolSlug,
+              arguments: toolArgs,
+              summary,
+              label: toolSlug,
+            },
+          }).slice(0, 8000);
         }
         const result = await composioExecuteTool({
           userId,
@@ -2259,8 +2365,82 @@ export async function runChatAutoTurn(opts) {
     // Why: lab A/B needs the raw Jev decision alongside the normalized turn.
     if (partial?.jev) out.jev = partial.jev;
     out.jevMode = String(jevMode || "auto");
+    // Why: chats.js persists this on the assistant message for the next affirm turn.
+    if (partial?.pendingComposioApproval) {
+      out.pendingComposioApproval = partial.pendingComposioApproval;
+    }
+    if (partial?.clearPendingComposioApproval) {
+      out.clearPendingComposioApproval = true;
+    }
     return out;
   };
+
+  // Why: Hermes Phase 2 — resume or cancel a pending SEND/write after the user replies.
+  const pendingApproval =
+    runtime?.pendingComposioApproval && typeof runtime.pendingComposioApproval === "object"
+      ? runtime.pendingComposioApproval
+      : null;
+  if (pendingApproval && looksLikeComposioRiskyDeny(text)) {
+    track.setPath("composio_approval_denied");
+    track.markDecision("reply");
+    const content = "Cancelled — I will not run that send/write action.";
+    await pushReply(content);
+    return finalize({
+      action: "reply",
+      content,
+      goal: "",
+      ack: "",
+      reason: "composio_approval_denied",
+      clearPendingComposioApproval: true,
+      timing: track.finish(),
+    });
+  }
+  if (pendingApproval && looksLikeComposioRiskyConfirm(text)) {
+    const approvedRuntime = { ...runtime, composioExecuteApproved: true, pendingComposioApproval: null };
+    track.setPath("composio_approval_resume");
+    if (pendingApproval.mode === "execute" && pendingApproval.tool) {
+      track.addLookup("composio_execute");
+      const resultText = await executeAutoLookupTool("composio_execute", approvedRuntime, {
+        tool: pendingApproval.tool,
+        arguments: pendingApproval.arguments || {},
+      });
+      let content = String(resultText || "").trim();
+      try {
+        const parsed = JSON.parse(content);
+        content =
+          parsed.ok === false
+            ? String(parsed.detail || parsed.error || content).slice(0, 2000)
+            : `Done (${pendingApproval.tool}).\n${String(parsed.summary || content).slice(0, 2000)}`;
+      } catch {
+        /* keep raw */
+      }
+      await pushReply(content);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "composio_approval_executed",
+        clearPendingComposioApproval: true,
+        timing: track.finish(),
+      });
+    }
+    const resumeText = String(pendingApproval.userText || "").trim() || text;
+    return finalize({
+      ...(await runDeterministicComposioIntentTurn({
+        runtime: approvedRuntime,
+        userText: resumeText,
+        creds,
+        onDelta: typeof delta === "function" ? delta : undefined,
+        track,
+        spec: pendingApproval.specId
+          ? COMPOSIO_INTENT_SPECS.find((s) => s.id === pendingApproval.specId) || undefined
+          : undefined,
+      })),
+      clearPendingComposioApproval: true,
+    });
+  }
 
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
   // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
@@ -2461,7 +2641,34 @@ export async function runChatAutoTurn(opts) {
     if (composioIntent) {
       track.emitProgress("Using connected apps…", 10);
     }
+    const wallStartedAt = Date.now();
     for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
+      if (signal?.aborted) {
+        const content = formatAutoBudgetStopReply("abort");
+        await pushReply(content);
+        track.markDecision("reply");
+        return finalize({
+          action: "reply",
+          content,
+          goal: "",
+          ack: "",
+          reason: "client_abort",
+          timing: track.finish(),
+        });
+      }
+      if (isAutoWallBudgetExceeded(wallStartedAt)) {
+        const content = formatAutoBudgetStopReply("wall");
+        await pushReply(content);
+        track.markDecision("reply");
+        return finalize({
+          action: "reply",
+          content,
+          goal: "",
+          ack: "",
+          reason: "wall_budget",
+          timing: track.finish(),
+        });
+      }
       track.setToolRounds(round + 1);
       const msg = await llmChatCompletionMessage({
         apiKey: creds.apiKey,
@@ -2481,9 +2688,25 @@ export async function runChatAutoTurn(opts) {
       track.markFirstToken();
 
       /**
+       * @param {string} resultText
+       * @returns {object|null}
+       */
+      function parseNeedsApprovalPending(resultText) {
+        try {
+          const parsed = JSON.parse(String(resultText || ""));
+          if (parsed?.needsApproval && parsed?.pendingComposioApproval) {
+            return parsed.pendingComposioApproval;
+          }
+        } catch {
+          /* ignore */
+        }
+        return null;
+      }
+
+      /**
        * Execute fake ACTION: composio_*() text as real lookups and keep the loop going.
        * @param {string} actionText
-       * @returns {Promise<boolean>} true if any fake actions ran
+       * @returns {Promise<boolean|{ pending: object }>} true if any fake actions ran; pending object to stop turn
        */
       async function runFakeComposioActionsFromText(actionText) {
         const fakes = parseFakeComposioActionText(actionText);
@@ -2499,6 +2722,8 @@ export async function runChatAutoTurn(opts) {
               ? { ...fake.args, query: text }
               : fake.args;
           const resultText = await executeAutoLookupTool(fake.kind, runtime, args);
+          const pending = parseNeedsApprovalPending(resultText);
+          if (pending) return { pending };
           messages.push({
             role: "user",
             content:
@@ -2530,6 +2755,20 @@ export async function runChatAutoTurn(opts) {
 
         if (fakeAction) {
           const ran = await runFakeComposioActionsFromText(replyText);
+          if (ran?.pending) {
+            const content = formatPendingComposioApprovalReply(ran.pending);
+            await pushReply(content);
+            track.markDecision("reply");
+            return finalize({
+              action: "reply",
+              content,
+              goal: "",
+              ack: "",
+              reason: "composio_needs_approval",
+              pendingComposioApproval: ran.pending,
+              timing: track.finish(),
+            });
+          }
           if (ran) return true;
         }
 
@@ -2640,6 +2879,20 @@ export async function runChatAutoTurn(opts) {
           looksLikeFakeComposioActionText(terminal.content)
         ) {
           const ran = await runFakeComposioActionsFromText(terminal.content);
+          if (ran?.pending) {
+            const content = formatPendingComposioApprovalReply(ran.pending);
+            await pushReply(content);
+            track.markDecision("reply");
+            return finalize({
+              action: "reply",
+              content,
+              goal: "",
+              ack: "",
+              reason: "composio_needs_approval",
+              pendingComposioApproval: ran.pending,
+              timing: track.finish(),
+            });
+          }
           if (ran) continue;
         }
         if (terminal.action === "reply" && (await rejectPrematureComposioReply(terminal.content))) {
@@ -2733,6 +2986,30 @@ export async function runChatAutoTurn(opts) {
             !(toolArgs.tool || toolArgs.slug || toolArgs.action) &&
             mappedExec
           ) {
+            if (
+              composioSpecRequiresApproval(mappedExec.id) &&
+              runtime.composioExecuteApproved !== true
+            ) {
+              const pending = {
+                mode: "rerun_user_text",
+                userText: String(text || "").slice(0, 4000),
+                specId: mappedExec.id,
+                summary: `About to run: ${mappedExec.label}`,
+                label: mappedExec.label,
+              };
+              const content = formatPendingComposioApprovalReply(pending);
+              await pushReply(content);
+              track.markDecision("reply");
+              return finalize({
+                action: "reply",
+                content,
+                goal: "",
+                ack: "",
+                reason: "composio_needs_approval",
+                pendingComposioApproval: pending,
+                timing: track.finish(),
+              });
+            }
             const auto = await runComposioIntentExecute({
               runtime,
               userText: text,
@@ -2761,6 +3038,21 @@ export async function runChatAutoTurn(opts) {
             continue;
           }
           const resultText = await executeAutoLookupTool(kind, runtime, toolArgs);
+          const approvalPending = parseNeedsApprovalPending(resultText);
+          if (approvalPending) {
+            const content = formatPendingComposioApprovalReply(approvalPending);
+            await pushReply(content);
+            track.markDecision("reply");
+            return finalize({
+              action: "reply",
+              content,
+              goal: "",
+              ack: "",
+              reason: "composio_needs_approval",
+              pendingComposioApproval: approvalPending,
+              timing: track.finish(),
+            });
+          }
           messages.push({
             role: "tool",
             tool_call_id: toolCallId,
@@ -2788,6 +3080,20 @@ export async function runChatAutoTurn(opts) {
       }
       if (msg.content && looksLikeFakeComposioActionText(msg.content)) {
         const ran = await runFakeComposioActionsFromText(msg.content);
+        if (ran?.pending) {
+          const content = formatPendingComposioApprovalReply(ran.pending);
+          await pushReply(content);
+          track.markDecision("reply");
+          return finalize({
+            action: "reply",
+            content,
+            goal: "",
+            ack: "",
+            reason: "composio_needs_approval",
+            pendingComposioApproval: ran.pending,
+            timing: track.finish(),
+          });
+        }
         if (ran) continue;
       }
 
@@ -2877,6 +3183,19 @@ export async function runChatAutoTurn(opts) {
       return out;
     }
   } catch (err) {
+    if (isAbortError(err) || signal?.aborted) {
+      const content = formatAutoBudgetStopReply("abort");
+      await pushReply(content);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "client_abort",
+        timing: track.finish(),
+      });
+    }
     const status = Number(err?.status) || 0;
     const detail = String(err?.message || err || "");
     console.warn("[auto] tools path failed:", status, detail.slice(0, 240));
