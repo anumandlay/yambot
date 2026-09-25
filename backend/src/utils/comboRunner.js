@@ -6,6 +6,7 @@
  */
 
 import { Message } from "../models/Chat.js";
+import { Task } from "../models/Task.js";
 import {
   looksLikeComputerThenEmailCombo,
   enrichComputerGoalForEmailFollowup,
@@ -392,15 +393,17 @@ export function buildComposioExecuteLookupFromAgent(opts) {
 }
 
 /**
- * After a successful computer run, execute remaining Composio combo steps.
+ * After a successful computer run, ask confirm before Composio follow-ups
+ * (or run immediately when skipConfirm is set).
  * @param {{
  *   userId: string,
  *   agent: object,
  *   task: object,
  *   success: boolean,
  *   summary: string,
+ *   skipConfirm?: boolean,
  * }} opts
- * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string, content?: string }|null>}
+ * @returns {Promise<{ ok: boolean, skipped?: boolean, reason?: string, content?: string, pending?: boolean }|null>}
  */
 export async function resumeComboAfterComputer(opts) {
   const success = opts.success !== false;
@@ -413,13 +416,16 @@ export async function resumeComboAfterComputer(opts) {
   /** @type {{ steps?: ComboStep[], userText?: string, status?: string, recipe?: string }|null} */
   let followup = task.comboFollowup && typeof task.comboFollowup === "object" ? task.comboFollowup : null;
 
-  // Legacy: create+email without comboFollowup field still works via detector on goal.
   if (!followup?.steps?.length) {
     const goal = String(task.goal || "");
-    if (looksLikeComputerThenEmailCombo(goal) || looksLikeComputerThenEmailCombo(followup?.userText || "")) {
-      followup = buildComboFollowupForTask(followup?.userText || goal);
-    } else if (looksLikeHybridCombo(goal)) {
-      followup = buildComboFollowupForTask(goal);
+    const goalForDetect = goal.replace(/MULTI-STEP JOB[\s\S]*$/i, "").trim() || goal;
+    if (
+      looksLikeComputerThenEmailCombo(goalForDetect) ||
+      looksLikeComputerThenEmailCombo(followup?.userText || "")
+    ) {
+      followup = buildComboFollowupForTask(followup?.userText || goalForDetect);
+    } else if (looksLikeHybridCombo(goalForDetect)) {
+      followup = buildComboFollowupForTask(goalForDetect);
     } else {
       return { ok: true, skipped: true, reason: "not_combo" };
     }
@@ -427,6 +433,13 @@ export async function resumeComboAfterComputer(opts) {
 
   if (!followup?.steps?.length) {
     return { ok: true, skipped: true, reason: "no_steps" };
+  }
+
+  if (String(followup.status || "") === "awaiting_confirm") {
+    return { ok: true, skipped: true, reason: "already_awaiting_confirm", pending: true };
+  }
+  if (["done", "cancelled", "error", "needs_connect"].includes(String(followup.status || ""))) {
+    return { ok: true, skipped: true, reason: `already_${followup.status}` };
   }
 
   if (!agent.composio?.enabled) {
@@ -452,7 +465,6 @@ export async function resumeComboAfterComputer(opts) {
     return { ok: false, reason: "no_api_key" };
   }
 
-  // Credentials email: prefer labeled body when recipe is create_then_email.
   let priorContent = summary;
   if (followup.recipe === "create_then_email" || looksLikeComputerThenEmailCombo(followup.userText || "")) {
     const to =
@@ -463,6 +475,180 @@ export async function resumeComboAfterComputer(opts) {
     if (creds.accountEmail || creds.password) {
       priorContent = buildCredentialsEmailBody(creds, summary);
     }
+  }
+
+  if (opts.skipConfirm === true) {
+    return executeComboFollowupSteps({
+      userId,
+      agent,
+      task,
+      followup: { ...followup, priorContent, computerSummary: summary },
+      priorContent,
+    });
+  }
+
+  const stepLabels = (followup.steps || [])
+    .map((s) => String(s.label || s.kind || s.specId || "step").trim())
+    .filter(Boolean)
+    .slice(0, 8);
+  const ask = [
+    `Computer step finished. I can run ${followup.steps.length} connected-app follow-up(s):`,
+    stepLabels.length ? `• ${stepLabels.join("\n• ")}` : "",
+    `Reply **confirm send** or **yes** to run them, or **cancel** to skip.`,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
+
+  try {
+    task.comboFollowup = {
+      ...followup,
+      status: "awaiting_confirm",
+      priorContent: String(priorContent || "").slice(0, 12000),
+      computerSummary: String(summary || "").slice(0, 8000),
+      askedAt: new Date().toISOString(),
+    };
+    task.markModified?.("comboFollowup");
+    await task.save?.();
+  } catch {
+    /* non-fatal */
+  }
+
+  await Message.create({
+    chat: task.chat,
+    role: "assistant",
+    content: ask,
+    meta: {
+      taskId: task._id,
+      kind: "combo_followup_pending",
+      stepCount: followup.steps.length,
+      pendingComboFollowup: {
+        taskId: String(task._id),
+        agentId: String(agent._id || agent.id || ""),
+        stepCount: followup.steps.length,
+        stepLabels,
+        recipe: followup.recipe || "",
+      },
+    },
+  });
+
+  return { ok: true, pending: true, reason: "awaiting_confirm", content: ask };
+}
+
+/**
+ * Newest pending hybrid combo follow-up from recent chat messages.
+ * @param {object[]} messages
+ * @param {{ excludeIds?: string[] }} [opts]
+ * @returns {object|null}
+ */
+export function resolvePendingComboFollowupFromMessages(messages, opts = {}) {
+  const exclude = new Set((opts.excludeIds || []).map((id) => String(id)));
+  const rows = (Array.isArray(messages) ? messages : []).filter(
+    (m) => m && !exclude.has(String(m._id || ""))
+  );
+  const newestFirst = [...rows].sort((a, b) => {
+    const aid = String(a._id || "");
+    const bid = String(b._id || "");
+    if (aid && bid) return bid.localeCompare(aid);
+    return 0;
+  });
+  for (const m of newestFirst) {
+    const role = String(m?.role || "");
+    if (role !== "assistant" && role !== "agent") continue;
+    const pending = m?.meta?.pendingComboFollowup;
+    if (pending && typeof pending === "object" && pending.taskId) return pending;
+    const kind = String(m?.meta?.kind || "");
+    if (kind === "combo_followup_pending" && m?.meta?.taskId) {
+      return { taskId: String(m.meta.taskId), stepCount: m.meta.stepCount || 0 };
+    }
+    break;
+  }
+  return null;
+}
+
+/**
+ * @param {{ userId: string, taskId: string }} opts
+ * @returns {Promise<{ ok: boolean, content: string }>}
+ */
+export async function cancelPendingComboFollowup(opts) {
+  const userId = String(opts.userId || "").trim();
+  const taskId = String(opts.taskId || "").trim();
+  if (!userId || !taskId) {
+    return { ok: false, content: "Could not cancel — missing task." };
+  }
+  const task = await Task.findOne({ _id: taskId, user: userId });
+  if (!task) {
+    return { ok: false, content: "Could not find that follow-up task." };
+  }
+  const followup =
+    task.comboFollowup && typeof task.comboFollowup === "object" ? { ...task.comboFollowup } : {};
+  followup.status = "cancelled";
+  followup.cancelledAt = new Date().toISOString();
+  task.comboFollowup = followup;
+  task.markModified?.("comboFollowup");
+  await task.save();
+  return {
+    ok: true,
+    content: "Cancelled — I will not run the connected-app follow-up steps.",
+  };
+}
+
+/**
+ * User confirmed — run stored Composio combo steps after computer.
+ * @param {{ userId: string, agent: object, taskId: string, postResultMessage?: boolean }} opts
+ * @returns {Promise<{ ok: boolean, content: string, reason?: string }>}
+ */
+export async function executeApprovedComboFollowup(opts) {
+  const userId = String(opts.userId || "").trim();
+  const taskId = String(opts.taskId || "").trim();
+  const agent = opts.agent;
+  if (!userId || !taskId || !agent) {
+    return { ok: false, content: "Could not run follow-ups — missing task or agent." };
+  }
+  const task = await Task.findOne({ _id: taskId, user: userId });
+  if (!task) {
+    return { ok: false, content: "Could not find that follow-up task." };
+  }
+  const followup =
+    task.comboFollowup && typeof task.comboFollowup === "object" ? task.comboFollowup : null;
+  if (!followup?.steps?.length) {
+    return { ok: false, content: "No pending connected-app follow-ups on that task." };
+  }
+  if (String(followup.status || "") === "done") {
+    return { ok: true, content: "Those follow-ups already finished." };
+  }
+  if (String(followup.status || "") === "cancelled") {
+    return { ok: false, content: "Those follow-ups were cancelled." };
+  }
+  const priorContent = String(followup.priorContent || followup.computerSummary || "").trim();
+  return executeComboFollowupSteps({
+    userId,
+    agent,
+    task,
+    followup,
+    priorContent,
+    // Why: chats.js persists the assistant reply — avoid a duplicate result bubble.
+    postResultMessage: opts.postResultMessage !== false ? true : false,
+  });
+}
+
+/**
+ * Shared executor for confirmed (or skipConfirm) combo follow-ups.
+ * @param {{
+ *   userId: string,
+ *   agent: object,
+ *   task: object,
+ *   followup: object,
+ *   priorContent: string,
+ *   postResultMessage?: boolean,
+ * }} opts
+ */
+async function executeComboFollowupSteps(opts) {
+  const { userId, agent, task, followup } = opts;
+  const priorContent = String(opts.priorContent || "").trim();
+  const postResultMessage = opts.postResultMessage !== false;
+  const apiKey = decryptAgentComposioApiKey(agent);
+  if (!apiKey) {
+    return { ok: false, content: "No Composio API key on this agent.", reason: "no_api_key" };
   }
 
   const executeLookup = buildComposioExecuteLookupFromAgent({ userId, agent });
@@ -476,23 +662,24 @@ export async function resumeComboAfterComputer(opts) {
     composioSessionId: String(agent.composio?.sessionId || "").trim() || null,
   };
 
-  await Message.create({
-    chat: task.chat,
-    role: "assistant",
-    content: `Running ${followup.steps.length} follow-up step(s) via connected apps…`,
-    meta: {
-      taskId: task._id,
-      kind: "combo_followup_progress",
-      stepCount: followup.steps.length,
-    },
-  });
+  if (task.chat) {
+    await Message.create({
+      chat: task.chat,
+      role: "assistant",
+      content: `Running ${followup.steps.length} follow-up step(s) via connected apps…`,
+      meta: {
+        taskId: task._id,
+        kind: "combo_followup_progress",
+        stepCount: followup.steps.length,
+      },
+    });
+  }
 
   const multi = await runComposioMultiStep({
     runtime,
     userText: followup.userText || String(task.goal || ""),
     plan: followup.steps,
     executeLookup,
-    // Seed prior from computer summary before first Composio step.
     initialPriorContent: priorContent,
   });
 
@@ -509,23 +696,26 @@ export async function resumeComboAfterComputer(opts) {
     /* non-fatal */
   }
 
-  await Message.create({
-    chat: task.chat,
-    role: "assistant",
-    content: String(multi.content || "").trim() || "Follow-up steps finished.",
-    meta: {
-      taskId: task._id,
-      kind: "combo_followup",
-      success: Boolean(multi.ok),
-      needsConnect: Boolean(multi.needsConnect),
-      recipe: followup.recipe || "",
-    },
-  });
+  const content = String(multi.content || "").trim() || "Follow-up steps finished.";
+  if (task.chat && postResultMessage) {
+    await Message.create({
+      chat: task.chat,
+      role: "assistant",
+      content,
+      meta: {
+        taskId: task._id,
+        kind: "combo_followup",
+        success: Boolean(multi.ok),
+        needsConnect: Boolean(multi.needsConnect),
+        recipe: followup.recipe || "",
+      },
+    });
+  }
 
   return {
     ok: Boolean(multi.ok),
     reason: multi.needsConnect ? "needs_connect" : multi.ok ? "ok" : "error",
-    content: multi.content,
+    content,
   };
 }
 

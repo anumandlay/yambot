@@ -11,6 +11,7 @@ import {
   enrichComputerGoalForCombo,
   buildComboFollowupForTask,
   extractComposioTailText,
+  resolvePendingComboFollowupFromMessages,
 } from "../src/utils/comboRunner.js";
 import { planComposioMultiSteps } from "../src/utils/composioAutoRuntime.js";
 
@@ -76,4 +77,50 @@ test("extractComposioTailText keeps app verbs", () => {
 
 test("plain open vughy is not hybrid", () => {
   assert.equal(looksLikeHybridCombo("open vughy"), false);
+});
+
+test("resolvePendingComboFollowupFromMessages reads newest pending meta", () => {
+  const pending = resolvePendingComboFollowupFromMessages([
+    {
+      _id: "aaaaaaaaaaaaaaaaaaaaaaaa",
+      role: "user",
+      content: "yes",
+    },
+    {
+      _id: "bbbbbbbbbbbbbbbbbbbbbbbb",
+      role: "assistant",
+      content: "Computer step finished…",
+      meta: {
+        kind: "combo_followup_pending",
+        pendingComboFollowup: {
+          taskId: "task123",
+          stepCount: 3,
+          stepLabels: ["Notion", "Slack", "email"],
+        },
+      },
+    },
+  ]);
+  assert.equal(pending?.taskId, "task123");
+  assert.equal(pending?.stepCount, 3);
+});
+
+test("resolvePendingComboFollowupFromMessages ignores when newest assistant has no pending", () => {
+  const pending = resolvePendingComboFollowupFromMessages([
+    {
+      _id: "cccccccccccccccccccccccc",
+      role: "assistant",
+      content: "All done",
+      meta: { kind: "chat_qa" },
+    },
+    {
+      _id: "bbbbbbbbbbbbbbbbbbbbbbbb",
+      role: "assistant",
+      content: "old pending",
+      meta: {
+        kind: "combo_followup_pending",
+        pendingComboFollowup: { taskId: "stale", stepCount: 1 },
+      },
+    },
+  ]);
+  assert.equal(pending, null);
 });

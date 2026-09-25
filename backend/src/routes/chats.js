@@ -26,7 +26,13 @@ import {
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
 import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, autoTurnNeedsTools, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker, buildAutoObservabilityMeta } from "../utils/chatAutoTurn.js";
-import { enrichComputerGoalForCombo, buildComboFollowupForTask } from "../utils/comboRunner.js";
+import {
+  enrichComputerGoalForCombo,
+  buildComboFollowupForTask,
+  resolvePendingComboFollowupFromMessages,
+  executeApprovedComboFollowup,
+  cancelPendingComboFollowup,
+} from "../utils/comboRunner.js";
 import {
   persistChatRememberFact,
   persistChatForgetFact,
@@ -50,6 +56,7 @@ import { linkClientAbort, isAbortError } from "../utils/llmAbort.js";
 import {
   resolvePendingComposioApprovalFromMessages,
   looksLikeComposioRiskyConfirm,
+  looksLikeComposioRiskyDeny,
 } from "../utils/composioApprovalGate.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
@@ -1085,6 +1092,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let confirmGoal = null;
       /** @type {object|null} */
       let pendingComposioApproval = null;
+      /** @type {object|null} */
+      let pendingComboFollowup = null;
       {
         const recent = await Message.find({ chat: chat._id })
           .sort({ _id: -1 })
@@ -1094,22 +1103,74 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         pendingComposioApproval = resolvePendingComposioApprovalFromMessages(recent, {
           excludeIds: [String(message._id)],
         });
-        // Why: composio confirm/deny must win over “yes, open the computer” offers.
+        // Why: after computer, hybrid tails ask confirm — resolve before computer-offer “yes”.
+        if (!pendingComposioApproval) {
+          pendingComboFollowup = resolvePendingComboFollowupFromMessages(recent, {
+            excludeIds: [String(message._id)],
+          });
+        }
+        // Why: composio / combo confirm/deny must win over “yes, open the computer” offers.
         if (
           looksLikeAffirmativeConfirm(questionText) ||
           looksLikeComposioRiskyConfirm(questionText)
         ) {
-          if (!pendingComposioApproval) {
+          if (!pendingComposioApproval && !pendingComboFollowup) {
             confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
               excludeIds: [String(message._id)],
             });
           }
         }
       }
-      // Why: never cheap-ack a “yes” that confirms an offered computer job.
-      const cheapReply = confirmGoal || pendingComposioApproval ? null : cheapChatReplyIfAny(questionText);
+      // Why: never cheap-ack a “yes” that confirms an offered computer job or pending follow-up.
+      const cheapReply =
+        confirmGoal || pendingComposioApproval || pendingComboFollowup
+          ? null
+          : cheapChatReplyIfAny(questionText);
       try {
-        if (confirmGoal) {
+        if (
+          pendingComboFollowup?.taskId &&
+          !pendingComposioApproval &&
+          looksLikeComposioRiskyDeny(questionText)
+        ) {
+          const cancelled = await cancelPendingComboFollowup({
+            userId: String(req.userId),
+            taskId: String(pendingComboFollowup.taskId),
+          });
+          if (wantStream) writeNdjson({ type: "delta", text: cancelled.content });
+          turn = {
+            action: "reply",
+            content: cancelled.content,
+            goal: "",
+            ack: "",
+            reason: "combo_followup_cancelled",
+          };
+        } else if (
+          pendingComboFollowup?.taskId &&
+          !pendingComposioApproval &&
+          (looksLikeAffirmativeConfirm(questionText) ||
+            looksLikeComposioRiskyConfirm(questionText))
+        ) {
+          const ran = await executeApprovedComboFollowup({
+            userId: String(req.userId),
+            agent: agentDoc,
+            taskId: String(pendingComboFollowup.taskId),
+            // Why: this route creates the assistant Message from turn.content.
+            postResultMessage: false,
+          });
+          const replyText =
+            String(ran.content || "").trim() ||
+            (ran.ok
+              ? "Connected-app follow-ups finished."
+              : "Could not run the connected-app follow-ups.");
+          if (wantStream) writeNdjson({ type: "delta", text: replyText });
+          turn = {
+            action: "reply",
+            content: replyText,
+            goal: "",
+            ack: "",
+            reason: ran.ok ? "combo_followup_executed" : "combo_followup_failed",
+          };
+        } else if (confirmGoal) {
           turn = {
             action: "queue_goal",
             content: "",

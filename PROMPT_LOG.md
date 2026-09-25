@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 13:30] Hybrid combo: confirm before Composio follow-ups
+
+- **Prompt Provided:** After computer finishes a hybrid job, ask confirm before running connected-app follow-ups (yes to “ask confirm before running”).
+- **Architectural Flow:** `resumeComboAfterComputer` no longer auto-runs Notion/Slack/email tails. It sets `task.comboFollowup.status = awaiting_confirm`, posts an assistant ask with `meta.pendingComboFollowup`, and waits. Chat “yes” / “confirm send” → `executeApprovedComboFollowup`; “cancel” → `cancelPendingComboFollowup`. In-chat Composio SEND approval still takes precedence when both pending. Worker path unchanged except the confirm gate.
+- **Impacted Files:** comboRunner.js, chats.js, comboRunner.test.js, PROMPT_LOG
+
 ## [2026-09-25 12:45] Hermes Phase 3: progressive skills + untrusted wrap + Auto meta
 
 - **Prompt Provided:** Implement Hermes Phase 3 — skill summary + load_skill for Auto/Answer; wrap untrusted tool/Mem0 content; persist Auto observability meta + optional auto_meta NDJSON; tests; commit/push/deploy.
