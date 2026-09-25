@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 19:00] Chat: show P prompt peek on mobile
+
+- **Prompt Provided:** in mobile p icon after chat message is not showing
+- **Architectural Flow:** 8×8px P sat past the bubble and was clipped by the thread’s overflow on narrow widths. Reserve row space (`min-w-0` bubble + fixed peek column); larger touch target on mobile, tiny again from `sm` up.
+- **Impacted Files:** LlmPromptPeek.jsx, ChatDetailPage.jsx, PROMPT_LOG
+
 ## [2026-09-25 18:55] Chat: Send button silent no-op during Auto stream
 
 - **Prompt Provided:** Sometimes send button not working

@@ -1574,7 +1574,7 @@ export function ChatDetailPage() {
                 if (m.meta?.kind === "context_summary") return null;
                 const bubble = (
                   <article
-                    className={`max-w-full break-words rounded-xl px-3 py-2 text-sm ${
+                    className={`min-w-0 max-w-full break-words rounded-xl px-3 py-2 text-sm ${
                       m.role === "user"
                         ? "bg-teal-700 text-white"
                         : m.role === "assistant" || m.role === "agent"
@@ -1620,11 +1620,13 @@ export function ChatDetailPage() {
                 );
                 if (m.role === "user") {
                   return (
+                    // Why: reserve space for the P peek — bubble min-w-0 so overflow-x on the
+                    // thread does not clip the icon off the right edge on narrow phones.
                     <div
                       key={m._id}
-                      className="flex max-w-[95%] items-start justify-end gap-1.5 self-end sm:max-w-[85%]"
+                      className="flex w-full max-w-[95%] items-start justify-end gap-1.5 self-end pr-0.5 sm:max-w-[85%]"
                     >
-                      {bubble}
+                      <div className="min-w-0 max-w-[calc(100%-1.25rem)]">{bubble}</div>
                       <LlmPromptPeek prompt={llmPrompt} />
                     </div>
                   );
