@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:05] Chat: shrink Prompt peek button
+
+- **Prompt Provided:** the Prompt button in chat is too big, make it very small
+- **Architectural Flow:** LlmPromptPeek trigger is a compact 16px-tall chip (tiny type, light border) so it doesn’t compete with the user bubble.
+- **Impacted Files:** LlmPromptPeek.jsx, PROMPT_LOG
+
 ## [2026-09-25 15:10] Memory: dedupe notes + 30m all-agents summarize cron
 
 - **Prompt Provided:** stop duplicate notes; summarize curated + Mem0 too; cron every 30m only if new content (incl. chat messages); cron for all agents
