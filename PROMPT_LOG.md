@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 15:25] Chat: force summarize now (+ API)
+
+- **Prompt Provided:** once summarize the chat now
+- **Architectural Flow:** `refreshChatContextIfNeeded(..., { force: true })` bypasses the 50% gate and (re)posts the visible Chat summary bubble. `POST /api/chats/:id/summarize` exposes it; one-shot remote script runs force summarize on the latest chat.
+- **Impacted Files:** chatContext.js, chats.js, _force_chat_summarize_turn.py, PROMPT_LOG
+
 ## [2026-09-25 15:20] Chat: summarize at 50% context + show in thread
 
 - **Prompt Provided:** instead of 30m cron for chat summarise, summarize at 50% of LLM context window and show the summary in the chat

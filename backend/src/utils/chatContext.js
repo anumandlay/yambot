@@ -319,7 +319,7 @@ export function estimateChatFillTokens(chat, eligible) {
 /**
  * Post a visible chat bubble so the operator sees when context was folded.
  * @param {object} chat
- * @param {{ summary: string, summarizedThrough: string, estimatedTokens: number, contextTokens: number }} opts
+ * @param {{ summary: string, summarizedThrough: string, estimatedTokens: number, contextTokens: number, replace?: boolean }} opts
  * @returns {Promise<object|null>}
  */
 async function postContextSummaryMessage(chat, opts) {
@@ -327,15 +327,6 @@ async function postContextSummaryMessage(chat, opts) {
   const summary = String(opts.summary || "").trim();
   if (!chat?._id || !through || !summary) return null;
   try {
-    const existing = await Message.findOne({
-      chat: chat._id,
-      "meta.kind": "context_summary",
-      "meta.summarizedThrough": through,
-    })
-      .select("_id")
-      .lean();
-    if (existing) return null;
-
     const pct = opts.contextTokens
       ? Math.min(100, Math.round((opts.estimatedTokens / opts.contextTokens) * 100))
       : 50;
@@ -344,20 +335,36 @@ async function postContextSummaryMessage(chat, opts) {
       "",
       summary,
     ].join("\n");
+    const meta = {
+      kind: "context_summary",
+      summarizedThrough: through,
+      estimatedTokens: opts.estimatedTokens,
+      contextTokens: opts.contextTokens,
+      fillRatio: opts.contextTokens
+        ? Number((opts.estimatedTokens / opts.contextTokens).toFixed(3))
+        : 0.5,
+      forced: Boolean(opts.replace),
+    };
+
+    const existing = await Message.findOne({
+      chat: chat._id,
+      "meta.kind": "context_summary",
+      "meta.summarizedThrough": through,
+    });
+    if (existing) {
+      if (!opts.replace) return null;
+      existing.content = content.slice(0, 8_000);
+      existing.meta = { ...(existing.meta || {}), ...meta };
+      existing.markModified("meta");
+      await existing.save();
+      return existing;
+    }
 
     return await Message.create({
       chat: chat._id,
       role: "assistant",
       content: content.slice(0, 8_000),
-      meta: {
-        kind: "context_summary",
-        summarizedThrough: through,
-        estimatedTokens: opts.estimatedTokens,
-        contextTokens: opts.contextTokens,
-        fillRatio: opts.contextTokens
-          ? Number((opts.estimatedTokens / opts.contextTokens).toFixed(3))
-          : 0.5,
-      },
+      meta,
     });
   } catch (err) {
     console.warn("[chatContext] post summary message failed:", err?.message || err);
@@ -366,31 +373,36 @@ async function postContextSummaryMessage(chat, opts) {
 }
 
 /**
- * When conversation fill reaches ~50% of the model context window, fold older turns
- * into chat.contextSummary and post a visible summary message in the thread.
+ * When conversation fill reaches ~50% of the model context window (or force=true), fold
+ * older turns into chat.contextSummary and post a visible summary message in the thread.
  * @param {object} chat — mongoose Chat document
  * @param {{ apiKey: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string, contextTokens?: number }|null} creds
- * @returns {Promise<{ chat: object, summaryMessage: object|null }>}
+ * @param {{ force?: boolean }} [opts] — force=true bypasses the 50% fill gate (manual “summarize now”)
+ * @returns {Promise<{ chat: object, summaryMessage: object|null, skipped?: string }>}
  */
-export async function refreshChatContextIfNeeded(chat, creds) {
-  if (!chat?._id) return { chat, summaryMessage: null };
+export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
+  if (!chat?._id) return { chat, summaryMessage: null, skipped: "no_chat" };
+  const force = Boolean(opts.force);
   const budget = budgetFor(creds);
   const eligible = await loadEligibleChatMessages(chat._id);
   const estimatedTokens = estimateChatFillTokens(chat, eligible);
-  const needs = estimatedTokens >= budget.summarizeAtTokens;
-  if (!needs) return { chat, summaryMessage: null };
+  const needs = force || estimatedTokens >= budget.summarizeAtTokens;
+  if (!needs) return { chat, summaryMessage: null, skipped: "under_threshold" };
 
   const recent = eligible.slice(-budget.recent);
   const older = eligible.slice(0, Math.max(0, eligible.length - budget.recent));
   // Why: need a meaningful older block — tiny threads shouldn't invent a summary bubble.
-  if (older.length < 4) return { chat, summaryMessage: null };
+  if (older.length < (force ? 2 : 4)) {
+    return { chat, summaryMessage: null, skipped: "too_few_older" };
+  }
 
   const lastOlderId = String(older[older.length - 1]._id);
   if (
+    !force &&
     String(chat.contextSummarizedThrough || "") === lastOlderId &&
     String(chat.contextSummary || "").trim()
   ) {
-    return { chat, summaryMessage: null };
+    return { chat, summaryMessage: null, skipped: "already_current" };
   }
 
   /** @type {object|null} */
@@ -410,6 +422,7 @@ export async function refreshChatContextIfNeeded(chat, creds) {
       summarizedThrough: lastOlderId,
       estimatedTokens,
       contextTokens: budget.contextTokens,
+      replace: force,
     });
     return { chat, summaryMessage };
   }
@@ -468,10 +481,12 @@ export async function refreshChatContextIfNeeded(chat, creds) {
         summarizedThrough: lastOlderId,
         estimatedTokens,
         contextTokens: budget.contextTokens,
+        replace: force,
       });
     }
   } catch (err) {
     console.warn("[chatContext] summarize failed:", err?.message || err);
+    return { chat, summaryMessage: null, skipped: "llm_failed" };
   }
   return { chat, summaryMessage };
 }

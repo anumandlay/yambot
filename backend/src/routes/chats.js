@@ -525,6 +525,70 @@ chatsRouter.get("/:id", async (req, res, next) => {
 });
 
 /**
+ * POST /api/chats/:id/summarize — force-fold older turns into a visible Chat summary bubble.
+ * Why: operators can summarize before the 50% context-window threshold.
+ */
+chatsRouter.post("/:id/summarize", async (req, res, next) => {
+  try {
+    const chat = await Chat.findOne({ _id: req.params.id, user: req.userId });
+    if (!chat) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
+      return;
+    }
+
+    /** @type {import("mongoose").Document|null} */
+    let agentDoc = null;
+    if (chat.agent) {
+      agentDoc = await Agent.findOne({ _id: chat.agent, user: req.userId });
+    } else if (chat.defaultAgent) {
+      agentDoc = await Agent.findOne({ _id: chat.defaultAgent, user: req.userId });
+    } else if (chat.lastDispatchAgent) {
+      agentDoc = await Agent.findOne({ _id: chat.lastDispatchAgent, user: req.userId });
+    }
+    if (!agentDoc) {
+      agentDoc = await Agent.findOne({ user: req.userId, deletedAt: null }).sort({ updatedAt: -1 });
+    }
+    if (!agentDoc) {
+      res.status(400).json({
+        ok: false,
+        title: "No agent",
+        detail: "Need an agent with LLM credentials to summarize this chat.",
+      });
+      return;
+    }
+
+    const userDoc = await User.findById(req.userId);
+    const creds = await resolveLlmCredentialsForAgent(userDoc, agentDoc);
+    if (!creds?.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "LLM missing",
+        detail: "Set an LLM API key in Settings (or on the agent) first.",
+      });
+      return;
+    }
+
+    const folded = await refreshChatContextIfNeeded(chat, creds, { force: true });
+    if (!folded?.summaryMessage) {
+      res.status(200).json({
+        ok: true,
+        skipped: folded?.skipped || "no_summary",
+        message: null,
+        contextSummary: String(chat.contextSummary || "").slice(0, 500),
+      });
+      return;
+    }
+    res.status(201).json({
+      ok: true,
+      message: folded.summaryMessage,
+      contextSummary: String(chat.contextSummary || "").slice(0, 2000),
+    });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
  * PATCH /api/chats/:id — update common-chat settings (default agent pin, auto-route).
  * Body: { defaultAgentId?: string|null, autoRoute?: boolean }
  */
