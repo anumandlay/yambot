@@ -25,6 +25,23 @@ export function composioUserId(userId) {
 }
 
 /**
+ * Composio often returns HTTP-ok with a nested API validation error.
+ * @param {unknown} data
+ * @returns {boolean}
+ */
+export function looksLikeComposioPayloadError(data) {
+  if (!data || typeof data !== "object") return false;
+  const row = /** @type {Record<string, unknown>} */ (data);
+  const code = Number(row.status_code || row.statusCode || row.status || 0);
+  if (code >= 400) return true;
+  const msg = String(row.message || row.error || row.detail || "");
+  if (/invalid request|fields are missing|missing:|required field|not found/i.test(msg)) {
+    return true;
+  }
+  return false;
+}
+
+/**
  * Server-wide key (optional fallback when agent has none).
  * @returns {string}
  */
@@ -716,6 +733,17 @@ export async function composioExecuteTool(opts) {
         sessionId: sess.sessionId,
       };
     }
+    // Why: Notion often returns ok payload with status_code 400 / “fields are missing”.
+    if (looksLikeComposioPayloadError(data) || looksLikeComposioPayloadError(result)) {
+      return {
+        ok: false,
+        error: String(
+          data?.message || data?.error || result?.message || result?.error || "invalid_request"
+        ),
+        data,
+        sessionId: sess.sessionId,
+      };
+    }
     return {
       ok: true,
       data,
@@ -735,6 +763,16 @@ export async function composioExecuteTool(opts) {
         return {
           ok: false,
           error: String(result?.error || data?.error || data?.message || "execute_failed"),
+          data,
+          sessionId: sess.sessionId,
+        };
+      }
+      if (looksLikeComposioPayloadError(data) || looksLikeComposioPayloadError(result)) {
+        return {
+          ok: false,
+          error: String(
+            data?.message || data?.error || result?.message || result?.error || "invalid_request"
+          ),
           data,
           sessionId: sess.sessionId,
         };

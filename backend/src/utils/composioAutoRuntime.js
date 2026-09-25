@@ -6,6 +6,7 @@
 
 import { redactCredentialLeaks } from "./hermesUntrusted.js";
 import { looksLikeSiteTrialExpiryComputerRequest } from "./messageIntent.js";
+import { looksLikeComposioPayloadError } from "./composioService.js";
 
 /**
  * @typedef {{
@@ -316,18 +317,60 @@ export function pickBestComposioTool(tools, preferred, score = {}) {
   for (const p of prefs) {
     const up = String(p || "").toUpperCase();
     if (slugs.includes(up)) return up;
+    // Why: Composio renames tools (CREATE_PAGE → CREATE_NOTION_PAGE) — fuzzy preferred hit.
+    const fuzzy = slugs.find(
+      (s) => s === up || s.includes(up) || up.includes(s) || preferredSlugClose(s, up)
+    );
+    if (fuzzy) return fuzzy;
   }
-  const good = score.good || /FETCH|LIST|GET|SEND|CREATE|READ|VALUES|MESSAGE/i;
-  const bad = score.bad || /LABEL|PROFILE|CONTACT|PEOPLE|DELETE|DRAFT/i;
+  const good = score.good || /FETCH|LIST|GET|SEND|CREATE|READ|VALUES|MESSAGE|SEARCH/i;
+  const bad = score.bad || /LABEL|PROFILE|CONTACT|PEOPLE|DELETE|DRAFT|COMMENT/i;
   const scored = slugs
     .map((s) => {
       let n = 0;
       if (good.test(s)) n += 3;
-      if (bad.test(s)) n -= 6;
+      if (bad.test(s)) n -= 8;
       return { s, n };
     })
     .sort((a, b) => b.n - a.n);
   return scored[0]?.n > 0 ? scored[0].s : prefs[0] || "";
+}
+
+/**
+ * @param {string} a
+ * @param {string} b
+ * @returns {boolean}
+ */
+function preferredSlugClose(a, b) {
+  const x = String(a || "").toUpperCase();
+  const y = String(b || "").toUpperCase();
+  if (!x || !y) return false;
+  // CREATE_PAGE ↔ CREATE_NOTION_PAGE / CREATE_A_PAGE
+  if (/CREATE/.test(x) && /CREATE/.test(y) && /PAGE/.test(x) && /PAGE/.test(y)) return true;
+  if (/SEARCH/.test(x) && /SEARCH/.test(y)) return true;
+  return false;
+}
+
+/**
+ * Scoring hints so Notion search ≠ create-comment, etc.
+ * @param {string} specId
+ * @returns {{ good?: RegExp, bad?: RegExp }}
+ */
+export function composioToolScoreForSpec(specId) {
+  const id = String(specId || "");
+  if (id === "notion_write") {
+    return {
+      good: /CREATE.*PAGE|ADD_PAGE|UPDATE_PAGE|APPEND_BLOCK|WRITE/i,
+      bad: /COMMENT|SEARCH|FETCH|GET_USER|DELETE|LIST_USERS/i,
+    };
+  }
+  if (id === "notion_fetch") {
+    return {
+      good: /SEARCH|FETCH|GET_PAGE|LIST|QUERY/i,
+      bad: /CREATE|UPDATE|COMMENT|DELETE|APPEND|WRITE/i,
+    };
+  }
+  return {};
 }
 
 /**
@@ -1115,10 +1158,9 @@ export async function runGmailLabelMove(opts) {
 export function looksLikeNotionFetchRequest(text) {
   const t = String(text || "");
   if (!/\bnotion\b/i.test(t)) return false;
-  if (/\b(update|add|create|write|put|post|save)\b/i.test(t) && /\bin\s+notion\b/i.test(t)) {
-    return false;
-  }
-  return /\b(get|fetch|read|find|search|from|pull|load)\b/i.test(t);
+  // Explicit write verbs → write path, not fetch.
+  if (/\b(update|add|create|write|put|post|save)\b/i.test(t)) return false;
+  return /\b(get|fetch|read|find|search|from|pull|load|list|show)\b/i.test(t);
 }
 
 /**
@@ -1128,10 +1170,11 @@ export function looksLikeNotionFetchRequest(text) {
 export function looksLikeNotionWriteRequest(text) {
   const t = String(text || "");
   if (!/\bnotion\b/i.test(t)) return false;
+  // Why: “search pages in notion” must never match write via bare “in notion”.
+  if (/\b(get|fetch|read|find|search|list|show|pull|load)\b/i.test(t)) return false;
   return (
     /\b(update|add|create|write|put|post|save)\b/i.test(t) ||
-    /\bin\s+notion\b/i.test(t) ||
-    /\bnotion\s+(page|doc|database|db)\b/i.test(t)
+    (/\bin\s+notion\b/i.test(t) && /\b(page|doc|database|db|note)\b/i.test(t))
   );
 }
 
@@ -1165,17 +1208,35 @@ export function buildNotionWriteToolArgs(userText = "") {
     raw.match(/Content to use:\s*\n([\s\S]+)/i)?.[1]?.trim() ||
     "";
   const quoted = raw.match(/["“']([^"”']{3,4000})["”']/);
-  const content = (prior || quoted?.[1] || raw).trim().slice(0, 8000);
-  const titleMatch = raw.match(/\btitle\s*[:=]\s*["']?([^"'\n]{2,120})/i);
-  const title = titleMatch?.[1]?.trim() || "YamBot update";
-  return {
+  const content = (prior || quoted?.[1] || "").trim().slice(0, 8000);
+  const titleMatch =
+    raw.match(/\btitle\s*[:=]\s*["']?([^"'\n]{2,120})/i) ||
+    raw.match(/\b(?:create|add|make)\s+(?:a\s+)?(?:new\s+)?(?:notion\s+)?page\s+(?:called|named|titled)?\s*["']?([^"'\n,]{2,80})/i) ||
+    raw.match(/\bdemo\s+page\b/i);
+  let title = titleMatch?.[1]?.trim() || "";
+  if (!title && /\bdemo\b/i.test(raw)) title = "Demo page";
+  if (!title) title = "YamBot update";
+  const parentMatch =
+    raw.match(/\bparent[_ ]?id\s*[:=]\s*([a-zA-Z0-9-]{8,})\b/i) ||
+    raw.match(/\b(?:under|in)\s+page\s+([a-zA-Z0-9-]{8,})\b/i);
+  const parentId = parentMatch?.[1]?.trim() || "";
+  /** @type {Record<string, unknown>} */
+  const args = {
     title,
-    content,
-    markdown: content,
-    text: content,
-    page_content: content,
+    page_title: title,
+    name: title,
+    content: content || title,
+    markdown: content || `# ${title}`,
+    text: content || title,
+    page_content: content || title,
     properties: { title },
   };
+  if (parentId) {
+    args.parent_id = parentId;
+    args.parentId = parentId;
+    args.page_id = parentId;
+  }
+  return args;
 }
 
 /**
@@ -1200,6 +1261,14 @@ export function formatNotionSummaryFromToolResult(resultText, tool = "") {
     return `Notion via Composio failed: ${err}`;
   }
   const data = parsed.data ?? parsed;
+  if (looksLikeComposioPayloadError(data)) {
+    const err = String(
+      /** @type {any} */ (data).message ||
+        /** @type {any} */ (data).error ||
+        "Notion request failed"
+    );
+    return `Notion via Composio failed${tool ? ` (${tool})` : ""}: ${err}`;
+  }
   const snippet = JSON.stringify(data).slice(0, 1500);
   return `Notion${tool ? ` (${tool})` : ""} ok.\n${snippet}`;
 }
@@ -1284,13 +1353,19 @@ export const COMPOSIO_INTENT_SPECS = [
     toolkit: "notion",
     label: "Notion update",
     preferredTools: [
+      "NOTION_CREATE_NOTION_PAGE",
       "NOTION_CREATE_PAGE",
       "NOTION_CREATE_A_PAGE",
       "NOTION_ADD_PAGE_CONTENT",
       "NOTION_UPDATE_PAGE",
       "NOTION_APPEND_BLOCK_CHILDREN",
     ],
-    searchQueries: ["NOTION_CREATE_PAGE", "create notion page", "notion update page"],
+    searchQueries: [
+      "NOTION_CREATE_NOTION_PAGE",
+      "NOTION_CREATE_PAGE",
+      "create notion page",
+      "notion create page",
+    ],
     buildArgs: buildNotionWriteToolArgs,
     formatOk: formatNotionSummaryFromToolResult,
     match: looksLikeNotionWriteRequest,
@@ -2176,13 +2251,13 @@ export async function runComposioIntentExecute(opts) {
     try {
       const searchJson = JSON.parse(searchText);
       if (Array.isArray(searchJson?.tools)) tools.push(...searchJson.tools);
-      if (pickBestComposioTool(tools, spec.preferredTools)) break;
+      if (pickBestComposioTool(tools, spec.preferredTools, composioToolScoreForSpec(spec.id))) break;
     } catch {
       /* continue */
     }
   }
 
-  let tool = pickBestComposioTool(tools, spec.preferredTools);
+  let tool = pickBestComposioTool(tools, spec.preferredTools, composioToolScoreForSpec(spec.id));
   if (!tool) tool = spec.preferredTools[0];
 
   const args = spec.buildArgs(userText);
@@ -2241,6 +2316,16 @@ export async function runComposioIntentExecute(opts) {
       execJson = null;
     }
     if (execJson?.ok) {
+      const payload = execJson.data ?? execJson;
+      // Why: CREATE_COMMENT can return ok:true with status_code 400 — keep trying page tools.
+      if (looksLikeComposioPayloadError(payload)) {
+        lastText = JSON.stringify({
+          ok: false,
+          error: String(payload?.message || payload?.error || "invalid_request"),
+          data: payload,
+        });
+        continue;
+      }
       return {
         ok: true,
         tool: candidate,

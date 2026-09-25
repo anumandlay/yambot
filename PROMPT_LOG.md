@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:00] Notion Composio: pick create-page, not create-comment
+
+- **Prompt Provided:** After confirm to create a Notion demo page, agent ran NOTION_CREATE_COMMENT and showed “ok” with missing `comment` error.
+- **Architectural Flow:** Tool picker scores Notion write toward CREATE_*PAGE and away from COMMENT; fuzzy-match CREATE_NOTION_PAGE. Nested status_code 400 / “fields are missing” treated as execute failure so we retry better tools. Intent: search→fetch, create→write. Title args improved for “demo page”.
+- **Impacted Files:** composioAutoRuntime.js, composioService.js, composioNotionPick.test.js, PROMPT_LOG
+
 ## [2026-09-25 13:50] Show progress bar while Composio works
 
 - **Prompt Provided:** if composio is working, it should show the progress bar
