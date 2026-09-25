@@ -13,6 +13,7 @@ import {
 } from "./llmContextWindow.js";
 import { formatSessionScratchBlock } from "./sessionScratch.js";
 import { redactCredentialLeaks } from "./hermesUntrusted.js";
+import { stripModelThinking } from "./llmSanitize.js";
 
 /** Fallback constants when no creds are passed (legacy / tests). */
 export const CHAT_CONTEXT_RECENT = 16;
@@ -450,6 +451,7 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
             "You maintain a running summary of a YamBot agent chat thread.",
             "Write a concise third-person summary of goals, decisions, sites visited, outcomes, and open follow-ups.",
             "Keep facts the agent must remember later. Omit UI chrome and repeated fluff.",
+            "Do NOT include chain-of-thought, analysis, or <think> tags — return the summary text only.",
             "Do NOT copy account identity, location, or tone/personality prefs into the summary — those live in Settings → Memory (USER PROFILE) and change independently.",
             `Max ~${budget.summaryMax} characters. Plain text only.`,
           ].join(" "),
@@ -469,7 +471,7 @@ export async function refreshChatContextIfNeeded(chat, creds, opts = {}) {
         },
       ],
     });
-    const next = String(reply || "")
+    const next = stripModelThinking(String(reply || ""))
       .trim()
       .slice(0, budget.summaryMax);
     if (next) {
