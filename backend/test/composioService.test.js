@@ -12,7 +12,9 @@ import {
 assert.equal(normalizeToolkitSlug("gmail"), "gmail");
 assert.equal(normalizeToolkitSlug("Google Sheets"), "googlesheets");
 assert.equal(normalizeToolkitSlug("sheets"), "googlesheets");
-assert.equal(normalizeToolkitSlug("notion"), "");
+assert.equal(normalizeToolkitSlug("notion"), "notion");
+assert.equal(normalizeToolkitSlug("google_gmail"), "gmail");
+assert.equal(normalizeToolkitSlug("googlemail"), "gmail");
 assert.equal(composioUserId("abc"), "yb_abc");
 assert.equal(COMPOSIO_PHASE1_TOOLKITS.length, 3);
 assert.equal(typeof isComposioEnabled(), "boolean");

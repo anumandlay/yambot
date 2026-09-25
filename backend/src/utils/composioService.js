@@ -139,15 +139,20 @@ export function normalizeToolkitSlug(raw) {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, "")
-    .replace(/_/g, "");
+    .replace(/_/g, "")
+    .replace(/-/g, "");
   const aliases = {
     googlesheets: "googlesheets",
     sheets: "googlesheets",
     googlesheet: "googlesheets",
     gmail: "gmail",
+    googlemail: "gmail",
+    googlegmail: "gmail",
     slack: "slack",
     github: "github",
     notion: "notion",
+    googledrive: "googledrive",
+    drive: "googledrive",
   };
   if (aliases[s]) return aliases[s];
   // Why: allow any toolkit slug from Composio catalog once the agent picks it.
@@ -156,6 +161,43 @@ export function normalizeToolkitSlug(raw) {
     .toLowerCase()
     .replace(/[^a-z0-9_-]/g, "");
   return cleaned.slice(0, 80);
+}
+
+/**
+ * Pull toolkit slug from varied Composio connected-account shapes.
+ * @param {any} row
+ * @returns {string}
+ */
+export function extractConnectedAccountToolkit(row) {
+  if (!row || typeof row !== "object") return "";
+  const toolkit = row.toolkit;
+  const fromToolkit =
+    typeof toolkit === "string"
+      ? toolkit
+      : toolkit && typeof toolkit === "object"
+        ? toolkit.slug || toolkit.key || toolkit.name || toolkit.id || ""
+        : "";
+  return normalizeToolkitSlug(
+    fromToolkit ||
+      row.appName ||
+      row.appUniqueId ||
+      row.toolkitSlug ||
+      row.toolkit_slug ||
+      row.authConfig?.toolkit?.slug ||
+      ""
+  );
+}
+
+/**
+ * Whether a Composio connection status means the app is usable.
+ * @param {string} status
+ * @returns {boolean}
+ */
+export function isComposioConnectionActive(status) {
+  const s = String(status || "").toLowerCase().trim();
+  if (!s) return false;
+  if (/expired|revoked|failed|inactive|deleted|disabled|initiat/i.test(s)) return false;
+  return /active|connected|success|enabled|authorized|authenticated|ok|valid|live/i.test(s);
 }
 
 /**
@@ -583,14 +625,29 @@ export async function composioListStatus(opts) {
   if (!client || !uid) return { ...base, error: "client_unavailable" };
 
   try {
-    const listed = await client.connectedAccounts.list({ userIds: [uid] });
-    const items = Array.isArray(listed?.items)
+    // Why: some SDK builds ignore userIds — fall back to unfiltered list then filter client-side.
+    let listed = await client.connectedAccounts.list({ userIds: [uid] });
+    let items = Array.isArray(listed?.items)
       ? listed.items
       : Array.isArray(listed?.data)
         ? listed.data
         : Array.isArray(listed)
           ? listed
           : [];
+    if (!items.length) {
+      try {
+        listed = await client.connectedAccounts.list({});
+        items = Array.isArray(listed?.items)
+          ? listed.items
+          : Array.isArray(listed?.data)
+            ? listed.data
+            : Array.isArray(listed)
+              ? listed
+              : [];
+      } catch {
+        /* keep empty */
+      }
+    }
 
     const allow = new Set(
       enabledToolkits.length
@@ -599,18 +656,34 @@ export async function composioListStatus(opts) {
     );
     const connections = items
       .map((row) => {
-        const toolkit = normalizeToolkitSlug(
-          row?.toolkit?.slug || row?.appName || row?.appUniqueId || row?.toolkitSlug || ""
+        const toolkit = extractConnectedAccountToolkit(row);
+        const status = String(
+          row?.status || row?.connectionStatus || row?.state || ""
+        ).toLowerCase();
+        const rowUser = String(
+          row?.userId || row?.user_id || row?.entityId || row?.entity_id || ""
         );
-        const status = String(row?.status || row?.connectionStatus || "").toLowerCase();
+        // Why: unfiltered list may include other YamBot users — keep ours when id is present.
+        if (rowUser && rowUser !== uid && !rowUser.endsWith(String(opts.userId || ""))) {
+          return null;
+        }
         return {
-          id: String(row?.id || row?.connectedAccountId || ""),
+          id: String(row?.id || row?.connectedAccountId || row?.nanoid || ""),
           toolkit,
-          status: status || "unknown",
-          label: String(row?.toolkit?.name || row?.appName || toolkit || ""),
+          // Why: missing status with a real connection id still means linked in practice.
+          status:
+            status ||
+            (toolkit && (row?.id || row?.connectedAccountId) ? "active" : "unknown"),
+          label: String(
+            (typeof row?.toolkit === "object" && row?.toolkit?.name) ||
+              row?.appName ||
+              toolkit ||
+              ""
+          ),
         };
       })
-      .filter((c) => !c.toolkit || allow.has(c.toolkit));
+      .filter(Boolean)
+      .filter((c) => c.toolkit && (allow.size === 0 || allow.has(c.toolkit)));
 
     return { ...base, connections };
   } catch (err) {

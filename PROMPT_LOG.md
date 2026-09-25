@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 14:05] Composio tab: show Connected for working Gmail
+
+- **Prompt Provided:** Agent Composio tab still shows Connect for Gmail even though Gmail works in chat.
+- **Architectural Flow:** Status list now normalizes toolkit aliases (google_gmail→gmail), reads more Composio account shapes, falls back when userIds-filtered list is empty, and treats common active statuses / id-without-status as connected so the UI shows Reconnect not Connect.
+- **Impacted Files:** composioService.js, AgentEditPage.jsx, composioService.test.js, PROMPT_LOG
+
 ## [2026-09-25 14:00] Notion Composio: pick create-page, not create-comment
 
 - **Prompt Provided:** After confirm to create a Notion demo page, agent ran NOTION_CREATE_COMMENT and showed “ok” with missing `comment` error.

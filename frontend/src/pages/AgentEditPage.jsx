@@ -664,10 +664,24 @@ export function AgentEditPage() {
    * @returns {object|null}
    */
   function composioConnectionFor(slug) {
-    const s = String(slug || "").toLowerCase();
+    const s = String(slug || "").toLowerCase().replace(/_/g, "").replace(/-/g, "");
+    const aliases = new Set([s]);
+    if (s === "gmail") {
+      aliases.add("googlemail");
+      aliases.add("googlegmail");
+    }
+    if (s === "googlesheets" || s === "sheets") {
+      aliases.add("googlesheets");
+      aliases.add("sheets");
+    }
     return (
-      composioConnections.find((c) => String(c.toolkit || "").toLowerCase() === s) ||
-      null
+      composioConnections.find((c) => {
+        const t = String(c.toolkit || "")
+          .toLowerCase()
+          .replace(/_/g, "")
+          .replace(/-/g, "");
+        return aliases.has(t) || t === s;
+      }) || null
     );
   }
 
@@ -1932,9 +1946,14 @@ export function AgentEditPage() {
                   <ul className="flex flex-col gap-2">
                     {(form.composio.toolkitSlugs || []).map((slug) => {
                       const conn = composioConnectionFor(slug);
-                      const connected =
+                      const connected = Boolean(
                         conn &&
-                        /active|connected|success|enabled/i.test(String(conn.status || ""));
+                          (/active|connected|success|enabled|authorized|authenticated|ok|valid|live/i.test(
+                            String(conn.status || "")
+                          ) ||
+                            // Why: some Composio rows omit status but still have a connection id.
+                            (conn.id && !/expired|revoked|failed|inactive|initiat/i.test(String(conn.status || ""))))
+                      );
                       return (
                         <li
                           key={slug}
@@ -1944,9 +1963,9 @@ export function AgentEditPage() {
                             <span className="font-semibold text-teal-950">{slug}</span>
                             <span className="ml-2 text-xs text-teal-900/60">
                               {connected
-                                ? `Connected (${conn.status})`
+                                ? `Connected${conn.status ? ` (${conn.status})` : ""}`
                                 : conn
-                                  ? `Status: ${conn.status}`
+                                  ? `Status: ${conn.status || "unknown"}`
                                   : "Not connected"}
                             </span>
                           </div>
