@@ -2400,7 +2400,11 @@ export function AgentEditPage() {
           <p className="text-xs text-teal-900/70">
             Optional. When enabled, Auto asks Jev (via Vercel AI Gateway) to pick reply, live computer,
             or Composio before the chat LLM. Every Auto turn also stores a learned case from the final
-            outcome so similar questions get better next time.
+            outcome so similar questions get better next time. The same API key powers{" "}
+            <span className="font-semibold">Jev Ultrafast</span> — say{" "}
+            <code className="rounded bg-teal-50 px-1">using jev</code> or{" "}
+            <code className="rounded bg-teal-50 px-1">/jev</code> in chat for the fast browser runner
+            (TYPE_TEXT uses this agent’s LLM key).
           </p>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input

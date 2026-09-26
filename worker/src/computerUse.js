@@ -15,13 +15,14 @@ export const CUA_ACTIVATE_AFTER_FAILS = 2;
 
 /**
  * @param {unknown} value
- * @returns {"auto"|"cua"|"playwright"}
+ * @returns {"auto"|"cua"|"playwright"|"jev"}
  */
 export function normalizeComputerUseMode(value) {
   const v = String(value || "")
     .trim()
     .toLowerCase();
   if (v === "cua" || v === "computer_use" || v === "computer-use") return "cua";
+  if (v === "jev" || v === "jev-ultrafast" || v === "ultrafast") return "jev";
   if (v === "playwright" || v === "dom") return "playwright";
   return "auto";
 }
@@ -33,6 +34,17 @@ export function normalizeComputerUseMode(value) {
  */
 export function textRequestsCua(text) {
   return /\b(?:using|with|via)\s+cua\b|\bcua\s+mode\b|(?:^|\s)\/cua(?=\s|$)/i.test(
+    String(text || "")
+  );
+}
+
+/**
+ * Detects mid-run operator text that asks for Jev Ultrafast.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function textRequestsJev(text) {
+  return /\b(?:using|with|via)\s+jev(?:\s+ultrafast)?\b|\bjev\s+mode\b|(?:^|\s)\/jev(?=\s|$)/i.test(
     String(text || "")
   );
 }

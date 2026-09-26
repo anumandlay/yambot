@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-26 09:55] Worker: Jev Ultrafast opt-in browser runner (Phases 1–4)
+
+- **Prompt Provided:** Integrate browser-use/jev-ultrafast; use agent settings API keys; implement phases one by one
+- **Architectural Flow:** `using jev` / `/jev` → `computerUseMode=jev`. Worker runs TypeSafe op+element loop on Playwright Chrome (vendored snapshot.js; no Browser Harness). Keys from runtime-config: Agent → Jev (`jevApiKey`) + agent LLM for TYPE_TEXT. Steps mirrored as `Jev · …`. BLOCKED/error/no-key → Playwright fallback.
+- **Impacted Files:** worker/src/jevUltrafast/*, agent.js, computerUse.js, computerUseMode.js, Task.js, worker.js runtime-config, AgentEditPage, helpContent, computerUseMode.test.js, PROMPT_LOG
+
 ## [2026-09-25 21:40] Chat: Context button to view folded summary
 
 - **Prompt Provided:** Need a button to see the context in chat page

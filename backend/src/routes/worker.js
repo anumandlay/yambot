@@ -21,6 +21,7 @@ import {
   resolveLlmCredentialsForAgent,
   resolveVisionLlmCredentials,
 } from "../utils/llmCredentials.js";
+import { decryptAgentJevApiKey } from "../utils/jevEvaluate.js";
 import { writeAudit } from "../utils/audit.js";
 import { getEffectivePolicy, isHttpHostAllowed, isUrlBlocked } from "../utils/policy.js";
 import { evaluateTaskRun } from "../utils/evaluateTask.js";
@@ -108,6 +109,8 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
     // Why: per-agent LLM override when agent.llm.useCustom; else Settings (incl. OAuth).
     const mainCreds = await resolveLlmCredentialsForAgent(user, agentDoc);
     const visionCreds = await resolveVisionLlmCredentials(user, mainCreds, agentDoc);
+    // Why: Jev Ultrafast browser runner uses the same Agent → Jev key as chat Auto routing.
+    const jevApiKey = agentDoc ? decryptAgentJevApiKey(agentDoc) : "";
 
     res.json({
       ok: true,
@@ -123,6 +126,8 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
         visionApiKey: visionCreds.apiKey || "",
         visionBaseUrl: visionCreds.baseUrl || "",
         visionModel: visionCreds.model || "",
+        jevApiKey,
+        jevConfigured: Boolean(jevApiKey),
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,

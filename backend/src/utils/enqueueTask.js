@@ -87,7 +87,7 @@ export async function ensureAgentChat(userId, agentId, opts = {}) {
  * @param {string} [opts.ticketRef]
  * @param {boolean} [opts.skipCompanyContext]
  * @param {string} [opts.displayContent] — chat bubble text (defaults to goal before company framing)
- * @param {"auto"|"cua"|"playwright"} [opts.computerUseMode] — override parsed mode from goal text
+ * @param {"auto"|"cua"|"playwright"|"jev"} [opts.computerUseMode] — override parsed mode from goal text
  * @returns {Promise<{ task: import('mongoose').Document, chat: import('mongoose').Document, message: import('mongoose').Document }>}
  */
 export async function enqueueTask(opts) {

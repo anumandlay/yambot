@@ -663,7 +663,15 @@ export const HELP = {
     title: "Desktop engine",
     body: helpBody(
       "Agents always use Playwright Chromium on a virtual display (~3 GB). Full XFCE desktops are not offered for website agents.",
-      "Say “using cua” in chat (e.g. “login to this site using cua”) to drive the live Chrome via cua-driver MCP (SOM/element clicks + visible X cursor). After 2 failed locator attempts, CUA also activates automatically. Without “using cua”, goals stay Playwright-primary. Browser profile (cookies) persists across restarts of the same agent box."
+      "Say “using cua” in chat (e.g. “login to this site using cua”) to drive the live Chrome via cua-driver MCP (SOM/element clicks + visible X cursor). After 2 failed locator attempts, CUA also activates automatically.",
+      "Say “using jev” or “/jev” for Jev Ultrafast: TypeSafe picks operation + element each step (needs Agent → Jev API key). TYPE_TEXT uses the agent LLM key. On BLOCKED it falls back to Playwright. Without these phrases, goals stay Playwright-primary. Browser profile (cookies) persists across restarts of the same agent box."
+    ),
+  },
+  "agent.jev.ultrafast": {
+    title: "Jev Ultrafast (browser)",
+    body: helpBody(
+      "Same Agent → Jev API key used for Auto routing also powers the fast browser runner.",
+      "In chat: “find flights … using jev” or prefix “/jev”. Steps stream into the task log. If Jev blocks, Playwright continues."
     ),
   },
   "agent.clearBrowserData": {

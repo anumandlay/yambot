@@ -33,5 +33,21 @@ test("parseComputerUseFromText defaults to auto", () => {
 
 test("normalizeComputerUseMode", () => {
   assert.equal(normalizeComputerUseMode("CUA"), "cua");
+  assert.equal(normalizeComputerUseMode("jev"), "jev");
+  assert.equal(normalizeComputerUseMode("ultrafast"), "jev");
   assert.equal(normalizeComputerUseMode(""), "auto");
+});
+
+test("parseComputerUseFromText detects using jev", () => {
+  const r = parseComputerUseFromText("Find flights Zurich to London using jev");
+  assert.equal(r.mode, "jev");
+  assert.equal(r.requestedExplicitly, true);
+  assert.match(r.cleanedGoal, /Find flights Zurich to London/i);
+  assert.doesNotMatch(r.cleanedGoal, /using jev/i);
+});
+
+test("parseComputerUseFromText detects /jev", () => {
+  const r = parseComputerUseFromText("/jev open wikipedia and find Gödel");
+  assert.equal(r.mode, "jev");
+  assert.doesNotMatch(r.cleanedGoal, /\/jev/i);
 });

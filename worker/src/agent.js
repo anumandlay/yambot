@@ -36,7 +36,9 @@ import {
   createComputerUseController,
   textRequestsCua,
   CUA_ACTIVATE_AFTER_FAILS,
+  normalizeComputerUseMode,
 } from "./computerUse.js";
+import { runJevUltrafast } from "./jevUltrafast/index.js";
 import { clickWithVisibleCursor, atspiFrameCenterToViewport } from "./xCursor.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
@@ -1206,6 +1208,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       visionLlmApiKey: visionApiKey || llmApiKey,
       visionLlmBaseUrl: visionBaseUrl || llmBaseUrl,
       visionLlmModel: visionModel || llmModel,
+      /** Agent → Jev key for Ultrafast TypeSafe choose (and chat Auto when enabled). */
+      jevApiKey: String(c.jevApiKey || "").trim(),
+      jevConfigured: Boolean(c.jevConfigured) || Boolean(String(c.jevApiKey || "").trim()),
       dbcUsername: c.dbcUsername || "",
       dbcPassword: c.dbcPassword || "",
       confirmBeforeSubmit: c.confirmBeforeSubmit === true,
@@ -1954,6 +1959,133 @@ export function createCloudAgent({ api, config, log = console.log }) {
           title: "LLM not configured",
           detail: "Set an LLM API key on the YamBot website Settings page.",
         });
+      }
+
+      // ── Jev Ultrafast opt-in (Phases 1–4): TypeSafe op+element on live Chrome ──
+      const cuMode = normalizeComputerUseMode(task.computerUseMode || "auto");
+      if (cuMode === "jev") {
+        const preferredStart =
+          agentSnapshot?.startUrl && String(agentSnapshot.startUrl).trim();
+        const jevStartUrl = inferStartUrlFromGoal(goal, preferredStart) || "";
+        const startMsg = jevStartUrl
+          ? `Jev Ultrafast starting → ${jevStartUrl}`
+          : "Jev Ultrafast starting on the current page";
+        notes.push(startMsg);
+        await mirror(taskId, "started", {
+          status: "running",
+          payload: {
+            goal,
+            worker: config.workerName,
+            computerUseMode: "jev",
+            path: "jev_ultrafast",
+            startUrl: jevStartUrl || safePageUrl(page) || "",
+          },
+          appendMessage: `${startMsg}…`,
+        }).catch(() => {});
+
+        if (!settings.jevApiKey) {
+          const miss =
+            "Jev Ultrafast needs the Agent → Jev API key — falling back to Playwright.";
+          notes.push(miss);
+          await mirror(taskId, "info", {
+            appendMessage: miss,
+            payload: { kind: "jev_ultrafast_fallback", reason: "no_key" },
+          }).catch(() => {});
+        } else {
+          const jevResult = await runJevUltrafast({
+            page,
+            goal,
+            startUrl: jevStartUrl,
+            jevApiKey: settings.jevApiKey,
+            llmApiKey: settings.llmApiKey,
+            llmBaseUrl: settings.llmBaseUrl,
+            llmModel: settings.llmModel,
+            onStep: async (step) => {
+              history.push({
+                at: Date.now(),
+                step: step.step,
+                thought: `jev:${step.operation || step.kind}`,
+                action: {
+                  type: "jev_ultrafast",
+                  operation: step.operation,
+                  choice: step.choice,
+                  label: step.action,
+                  text: step.text || undefined,
+                },
+                result: {
+                  ok: true,
+                  url: step.url,
+                  page_changed: step.page_changed,
+                  confidence: step.confidence,
+                },
+              });
+              const line =
+                step.kind === "done" || step.choice === "DONE"
+                  ? `Jev · DONE (${((step.elapsed_ms || 0) / 1000).toFixed(1)}s)`
+                  : step.kind === "blocked" || step.choice === "BLOCKED"
+                    ? "Jev · BLOCKED"
+                    : `Jev · ${step.operation || step.kind}${
+                        step.action ? ` · ${String(step.action).slice(0, 80)}` : ""
+                      }${step.text ? ` → “${String(step.text).slice(0, 40)}”` : ""}`;
+              await mirror(taskId, "step", {
+                payload: {
+                  step: step.step,
+                  path: "jev_ultrafast",
+                  computerUseMode: "jev",
+                  action: {
+                    type: "jev_ultrafast",
+                    operation: step.operation,
+                    choice: step.choice,
+                    label: step.action,
+                    text: step.text || undefined,
+                  },
+                  thought: line,
+                  result: {
+                    ok: true,
+                    url: step.url,
+                    confidence: step.confidence,
+                    latency_ms: step.latency_ms,
+                    page_changed: step.page_changed,
+                  },
+                },
+                appendMessage: line,
+              }).catch(() => {});
+              await pushLiveScreen({ taskId }).catch(() => {});
+            },
+          });
+
+          if (jevResult.status === "done") {
+            let host = "";
+            try {
+              host = new URL(String(jevResult.lastUrl || "")).hostname.replace(/^www\./i, "");
+            } catch {
+              host = "";
+            }
+            await complete(taskId, {
+              success: true,
+              summary: jevResult.summary,
+              history,
+              siteDomain: host,
+              llmUsage,
+            });
+            log(`[${config.workerName}] jev_ultrafast done — ${jevResult.summary}`);
+            return;
+          }
+
+          // Phase 4: blocked/error → continue with Playwright LLM loop.
+          const fb = `Jev Ultrafast ${jevResult.status} — falling back to Playwright. ${jevResult.summary}`;
+          notes.push(fb);
+          await mirror(taskId, "info", {
+            appendMessage: fb,
+            payload: {
+              kind: "jev_ultrafast_fallback",
+              reason: jevResult.status,
+              error: jevResult.error || "",
+              steps: jevResult.history?.length || 0,
+            },
+          }).catch(() => {});
+          log(`[${config.workerName}] ${fb}`);
+        }
       }
 
       // Why: open start URL before the first LLM turn — avoids ~15–30s "Looking at about:blank".
