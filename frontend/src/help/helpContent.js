@@ -1399,6 +1399,13 @@ export const HELP = {
       "Posts your message via /messages. Press Enter to send; Shift+Enter for a new line. While the agent is running, Auto still uses a separate request (chat reply or queue behind the run) — not a mid-run inject into the live task. Answer mode replies from memory. Computer mode queues a new browser goal."
     ),
   },
+  "chat.context": {
+    title: "Chat context",
+    body: helpBody(
+      "Opens the folded session summary the LLM uses when the thread fills about half the model window.",
+      "Summaries are silent (no bubble). Use Summarize now to force a fold early."
+    ),
+  },
   "chat.stop": {
     title: "Stop agent",
     body: helpBody(

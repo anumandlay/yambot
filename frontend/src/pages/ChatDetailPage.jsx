@@ -35,6 +35,7 @@ import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { LlmPromptPeek } from "../components/LlmPromptPeek.jsx";
 import { JevPeek } from "../components/JevPeek.jsx";
+import { ChatContextButton } from "../components/ChatContextButton.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 export function ChatDetailPage() {
@@ -1389,6 +1390,15 @@ export function ChatDetailPage() {
         <h1 className="min-w-0 flex-1 truncate text-lg font-bold tracking-tight sm:text-xl">
           {chat?.title || "Chat"}
         </h1>
+        {chatId ? (
+          <ChatContextButton
+            chatId={chatId}
+            summary={String(chat?.contextSummary || "")}
+            onUpdated={(next) => {
+              setChat((prev) => (prev ? { ...prev, contextSummary: next } : prev));
+            }}
+          />
+        ) : null}
         {isCommon ? (
           <span className="max-w-full truncate rounded-full border border-violet-100 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-900">
             Common chat

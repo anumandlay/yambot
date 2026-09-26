@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 21:40] Chat: Context button to view folded summary
+
+- **Prompt Provided:** Need a button to see the context in chat page
+- **Architectural Flow:** Header **Context** opens a portal modal with `chat.contextSummary`. Copy + Summarize now (POST /summarize returns full summary). GET chat already ships the field.
+- **Impacted Files:** ChatContextButton.jsx, ChatDetailPage.jsx, chats.js (summarize full summary), helpContent.js, PROMPT_LOG
+
 ## [2026-09-25 21:25] Jev: learn cases from every Auto outcome + settings list
 
 - **Prompt Provided:** For every turn; final outcome; show cases in Agent Jev settings

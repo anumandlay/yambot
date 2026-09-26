@@ -590,19 +590,21 @@ chatsRouter.post("/:id/summarize", async (req, res, next) => {
     }
 
     const folded = await refreshChatContextIfNeeded(chat, creds, { force: true });
+    // Why: Context button on the chat page needs the full folded summary, not a truncated preview.
+    const fullSummary = String(chat.contextSummary || "");
     if (!folded?.summaryMessage) {
       res.status(200).json({
         ok: true,
         skipped: folded?.skipped || "no_summary",
         message: null,
-        contextSummary: String(chat.contextSummary || "").slice(0, 500),
+        contextSummary: fullSummary,
       });
       return;
     }
     res.status(201).json({
       ok: true,
       message: folded.summaryMessage,
-      contextSummary: String(chat.contextSummary || "").slice(0, 2000),
+      contextSummary: fullSummary,
     });
   } catch (err) {
     next(err);
