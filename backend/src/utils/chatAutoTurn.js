@@ -302,6 +302,8 @@ export function createAutoTimingTracker(opts = {}) {
   let path = "unknown";
   let progressPct = 0;
   const onProgress = typeof opts.onProgress === "function" ? opts.onProgress : null;
+  /** @type {{ at: number, id: string, label: string, pct: number, detail?: string }[]} */
+  const progressLog = [];
 
   /**
    * @param {string} name
@@ -315,6 +317,8 @@ export function createAutoTimingTracker(opts = {}) {
     if (n.includes("composio_wait")) return "Waiting for connection…";
     if (n.includes("composio_list")) return "Checking app status…";
     if (n.startsWith("composio")) return "Working with Composio…";
+    if (n.includes("peer")) return "Listing peers…";
+    if (n.includes("status")) return "Checking run status…";
     return "Working…";
   }
 
@@ -323,15 +327,35 @@ export function createAutoTimingTracker(opts = {}) {
    * @param {string} label
    * @param {number} pct
    * @param {string} [id]
+   * @param {string} [detail]
    */
-  function pushProgress(label, pct, id = "composio") {
-    if (!onProgress) return;
+  function pushProgress(label, pct, id = "composio", detail = "") {
     const next = Math.max(progressPct, Math.max(0, Math.min(100, Number(pct) || 0)));
     progressPct = next;
-    onProgress({
-      id: String(id || "composio"),
-      label: String(label || "Working…"),
+    const entry = {
+      at: Date.now() - t0,
+      id: String(id || "composio").slice(0, 48),
+      label: String(label || "Working…").slice(0, 160),
       pct: next,
+    };
+    const d = String(detail || "").trim().slice(0, 400);
+    if (d) entry.detail = d;
+    progressLog.push(entry);
+    // Why: keep last 24 steps for the clickable progress panel (no secrets — labels only).
+    if (progressLog.length > 24) progressLog.splice(0, progressLog.length - 24);
+    if (!onProgress) return;
+    onProgress({
+      id: entry.id,
+      label: entry.label,
+      pct: next,
+      detail: entry.detail || "",
+      steps: progressLog.slice(-12).map((s) => ({
+        id: s.id,
+        label: s.label,
+        pct: s.pct,
+        at: s.at,
+        detail: s.detail || "",
+      })),
     });
   }
 
@@ -343,7 +367,10 @@ export function createAutoTimingTracker(opts = {}) {
      * Call after prepareChatPromptContext so the chip can show prep vs model time.
      */
     markPrepDone() {
-      if (prepMs == null) prepMs = Date.now() - t0;
+      if (prepMs == null) {
+        prepMs = Date.now() - t0;
+        pushProgress("Context ready — deciding…", 8, "prep");
+      }
     },
     markDecision(action) {
       if (decisionMs == null) {
@@ -354,9 +381,9 @@ export function createAutoTimingTracker(opts = {}) {
     addLookup(name) {
       const key = String(name || "lookup");
       lookups.push(key);
-      if (/^composio/i.test(key)) {
-        const n = lookups.filter((l) => /^composio/i.test(l)).length;
-        pushProgress(labelForLookup(key), Math.min(92, 18 + n * 22));
+      if (/^composio/i.test(key) || /peer|status|skill/i.test(key)) {
+        const n = lookups.length;
+        pushProgress(labelForLookup(key), Math.min(92, 18 + n * 14), key);
       }
     },
     getLookups() {
@@ -368,8 +395,11 @@ export function createAutoTimingTracker(opts = {}) {
     setToolRounds(n) {
       toolRounds = Math.max(0, Number(n) || 0);
     },
-    emitProgress(label, pct, id = "composio") {
-      pushProgress(label, pct, id);
+    emitProgress(label, pct, id = "composio", detail = "") {
+      pushProgress(label, pct, id, detail);
+    },
+    getProgressLog() {
+      return progressLog.slice();
     },
     wrapOnDelta(onDelta) {
       if (typeof onDelta !== "function") return undefined;
@@ -397,11 +427,16 @@ export function createAutoTimingTracker(opts = {}) {
         lookupCount: lookups.length,
         lookups: lookups.slice(0, 8),
         path,
+        // Why: durable step list for the clickable Working… panel after the turn ends.
+        progressLog: progressLog.slice(-24),
         ...extra,
         totalMs,
         wallMs: totalMs,
       };
       if (extra.aborted === true) out.aborted = true;
+      if (Array.isArray(extra.progressLog)) {
+        out.progressLog = extra.progressLog.slice(-24);
+      }
       return out;
     },
   };
@@ -2807,25 +2842,30 @@ export async function runChatAutoTurn(opts) {
       jevForceTools = true;
     }
     if (jevDecision.action === "reply") {
-      track.setPath("jev_reply");
-      track.markDecision("reply");
-      return finalize({
-        ...(await runChatAutoTurnTextFallback(
-          {
-            question: text,
-            snapshot,
-            creds,
-            chatContext: threadEarly,
-            historyMessages: historyEarly,
-            stream: true,
-            onDelta,
-            signal,
-          },
-          track
-        )),
-        jev: jevDecision,
-        reason: "jev_confident_reply",
-      });
+      // Why: Jev often picks chat for “how many Composio apps?” — still need composio_list.
+      if (composioReady && looksLikeComposioAppRequest(text)) {
+        jevForceTools = true;
+      } else {
+        track.setPath("jev_reply");
+        track.markDecision("reply");
+        return finalize({
+          ...(await runChatAutoTurnTextFallback(
+            {
+              question: text,
+              snapshot,
+              creds,
+              chatContext: threadEarly,
+              historyMessages: historyEarly,
+              stream: true,
+              onDelta,
+              signal,
+            },
+            track
+          )),
+          jev: jevDecision,
+          reason: "jev_confident_reply",
+        });
+      }
     }
   }
 
@@ -2885,9 +2925,11 @@ export async function runChatAutoTurn(opts) {
   try {
     track.setPath("tools");
     const composioIntent = looksLikeComposioAppRequest(text);
-    if (composioIntent) {
-      track.emitProgress("Using connected apps…", 10);
-    }
+    track.emitProgress(
+      composioIntent ? "Using connected apps…" : "Working…",
+      10,
+      "tools_start"
+    );
     const wallStartedAt = Date.now();
     for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
       if (signal?.aborted) {
@@ -2917,6 +2959,11 @@ export async function runChatAutoTurn(opts) {
         });
       }
       track.setToolRounds(round + 1);
+      track.emitProgress(
+        round === 0 ? "Asking model (tools)…" : `Model round ${round + 1}…`,
+        Math.min(40, 12 + round * 8),
+        "llm"
+      );
       const msg = await llmChatCompletionMessage({
         apiKey: creds.apiKey,
         baseUrl: creds.llmBaseUrl || "",
@@ -3022,6 +3069,28 @@ export async function runChatAutoTurn(opts) {
         }
 
         if (!steps.executed) {
+          // Why: “how many apps / list Composio” needs composio_list — not Gmail search.
+          const wantsAppList =
+            /\b(how many|list|which|what)\b[\s\S]{0,40}\b(composio|apps?|toolkits?|connections?)\b/i.test(
+              text
+            ) ||
+            /\b(composio|connected)\b[\s\S]{0,20}\b(apps?|toolkits?)\b[\s\S]{0,20}\b(enabled|connected|active|list)\b/i.test(
+              text
+            );
+          if (!steps.searched && !steps.listed && wantsAppList) {
+            track.addLookup("composio_list");
+            track.emitProgress("Listing Composio apps…", 50, "composio_list");
+            const resultText = await executeAutoLookupTool("composio_list", runtime, {});
+            messages.push({
+              role: "user",
+              content:
+                wrapUntrustedToolResult(
+                  `[COMPOSIO TOOL RESULT for composio_list]\n${resultText.slice(0, 3500)}`
+                ) +
+                "\n\nUsing ONLY this JSON, reply in plain prose: how many apps are enabled for this agent, which are connected, and any that still need Connect. Never say hold on. Never print ACTION: lines.",
+            });
+            return true;
+          }
           if (!steps.searched) {
             track.addLookup("composio_search");
             const resultText = await executeAutoLookupTool("composio_search", runtime, {
@@ -3296,6 +3365,28 @@ export async function runChatAutoTurn(opts) {
             continue;
           }
           const resultText = await executeAutoLookupTool(kind, runtime, toolArgs);
+          try {
+            const parsed = JSON.parse(String(resultText || ""));
+            const detailBits = [];
+            if (parsed?.ok === false) {
+              detailBits.push(String(parsed.detail || parsed.error || "failed").slice(0, 120));
+            } else if (parsed?.ok === true) {
+              detailBits.push("ok");
+            }
+            if (Array.isArray(parsed?.toolkits)) detailBits.push(`${parsed.toolkits.length} toolkit(s)`);
+            if (Array.isArray(parsed?.apps)) detailBits.push(`${parsed.apps.length} app(s)`);
+            if (Array.isArray(parsed?.tools)) detailBits.push(`${parsed.tools.length} tool(s)`);
+            if (parsed?.connectedCount != null) detailBits.push(`${parsed.connectedCount} connected`);
+            if (parsed?.enabledCount != null) detailBits.push(`${parsed.enabledCount} enabled`);
+            track.emitProgress(
+              String(kind).replace(/_/g, " "),
+              Math.min(95, 30 + (i + 1) * 12),
+              kind,
+              detailBits.join(" · ")
+            );
+          } catch {
+            track.emitProgress(String(kind).replace(/_/g, " "), Math.min(95, 30 + (i + 1) * 12), kind);
+          }
           const approvalPending = parseNeedsApprovalPending(resultText);
           if (approvalPending) {
             const content = formatPendingComposioApprovalReply(approvalPending);

@@ -1329,6 +1329,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
                   id: step?.id || "composio",
                   label: step?.label || "Working…",
                   pct: Number(step?.pct) || 0,
+                  detail: step?.detail || "",
+                  steps: Array.isArray(step?.steps) ? step.steps : undefined,
                 });
               }
             : undefined,

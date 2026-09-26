@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 20:50] Chat: live clickable Auto/Composio progress
+
+- **Prompt Provided:** Composio “let me check” then nothing — show progress; click to see what it’s doing
+- **Architectural Flow:** Emit progress steps (prep → model → tools) with a durable `progressLog`. StreamProgressBar is clickable for the step list (live + after turn). Stall recovery for “how many apps” uses `composio_list`. Jev “reply” no longer skips tools for Composio app questions.
+- **Impacted Files:** chatAutoTurn.js, hermesUntrusted.js, chats.js, StreamProgressBar.jsx, ChatDetailPage.jsx, api.js, PROMPT_LOG
+
 ## [2026-09-25 20:45] Chat: Jev status chip per Auto message
 
 - **Prompt Provided:** see whether jev is used for each message

@@ -178,6 +178,8 @@ export async function apiNdjson(path, options = {}) {
               id: String(obj.id || ""),
               label: String(obj.label || ""),
               pct: Number(obj.pct) || 0,
+              detail: String(obj.detail || ""),
+              steps: Array.isArray(obj.steps) ? obj.steps : undefined,
             });
           }
         } else if (obj.type === "result") {
@@ -343,6 +345,8 @@ export async function apiChatMessageStream(path, options = {}) {
               id: String(obj.id || "composio"),
               label: String(obj.label || "Working…"),
               pct: Number(obj.pct) || 0,
+              detail: String(obj.detail || ""),
+              steps: Array.isArray(obj.steps) ? obj.steps : undefined,
             });
           }
         } else if (obj.type === "routing") {

@@ -822,6 +822,8 @@ export function ChatDetailPage() {
                         id: String(step?.id || "composio"),
                         label: String(step?.label || "Working…"),
                         pct: Number(step?.pct) || 0,
+                        detail: String(step?.detail || ""),
+                        steps: Array.isArray(step?.steps) ? step.steps : m.meta?.progress?.steps || [],
                       },
                     },
                   }
@@ -1605,13 +1607,38 @@ export function ChatDetailPage() {
                         </div>
                       ) : null}
                       <ChatMessageBody text={humanizeGoalOrMessage(m.content, m.meta)} />
-                      {m.meta?.streaming && m.meta?.progress ? (
-                        <StreamProgressBar
-                          label={String(m.meta.progress.label || "Working…")}
-                          pct={Number(m.meta.progress.pct) || 0}
-                          indeterminate={!(Number(m.meta.progress.pct) > 0)}
-                        />
-                      ) : null}
+                      {(() => {
+                        const live = m.meta?.progress;
+                        const log =
+                          Array.isArray(live?.steps) && live.steps.length
+                            ? live.steps
+                            : Array.isArray(m.meta?.hermesTiming?.progressLog)
+                              ? m.meta.hermesTiming.progressLog
+                              : Array.isArray(m.meta?.autoTiming?.progressLog)
+                                ? m.meta.autoTiming.progressLog
+                                : [];
+                        const streaming = Boolean(m.meta?.streaming);
+                        if (!streaming && !log.length && !live) return null;
+                        const label = streaming
+                          ? String(live?.label || "Working…")
+                          : log.length
+                            ? String(log[log.length - 1]?.label || "Steps")
+                            : String(live?.label || "Working…");
+                        const pct = streaming
+                          ? Number(live?.pct) || 0
+                          : log.length
+                            ? Number(log[log.length - 1]?.pct) || 100
+                            : Number(live?.pct) || 0;
+                        return (
+                          <StreamProgressBar
+                            label={label}
+                            pct={pct}
+                            indeterminate={streaming && !(Number(live?.pct) > 0)}
+                            steps={log}
+                            active={streaming}
+                          />
+                        );
+                      })()}
                       {m.role === "user" || m.role === "assistant" || m.role === "agent" ? (
                         <MessageStatusChips
                           message={m}

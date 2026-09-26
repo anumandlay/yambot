@@ -183,6 +183,15 @@ export function buildAutoObservabilityMeta(timing, opts = {}) {
     lookups: Array.isArray(timing.lookups)
       ? timing.lookups.slice(0, 8).map((n) => String(n).slice(0, 64))
       : [],
+    progressLog: Array.isArray(timing.progressLog)
+      ? timing.progressLog.slice(0, 24).map((s) => ({
+          id: String(s?.id || "").slice(0, 48),
+          label: String(s?.label || "").slice(0, 160),
+          pct: Math.max(0, Math.min(100, Number(s?.pct) || 0)),
+          at: Math.max(0, Number(s?.at) || 0),
+          detail: String(s?.detail || "").slice(0, 400),
+        }))
+      : [],
   });
   /** @type {{
    *   autoTiming: object,
