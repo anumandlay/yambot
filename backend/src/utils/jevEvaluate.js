@@ -269,3 +269,55 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
     };
   }
 }
+
+/**
+ * Redacted Jev summary for chat message meta (no API key).
+ * Why: UI chips need to show whether Jev ran / decided for each Auto turn.
+ * @param {object|null|undefined} jevDecision — from classifyAutoActionWithJev / turn.jev
+ * @param {{ enabled?: boolean }} [opts]
+ * @returns {{
+ *   enabled: boolean,
+ *   used: boolean,
+ *   decided: boolean,
+ *   action: string,
+ *   choice: string,
+ *   confidence: number,
+ *   reason: string,
+ *   error?: string,
+ * }|undefined}
+ */
+export function summarizeJevForChatMeta(jevDecision, opts = {}) {
+  const enabled = Boolean(opts.enabled);
+  const j = jevDecision && typeof jevDecision === "object" ? jevDecision : null;
+  const reason = String(j?.reason || "").trim();
+  // Why: omit entirely when the agent never opted into Jev and nothing ran.
+  if (!enabled && !j) return undefined;
+  const used =
+    Boolean(j) &&
+    reason !== "" &&
+    reason !== "jev_disabled" &&
+    reason !== "empty" &&
+    reason !== "not_called";
+  const decided = reason === "jev_confident";
+  /** @type {{
+   *   enabled: boolean,
+   *   used: boolean,
+   *   decided: boolean,
+   *   action: string,
+   *   choice: string,
+   *   confidence: number,
+   *   reason: string,
+   *   error?: string,
+   * }} */
+  const out = {
+    enabled,
+    used,
+    decided,
+    action: String(j?.action || "").slice(0, 32),
+    choice: String(j?.choice || "").slice(0, 32),
+    confidence: Math.max(0, Math.min(1, Number(j?.confidence) || 0)),
+    reason: (reason || (enabled ? "not_called" : "disabled")).slice(0, 64),
+  };
+  if (j?.error) out.error = String(j.error).slice(0, 240);
+  return out;
+}

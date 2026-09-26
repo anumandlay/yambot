@@ -43,6 +43,50 @@ export function messageStatusChipsFromMeta(message) {
     });
   }
 
+  const jev = meta.jev && typeof meta.jev === "object" ? meta.jev : null;
+  if (jev) {
+    const action = String(jev.action || jev.choice || "").toLowerCase();
+    const conf = Number(jev.confidence) || 0;
+    const confPct = conf > 0 ? `${Math.round(conf * 100)}%` : "";
+    let label = "Jev";
+    let title = `Jev: reason=${jev.reason || "?"}`;
+    if (!jev.enabled) {
+      label = "No Jev";
+      title = "Jev was not enabled for this agent";
+    } else if (!jev.used) {
+      label = "Jev skip";
+      title = `Jev enabled but not called (${jev.reason || "not_called"})`;
+    } else if (jev.decided) {
+      const pretty =
+        action === "queue_goal"
+          ? "computer"
+          : action === "composio"
+            ? "composio"
+            : action === "reply"
+              ? "reply"
+              : action || "ok";
+      label = `Jev · ${pretty}`;
+      title = [
+        `Jev decided ${pretty}`,
+        confPct ? `confidence ${confPct}` : null,
+        jev.reason ? `reason=${jev.reason}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    } else {
+      label = "Jev · ?";
+      title = [
+        `Jev ran but did not decide (action=${action || "uncertain"})`,
+        confPct ? `confidence ${confPct}` : null,
+        jev.reason ? `reason=${jev.reason}` : null,
+        jev.error ? `error=${jev.error}` : null,
+      ]
+        .filter(Boolean)
+        .join(" · ");
+    }
+    chips.push({ key: "jev", icon: "J", label, title });
+  }
+
   const timing = meta.hermesTiming && typeof meta.hermesTiming === "object" ? meta.hermesTiming : null;
   const lookups = Array.isArray(timing?.lookups) ? timing.lookups : [];
   const seen = new Set();

@@ -46,6 +46,26 @@ async function stampUserMessageLlmPrompt(userMessage, llmPrompt) {
     console.warn("[chats] llmPrompt stamp failed:", err?.message || err);
   }
 }
+
+/**
+ * Attach redacted Jev router summary onto the user message (chip + Prompt row).
+ * @param {object|null|undefined} userMessage
+ * @param {object|null|undefined} jevMeta
+ */
+async function stampUserMessageJev(userMessage, jevMeta) {
+  if (!userMessage?._id || !jevMeta || typeof jevMeta !== "object") return;
+  try {
+    await Message.updateOne(
+      { _id: userMessage._id },
+      { $set: { "meta.jev": jevMeta } }
+    );
+    const prev =
+      userMessage.meta && typeof userMessage.meta === "object" ? userMessage.meta : {};
+    userMessage.meta = { ...prev, jev: jevMeta };
+  } catch (err) {
+    console.warn("[chats] jev stamp failed:", err?.message || err);
+  }
+}
 import {
   enrichComputerGoalForCombo,
   buildComboFollowupForTask,
@@ -67,7 +87,7 @@ import {
   expandComposioToolkitSlugs,
   normalizeToolkitSlug,
 } from "../utils/composioService.js";
-import { decryptAgentJevApiKey } from "../utils/jevEvaluate.js";
+import { decryptAgentJevApiKey, summarizeJevForChatMeta } from "../utils/jevEvaluate.js";
 import {
   refreshChatContextIfNeeded,
 } from "../utils/chatContext.js";
@@ -1045,6 +1065,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let autoTiming = null;
     /** @type {object|null} */
     let autoLlmPrompt = null;
+    /** @type {object|null} */
+    let autoJevMeta = null;
     /** @type {string} */
     let autoTaskPlanId = "";
 
@@ -1483,12 +1505,17 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         };
         autoTiming = turn.timing || null;
         autoLlmPrompt = turn.llmPrompt || null;
+        autoJevMeta =
+          summarizeJevForChatMeta(turn.jev, {
+            enabled: Boolean(agentDoc?.jev?.enabled),
+          }) || null;
         autoTaskPlanId = String(turn.taskPlanId || "").trim();
         // Why: always show a short ack — model ack, or a clear default (never silent queue).
         autoAck =
           String(turn.ack || turn.content || "").trim() ||
           defaultQueueAck(goalText, agentDoc.name);
         if (autoLlmPrompt) await stampUserMessageLlmPrompt(message, autoLlmPrompt);
+        if (autoJevMeta) await stampUserMessageJev(message, autoJevMeta);
         if (wantStream) {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           const routeObs = buildAutoObservabilityMeta(autoTiming, {
@@ -1496,12 +1523,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           });
           if (routeObs) writeNdjson({ type: "auto_meta", ...routeObs });
           if (autoLlmPrompt) writeNdjson({ type: "llm_prompt", llmPrompt: autoLlmPrompt });
+          if (autoJevMeta) writeNdjson({ type: "jev", jev: autoJevMeta });
           writeNdjson({
             type: "routing",
             action: "queue_goal",
             goal: goalText,
             ack: autoAck,
             timing: autoTiming,
+            jev: autoJevMeta || undefined,
           });
         }
         // Why: user message already saved — reuse it in the goal enqueue path.
@@ -1575,7 +1604,12 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           reason: turn.reason,
         });
         const llmPrompt = turn.llmPrompt || null;
+        const jevMeta =
+          summarizeJevForChatMeta(turn.jev, {
+            enabled: Boolean(agentDoc?.jev?.enabled),
+          }) || null;
         if (llmPrompt) await stampUserMessageLlmPrompt(message, llmPrompt);
+        if (jevMeta) await stampUserMessageJev(message, jevMeta);
         const assistantMessage = await Message.create({
           chat: chat._id,
           role: "assistant",
@@ -1593,6 +1627,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             // Why: Hermes Phase 3 — lightweight Auto observability (redacted; no secrets).
             ...(autoObs || {}),
             llmPrompt: llmPrompt || undefined,
+            jev: jevMeta || undefined,
             rememberSaved: rememberMeta || undefined,
             rememberForgotten: forgetMeta || undefined,
             sessionScratchSaved: scratchMeta || undefined,
@@ -1633,6 +1668,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             answeredWhileBusy: Boolean(busyRun),
             hermesAuto: true,
             hermesTiming: autoTiming || undefined,
+            jev: jevMeta || undefined,
           },
         });
         let contextSummaryMessage = null;
@@ -1648,6 +1684,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           if (autoTiming) writeNdjson({ type: "timing", timing: autoTiming });
           if (autoObs) writeNdjson({ type: "auto_meta", ...autoObs });
           if (llmPrompt) writeNdjson({ type: "llm_prompt", llmPrompt });
+          if (jevMeta) writeNdjson({ type: "jev", jev: jevMeta });
           writeNdjson({
             type: "result",
             ok: true,
@@ -1658,6 +1695,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             contextSummaryMessage,
             task: null,
             timing: autoTiming,
+            jev: jevMeta || undefined,
           });
           res.end();
           return;
@@ -2023,6 +2061,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       const ackObs = buildAutoObservabilityMeta(autoTiming);
       const llmPrompt = autoLlmPrompt || null;
       if (llmPrompt) await stampUserMessageLlmPrompt(message, llmPrompt);
+      if (autoJevMeta) await stampUserMessageJev(message, autoJevMeta);
       autoAckMessage = await Message.create({
         chat: chat._id,
         role: "assistant",
@@ -2036,6 +2075,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           agentName: agentDoc.name,
           hermesTiming: autoTiming || undefined,
           llmPrompt: llmPrompt || undefined,
+          jev: autoJevMeta || undefined,
           ...(ackObs || {}),
         },
       });
@@ -2322,6 +2362,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         hermesAuto: Boolean(autoTiming),
         curatedMemory: curatedMeta,
         hermesTiming: autoTiming || undefined,
+        jev: autoJevMeta || undefined,
         ...(queueObs || {}),
       },
     });

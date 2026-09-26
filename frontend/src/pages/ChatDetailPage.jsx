@@ -1612,8 +1612,11 @@ export function ChatDetailPage() {
                           indeterminate={!(Number(m.meta.progress.pct) > 0)}
                         />
                       ) : null}
-                      {m.role === "assistant" || m.role === "agent" ? (
-                        <MessageStatusChips message={m} tone="light" />
+                      {m.role === "user" || m.role === "assistant" || m.role === "agent" ? (
+                        <MessageStatusChips
+                          message={m}
+                          tone={m.role === "user" ? "dark" : "light"}
+                        />
                       ) : null}
                     </>
                   </article>

@@ -10,6 +10,7 @@ import {
   JEV_CONFIDENT_MIN,
   isJevEnabled,
   publicJevSummary,
+  summarizeJevForChatMeta,
 } from "../src/utils/jevEvaluate.js";
 
 describe("Auto classifier hint (optional Jev)", () => {
@@ -61,5 +62,25 @@ describe("Auto classifier hint (optional Jev)", () => {
     assert.equal(summary.hasApiKey, true);
     assert.equal(summary.configured, true);
     assert.equal(summary.apiKeyMasked, "••••••••");
+  });
+
+  it("summarizeJevForChatMeta marks used/decided for chips", () => {
+    assert.equal(summarizeJevForChatMeta(null, { enabled: false }), undefined);
+    const skipped = summarizeJevForChatMeta(null, { enabled: true });
+    assert.equal(skipped?.used, false);
+    assert.equal(skipped?.reason, "not_called");
+    const decided = summarizeJevForChatMeta(
+      { action: "reply", choice: "reply", confidence: 0.9, reason: "jev_confident" },
+      { enabled: true }
+    );
+    assert.equal(decided?.used, true);
+    assert.equal(decided?.decided, true);
+    assert.equal(decided?.action, "reply");
+    const unsure = summarizeJevForChatMeta(
+      { action: "uncertain", choice: "reply", confidence: 0.4, reason: "jev_low_confidence" },
+      { enabled: true }
+    );
+    assert.equal(unsure?.used, true);
+    assert.equal(unsure?.decided, false);
   });
 });

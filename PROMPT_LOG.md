@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 20:45] Chat: Jev status chip per Auto message
+
+- **Prompt Provided:** see whether jev is used for each message
+- **Architectural Flow:** Persist redacted `meta.jev` on user + assistant Auto messages (`summarizeJevForChatMeta`). MessageStatusChips shows Jev · reply/computer/composio, Jev · ?, or Jev skip (hover for confidence/reason).
+- **Impacted Files:** jevEvaluate.js, chats.js, MessageStatusChips.jsx, ChatDetailPage.jsx, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-25 20:35] Agent: optional per-agent Jev (reply / computer / Composio)
 
 - **Prompt Provided:** Enable Jev in agent settings + API key textbox; when on use Jev including Composio
