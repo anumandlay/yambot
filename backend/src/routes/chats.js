@@ -68,7 +68,6 @@ async function stampUserMessageJev(userMessage, jevMeta) {
 }
 import {
   enrichComputerGoalForCombo,
-  buildComboFollowupForTask,
   resolveComboFollowupForQueue,
   resolvePendingComboFollowupFromMessages,
   executeApprovedComboFollowup,
