@@ -130,6 +130,52 @@ export async function jevEvaluate(opts) {
 }
 
 /**
+ * Cap Gateway answer fields for chat meta (no secrets; avoid huge blobs).
+ * @param {object} ans
+ * @returns {object}
+ */
+function redactJevAnswerRaw(ans) {
+  if (!ans || typeof ans !== "object") return {};
+  /** @type {Record<string, unknown>} */
+  const out = {};
+  for (const [k, v] of Object.entries(ans)) {
+    const key = String(k).slice(0, 48);
+    if (key === "probabilities" && v && typeof v === "object") {
+      out.probabilities = Object.fromEntries(
+        Object.entries(v).map(([pk, pv]) => [String(pk).slice(0, 32), Number(pv) || 0])
+      );
+      continue;
+    }
+    if (typeof v === "string") {
+      out[key] = v.slice(0, 2000);
+      continue;
+    }
+    if (typeof v === "number" || typeof v === "boolean" || v == null) {
+      out[key] = v;
+      continue;
+    }
+    if (Array.isArray(v)) {
+      out[key] = v.slice(0, 20).map((item) =>
+        typeof item === "string"
+          ? item.slice(0, 400)
+          : typeof item === "number" || typeof item === "boolean"
+            ? item
+            : JSON.stringify(item).slice(0, 400)
+      );
+      continue;
+    }
+    if (typeof v === "object") {
+      try {
+        out[key] = JSON.parse(JSON.stringify(v).slice(0, 3000));
+      } catch {
+        out[key] = String(v).slice(0, 400);
+      }
+    }
+  }
+  return out;
+}
+
+/**
  * Shared evaluate payload shape for Auto routing (also stored on message meta for the Jev peek).
  * @param {string} userMessage
  * @returns {{
@@ -254,10 +300,17 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       answer: {
         choice,
         probabilities: probs,
-        raw: {
-          choice: String(ans.choice || "").slice(0, 64),
-        },
+        // Why: keep Gateway extras (e.g. rationale) for the detailed J peek.
+        raw: redactJevAnswerRaw(ans),
       },
+      usage: result.usage
+        ? {
+            promptTokens: Number(result.usage.promptTokens ?? result.usage.prompt_tokens) || null,
+            completionTokens:
+              Number(result.usage.completionTokens ?? result.usage.completion_tokens) || null,
+            totalTokens: Number(result.usage.totalTokens ?? result.usage.total_tokens) || null,
+          }
+        : null,
     };
 
     const allowed = new Set(["reply", "queue_goal", "composio"]);
@@ -360,6 +413,7 @@ export function summarizeJevForChatMeta(jevDecision, opts = {}) {
         choice: out.choice,
         probabilities,
       },
+      usage: j.evaluate.usage || null,
     };
   }
   return out;

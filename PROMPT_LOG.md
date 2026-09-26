@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 21:05] Chat: richer Jev peek detail panel
+
+- **Prompt Provided:** can you show more in detail?
+- **Architectural Flow:** Expand J peek — decision banner + probability bars, full state (role/product/user_message/rules), question type + instructions, per-option criteria cards with selected highlight, Gateway raw answer fields, usage tokens, full JSON open by default. Persist answer.raw + usage on meta.jev.evaluate.
+- **Impacted Files:** JevPeek.jsx, jevEvaluate.js, PROMPT_LOG
+
 ## [2026-09-25 21:00] Chat: Jev peek shows question structure + choice
 
 - **Prompt Provided:** for jev, see structure of the question and which one it chose
