@@ -415,6 +415,10 @@ export function createAutoTimingTracker(opts = {}) {
       return firstTokenMs != null;
     },
     finish(extra = {}) {
+      // Why: never leave the chat bar frozen at prep 8% after the turn ends.
+      if (progressLog.length && progressPct < 100) {
+        pushProgress("Done", 100, "done");
+      }
       const totalMs = Date.now() - t0;
       const out = {
         totalMs,

@@ -1621,20 +1621,47 @@ export function ChatDetailPage() {
                                 : [];
                         const streaming = Boolean(m.meta?.streaming);
                         if (!streaming && !log.length && !live) return null;
+                        // Why: prep-only “Context ready… 8%” after a finished reply looks stuck — hide it.
+                        if (!streaming) {
+                          const maxPct = log.reduce(
+                            (n, s) => Math.max(n, Number(s?.pct) || 0),
+                            Number(live?.pct) || 0
+                          );
+                          const onlyPrep =
+                            log.length > 0 &&
+                            log.every(
+                              (s) =>
+                                String(s?.id || "") === "prep" ||
+                                String(s?.id || "") === "done" ||
+                                Number(s?.pct) <= 10
+                            ) &&
+                            maxPct < 100 &&
+                            !(Number(m.meta?.hermesTiming?.lookupCount) > 0) &&
+                            !(Number(m.meta?.hermesTiming?.toolRounds) > 0);
+                          if (onlyPrep || (log.length === 0 && Number(live?.pct) < 15)) {
+                            return null;
+                          }
+                        }
                         const label = streaming
                           ? String(live?.label || "Working…")
                           : log.length
-                            ? String(log[log.length - 1]?.label || "Steps")
-                            : String(live?.label || "Working…");
+                            ? String(
+                                [...log].reverse().find((s) => String(s?.id) !== "done")?.label ||
+                                  log[log.length - 1]?.label ||
+                                  "Done"
+                              )
+                            : String(live?.label || "Done");
                         const pct = streaming
                           ? Number(live?.pct) || 0
-                          : log.length
-                            ? Number(log[log.length - 1]?.pct) || 100
-                            : Number(live?.pct) || 0;
+                          : Math.max(
+                              100,
+                              ...log.map((s) => Number(s?.pct) || 0),
+                              Number(live?.pct) || 0
+                            );
                         return (
                           <StreamProgressBar
-                            label={label}
-                            pct={pct}
+                            label={streaming ? label : label === "Done" ? "Done" : `${label} · done`}
+                            pct={streaming ? pct : 100}
                             indeterminate={streaming && !(Number(live?.pct) > 0)}
                             steps={log}
                             active={streaming}

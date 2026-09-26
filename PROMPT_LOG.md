@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 21:10] Chat: fix stuck 8% progress + Jev modal
+
+- **Prompt Provided:** why progress stuck at 8%; open J pop in a modal
+- **Architectural Flow:** Hide prep-only progress after turn completes; `finish()` stamps Done@100%. JevPeek uses `createPortal` full-screen modal (Esc / backdrop close) instead of in-thread absolute popover.
+- **Impacted Files:** chatAutoTurn.js, ChatDetailPage.jsx, JevPeek.jsx, PROMPT_LOG
+
 ## [2026-09-25 21:05] Chat: richer Jev peek detail panel
 
 - **Prompt Provided:** can you show more in detail?
