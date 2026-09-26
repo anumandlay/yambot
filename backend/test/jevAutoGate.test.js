@@ -70,12 +70,26 @@ describe("Auto classifier hint (optional Jev)", () => {
     assert.equal(skipped?.used, false);
     assert.equal(skipped?.reason, "not_called");
     const decided = summarizeJevForChatMeta(
-      { action: "reply", choice: "reply", confidence: 0.9, reason: "jev_confident" },
+      {
+        action: "reply",
+        choice: "reply",
+        confidence: 0.9,
+        reason: "jev_confident",
+        probabilities: { reply: 0.9, queue_goal: 0.05, composio: 0.05 },
+        evaluate: {
+          model: "typesafe-ai/jev",
+          state: { user_message: "hi" },
+          questions: { action: { instructions: "pick", criteria: { reply: "x" } } },
+          answer: { choice: "reply", probabilities: { reply: 0.9 } },
+        },
+      },
       { enabled: true }
     );
     assert.equal(decided?.used, true);
     assert.equal(decided?.decided, true);
     assert.equal(decided?.action, "reply");
+    assert.equal(decided?.evaluate?.answer?.choice, "reply");
+    assert.ok(decided?.evaluate?.questions?.action);
     const unsure = summarizeJevForChatMeta(
       { action: "uncertain", choice: "reply", confidence: 0.4, reason: "jev_low_confidence" },
       { enabled: true }

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 21:00] Chat: Jev peek shows question structure + choice
+
+- **Prompt Provided:** for jev, see structure of the question and which one it chose
+- **Architectural Flow:** Persist `meta.jev.evaluate` (state, questions/criteria, answer + probabilities). New **J** peek next to **P** opens a panel with criteria, user message, chosen option, and full JSON.
+- **Impacted Files:** jevEvaluate.js, JevPeek.jsx, ChatDetailPage.jsx, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-25 20:50] Chat: live clickable Auto/Composio progress
 
 - **Prompt Provided:** Composio “let me check” then nothing — show progress; click to see what it’s doing

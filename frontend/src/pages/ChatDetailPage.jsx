@@ -34,6 +34,7 @@ import { StreamProgressBar } from "../components/StreamProgressBar.jsx";
 import { GrokMobileRailBubbles } from "../components/GrokMobileRailBubbles.jsx";
 import { ChatMessageBody } from "../components/ChatMessageBody.jsx";
 import { LlmPromptPeek } from "../components/LlmPromptPeek.jsx";
+import { JevPeek } from "../components/JevPeek.jsx";
 import { humanizeGoalOrMessage } from "../lib/goalDisplay.js";
 
 export function ChatDetailPage() {
@@ -1573,6 +1574,7 @@ export function ChatDetailPage() {
                       ? agentDisplayName(m)
                       : m.role;
                 const llmPrompt = m.meta?.llmPrompt || null;
+                const jevMeta = m.meta?.jev || null;
                 if (m.meta?.kind === "context_summary") return null;
                 const bubble = (
                   <article
@@ -1657,13 +1659,20 @@ export function ChatDetailPage() {
                       className="flex w-full max-w-[95%] items-start justify-end gap-1.5 self-end pr-0.5 sm:max-w-[85%]"
                     >
                       <div className="min-w-0 max-w-[calc(100%-1.25rem)]">{bubble}</div>
-                      <LlmPromptPeek prompt={llmPrompt} />
+                      <div className="flex shrink-0 flex-col items-center gap-1 self-start">
+                        <LlmPromptPeek prompt={llmPrompt} />
+                        <JevPeek jev={jevMeta} />
+                      </div>
                     </div>
                   );
                 }
                 return (
-                  <div key={m._id} className="max-w-[95%] self-start sm:max-w-[85%]">
+                  <div
+                    key={m._id}
+                    className="flex max-w-[95%] items-start gap-1.5 self-start sm:max-w-[85%]"
+                  >
                     {bubble}
+                    <JevPeek jev={jevMeta} />
                   </div>
                 );
               });

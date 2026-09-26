@@ -130,6 +130,50 @@ export async function jevEvaluate(opts) {
 }
 
 /**
+ * Shared evaluate payload shape for Auto routing (also stored on message meta for the Jev peek).
+ * @param {string} userMessage
+ * @returns {{
+ *   state: object,
+ *   questions: Record<string, object>,
+ * }}
+ */
+export function buildJevAutoEvaluatePayload(userMessage) {
+  const body = String(userMessage || "").trim().slice(0, 4000);
+  return {
+    state: {
+      product: "YamBot",
+      role: "YamBot Auto router",
+      user_message: body,
+      rules: [
+        "reply = answer in chat only (no Chromium, no peer fan-out, no Composio execute this turn)",
+        "queue_goal = start live computer / Chromium or message peers NOW",
+        "composio = connected-app API tools (Gmail, Sheets, Slack, Drive, Notion, GitHub, etc.) — NOT the browser",
+        "Past-work questions (did we open X today?) = reply",
+        "Memory/preference store with URLs = reply",
+        "Capability questions (can you open websites?) = reply until they name a concrete live job",
+        "Imperative open/go to/visit/click/fill/log in NOW on a website = queue_goal",
+        "Search inbox, send email via Gmail, list spreadsheets, Slack message, etc. = composio",
+      ],
+    },
+    questions: {
+      action: {
+        type: "choice",
+        instructions:
+          "Should YamBot answer in chat (reply), start a live computer / peer task (queue_goal), or use connected-app API tools (composio)?",
+        criteria: {
+          reply:
+            "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy. Naming a domain in a question is not enough for queue_goal.",
+          queue_goal:
+            "Live browser/computer job now: open/go to/navigate/visit a website in Chromium, click, fill, submit, log in on a page, live browse research, or message_agent / peer fan-out. Do NOT choose queue_goal for Gmail/Slack/Sheets/spreadsheet/Composio API actions.",
+          composio:
+            "Connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Drive/Composio APIs (search email, send Slack, list spreadsheets, label mail, etc.). Not Chromium.",
+        },
+      },
+    },
+  };
+}
+
+/**
  * Ask Jev: REPLY in chat, QUEUE_GOAL (computer/peers), or COMPOSIO (connected apps).
  * @param {string} text
  * @param {{
@@ -145,6 +189,7 @@ export async function jevEvaluate(opts) {
  *   probabilities: Record<string, number>,
  *   reason: string,
  *   error?: string,
+ *   evaluate?: object,
  * }>}
  */
 export async function classifyAutoActionWithJev(text, opts = {}) {
@@ -177,39 +222,13 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
     };
   }
 
+  const payload = buildJevAutoEvaluatePayload(body);
+
   try {
     const result = await jevEvaluate({
       apiKey,
-      state: {
-        product: "YamBot",
-        role: "YamBot Auto router",
-        user_message: body,
-        rules: [
-          "reply = answer in chat only (no Chromium, no peer fan-out, no Composio execute this turn)",
-          "queue_goal = start live computer / Chromium or message peers NOW",
-          "composio = connected-app API tools (Gmail, Sheets, Slack, Drive, Notion, GitHub, etc.) — NOT the browser",
-          "Past-work questions (did we open X today?) = reply",
-          "Memory/preference store with URLs = reply",
-          "Capability questions (can you open websites?) = reply until they name a concrete live job",
-          "Imperative open/go to/visit/click/fill/log in NOW on a website = queue_goal",
-          "Search inbox, send email via Gmail, list spreadsheets, Slack message, etc. = composio",
-        ],
-      },
-      questions: {
-        action: {
-          type: "choice",
-          instructions:
-            "Should YamBot answer in chat (reply), start a live computer / peer task (queue_goal), or use connected-app API tools (composio)?",
-          criteria: {
-            reply:
-              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy. Naming a domain in a question is not enough for queue_goal.",
-            queue_goal:
-              "Live browser/computer job now: open/go to/navigate/visit a website in Chromium, click, fill, submit, log in on a page, live browse research, or message_agent / peer fan-out. Do NOT choose queue_goal for Gmail/Slack/Sheets/spreadsheet/Composio API actions.",
-            composio:
-              "Connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Drive/Composio APIs (search email, send Slack, list spreadsheets, label mail, etc.). Not Chromium.",
-          },
-        },
-      },
+      state: payload.state,
+      questions: payload.questions,
       timeoutMs: 12_000,
     });
 
@@ -228,6 +247,19 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       Number(probs[choice]) ||
       Math.max(0, ...Object.values(probs).map((n) => Number(n) || 0));
 
+    const evaluate = {
+      model: String(result.model || env.JEV_MODEL || "typesafe-ai/jev").slice(0, 120),
+      state: payload.state,
+      questions: payload.questions,
+      answer: {
+        choice,
+        probabilities: probs,
+        raw: {
+          choice: String(ans.choice || "").slice(0, 64),
+        },
+      },
+    };
+
     const allowed = new Set(["reply", "queue_goal", "composio"]);
     if (!allowed.has(choice)) {
       return {
@@ -237,6 +269,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
         confidence,
         probabilities: probs,
         reason: "jev_unknown_choice",
+        evaluate,
       };
     }
     if (confidence < JEV_CONFIDENT_MIN) {
@@ -247,6 +280,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
         confidence,
         probabilities: probs,
         reason: "jev_low_confidence",
+        evaluate,
       };
     }
     return {
@@ -256,6 +290,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       confidence,
       probabilities: probs,
       reason: "jev_confident",
+      evaluate,
     };
   } catch (err) {
     return {
@@ -266,25 +301,23 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       probabilities: {},
       reason: "jev_error",
       error: String(err?.message || err).slice(0, 240),
+      // Why: still show the question structure even when the Gateway call failed.
+      evaluate: {
+        model: String(env.JEV_MODEL || "typesafe-ai/jev").slice(0, 120),
+        state: payload.state,
+        questions: payload.questions,
+        answer: { choice: "", probabilities: {} },
+      },
     };
   }
 }
 
 /**
  * Redacted Jev summary for chat message meta (no API key).
- * Why: UI chips need to show whether Jev ran / decided for each Auto turn.
+ * Why: UI chips + Jev peek need choice, probabilities, and the evaluate question structure.
  * @param {object|null|undefined} jevDecision — from classifyAutoActionWithJev / turn.jev
  * @param {{ enabled?: boolean }} [opts]
- * @returns {{
- *   enabled: boolean,
- *   used: boolean,
- *   decided: boolean,
- *   action: string,
- *   choice: string,
- *   confidence: number,
- *   reason: string,
- *   error?: string,
- * }|undefined}
+ * @returns {object|undefined}
  */
 export function summarizeJevForChatMeta(jevDecision, opts = {}) {
   const enabled = Boolean(opts.enabled);
@@ -299,16 +332,14 @@ export function summarizeJevForChatMeta(jevDecision, opts = {}) {
     reason !== "empty" &&
     reason !== "not_called";
   const decided = reason === "jev_confident";
-  /** @type {{
-   *   enabled: boolean,
-   *   used: boolean,
-   *   decided: boolean,
-   *   action: string,
-   *   choice: string,
-   *   confidence: number,
-   *   reason: string,
-   *   error?: string,
-   * }} */
+  /** @type {Record<string, number>} */
+  const probabilities = {};
+  if (j?.probabilities && typeof j.probabilities === "object") {
+    for (const [k, v] of Object.entries(j.probabilities)) {
+      probabilities[String(k).slice(0, 32)] = Math.max(0, Math.min(1, Number(v) || 0));
+    }
+  }
+  /** @type {object} */
   const out = {
     enabled,
     used,
@@ -317,7 +348,19 @@ export function summarizeJevForChatMeta(jevDecision, opts = {}) {
     choice: String(j?.choice || "").slice(0, 32),
     confidence: Math.max(0, Math.min(1, Number(j?.confidence) || 0)),
     reason: (reason || (enabled ? "not_called" : "disabled")).slice(0, 64),
+    probabilities,
   };
   if (j?.error) out.error = String(j.error).slice(0, 240);
+  if (j?.evaluate && typeof j.evaluate === "object") {
+    out.evaluate = {
+      model: String(j.evaluate.model || "").slice(0, 120),
+      state: j.evaluate.state || null,
+      questions: j.evaluate.questions || null,
+      answer: j.evaluate.answer || {
+        choice: out.choice,
+        probabilities,
+      },
+    };
+  }
   return out;
 }
