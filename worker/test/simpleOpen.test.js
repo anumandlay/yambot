@@ -27,6 +27,10 @@ describe("simpleOpen", () => {
 
   it("rejects goals that need more than a page load", () => {
     assert.equal(matchSimpleOpenGoal("open vughy.com and register"), null);
+    assert.equal(
+      matchSimpleOpenGoal("open vughy.com and create an account as a travel agency"),
+      null
+    );
     assert.equal(matchSimpleOpenGoal("open nseindia.com and find today's top 5 losers"), null);
     assert.equal(matchSimpleOpenGoal("open gmail and log in"), null);
     assert.equal(goalHasExtraComputerWork("open x.com and click signup"), true);
