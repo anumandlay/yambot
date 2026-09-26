@@ -432,11 +432,23 @@ export async function resumeComboAfterComputer(opts) {
   if (!followup?.steps?.length) {
     const goal = String(task.goal || "");
     const goalForDetect = goal.replace(/MULTI-STEP JOB[\s\S]*$/i, "").trim() || goal;
+    // Why: prefer the original user bubble (if stored) — Auto-rewritten goals often include
+    // Email:/Password: form fields that must not look like “email credentials afterward”.
+    const userAsk = String(followup?.userText || "").trim();
+    const detectText = userAsk || goalForDetect;
     if (
-      looksLikeComputerThenEmailCombo(goalForDetect) ||
-      looksLikeComputerThenEmailCombo(followup?.userText || "")
+      looksLikeComputerThenEmailCombo(detectText) ||
+      looksLikeComputerThenEmailCombo(goalForDetect)
     ) {
-      followup = buildComboFollowupForTask(followup?.userText || goalForDetect);
+      // Why: only rebuild from text that truly asks to send — not from form-fill rewrites.
+      const rebuildFrom = looksLikeComputerThenEmailCombo(detectText)
+        ? detectText
+        : looksLikeComputerThenEmailCombo(goalForDetect)
+          ? goalForDetect
+          : "";
+      followup = rebuildFrom ? buildComboFollowupForTask(rebuildFrom) : null;
+    } else if (looksLikeHybridCombo(detectText)) {
+      followup = buildComboFollowupForTask(detectText);
     } else if (looksLikeHybridCombo(goalForDetect)) {
       followup = buildComboFollowupForTask(goalForDetect);
     } else {

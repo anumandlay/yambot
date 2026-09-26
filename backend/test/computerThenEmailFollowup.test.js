@@ -20,6 +20,18 @@ test("looksLikeComputerThenEmailCombo matches create + send credentials", () => 
   );
 });
 
+test("looksLikeComputerThenEmailCombo rejects form-fill Email/Password rewrite", () => {
+  // Why: Auto expands “create account” into a goal with Email:/Password: fields — not a send ask.
+  assert.equal(
+    looksLikeComputerThenEmailCombo(
+      "Open https://vughy.com/agency/register. Fill out the registration form using dummy data " +
+        "(Agency Name: 'Demo Travel Agency', Email: 'demo.travel.agency@example.com', " +
+        "Password: 'DemoPass123!'). Click 'Sign Up'."
+    ),
+    false
+  );
+});
+
 test("looksLikeComputerThenEmailCombo rejects create-only", () => {
   assert.equal(looksLikeComputerThenEmailCombo("Create a new account in crm"), false);
 });

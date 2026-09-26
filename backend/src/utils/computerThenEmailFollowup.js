@@ -31,6 +31,8 @@ export function extractEmailsFromComboText(text) {
 
 /**
  * True when the user wants a live create/register job AND email the credentials afterward.
+ * Why: must NOT fire on rewritten worker goals that only list form fields
+ * (“Email: foo@… Password: …”) — that is signup data, not a send-mail ask.
  * @param {string} text
  * @returns {boolean}
  */
@@ -42,11 +44,15 @@ export function looksLikeComputerThenEmailCombo(text) {
   const hasCreate =
     /\b(create|register|sign\s*up|make|open)\b/i.test(raw) &&
     /\b(account|crm|agency|vughy|signup|sign-up|travel\s*agen)/i.test(raw);
+  // Why: require an explicit delivery verb — “Email:” / “Password:” form labels alone are not send.
   const hasSend =
     /\band\s+send\b/i.test(raw) ||
-    (/\b(send|email|e-?mail|mail)\b/i.test(raw) &&
-      /\b(credential|password|login|details|account)\b/i.test(raw)) ||
-    /\bsend\b[\s\S]{0,80}@/i.test(raw);
+    /\bsend\b[\s\S]{0,100}(credential|password|login\s*details|account\s*details)\b/i.test(raw) ||
+    /\b(email|e-?mail|mail)\b[\s\S]{0,80}(credential|password|login\s*details)\b[\s\S]{0,60}to\b/i.test(
+      raw
+    ) ||
+    /\bsend\b[\s\S]{0,80}@/i.test(raw) ||
+    /\b(email|e-?mail|mail)\s+(it|them|this|credentials?|details|password)\s+to\b/i.test(raw);
   return hasCreate && hasSend;
 }
 

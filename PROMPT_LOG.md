@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-26 10:55] Fix: create-account goals falsely trigger Composio follow-up
+
+- **Prompt Provided:** User only asked create account; saw “Composio is off… Notion/Slack/email follow-ups”
+- **Architectural Flow:** Auto-rewritten goals include `Email:`/`Password:` form fields. `looksLikeComputerThenEmailCombo` treated that as send-credentials. Tighten to require explicit send/delivery verbs; prefer original userText when re-detecting after computer complete.
+- **Impacted Files:** computerThenEmailFollowup.js, comboRunner.js, computerThenEmailFollowup.test.js, PROMPT_LOG
+
 ## [2026-09-26 10:10] Fix: using jev never reached Ultrafast (mode dropped + simple_open)
 
 - **Prompt Provided:** User ran “open vughy.com … using jev” — only saw open success, no Jev · CLICK steps
