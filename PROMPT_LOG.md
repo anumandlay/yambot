@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-26 11:10] Combo: LLM intent classify + no post-complete re-detect
+
+- **Prompt Provided:** Implement LLM combo intent plan (vs regex)
+- **Architectural Flow:** Auto classifies hybrid on original user text (heuristic for clear send/Notion phrases; small LLM when ambiguous). `Task.comboFollowup` attached at queue via `resolveComboFollowupForQueue`. `resumeComboAfterComputer` never rebuilds from rewritten goals. Form-fill Email:/Password: no longer counts as hybrid email tail.
+- **Impacted Files:** comboRunner.js, chatAutoTurn.js, chats.js, comboRunner.test.js, PROMPT_LOG
+
 ## [2026-09-26 10:55] Fix: create-account goals falsely trigger Composio follow-up
 
 - **Prompt Provided:** User only asked create account; saw “Composio is off… Notion/Slack/email follow-ups”

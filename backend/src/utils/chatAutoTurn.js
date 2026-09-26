@@ -32,7 +32,12 @@ import {
   runComposioMultiStep,
   COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
-import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
+import {
+  looksLikeHybridCombo,
+  maybeAmbiguousCombo,
+  planComboFromText,
+  classifyComboIntent,
+} from "./comboRunner.js";
 import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 import {
   looksLikeScheduleManageRequest,
@@ -2533,6 +2538,10 @@ export async function runChatAutoTurn(opts) {
     if (partial?.clearPendingComposioApproval) {
       out.clearPendingComposioApproval = true;
     }
+    // Why: chats.js attaches Task.comboFollowup from Auto classify (not from rewritten goals).
+    if (partial?.comboFollowup && typeof partial.comboFollowup === "object") {
+      out.comboFollowup = partial.comboFollowup;
+    }
     // Why: chat UI Prompt bubble — exact messages sent to the LLM (or a no-LLM note).
     if (partial?.llmPrompt) {
       out.llmPrompt = partial.llmPrompt;
@@ -2721,19 +2730,36 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  // Why: hybrid browser→Notion/Slack/email must queue computer first (apps resume after complete).
-  if (looksLikeHybridCombo(text)) {
-    const plan = planComboFromText(text);
-    track.setPath("combo_hybrid_queue");
-    track.markDecision("queue_goal");
-    return finalize({
-      action: "queue_goal",
-      content: "",
-      goal: plan.computerGoal || text,
-      ack: "",
-      reason: `combo_hybrid:${plan.recipe || "browse_then_composio_tail"}`,
-      timing: track.finish(),
-    });
+  // Why: hybrid browser→Notion/Slack/email — classify from the ORIGINAL user ask.
+  // Clear phrases use heuristics; ambiguous create+@email uses a small LLM decide.
+  if (looksLikeHybridCombo(text) || maybeAmbiguousCombo(text)) {
+    try {
+      const classified = await classifyComboIntent(text, {
+        apiKey: creds?.apiKey || creds?.llmApiKey,
+        llmApiKey: creds?.apiKey || creds?.llmApiKey,
+        llmBaseUrl: creds?.llmBaseUrl,
+        llmModel: creds?.llmModel,
+        signal,
+      });
+      if (classified.mode === "hybrid" && classified.followup?.steps?.length) {
+        track.setPath(
+          classified.source === "llm" ? "combo_hybrid_llm" : "combo_hybrid_queue"
+        );
+        track.markDecision("queue_goal");
+        return finalize({
+          action: "queue_goal",
+          content: "",
+          goal: classified.computerGoal || planComboFromText(text).computerGoal || text,
+          ack: "",
+          reason: `combo_hybrid:${classified.recipe || "browse_then_composio_tail"}:${classified.source}`,
+          comboFollowup: classified.followup,
+          timing: track.finish(),
+        });
+      }
+    } catch (err) {
+      console.warn("[auto] combo classify failed:", err?.message || err);
+      // Why: fall through to normal Auto if classify errors; never invent a combo.
+    }
   }
 
   // Why: “check email” / known Composio intents must run the deterministic app path.

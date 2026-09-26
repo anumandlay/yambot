@@ -12,6 +12,9 @@ import {
   buildComboFollowupForTask,
   extractComposioTailText,
   resolvePendingComboFollowupFromMessages,
+  maybeAmbiguousCombo,
+  resolveComboFollowupForQueue,
+  stepsFromComboTails,
 } from "../src/utils/comboRunner.js";
 import { planComposioMultiSteps } from "../src/utils/composioAutoRuntime.js";
 
@@ -123,4 +126,59 @@ test("resolvePendingComboFollowupFromMessages ignores when newest assistant has 
     },
   ]);
   assert.equal(pending, null);
+});
+
+test("create account only is not hybrid and not ambiguous", () => {
+  const t = "open vughy.com and create an account as a travel agency";
+  assert.equal(looksLikeHybridCombo(t), false);
+  assert.equal(maybeAmbiguousCombo(t), false);
+  assert.equal(buildComboFollowupForTask(t), null);
+  assert.equal(resolveComboFollowupForQueue(t), null);
+});
+
+test("form-fill Email/Password rewrite is not a queueable combo", () => {
+  const rewritten =
+    "Open https://vughy.com/agency/register. Fill out the registration form using dummy data " +
+    "(Agency Name: 'Demo Travel Agency', Email: 'demo.travel.agency@example.com', " +
+    "Password: 'DemoPass123!'). Click 'Sign Up'.";
+  assert.equal(looksLikeHybridCombo(rewritten), false);
+  assert.equal(buildComboFollowupForTask(rewritten), null);
+  assert.equal(resolveComboFollowupForQueue(rewritten), null);
+});
+
+test("resolveComboFollowupForQueue prefers Auto classification", () => {
+  const follow = resolveComboFollowupForQueue("open vughy", {
+    followup: {
+      recipe: "create_then_email",
+      userText: "create account and send credentials to a@b.com",
+      steps: [{ kind: "send_email", label: "Email a@b.com", toolkit: "gmail" }],
+      source: "llm",
+    },
+  });
+  assert.ok(follow);
+  assert.equal(follow.source, "llm");
+  assert.equal(follow.steps.length, 1);
+  assert.equal(follow.steps[0].kind, "send_email");
+});
+
+test("stepsFromComboTails maps email/slack/notion", () => {
+  const steps = stepsFromComboTails(
+    "create account and notify",
+    ["email", "slack", "notion"],
+    "boss@example.com"
+  );
+  assert.equal(steps.length, 3);
+  assert.ok(steps.some((s) => s.kind === "send_email" && s.to === "boss@example.com"));
+  assert.ok(steps.some((s) => s.kind === "send_slack"));
+  assert.ok(steps.some((s) => s.specId === "notion_write"));
+});
+
+test("explicit send-credentials still builds hybrid followup", async () => {
+  const t =
+    "Create a new account in crm and send credentials to fastagconsultant@gmail.com";
+  const { classifyComboIntent } = await import("../src/utils/comboRunner.js");
+  const classified = await classifyComboIntent(t, { skipLlm: true });
+  assert.equal(classified.mode, "hybrid");
+  assert.equal(classified.source, "heuristic");
+  assert.ok(classified.followup?.steps?.some((s) => s.kind === "send_email"));
 });

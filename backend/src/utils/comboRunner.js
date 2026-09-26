@@ -31,6 +31,8 @@ import {
   composioAuthorizeToolkit,
   composioWaitForToolkit,
 } from "./composioService.js";
+import { llmChatCompletion } from "./llmChat.js";
+import { stripModelThinking } from "./llmSanitize.js";
 
 /**
  * @typedef {{
@@ -70,9 +72,13 @@ export function looksLikeHybridCombo(text) {
 
   const hasNotion = /\bnotion\b/i.test(raw);
   const hasSlack = /\bslack\b/i.test(raw) || /#[a-z0-9_-]{2,}/i.test(raw);
+  // Why: “Email: foo@…” form labels must not count as a Gmail follow-up ask.
   const hasEmail =
     looksLikeSendEmailClause(raw) ||
-    (/\b(send|email|e-?mail|mail)\b/i.test(raw) && Boolean(parseEmailRecipient(raw)));
+    looksLikeComputerThenEmailCombo(raw) ||
+    (/\bsend\b/i.test(raw) &&
+      /\b(email|e-?mail|mail)\b/i.test(raw) &&
+      Boolean(parseEmailRecipient(raw)));
   const hasSheets = /\b(sheet|spreadsheet|gsheet)\b/i.test(raw);
   const hasComposioTail = hasNotion || hasSlack || hasEmail || hasSheets;
 
@@ -276,7 +282,7 @@ export function planComboFromText(text) {
 /**
  * Build Task.comboFollowup payload for a hybrid queue.
  * @param {string} userText
- * @returns {{ version: number, recipe: string, userText: string, steps: ComboStep[], status: string }|null}
+ * @returns {{ version: number, recipe: string, userText: string, steps: ComboStep[], status: string, source?: string }|null}
  */
 export function buildComboFollowupForTask(userText) {
   const plan = planComboFromText(userText);
@@ -287,7 +293,328 @@ export function buildComboFollowupForTask(userText) {
     userText: String(userText || "").trim(),
     steps: plan.composioSteps,
     status: "pending",
+    source: "heuristic",
   };
+}
+
+/**
+ * Ambiguous computer ask that might be misread as combo (form Email/Password, @ in signup).
+ * Why: these need LLM intent — not regex — so we do not invent Notion/email tails.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function maybeAmbiguousCombo(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (looksLikeHybridCombo(raw) || looksLikeComputerThenEmailCombo(raw)) return false;
+  const hasComputer =
+    /\b(open|create|register|sign\s*up|browse|visit|check|make)\b/i.test(raw) &&
+    /\b(vughy|crm|agency|account|website|site|portal|https?:\/\/|www\.|[a-z0-9-]+\.[a-z]{2,})\b/i.test(
+      raw
+    );
+  const hasEmailish =
+    /@/.test(raw) ||
+    /\b(email|e-?mail|password|notion|slack|sheet|spreadsheet)\b/i.test(raw);
+  return hasComputer && hasEmailish;
+}
+
+/**
+ * Map LLM / classify tails into Composio steps.
+ * @param {string} userText
+ * @param {string[]} tails
+ * @param {string} [recipient]
+ * @returns {ComboStep[]}
+ */
+export function stepsFromComboTails(userText, tails, recipient = "") {
+  const raw = String(userText || "").trim();
+  const to =
+    String(recipient || "").trim() ||
+    parseEmailRecipient(raw) ||
+    extractEmailsFromComboText(raw)[0] ||
+    "";
+  /** @type {ComboStep[]} */
+  const steps = [];
+  const seen = new Set();
+  for (const t of tails || []) {
+    const key = String(t || "")
+      .trim()
+      .toLowerCase();
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    if (key === "email" || key === "gmail" || key === "mail") {
+      steps.push({
+        kind: "send_email",
+        label: to ? `Email ${to}` : "Send email",
+        userText: raw,
+        toolkit: "gmail",
+        to: to || undefined,
+        usePriorContent: true,
+      });
+    } else if (key === "slack") {
+      steps.push({
+        kind: "send_slack",
+        label: "Slack message",
+        userText: raw,
+        toolkit: "slack",
+        usePriorContent: true,
+      });
+    } else if (key === "notion") {
+      steps.push({
+        kind: "intent",
+        label: "Notion update",
+        userText: raw,
+        toolkit: "notion",
+        specId: "notion_write",
+        usePriorContent: true,
+      });
+    } else if (key === "sheets" || key === "sheet" || key === "spreadsheet") {
+      steps.push({
+        kind: "intent",
+        label: "Sheets update",
+        userText: raw,
+        toolkit: "googlesheets",
+        specId: "sheets_write",
+        usePriorContent: true,
+      });
+    }
+  }
+  return steps;
+}
+
+/**
+ * @typedef {{
+ *   mode: "none"|"computer_only"|"hybrid"|"composio_only",
+ *   computerGoal: string,
+ *   tails: string[],
+ *   recipient: string,
+ *   recipe: string,
+ *   source: "heuristic"|"llm"|"none",
+ *   reason?: string,
+ * }} ComboClassification
+ */
+
+/**
+ * Parse model JSON for combo intent.
+ * @param {string} raw
+ * @returns {ComboClassification|null}
+ */
+function parseComboClassificationJson(raw) {
+  const cleaned = stripModelThinking(String(raw || "")).trim();
+  if (!cleaned) return null;
+  let jsonText = cleaned;
+  const fence = cleaned.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  if (fence) jsonText = fence[1].trim();
+  const start = jsonText.indexOf("{");
+  const end = jsonText.lastIndexOf("}");
+  if (start >= 0 && end > start) jsonText = jsonText.slice(start, end + 1);
+  try {
+    const obj = JSON.parse(jsonText);
+    const modeRaw = String(obj.mode || obj.intent || "none")
+      .trim()
+      .toLowerCase();
+    /** @type {ComboClassification["mode"]} */
+    let mode = "none";
+    if (modeRaw === "hybrid" || modeRaw === "combo") mode = "hybrid";
+    else if (modeRaw === "computer_only" || modeRaw === "computer" || modeRaw === "browser") {
+      mode = "computer_only";
+    } else if (modeRaw === "composio_only" || modeRaw === "apps_only") {
+      mode = "composio_only";
+    } else if (modeRaw === "none") mode = "none";
+    else return null;
+
+    const tails = Array.isArray(obj.tails)
+      ? obj.tails.map((t) => String(t || "").trim().toLowerCase()).filter(Boolean)
+      : [];
+    return {
+      mode,
+      computerGoal: String(obj.computerGoal || obj.computer_goal || "").trim(),
+      tails,
+      recipient: String(obj.recipient || obj.to || "").trim(),
+      recipe:
+        String(obj.recipe || "").trim() ||
+        (tails.includes("email") || tails.includes("gmail")
+          ? "create_then_email"
+          : "browse_then_composio_tail"),
+      source: "llm",
+      reason: String(obj.reason || "").trim().slice(0, 200),
+    };
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * LLM combo intent on the original user ask (not Auto-rewritten goals).
+ * @param {string} text
+ * @param {{
+ *   apiKey?: string,
+ *   llmApiKey?: string,
+ *   llmBaseUrl?: string,
+ *   llmModel?: string,
+ *   signal?: AbortSignal|null,
+ * }} [creds]
+ * @returns {Promise<ComboClassification>}
+ */
+export async function classifyComboIntentWithLlm(text, creds = {}) {
+  const raw = String(text || "").trim();
+  const empty = {
+    mode: /** @type {const} */ ("none"),
+    computerGoal: "",
+    tails: /** @type {string[]} */ ([]),
+    recipient: "",
+    recipe: "",
+    source: /** @type {const} */ ("none"),
+  };
+  if (!raw) return empty;
+  const apiKey = String(creds.apiKey || creds.llmApiKey || "").trim();
+  if (!apiKey) return { ...empty, reason: "no_llm_key" };
+
+  const system = `You classify YamBot chat asks into combo modes. Reply with ONLY JSON:
+{"mode":"none"|"computer_only"|"hybrid"|"composio_only","computerGoal":"browser part only","tails":["email"|"slack"|"notion"|"sheets"],"recipient":"email if any","reason":"short"}
+
+Rules:
+- computer_only: browse/create/register/fill forms on a website. Form fields like Email:/Password: or dummy signup addresses are NOT a send-mail ask.
+- hybrid: browser work THEN explicitly deliver/update via Notion, Slack, Gmail, or Sheets (e.g. "and send credentials to a@b.com", "and update Notion").
+- composio_only: apps only, no live browser.
+- none: greeting, Q&A, memory, unclear.
+Never invent tails the user did not ask for.`;
+
+  try {
+    const result = await llmChatCompletion({
+      apiKey,
+      baseUrl: String(creds.llmBaseUrl || "").trim() || undefined,
+      model: String(creds.llmModel || "").trim() || undefined,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: raw.slice(0, 4000) },
+      ],
+      temperature: 0,
+      maxTokens: 300,
+      timeoutMs: 12_000,
+      signal: creds.signal || null,
+    });
+    const parsed = parseComboClassificationJson(
+      typeof result === "string" ? result : result?.content || ""
+    );
+    if (!parsed) return { ...empty, reason: "llm_parse_failed" };
+    return parsed;
+  } catch (err) {
+    return { ...empty, reason: `llm_error:${String(err?.message || err).slice(0, 80)}` };
+  }
+}
+
+/**
+ * Classify combo intent: explicit heuristic first, else LLM when ambiguous.
+ * @param {string} text
+ * @param {{
+ *   apiKey?: string,
+ *   llmApiKey?: string,
+ *   llmBaseUrl?: string,
+ *   llmModel?: string,
+ *   signal?: AbortSignal|null,
+ *   skipLlm?: boolean,
+ * }} [opts]
+ * @returns {Promise<ComboClassification & { followup?: ReturnType<typeof buildComboFollowupForTask> }>}
+ */
+export async function classifyComboIntent(text, opts = {}) {
+  const raw = String(text || "").trim();
+  const base = {
+    mode: /** @type {const} */ ("none"),
+    computerGoal: "",
+    tails: /** @type {string[]} */ ([]),
+    recipient: "",
+    recipe: "",
+    source: /** @type {const} */ ("none"),
+  };
+  if (!raw) return base;
+
+  // Why: clear phrases stay free — no LLM cost.
+  if (looksLikeHybridCombo(raw) || looksLikeComputerThenEmailCombo(raw)) {
+    const plan = planComboFromText(raw);
+    if (plan.mode === "hybrid" && plan.composioSteps.length) {
+      return {
+        mode: "hybrid",
+        computerGoal: plan.computerGoal || raw,
+        tails: plan.composioSteps.map((s) =>
+          s.kind === "send_email"
+            ? "email"
+            : s.kind === "send_slack" || s.toolkit === "slack"
+              ? "slack"
+              : s.toolkit === "notion" || String(s.specId || "").startsWith("notion")
+                ? "notion"
+                : s.toolkit || s.kind
+        ),
+        recipient:
+          parseEmailRecipient(raw) || extractEmailsFromComboText(raw)[0] || "",
+        recipe: plan.recipe,
+        source: "heuristic",
+        followup: {
+          version: 1,
+          recipe: plan.recipe,
+          userText: raw,
+          steps: plan.composioSteps,
+          status: "pending",
+          source: "heuristic",
+        },
+      };
+    }
+  }
+
+  if (opts.skipLlm || !maybeAmbiguousCombo(raw)) {
+    return { ...base, mode: "computer_only", computerGoal: raw, reason: "not_combo_phrase" };
+  }
+
+  const llm = await classifyComboIntentWithLlm(raw, opts);
+  if (llm.mode === "hybrid") {
+    const steps = stepsFromComboTails(raw, llm.tails, llm.recipient);
+    if (!steps.length) {
+      return {
+        ...llm,
+        mode: "computer_only",
+        computerGoal: llm.computerGoal || raw,
+        reason: llm.reason || "hybrid_no_tails",
+      };
+    }
+    return {
+      ...llm,
+      computerGoal: llm.computerGoal || raw,
+      followup: {
+        version: 1,
+        recipe: llm.recipe || "browse_then_composio_tail",
+        userText: raw,
+        steps,
+        status: "pending",
+        source: "llm",
+      },
+    };
+  }
+  if (llm.mode === "composio_only") return llm;
+  if (llm.mode === "computer_only") {
+    return { ...llm, computerGoal: llm.computerGoal || raw };
+  }
+  return { ...base, mode: "computer_only", computerGoal: raw, reason: llm.reason || "llm_none" };
+}
+
+/**
+ * Resolve comboFollowup for Task create: prefer Auto classification, else explicit heuristic on user text.
+ * @param {string} userText
+ * @param {{ followup?: object|null }} [fromAuto]
+ * @returns {{ version: number, recipe: string, userText: string, steps: ComboStep[], status: string, source?: string }|null}
+ */
+export function resolveComboFollowupForQueue(userText, fromAuto = {}) {
+  const fromTurn = fromAuto?.followup;
+  if (fromTurn && Array.isArray(fromTurn.steps) && fromTurn.steps.length) {
+    return {
+      version: 1,
+      recipe: String(fromTurn.recipe || "browse_then_composio_tail"),
+      userText: String(fromTurn.userText || userText || "").trim(),
+      steps: fromTurn.steps,
+      status: "pending",
+      source: String(fromTurn.source || "auto"),
+    };
+  }
+  // Why: Computer mode / no Auto classify — only explicit hybrid phrases on the original bubble.
+  return buildComboFollowupForTask(userText);
 }
 
 /**
@@ -429,31 +756,10 @@ export async function resumeComboAfterComputer(opts) {
   /** @type {{ steps?: ComboStep[], userText?: string, status?: string, recipe?: string }|null} */
   let followup = task.comboFollowup && typeof task.comboFollowup === "object" ? task.comboFollowup : null;
 
+  // Why: combo must be attached at queue from the original user ask (heuristic or LLM).
+  // Never re-detect from Auto-rewritten task.goal (Email:/Password: form fields looked like send).
   if (!followup?.steps?.length) {
-    const goal = String(task.goal || "");
-    const goalForDetect = goal.replace(/MULTI-STEP JOB[\s\S]*$/i, "").trim() || goal;
-    // Why: prefer the original user bubble (if stored) — Auto-rewritten goals often include
-    // Email:/Password: form fields that must not look like “email credentials afterward”.
-    const userAsk = String(followup?.userText || "").trim();
-    const detectText = userAsk || goalForDetect;
-    if (
-      looksLikeComputerThenEmailCombo(detectText) ||
-      looksLikeComputerThenEmailCombo(goalForDetect)
-    ) {
-      // Why: only rebuild from text that truly asks to send — not from form-fill rewrites.
-      const rebuildFrom = looksLikeComputerThenEmailCombo(detectText)
-        ? detectText
-        : looksLikeComputerThenEmailCombo(goalForDetect)
-          ? goalForDetect
-          : "";
-      followup = rebuildFrom ? buildComboFollowupForTask(rebuildFrom) : null;
-    } else if (looksLikeHybridCombo(detectText)) {
-      followup = buildComboFollowupForTask(detectText);
-    } else if (looksLikeHybridCombo(goalForDetect)) {
-      followup = buildComboFollowupForTask(goalForDetect);
-    } else {
-      return { ok: true, skipped: true, reason: "not_combo" };
-    }
+    return { ok: true, skipped: true, reason: "not_combo" };
   }
 
   if (!followup?.steps?.length) {

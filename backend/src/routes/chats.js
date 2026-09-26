@@ -69,6 +69,7 @@ async function stampUserMessageJev(userMessage, jevMeta) {
 import {
   enrichComputerGoalForCombo,
   buildComboFollowupForTask,
+  resolveComboFollowupForQueue,
   resolvePendingComboFollowupFromMessages,
   executeApprovedComboFollowup,
   cancelPendingComboFollowup,
@@ -1071,6 +1072,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     let autoJevMeta = null;
     /** @type {string} */
     let autoTaskPlanId = "";
+    /** @type {object|null} */
+    let autoComboFollowup = null;
 
     // Why: peer fan-out must not look like “Starting this agent’s computer”.
     if (peerFanoutTargets?.length >= 1 && agentDoc?.name) {
@@ -1524,6 +1527,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             enabled: Boolean(agentDoc?.jev?.enabled),
           }) || null;
         autoTaskPlanId = String(turn.taskPlanId || "").trim();
+        if (turn.comboFollowup && typeof turn.comboFollowup === "object") {
+          autoComboFollowup = turn.comboFollowup;
+        }
         // Why: always show a short ack — model ack, or a clear default (never silent queue).
         autoAck =
           String(turn.ack || turn.content || "").trim() ||
@@ -2112,8 +2118,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
     // Why: strip CUA/Jev phrases from the worker goal so the LLM focuses on the site task.
     let workerGoalText =
       parseComputerUseFromText(goalText || content).cleanedGoal || goalText || content;
-    // Why: hybrid combo (browse/create then Notion/Slack/email) — capture results; apps run after.
-    const comboFollowup = buildComboFollowupForTask(content);
+    // Why: hybrid combo from Auto LLM/heuristic classify on the original bubble — never from rewritten goals.
+    const comboFollowup = resolveComboFollowupForQueue(content, {
+      followup: autoComboFollowup,
+    });
     workerGoalText = enrichComputerGoalForCombo(
       workerGoalText,
       content,
