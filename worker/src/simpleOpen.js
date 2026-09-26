@@ -56,7 +56,7 @@ export function goalHasExtraComputerWork(goal) {
   const g = String(goal || "").toLowerCase();
   if (!g) return true;
   return (
-    /\b(click|fill|type|submit|login|log\s*in|sign\s*in|sign\s*up|register|download|upload|scrape|extract|filter|search for|buy|book|checkout|message_agent|fan-?out|send (mail|email)|compose)\b/i.test(
+    /\b(click|fill|type|submit|login|log\s*in|sign\s*in|sign\s*up|register|create\s+(an?\s+)?account|download|upload|scrape|extract|filter|search for|buy|book|checkout|message_agent|fan-?out|send (mail|email)|compose)\b/i.test(
       g
     ) ||
     /\b(and then|then |after that|also |find (the |today'?s )?top|list (all|the)|compare|monitor)\b/i.test(

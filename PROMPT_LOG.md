@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-26 10:10] Fix: using jev never reached Ultrafast (mode dropped + simple_open)
+
+- **Prompt Provided:** User ran “open vughy.com … using jev” — only saw open success, no Jev · CLICK steps
+- **Architectural Flow:** chats.js computerUseMode ternary only handled cua/playwright → jev collapsed to auto. simple_open also matched “create an account”. Fix: prefer jev in mode merge; treat create-account as extra work; skip simple_open when mode=jev.
+- **Impacted Files:** chats.js, simpleOpen.js, agent.js, PROMPT_LOG
+
 ## [2026-09-26 09:55] Worker: Jev Ultrafast opt-in browser runner (Phases 1–4)
 
 - **Prompt Provided:** Integrate browser-use/jev-ultrafast; use agent settings API keys; implement phases one by one

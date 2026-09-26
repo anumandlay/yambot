@@ -2095,18 +2095,21 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       });
     }
 
-    // Why: Hermes Auto often rewrites the goal and drops “using cua” — detect mode from the
+    // Why: Hermes Auto often rewrites the goal and drops “using cua/jev” — detect mode from the
     // original user bubble (content) first, then the rewritten goalText.
     const cuFromUser = parseComputerUseFromText(content);
     const cuFromGoal = parseComputerUseFromText(goalText || "");
-    const computerUseMode = normalizeComputerUseMode(
-      cuFromUser.mode === "cua" || cuFromGoal.mode === "cua"
-        ? "cua"
-        : cuFromUser.mode === "playwright" || cuFromGoal.mode === "playwright"
-          ? "playwright"
-          : "auto"
-    );
-    // Why: strip CUA phrases from the worker goal so the LLM focuses on the site task.
+    /** Prefer explicit opt-ins: jev > cua > playwright > auto. */
+    let computerUseMode = "auto";
+    if (cuFromUser.mode === "jev" || cuFromGoal.mode === "jev") {
+      computerUseMode = "jev";
+    } else if (cuFromUser.mode === "cua" || cuFromGoal.mode === "cua") {
+      computerUseMode = "cua";
+    } else if (cuFromUser.mode === "playwright" || cuFromGoal.mode === "playwright") {
+      computerUseMode = "playwright";
+    }
+    computerUseMode = normalizeComputerUseMode(computerUseMode);
+    // Why: strip CUA/Jev phrases from the worker goal so the LLM focuses on the site task.
     let workerGoalText =
       parseComputerUseFromText(goalText || content).cleanedGoal || goalText || content;
     // Why: hybrid combo (browse/create then Notion/Slack/email) — capture results; apps run after.

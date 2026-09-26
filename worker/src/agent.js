@@ -1893,7 +1893,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       // Why: “open example.com” / “go to vughy.com” must not burn 5 LLM rounds (~3 min).
-      const simpleOpen = matchSimpleOpenGoal(goal);
+      // Skip when Jev Ultrafast was requested — that runner owns the full goal.
+      const cuModeEarly = normalizeComputerUseMode(task.computerUseMode || "auto");
+      const simpleOpen = cuModeEarly === "jev" ? null : matchSimpleOpenGoal(goal);
       if (simpleOpen?.url) {
         const target = simpleOpen.url;
         await mirror(taskId, "started", {
