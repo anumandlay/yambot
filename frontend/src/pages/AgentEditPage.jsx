@@ -127,6 +127,7 @@ const EMPTY = {
     enabled: false,
     apiKey: "",
     hasApiKey: false,
+    cases: [],
   },
   /**
    * Desktop engine is always Playwright Chromium (CUA removed from product UI).
@@ -382,6 +383,7 @@ export function AgentEditPage() {
               enabled: Boolean(a.jev?.enabled),
               apiKey: "",
               hasApiKey: Boolean(a.jev?.hasApiKey),
+              cases: Array.isArray(a.jev?.cases) ? a.jev.cases : [],
             },
             computerEngine: "playwright",
           });
@@ -556,6 +558,36 @@ export function AgentEditPage() {
       ...prev,
       jev: { ...prev.jev, [key]: value },
     }));
+  }
+
+  /**
+   * Remove one learned Jev case from the agent (does not require Save).
+   * @param {string} caseId
+   */
+  async function deleteJevCase(caseId) {
+    if (isNew || !agentId || !caseId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api(`/api/agents/${agentId}/jev/cases/${encodeURIComponent(caseId)}`, {
+        method: "DELETE",
+      });
+      setForm((prev) => ({
+        ...prev,
+        jev: {
+          ...prev.jev,
+          cases: Array.isArray(data?.agent?.jev?.cases) ? data.agent.jev.cases : [],
+          enabled: Boolean(data?.agent?.jev?.enabled ?? prev.jev?.enabled),
+          hasApiKey: Boolean(data?.agent?.jev?.hasApiKey ?? prev.jev?.hasApiKey),
+          apiKey: "",
+        },
+      }));
+      setOkMsg("Learned case removed");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
   }
 
   /**
@@ -1017,6 +1049,7 @@ export function AgentEditPage() {
                 enabled: Boolean(data.agent.jev.enabled),
                 apiKey: "",
                 hasApiKey: Boolean(data.agent.jev.hasApiKey),
+                cases: Array.isArray(data.agent.jev.cases) ? data.agent.jev.cases : [],
               }
             : prev.jev,
         }));
@@ -2366,8 +2399,8 @@ export function AgentEditPage() {
           </SectionTitle>
           <p className="text-xs text-teal-900/70">
             Optional. When enabled, Auto asks Jev (via Vercel AI Gateway) to pick reply, live computer,
-            or Composio before the chat LLM. Uncertain or missing key falls back to the normal LLM
-            router. Paste a Gateway API key from vercel.com / AI Gateway.
+            or Composio before the chat LLM. Every Auto turn also stores a learned case from the final
+            outcome so similar questions get better next time.
           </p>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
@@ -2393,6 +2426,84 @@ export function AgentEditPage() {
               disabled={!form.jev?.enabled}
             />
           </div>
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-white/70 p-3 sm:p-4">
+          <SectionTitle helpId="agent.jev.cases" as="div" className="text-sm font-semibold text-violet-950">
+            Learned cases ({Array.isArray(form.jev?.cases) ? form.jev.cases.length : 0})
+          </SectionTitle>
+          <p className="text-xs text-teal-900/70">
+            Stored from each Auto turn’s final outcome (reply / computer / Composio). These are sent to
+            Jev on later turns as <code className="rounded bg-violet-50 px-1">learned_cases</code>.
+            Newest kept (max 80). Save is not required to delete.
+          </p>
+          {isNew ? (
+            <p className="text-xs text-teal-900/60">Save the agent first — cases appear after Auto chats.</p>
+          ) : !Array.isArray(form.jev?.cases) || form.jev.cases.length === 0 ? (
+            <p className="text-xs text-teal-900/60">
+              No cases yet. Enable Jev and send Auto messages — each finished turn adds one.
+            </p>
+          ) : (
+            <ul className="flex max-h-[28rem] flex-col gap-2 overflow-y-auto">
+              {[...form.jev.cases]
+                .slice()
+                .reverse()
+                .map((c) => {
+                  const outcome = String(c.outcome || "");
+                  const label =
+                    outcome === "queue_goal"
+                      ? "computer"
+                      : outcome === "composio"
+                        ? "composio"
+                        : outcome === "reply"
+                          ? "reply"
+                          : outcome || "?";
+                  const when = c.at ? new Date(c.at) : null;
+                  return (
+                    <li
+                      key={c.id || `${c.userMessage}-${c.at}`}
+                      className="rounded-xl border border-violet-100 bg-violet-50/40 px-3 py-2.5"
+                    >
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="mb-1 flex flex-wrap items-center gap-1.5 text-[0.7rem]">
+                            <span className="rounded-full border border-violet-200 bg-white px-2 py-0.5 font-semibold text-violet-900">
+                              {label}
+                            </span>
+                            {c.jevGuess && c.jevGuess !== outcome ? (
+                              <span className="text-amber-800/80">
+                                Jev guessed {c.jevGuess === "queue_goal" ? "computer" : c.jevGuess}
+                              </span>
+                            ) : null}
+                            {when && !Number.isNaN(when.getTime()) ? (
+                              <span className="tabular-nums text-teal-900/50">
+                                {when.toLocaleString()}
+                              </span>
+                            ) : null}
+                          </div>
+                          <p className="whitespace-pre-wrap break-words text-sm text-teal-950">
+                            {String(c.userMessage || "")}
+                          </p>
+                          {c.reason ? (
+                            <p className="mt-1 truncate text-[0.65rem] text-teal-900/55">
+                              reason={String(c.reason)}
+                            </p>
+                          ) : null}
+                        </div>
+                        <button
+                          type="button"
+                          disabled={busy || !c.id}
+                          onClick={() => void deleteJevCase(String(c.id))}
+                          className="shrink-0 rounded-lg border border-red-200 bg-white px-2 py-1 text-[0.65rem] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    </li>
+                  );
+                })}
+            </ul>
+          )}
         </fieldset>
         </div>
         ) : null}

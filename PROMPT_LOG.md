@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 21:25] Jev: learn cases from every Auto outcome + settings list
+
+- **Prompt Provided:** For every turn; final outcome; show cases in Agent Jev settings
+- **Architectural Flow:** `agent.jev.cases[]` stores userMessage + outcome (reply/queue_goal/composio) after each Auto turn when Jev enabled. Cases injected as `learned_cases` into evaluate. Agent Edit → Jev lists cases with delete. Form save preserves cases.
+- **Impacted Files:** Agent.js, jevEvaluate.js, chats.js, agents.js, AgentEditPage.jsx, helpContent.js, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-25 21:10] Chat: fix stuck 8% progress + Jev modal
 
 - **Prompt Provided:** why progress stuck at 8%; open J pop in a modal

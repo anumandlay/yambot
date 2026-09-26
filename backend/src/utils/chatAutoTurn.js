@@ -2795,6 +2795,8 @@ export async function runChatAutoTurn(opts) {
       enabled: true,
       apiKey: jevApiKey,
       jevMode,
+      // Why: learned final outcomes from prior turns bias similar asks.
+      cases: Array.isArray(runtime?.jevCases) ? runtime.jevCases : [],
     });
     if (jevDecision.action === "queue_goal") {
       track.setPath("jev_queue");

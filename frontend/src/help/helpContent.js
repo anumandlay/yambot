@@ -747,6 +747,13 @@ export const HELP = {
       "Get a key from the Vercel AI Gateway dashboard. Not the same as your LLM provider key."
     ),
   },
+  "agent.jev.cases": {
+    title: "Learned Jev cases",
+    body: helpBody(
+      "Each Auto turn stores the user message plus the final outcome (reply, computer, or Composio).",
+      "Those examples are sent to Jev on later turns as learned_cases so similar questions route better. Delete any bad example here."
+    ),
+  },
   "agent.llm.useCustom": {
     title: "Per-agent LLM",
     body: helpBody(

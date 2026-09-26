@@ -27,7 +27,7 @@ import {
   composioListCatalog,
   COMPOSIO_DEFAULT_TOOLKITS,
 } from "../utils/composioService.js";
-import { publicJevSummary } from "../utils/jevEvaluate.js";
+import { publicJevSummary, deleteJevLearningCase } from "../utils/jevEvaluate.js";
 import { computeAgentReadiness } from "../utils/agentReadiness.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
@@ -1548,6 +1548,8 @@ agentsRouter.put("/:id", async (req, res, next) => {
       if (!fields.jev.apiKeyEnc) {
         fields.jev.apiKeyEnc = agent.jev?.apiKeyEnc || "";
       }
+      // Why: learned cases are written by Auto turns / delete endpoint — never wipe from the edit form.
+      fields.jev.cases = Array.isArray(agent.jev?.cases) ? agent.jev.cases : [];
       agent.set("jev", fields.jev);
       agent.markModified("jev");
       delete fields.jev;
@@ -1561,6 +1563,31 @@ agentsRouter.put("/:id", async (req, res, next) => {
     if (wantsCloudComputer(agent)) ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
     await agent.save();
+    res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/jev/cases/:caseId — remove one learned Jev example.
+ */
+agentsRouter.delete("/:id/jev/cases/:caseId", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent not found." });
+      return;
+    }
+    const removed = await deleteJevLearningCase(agent, req.params.caseId);
+    if (!removed) {
+      res.status(404).json({
+        ok: false,
+        title: "Case not found",
+        detail: "That learned example was already removed.",
+      });
+      return;
+    }
     res.json({ ok: true, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
@@ -2593,6 +2620,15 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       jev: {
         enabled: Boolean(src.jev?.enabled),
         apiKeyEnc: src.jev?.apiKeyEnc || "",
+        cases: Array.isArray(src.jev?.cases)
+          ? src.jev.cases.map((c) => ({
+              userMessage: c.userMessage || "",
+              outcome: c.outcome || "reply",
+              reason: c.reason || "",
+              jevGuess: c.jevGuess || "",
+              at: c.at || new Date(),
+            }))
+          : [],
       },
       schedule: {
         enabled: scheduleEnabled,

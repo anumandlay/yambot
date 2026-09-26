@@ -13,20 +13,168 @@ const DEFAULT_MODEL = "typesafe-ai/jev";
 /** Why: below this, let the Auto LLM own the decision (uncertain Jev). */
 export const JEV_CONFIDENT_MIN = 0.72;
 
+/** Cap learned examples stored per agent (oldest dropped). */
+export const JEV_MAX_CASES = 80;
+/** Cap user text stored on each learned case. */
+export const JEV_CASE_MESSAGE_MAX = 500;
+export const JEV_CASE_OUTCOMES = ["reply", "queue_goal", "composio"];
+
 /**
- * Public redacted Jev settings for agent GET responses.
+ * Public redacted Jev settings for agent GET responses (includes learned cases).
  * @param {object} agent
- * @returns {{ enabled: boolean, hasApiKey: boolean, apiKeyMasked: string, configured: boolean }}
+ * @returns {object}
  */
 export function publicJevSummary(agent) {
   const j = agent?.jev || {};
   const hasApiKey = Boolean(j.apiKeyEnc);
+  const cases = (Array.isArray(j.cases) ? j.cases : [])
+    .map((c) => ({
+      id: c._id ? String(c._id) : "",
+      userMessage: String(c.userMessage || "").slice(0, JEV_CASE_MESSAGE_MAX),
+      outcome: String(c.outcome || ""),
+      reason: String(c.reason || "").slice(0, 120),
+      jevGuess: String(c.jevGuess || "").slice(0, 32),
+      at: c.at || null,
+    }))
+    .filter((c) => c.userMessage && JEV_CASE_OUTCOMES.includes(c.outcome));
   return {
     enabled: Boolean(j.enabled),
     hasApiKey,
     apiKeyMasked: hasApiKey ? "••••••••" : "",
     configured: Boolean(j.enabled && hasApiKey),
+    cases,
+    caseCount: cases.length,
   };
+}
+
+/**
+ * Map a finished Auto turn to the Jev outcome label we want to learn.
+ * Why: final path wins (Composio tools / computer queue / chat reply), not Jev’s guess.
+ * @param {object|null|undefined} turn
+ * @returns {"reply"|"queue_goal"|"composio"}
+ */
+export function outcomeFromAutoTurn(turn) {
+  if (!turn || typeof turn !== "object") return "reply";
+  if (turn.action === "queue_goal" || turn.action === "goal" || turn.action === "run") {
+    return "queue_goal";
+  }
+  const reason = String(turn.reason || "");
+  const path = String(turn.timing?.path || "");
+  const lookups = Array.isArray(turn.timing?.lookups) ? turn.timing.lookups : [];
+  if (
+    lookups.some((l) => /composio/i.test(String(l))) ||
+    /composio/i.test(reason) ||
+    /composio/i.test(path)
+  ) {
+    return "composio";
+  }
+  return "reply";
+}
+
+/**
+ * Normalize user text for case dedupe.
+ * @param {string} text
+ * @returns {string}
+ */
+function normalizeJevCaseKey(text) {
+  return String(text || "")
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .slice(0, JEV_CASE_MESSAGE_MAX);
+}
+
+/**
+ * Append one learned case from a finished Auto turn (when Jev is enabled on the agent).
+ * @param {object} agent — mongoose Agent doc
+ * @param {{
+ *   userText: string,
+ *   outcome?: string,
+ *   turn?: object,
+ *   reason?: string,
+ *   jevGuess?: string,
+ * }} opts
+ * @returns {Promise<object|null>} public case or null if skipped
+ */
+export async function appendJevLearningCase(agent, opts = {}) {
+  if (!agent || !agent.jev?.enabled) return null;
+  const userMessage = String(opts.userText || "").trim().slice(0, JEV_CASE_MESSAGE_MAX);
+  if (!userMessage) return null;
+  const outcome = JEV_CASE_OUTCOMES.includes(String(opts.outcome || ""))
+    ? String(opts.outcome)
+    : outcomeFromAutoTurn(opts.turn);
+  if (!JEV_CASE_OUTCOMES.includes(outcome)) return null;
+  const reason = String(opts.reason || opts.turn?.reason || "").trim().slice(0, 120);
+  const jevGuess = String(
+    opts.jevGuess || opts.turn?.jev?.action || opts.turn?.jev?.choice || ""
+  )
+    .trim()
+    .slice(0, 32);
+
+  agent.jev = agent.jev || {};
+  if (!Array.isArray(agent.jev.cases)) agent.jev.cases = [];
+  const key = normalizeJevCaseKey(userMessage);
+  const existing = agent.jev.cases.find(
+    (c) =>
+      normalizeJevCaseKey(c.userMessage) === key && String(c.outcome || "") === outcome
+  );
+  if (existing) {
+    // Why: same question + same outcome — refresh timestamp / reason, don’t grow duplicates.
+    existing.at = new Date();
+    if (reason) existing.reason = reason;
+    if (jevGuess) existing.jevGuess = jevGuess;
+    agent.markModified("jev");
+    await agent.save();
+    return {
+      id: existing._id ? String(existing._id) : "",
+      userMessage: existing.userMessage,
+      outcome: existing.outcome,
+      reason: existing.reason,
+      jevGuess: existing.jevGuess,
+      at: existing.at,
+    };
+  }
+
+  agent.jev.cases.push({
+    userMessage,
+    outcome,
+    reason,
+    jevGuess,
+    at: new Date(),
+  });
+  // Why: keep the newest N examples so evaluate state stays small.
+  if (agent.jev.cases.length > JEV_MAX_CASES) {
+    agent.jev.cases = agent.jev.cases.slice(-JEV_MAX_CASES);
+  }
+  agent.markModified("jev");
+  await agent.save();
+  const last = agent.jev.cases[agent.jev.cases.length - 1];
+  return {
+    id: last?._id ? String(last._id) : "",
+    userMessage: last?.userMessage || userMessage,
+    outcome,
+    reason,
+    jevGuess,
+    at: last?.at || new Date(),
+  };
+}
+
+/**
+ * Remove one learned case by id.
+ * @param {object} agent
+ * @param {string} caseId
+ * @returns {Promise<boolean>}
+ */
+export async function deleteJevLearningCase(agent, caseId) {
+  const id = String(caseId || "").trim();
+  if (!agent || !id) return false;
+  const before = Array.isArray(agent.jev?.cases) ? agent.jev.cases.length : 0;
+  if (!before) return false;
+  agent.jev.cases = agent.jev.cases.filter((c) => String(c._id || "") !== id);
+  if (agent.jev.cases.length === before) return false;
+  agent.markModified("jev");
+  await agent.save();
+  return true;
 }
 
 /**
@@ -178,34 +326,55 @@ function redactJevAnswerRaw(ans) {
 /**
  * Shared evaluate payload shape for Auto routing (also stored on message meta for the Jev peek).
  * @param {string} userMessage
+ * @param {{ cases?: object[] }} [opts]
  * @returns {{
  *   state: object,
  *   questions: Record<string, object>,
  * }}
  */
-export function buildJevAutoEvaluatePayload(userMessage) {
+export function buildJevAutoEvaluatePayload(userMessage, opts = {}) {
   const body = String(userMessage || "").trim().slice(0, 4000);
+  const cases = (Array.isArray(opts.cases) ? opts.cases : [])
+    .map((c) => ({
+      user_message: String(c.userMessage || c.user_message || "")
+        .trim()
+        .slice(0, JEV_CASE_MESSAGE_MAX),
+      correct_action: String(c.outcome || c.correct_action || "").trim(),
+    }))
+    .filter((c) => c.user_message && JEV_CASE_OUTCOMES.includes(c.correct_action))
+    .slice(-40);
+
+  /** @type {string[]} */
+  const rules = [
+    "reply = answer in chat only (no Chromium, no peer fan-out, no Composio execute this turn)",
+    "queue_goal = start live computer / Chromium or message peers NOW",
+    "composio = connected-app API tools (Gmail, Sheets, Slack, Drive, Notion, GitHub, etc.) — NOT the browser",
+    "Past-work questions (did we open X today?) = reply",
+    "Memory/preference store with URLs = reply",
+    "Capability questions (can you open websites?) = reply until they name a concrete live job",
+    "Imperative open/go to/visit/click/fill/log in NOW on a website = queue_goal",
+    "Search inbox, send email via Gmail, list spreadsheets, Slack message, etc. = composio",
+  ];
+  if (cases.length) {
+    rules.push(
+      "learned_cases lists prior user messages with the correct_action that actually ran — when the new user_message is similar, prefer that correct_action"
+    );
+  }
+
   return {
     state: {
       product: "YamBot",
       role: "YamBot Auto router",
       user_message: body,
-      rules: [
-        "reply = answer in chat only (no Chromium, no peer fan-out, no Composio execute this turn)",
-        "queue_goal = start live computer / Chromium or message peers NOW",
-        "composio = connected-app API tools (Gmail, Sheets, Slack, Drive, Notion, GitHub, etc.) — NOT the browser",
-        "Past-work questions (did we open X today?) = reply",
-        "Memory/preference store with URLs = reply",
-        "Capability questions (can you open websites?) = reply until they name a concrete live job",
-        "Imperative open/go to/visit/click/fill/log in NOW on a website = queue_goal",
-        "Search inbox, send email via Gmail, list spreadsheets, Slack message, etc. = composio",
-      ],
+      rules,
+      ...(cases.length ? { learned_cases: cases } : {}),
     },
     questions: {
       action: {
         type: "choice",
-        instructions:
-          "Should YamBot answer in chat (reply), start a live computer / peer task (queue_goal), or use connected-app API tools (composio)?",
+        instructions: cases.length
+          ? "Should YamBot answer in chat (reply), start a live computer / peer task (queue_goal), or use connected-app API tools (composio)? Prefer matching learned_cases when the user_message is similar."
+          : "Should YamBot answer in chat (reply), start a live computer / peer task (queue_goal), or use connected-app API tools (composio)?",
         criteria: {
           reply:
             "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy. Naming a domain in a question is not enough for queue_goal.",
@@ -226,6 +395,7 @@ export function buildJevAutoEvaluatePayload(userMessage) {
  *   enabled?: boolean,
  *   apiKey?: string,
  *   jevMode?: "auto"|"on"|"off",
+ *   cases?: object[],
  * }} [opts]
  * @returns {Promise<{
  *   ok: boolean,
@@ -268,7 +438,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
     };
   }
 
-  const payload = buildJevAutoEvaluatePayload(body);
+  const payload = buildJevAutoEvaluatePayload(body, { cases: opts.cases });
 
   try {
     const result = await jevEvaluate({

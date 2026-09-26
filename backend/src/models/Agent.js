@@ -368,11 +368,28 @@ const agentSchema = new mongoose.Schema(
     /**
      * Optional Jev (TypeSafe / Vercel AI Gateway) Auto router for this agent.
      * When enabled + key set: confident reply / queue_goal / composio before the chat LLM.
+     * `cases` = learned examples from final Auto outcomes (fed back into evaluate).
      */
     jev: {
       enabled: { type: Boolean, default: false },
       /** Vercel AI Gateway API key (encrypted). Used as Bearer for evaluate. */
       apiKeyEnc: { type: String, default: "" },
+      cases: [
+        {
+          userMessage: { type: String, default: "", trim: true },
+          /** Final Auto outcome that actually ran. */
+          outcome: {
+            type: String,
+            enum: ["reply", "queue_goal", "composio"],
+            required: true,
+          },
+          /** Turn reason / path label for operators. */
+          reason: { type: String, default: "", trim: true },
+          /** What Jev guessed that turn (may differ from outcome). */
+          jevGuess: { type: String, default: "", trim: true },
+          at: { type: Date, default: Date.now },
+        },
+      ],
     },
     /**
      * Execution target — always cloud (kept for legacy task snapshots).

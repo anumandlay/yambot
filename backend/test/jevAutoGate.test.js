@@ -11,6 +11,7 @@ import {
   isJevEnabled,
   publicJevSummary,
   summarizeJevForChatMeta,
+  outcomeFromAutoTurn,
 } from "../src/utils/jevEvaluate.js";
 
 describe("Auto classifier hint (optional Jev)", () => {
@@ -96,5 +97,18 @@ describe("Auto classifier hint (optional Jev)", () => {
     );
     assert.equal(unsure?.used, true);
     assert.equal(unsure?.decided, false);
+  });
+
+  it("outcomeFromAutoTurn uses final path not Jev guess", () => {
+    assert.equal(outcomeFromAutoTurn({ action: "queue_goal" }), "queue_goal");
+    assert.equal(
+      outcomeFromAutoTurn({
+        action: "reply",
+        reason: "composio_list_direct",
+        timing: { lookups: ["composio_list"] },
+      }),
+      "composio"
+    );
+    assert.equal(outcomeFromAutoTurn({ action: "reply", reason: "jev_confident_reply" }), "reply");
   });
 });

@@ -87,7 +87,7 @@ import {
   expandComposioToolkitSlugs,
   normalizeToolkitSlug,
 } from "../utils/composioService.js";
-import { decryptAgentJevApiKey, summarizeJevForChatMeta } from "../utils/jevEvaluate.js";
+import { decryptAgentJevApiKey, summarizeJevForChatMeta, appendJevLearningCase } from "../utils/jevEvaluate.js";
 import {
   refreshChatContextIfNeeded,
 } from "../utils/chatContext.js";
@@ -1438,6 +1438,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             // Why: optional per-agent Jev router (reply / computer / Composio).
             jevEnabled: Boolean(agentDoc?.jev?.enabled),
             jevApiKey: decryptAgentJevApiKey(agentDoc),
+            jevCases: Array.isArray(agentDoc?.jev?.cases) ? agentDoc.jev.cases : [],
             composioToolkitSlugs: expandComposioToolkitSlugs(
               Array.isArray(agentDoc?.composio?.toolkitSlugs)
                 ? agentDoc.composio.toolkitSlugs
@@ -1460,6 +1461,15 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             },
           },
         });
+        // Why: every Auto turn teaches Jev — store final outcome as a learned case.
+        try {
+          await appendJevLearningCase(agentDoc, {
+            userText: questionText,
+            turn,
+          });
+        } catch (learnErr) {
+          console.warn("[chats] jev case learn failed:", learnErr?.message || learnErr);
+        }
         // Why: Drive↔Sheets expansion — persist googlesheets on the agent so Connect UI shows it.
         try {
           const before = Array.isArray(agentDoc?.composio?.toolkitSlugs)
