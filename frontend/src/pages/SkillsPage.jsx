@@ -173,6 +173,11 @@ export function SkillsPage() {
                 Learned
               </span>
             ) : null}
+            {s.status === "draft" ? (
+              <span className="ml-2 rounded-md bg-amber-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-amber-950">
+                Draft
+              </span>
+            ) : null}
             {s.status === "production" ? (
               <span className="ml-2 rounded-md bg-emerald-100 px-1.5 py-0.5 text-[0.65rem] font-bold uppercase tracking-wide text-emerald-900">
                 Live
@@ -192,6 +197,9 @@ export function SkillsPage() {
             {s.steps?.length || 0} steps
             {s.triggers?.length ? ` · ${s.triggers.length} trigger(s)` : ""}
             {s.stats?.runs ? ` · used ${s.stats.runs}×` : ""}
+            {s.stats?.selected ? ` · selected ${s.stats.selected}×` : ""}
+            {s.stats?.loaded ? ` · viewed ${s.stats.loaded}×` : ""}
+            {s.stats?.helped ? ` · helped ${s.stats.helped}×` : ""}
             {agentName ? ` · ${agentName}` : ""}
           </div>
           {s.workflowKey ? (
@@ -275,8 +283,9 @@ export function SkillsPage() {
           <h1 className="text-xl font-bold tracking-tight sm:text-2xl">Skills</h1>
           <p className="text-sm text-teal-900/70">
             Skills come from <strong>Teach skill</strong>, <strong>New skill</strong>, or automatic{" "}
-            <strong>Learned</strong> skills after successful runs. Promote drafts to{" "}
-            <strong>production</strong> when ready; demote junk so it stops matching.
+            <strong>Learned</strong> drafts after successful runs. Promote drafts to{" "}
+            <strong>production</strong> so workers can match them (slash, high-confidence trigger, or{" "}
+            <code className="text-xs">skill_view</code>); demote junk so it stops matching.
           </p>
         </div>
         <Link

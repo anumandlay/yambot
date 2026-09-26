@@ -69,10 +69,25 @@ const skillSchema = new mongoose.Schema(
      * Format: `domain|sorted-significant-tokens`
      */
     workflowKey: { type: String, default: "", trim: true, index: true },
+    /**
+     * When set, this skill is superseded — worker catalog prefers the replacement.
+     * Set when deprecating duplicates after learn/promote.
+     */
+    replacementSkill: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Skill",
+      default: null,
+    },
     stats: {
       runs: { type: Number, default: 0 },
       successes: { type: Number, default: 0 },
       failures: { type: Number, default: 0 },
+      /** Progressive disclosure: auto/slash bind count. */
+      selected: { type: Number, default: 0 },
+      /** skill_view / explicit hydrate count. */
+      loaded: { type: Number, default: 0 },
+      /** Successful finishes while this skill was active. */
+      helped: { type: Number, default: 0 },
     },
   },
   { timestamps: true }

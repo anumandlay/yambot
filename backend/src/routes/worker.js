@@ -1782,11 +1782,13 @@ workerRouter.get("/skills", async (req, res, next) => {
       filter.$or = [{ agent: agentId }, { agent: null }];
     }
     const skills = await Skill.find(filter)
-      .select("name description triggers slug status agent executionMode workflowKey")
+      .select("name description triggers slug status agent executionMode workflowKey replacementSkill")
       .sort({ updatedAt: -1 })
-      .limit(30)
+      .limit(40)
       .lean();
-    res.json({ ok: true, skills });
+    // Why: prefer replacement when a skill was deprecated in favor of another.
+    const catalog = skills.filter((s) => !s.replacementSkill);
+    res.json({ ok: true, skills: catalog.length ? catalog : skills });
   } catch (err) {
     next(err);
   }
@@ -1803,7 +1805,7 @@ workerRouter.get("/skills/:skillId", async (req, res, next) => {
       status: "production",
     })
       .select(
-        "name description triggers steps verificationRules status agent executionMode enforceVerification slug playbookMd workflowKey"
+        "name description triggers steps verificationRules status agent executionMode enforceVerification slug playbookMd workflowKey replacementSkill"
       )
       .lean();
     if (!skill) {
@@ -1811,6 +1813,46 @@ workerRouter.get("/skills/:skillId", async (req, res, next) => {
       return;
     }
     res.json({ ok: true, skill });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/skills/:skillId/stats — bump progressive-skill usage counters.
+ * Body: { event: "selected"|"loaded"|"helped" }
+ */
+workerRouter.post("/skills/:skillId/stats", async (req, res, next) => {
+  try {
+    const event = String(req.body?.event || "").trim().toLowerCase();
+    const field =
+      event === "selected"
+        ? "stats.selected"
+        : event === "loaded"
+          ? "stats.loaded"
+          : event === "helped"
+            ? "stats.helped"
+            : "";
+    if (!field) {
+      res.status(400).json({ ok: false, detail: "event must be selected|loaded|helped" });
+      return;
+    }
+    const updated = await Skill.findOneAndUpdate(
+      {
+        _id: req.params.skillId,
+        user: req.userId,
+        status: { $in: ["production", "draft"] },
+      },
+      { $inc: { [field]: 1, "stats.runs": event === "selected" || event === "loaded" ? 1 : 0 } },
+      { new: true }
+    )
+      .select("stats name slug")
+      .lean();
+    if (!updated) {
+      res.status(404).json({ ok: false, detail: "Skill missing" });
+      return;
+    }
+    res.json({ ok: true, stats: updated.stats });
   } catch (err) {
     next(err);
   }

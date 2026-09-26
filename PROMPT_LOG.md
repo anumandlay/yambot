@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-26 11:45] Progressive skills Phases 1–4 (catalog + skill_view)
+
+- **Prompt Provided:** Implement progressive skills 1,2,3,4 one by one
+- **Architectural Flow:** Worker shows compact catalog; auto-binds only slash or score≥4; `skills_list`/`skill_view` actions hydrate mid-run. Auto gains same tools for Mongo Skills. Auto-learn creates/updates as **draft** (Promote in Skills). Stats: selected/loaded/helped. Caps on playbook/catalog; `replacementSkill` on deprecate; intent conflicts unchanged (no embeddings yet).
+- **Impacted Files:** worker skills.js/actions.js/agent.js, worker.js stats route, Skill.js, skillWorkflowLearn.js, chatAutoTurn.js, SkillsPage.jsx, skillsMatch.test.js, PROMPT_LOG
+
 ## [2026-09-26 11:10] Combo: LLM intent classify + no post-complete re-detect
 
 - **Prompt Provided:** Implement LLM combo intent plan (vs regex)

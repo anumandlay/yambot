@@ -81,6 +81,10 @@ export {
   normalizeSkillSteps,
   skillIntentConflicts,
   skillIntentFlags,
+  isHighConfidenceSkillScore,
+  HIGH_CONFIDENCE_SKILL_SCORE,
+  SKILL_PLAYBOOK_PROMPT_MAX,
+  SKILL_CATALOG_MAX,
   SKILL_TEMPLATES,
 } from "./skills.js";
 export {

@@ -463,6 +463,45 @@ export function detectDbSkill(skills, goal, url = "") {
 }
 
 /**
+ * Lightweight SKILL.md section extraction for worker prompts.
+ * @param {string} md
+ * @returns {string}
+ */
+function parsePlaybookSections(md) {
+  const raw = String(md || "").trim();
+  if (!raw) return "";
+  const chunks = [];
+  const when = raw.match(/#\s*when to use[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  const proc = raw.match(/#\s*procedure[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  const pitfalls = raw.match(/#\s*pitfall[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  const verify = raw.match(/#\s*verif[\s\S]*?(?=\n#\s|\n##\s|$)/i);
+  if (when) chunks.push(when[0].trim());
+  if (proc) chunks.push(proc[0].trim());
+  if (pitfalls) chunks.push(pitfalls[0].trim());
+  if (verify) chunks.push(verify[0].trim());
+  if (!chunks.length) return raw.slice(0, 2000);
+  return chunks.join("\n\n");
+}
+
+/** Minimum match score to auto-bind a skill without skill_view (slash always binds). */
+export const HIGH_CONFIDENCE_SKILL_SCORE = 4;
+
+/** Cap playbook chars injected into the worker prompt. */
+export const SKILL_PLAYBOOK_PROMPT_MAX = 4000;
+
+/** Cap catalog lines in the system prompt. */
+export const SKILL_CATALOG_MAX = 24;
+
+/**
+ * True when a match is confident enough to eager-load the full playbook.
+ * @param {number} score
+ * @returns {boolean}
+ */
+export function isHighConfidenceSkillScore(score) {
+  return Number(score) >= HIGH_CONFIDENCE_SKILL_SCORE;
+}
+
+/**
  * @param {object|null} skill
  * @returns {string}
  */
@@ -489,7 +528,12 @@ export function formatDbSkillBlock(skill) {
     lines.push("Execution: deterministic replay of stored demo actions before the agent loop.");
   }
   if (skill.playbookMd) {
-    lines.push(parsePlaybookSections(skill.playbookMd));
+    const pb = parsePlaybookSections(skill.playbookMd);
+    lines.push(
+      pb.length > SKILL_PLAYBOOK_PROMPT_MAX
+        ? `${pb.slice(0, SKILL_PLAYBOOK_PROMPT_MAX)}\n…(playbook truncated; follow Suggested flow)`
+        : pb
+    );
   }
   if (skill.verificationRules?.length) {
     lines.push("Verify:");
@@ -499,40 +543,28 @@ export function formatDbSkillBlock(skill) {
 }
 
 /**
- * Lightweight SKILL.md section extraction for worker prompts.
- * @param {string} md
- * @returns {string}
- */
-function parsePlaybookSections(md) {
-  const raw = String(md || "").trim();
-  if (!raw) return "";
-  const chunks = [];
-  const when = raw.match(/#\s*when to use[\s\S]*?(?=\n#\s|\n##\s|$)/i);
-  const proc = raw.match(/#\s*procedure[\s\S]*?(?=\n#\s|\n##\s|$)/i);
-  const pitfalls = raw.match(/#\s*pitfall[\s\S]*?(?=\n#\s|\n##\s|$)/i);
-  const verify = raw.match(/#\s*verif[\s\S]*?(?=\n#\s|\n##\s|$)/i);
-  if (when) chunks.push(when[0].trim());
-  if (proc) chunks.push(proc[0].trim());
-  if (pitfalls) chunks.push(pitfalls[0].trim());
-  if (verify) chunks.push(verify[0].trim());
-  if (!chunks.length) return raw.slice(0, 2000);
-  return chunks.join("\n\n");
-}
-
-/**
- * Progressive disclosure — skill names/slugs only until one is matched or invoked.
+ * Progressive disclosure — skill names/descriptions only until slash, high-score match, or skill_view.
  * @param {object[]} skills
  * @returns {string}
  */
 export function formatSkillsCatalogBlock(skills) {
   if (!skills?.length) return "";
   const lines = [
-    "AVAILABLE PRODUCTION SKILLS (user may invoke with /slug in chat):",
+    "AVAILABLE PRODUCTION SKILLS (progressive — do not invent procedures):",
+    "- Call skills_list to refresh this catalog.",
+    "- Call skill_view with slug or id to load the full playbook into this run.",
+    "- Slash /slug in chat also binds a skill for the whole run.",
   ];
-  for (const skill of skills) {
+  const capped = skills.slice(0, SKILL_CATALOG_MAX);
+  for (const skill of capped) {
     const slug = skill.slug || skill.name;
-    const desc = skill.description ? ` — ${String(skill.description).slice(0, 80)}` : "";
-    lines.push(`- /${slug}: ${skill.name}${desc}`);
+    const desc = skill.description
+      ? ` — ${String(skill.description).slice(0, 100)}`
+      : "";
+    lines.push(`- /${slug} (id:${String(skill._id || skill.id || "").slice(-6)}): ${skill.name}${desc}`);
+  }
+  if (skills.length > capped.length) {
+    lines.push(`…and ${skills.length - capped.length} more (use skills_list).`);
   }
   return lines.join("\n");
 }

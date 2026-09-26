@@ -8,6 +8,11 @@ import assert from "node:assert/strict";
 import {
   detectDbSkillMatch,
   skillIntentConflicts,
+  isHighConfidenceSkillScore,
+  formatSkillsCatalogBlock,
+  formatDbSkillBlock,
+  HIGH_CONFIDENCE_SKILL_SCORE,
+  SKILL_PLAYBOOK_PROMPT_MAX,
 } from "../src/browserState/skills.js";
 import {
   isCuaPermissionAsk,
@@ -81,6 +86,35 @@ describe("detectDbSkillMatch", () => {
     );
     assert.ok(hit);
     assert.equal(hit.skill._id, "trial");
+  });
+
+  it("register goal scores high enough for progressive auto-bind", () => {
+    const hit = detectDbSkillMatch(
+      [trialSkill, registerSkill],
+      "open vughy.com and register as a travel agency",
+      "https://vughy.com/"
+    );
+    assert.ok(hit);
+    assert.equal(isHighConfidenceSkillScore(hit.score), true);
+    assert.ok(hit.score >= HIGH_CONFIDENCE_SKILL_SCORE);
+  });
+});
+
+describe("progressive skill catalog", () => {
+  it("formatSkillsCatalogBlock mentions skill_view", () => {
+    const block = formatSkillsCatalogBlock([registerSkill]);
+    assert.match(block, /skill_view/);
+    assert.match(block, /vughy-register|open-vughy-register/);
+  });
+
+  it("formatDbSkillBlock truncates huge playbooks", () => {
+    const huge = `# When to use\n${"x".repeat(SKILL_PLAYBOOK_PROMPT_MAX + 500)}\n`;
+    const block = formatDbSkillBlock({
+      ...registerSkill,
+      playbookMd: huge,
+    });
+    assert.match(block, /truncated|ACTIVE SKILL/);
+    assert.ok(block.length < SKILL_PLAYBOOK_PROMPT_MAX + 800);
   });
 });
 

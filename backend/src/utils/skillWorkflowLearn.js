@@ -289,6 +289,7 @@ export async function deprecateDuplicateLearnedSkills(opts) {
     const shared = sharedTriggerCount(triggers, s.triggers || []);
     if (jac >= 0.45 || shared >= 2) {
       s.status = "deprecated";
+      s.replacementSkill = keepId;
       await s.save();
       n += 1;
     }
@@ -604,7 +605,8 @@ export async function learnSkillFromSuccessfulRun(opts) {
       slug,
       description: `Learned from successful run${domain ? ` on ${domain}` : ""}.`,
       playbookMd,
-      status: "production",
+      // Why: progressive skills Phase 3 — auto-learn stays draft until Promote in Skills UI.
+      status: "draft",
       triggers,
       steps: durable,
       executionMode: "hints",
@@ -612,7 +614,7 @@ export async function learnSkillFromSuccessfulRun(opts) {
       verificationRules: [],
       sourceTask: task._id,
       workflowKey,
-      stats: { runs: 1, successes: 1, failures: 0 },
+      stats: { runs: 1, successes: 1, failures: 0, selected: 0, loaded: 0, helped: 0 },
     });
     created = true;
   } else {
@@ -629,7 +631,10 @@ export async function learnSkillFromSuccessfulRun(opts) {
     skill.playbookMd = playbookMd;
     skill.steps = mergeDurableSteps(skill.steps, durable);
     skill.executionMode = "hints";
-    skill.status = "production";
+    // Why: never auto-promote — keep draft unless already production (user promoted).
+    if (skill.status !== "production") {
+      skill.status = "draft";
+    }
     // Prefer the compact seeded key going forward.
     skill.workflowKey = workflowKey || skill.workflowKey;
     skill.sourceTask = task._id;
@@ -663,7 +668,7 @@ export async function learnSkillFromSuccessfulRun(opts) {
           `${verb} · ${skill.name}`,
           `Triggers: ${(skill.triggers || []).slice(0, 5).join(", ") || "(none)"}`,
           `Procedure: ${durable.length} durable steps`,
-          `Status: production — next similar goals can match this skill.`,
+          `Status: ${skill.status === "production" ? "production" : "draft — Promote in Skills to match future goals"}.`,
           deprecated ? `Merged: deprecated ${deprecated} overlapping skill(s).` : "",
           "",
           durable.map((s, i) => `${i + 1}. ${s}`).join("\n"),

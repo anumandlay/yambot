@@ -99,6 +99,7 @@ import {
   detectDbSkillMatch,
   formatDbSkillBlock,
   formatSkillsCatalogBlock,
+  isHighConfidenceSkillScore,
   computeDbSkillProgress,
   evaluateSkillVerification,
   normalizeSkillSteps,
@@ -388,6 +389,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
   let running = false;
   /** Production DB skill active for the current task run (stats + verification). */
   let currentActiveDbSkill = null;
+  /** Catalog for skills_list / skill_view mid-run (progressive disclosure). */
+  let currentProductionSkills = [];
   /** True while safeGoto holds the browser lock — popup handler must not close tabs mid-navigation. */
   let navigating = false;
   /** Whether the dashboard user currently has Take control (from last heartbeat). */
@@ -2169,9 +2172,13 @@ export function createCloudAgent({ api, config, log = console.log }) {
           activeDbSkill = null;
         }
       }
+      // Why: Hermes-style progressive load — only slash or high-confidence auto-binds the playbook.
       if (!activeDbSkill) {
         triggerMatch = detectDbSkillMatch(productionSkills, goal, pageUrl);
-        if (triggerMatch?.skill?._id) {
+        if (
+          triggerMatch?.skill?._id &&
+          isHighConfidenceSkillScore(triggerMatch.score)
+        ) {
           try {
             const one = await api(`/api/worker/skills/${triggerMatch.skill._id}`);
             activeDbSkill = one?.skill || triggerMatch.skill;
@@ -2184,8 +2191,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
       const templateSkill = detectSkill(goal, pageUrl);
       const activeSkill = activeDbSkill ? null : templateSkill;
       currentActiveDbSkill = activeDbSkill;
+      currentProductionSkills = productionSkills;
 
-      /** Why: chat thread shows which skill loaded and why (slash, trigger, template, or none). */
+      /** Why: chat thread shows which skill loaded and why (slash, trigger, catalog hint, template, or none). */
       const skillPick = (() => {
         if (activeDbSkill) {
           if (invokedSkillId) {
@@ -2207,10 +2215,20 @@ export function createCloudAgent({ api, config, log = console.log }) {
             matchedTriggers: triggers,
             score: triggerMatch?.score || 0,
             reason: detail
-              ? `Matched learned skill (${detail}).`
+              ? `High-confidence match (${detail}) — playbook loaded.`
               : triggers.length > 0
-                ? `Trigger pattern matched in your goal${pageUrl ? " or page URL" : ""}: ${triggers.map((t) => `"${t}"`).join(", ")}.`
-                : "Trigger pattern matched in your goal or page URL.",
+                ? `High-confidence triggers in your goal${pageUrl ? " or page URL" : ""}: ${triggers.map((t) => `"${t}"`).join(", ")}.`
+                : "High-confidence skill match — playbook loaded.",
+          };
+        }
+        if (triggerMatch?.skill && !isHighConfidenceSkillScore(triggerMatch.score)) {
+          return {
+            source: "catalog",
+            skillId: String(triggerMatch.skill._id || ""),
+            skillName: triggerMatch.skill.name,
+            slug: triggerMatch.skill.slug || "",
+            score: triggerMatch.score || 0,
+            reason: `Candidate /${triggerMatch.skill.slug || "skill"} (score ${triggerMatch.score}) — call skill_view or type /${triggerMatch.skill.slug || "slug"} to load the full playbook.`,
           };
         }
         if (templateSkill) {
@@ -2223,20 +2241,35 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
         return {
           source: "none",
-          reason: "No production skill or template matched — agent uses general instructions only.",
+          reason: productionSkills.length
+            ? "No high-confidence skill match — catalog available via skills_list / skill_view."
+            : "No production skill or template matched — agent uses general instructions only.",
         };
       })();
       const skillPickLines =
         skillPick.source === "none"
-          ? ["No skill matched for this run.", skillPick.reason]
-          : [
-              `Skill: ${skillPick.skillName || skillPick.templateId}${skillPick.slug ? ` (/${skillPick.slug})` : ""}`,
-              `Why: ${skillPick.reason}`,
-            ];
+          ? ["No skill auto-loaded for this run.", skillPick.reason]
+          : skillPick.source === "catalog"
+            ? [
+                `Skill candidate: ${skillPick.skillName}${skillPick.slug ? ` (/${skillPick.slug})` : ""}`,
+                `Why: ${skillPick.reason}`,
+              ]
+            : [
+                `Skill: ${skillPick.skillName || skillPick.templateId}${skillPick.slug ? ` (/${skillPick.slug})` : ""}`,
+                `Why: ${skillPick.reason}`,
+              ];
       await mirror(taskId, "skill_selected", {
         payload: skillPick,
         appendMessage: skillPickLines.join("\n"),
       }).catch(() => {});
+      // Why: usage stats for Skills UI — selected vs later skill_view loads.
+      if (activeDbSkill?._id || activeDbSkill?.id) {
+        const sid = String(activeDbSkill._id || activeDbSkill.id);
+        api(`/api/worker/skills/${sid}/stats`, {
+          method: "POST",
+          body: JSON.stringify({ event: "selected" }),
+        }).catch(() => {});
+      }
 
       // Why: matched learned skills should drive the plan (Suggested flow), not a vague one-liner.
       const goalText = String(goal || "").trim();
@@ -2678,16 +2711,18 @@ export function createCloudAgent({ api, config, log = console.log }) {
           }
         }
 
-        const skillBlock = activeDbSkill
-          ? formatDbSkillBlock(activeDbSkill)
+        // Why: skill_view may bind mid-run via currentActiveDbSkill (progressive load).
+        const boundDbSkill = currentActiveDbSkill;
+        const skillBlock = boundDbSkill
+          ? formatDbSkillBlock(boundDbSkill)
           : formatSkillBlock(activeSkill);
         const skillsCatalogBlock =
-          !activeDbSkill && productionSkills.length
-            ? formatSkillsCatalogBlock(productionSkills)
+          !boundDbSkill && currentProductionSkills.length
+            ? formatSkillsCatalogBlock(currentProductionSkills)
             : "";
         const skillProgressBlock = formatSkillProgressBlock(
-          activeDbSkill
-            ? computeDbSkillProgress(activeDbSkill, history)
+          boundDbSkill
+            ? computeDbSkillProgress(boundDbSkill, history)
             : computeSkillProgress(activeSkill, history, obs)
         );
         const siteHintsBlock = formatSiteHintsBlock(siteProfile);
@@ -2709,9 +2744,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
               "Each step includes PLAN, PROGRESS, TABS, A11Y, STRUCTURES, and ranked interactives.",
               "SPEED: multi-action batches are mandatory when ACTION SURFACE already lists the next controls. Prefer 4+ actions per turn using those [ref] ids. Single-action turns are a last resort (unknown UI after navigate/submit, or finish/ask_user alone).",
               "If RECENT ACTIONS show you only did 1 step last turn, expand: queue every remaining click/type on this page before calling the model again.",
-              activeDbSkill
+              boundDbSkill
                 ? "When ACTIVE SKILL is present, treat Suggested flow + SKILL PROGRESS as the primary plan for this run."
-                : "",
+                : "When AVAILABLE PRODUCTION SKILLS lists a matching workflow, call skill_view before inventing steps.",
               skillBlock,
               skillsCatalogBlock,
               skillProgressBlock,
@@ -3260,6 +3295,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
     } finally {
       currentActiveDbSkill = null;
+      currentProductionSkills = [];
       running = false;
       await computerUse.shutdown().catch(() => {});
     }
@@ -3487,11 +3523,101 @@ export function createCloudAgent({ api, config, log = console.log }) {
             `Soft-wait finish guard failed (${err?.message || err}) — continuing with finish.`
           );
         }
+        const finishOk = action.success !== false;
+        const helpedId =
+          currentActiveDbSkill?._id || currentActiveDbSkill?.id || null;
+        if (finishOk && helpedId) {
+          api(`/api/worker/skills/${helpedId}/stats`, {
+            method: "POST",
+            body: JSON.stringify({ event: "helped" }),
+          }).catch(() => {});
+        }
         return {
           ok: true,
           finished: true,
           summary: action.summary,
-          success: action.success !== false,
+          success: finishOk,
+        };
+      }
+      case "skills_list": {
+        const list = (currentProductionSkills || []).map((s) => ({
+          id: String(s._id || s.id || ""),
+          name: s.name,
+          slug: s.slug || "",
+          description: String(s.description || "").slice(0, 160),
+        }));
+        return {
+          ok: true,
+          count: list.length,
+          skills: list,
+          note: "Call skill_view with slug or id to load a playbook for this run.",
+        };
+      }
+      case "skill_view": {
+        const slug = String(action.slug || action.name || "")
+          .replace(/^\//, "")
+          .trim()
+          .toLowerCase();
+        let skillId = String(action.id || action.skillId || "").trim();
+        if (!skillId && slug) {
+          const hit = (currentProductionSkills || []).find((s) => {
+            const sSlug = String(s.slug || "").toLowerCase();
+            const sName = String(s.name || "")
+              .toLowerCase()
+              .replace(/\s+/g, "-");
+            return sSlug === slug || sName === slug || String(s.name || "").toLowerCase() === slug;
+          });
+          skillId = hit ? String(hit._id || hit.id || "") : "";
+        }
+        if (!skillId) {
+          return {
+            ok: false,
+            detail: "Provide skill_view.slug or skill_view.id from skills_list.",
+          };
+        }
+        let skill = null;
+        try {
+          const one = await api(`/api/worker/skills/${skillId}`);
+          skill = one?.skill || null;
+        } catch (err) {
+          return {
+            ok: false,
+            detail: `skill_view failed: ${err?.message || err}`,
+          };
+        }
+        if (!skill) {
+          return { ok: false, detail: "Skill not found or not production." };
+        }
+        currentActiveDbSkill = skill;
+        api(`/api/worker/skills/${skillId}/stats`, {
+          method: "POST",
+          body: JSON.stringify({ event: "loaded" }),
+        }).catch(() => {});
+        await mirror(taskId, "skill_selected", {
+          payload: {
+            source: "skill_view",
+            skillId: String(skill._id || skillId),
+            skillName: skill.name,
+            slug: skill.slug || "",
+            reason: "Loaded via skill_view action (progressive disclosure).",
+          },
+          appendMessage: `Skill loaded: ${skill.name}${skill.slug ? ` (/${skill.slug})` : ""} via skill_view`,
+        }).catch(() => {});
+        const steps = Array.isArray(skill.steps) ? skill.steps : [];
+        return {
+          ok: true,
+          bound: true,
+          skill: {
+            id: String(skill._id || skillId),
+            name: skill.name,
+            slug: skill.slug || "",
+            description: skill.description || "",
+            steps: steps.slice(0, 20).map((s) =>
+              typeof s === "string" ? s : s?.text || s?.label || JSON.stringify(s)
+            ),
+            playbookPreview: String(skill.playbookMd || "").slice(0, 2500),
+          },
+          note: "ACTIVE SKILL is now bound for remaining turns — follow Suggested flow.",
         };
       }
       case "solve_captcha": {
