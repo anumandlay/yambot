@@ -1,11 +1,12 @@
 /**
  * @fileoverview Jev (TypeSafe System One) via Vercel AI Gateway HTTP evaluate API.
- * Purpose: Legacy typed reply vs queue_goal helper — **disabled**. Auto now lets the chat LLM
- * decide normal reply vs live computer vs Composio tools. Kept for offline probes/tests only.
- * Inputs: AI_GATEWAY_API_KEY (+ optional JEV_MODEL / JEV_ENABLED); user message state.
+ * Purpose: Optional per-agent Auto router — reply vs queue_goal (computer) vs composio.
+ * When the agent has Jev enabled + API key, Auto calls evaluate before the chat LLM.
+ * Inputs: agent.jev.apiKeyEnc (decrypted) or opts.apiKey; optional JEV_MODEL env.
  */
 
 import { env } from "./env.js";
+import { decryptSecret } from "./crypto.js";
 
 const GATEWAY_EVALUATE_URL = "https://ai-gateway.vercel.sh/v1/evaluate";
 const DEFAULT_MODEL = "typesafe-ai/jev";
@@ -13,12 +14,54 @@ const DEFAULT_MODEL = "typesafe-ai/jev";
 export const JEV_CONFIDENT_MIN = 0.72;
 
 /**
- * Jev is retired from Auto routing — always off so the chat LLM owns the decision.
- * @param {"auto"|"on"|"off"|string|undefined|null} [_mode]
+ * Public redacted Jev settings for agent GET responses.
+ * @param {object} agent
+ * @returns {{ enabled: boolean, hasApiKey: boolean, apiKeyMasked: string, configured: boolean }}
+ */
+export function publicJevSummary(agent) {
+  const j = agent?.jev || {};
+  const hasApiKey = Boolean(j.apiKeyEnc);
+  return {
+    enabled: Boolean(j.enabled),
+    hasApiKey,
+    apiKeyMasked: hasApiKey ? "••••••••" : "",
+    configured: Boolean(j.enabled && hasApiKey),
+  };
+}
+
+/**
+ * Decrypt agent-stored Jev / AI Gateway API key (empty if missing/invalid).
+ * @param {object} agent
+ * @returns {string}
+ */
+export function decryptAgentJevApiKey(agent) {
+  const enc = String(agent?.jev?.apiKeyEnc || "").trim();
+  if (!enc) return "";
+  try {
+    return String(decryptSecret(enc) || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Whether Jev should run for this Auto turn.
+ * Per-agent only: needs enabled + non-empty apiKey. String modes are legacy no-ops.
+ * @param {{
+ *   enabled?: boolean,
+ *   apiKey?: string,
+ *   jevMode?: "auto"|"on"|"off"|string,
+ * }|string|undefined|null} [opts]
  * @returns {boolean}
  */
-export function isJevEnabled(_mode = "auto") {
-  return false;
+export function isJevEnabled(opts = {}) {
+  if (opts == null || typeof opts === "string") {
+    // Why: global/env Jev is retired — only per-agent { enabled, apiKey } turns it on.
+    return false;
+  }
+  if (String(opts.jevMode || "").toLowerCase() === "off") return false;
+  const apiKey = String(opts.apiKey || "").trim();
+  return Boolean(opts.enabled) && Boolean(apiKey);
 }
 
 /**
@@ -27,14 +70,16 @@ export function isJevEnabled(_mode = "auto") {
  *   state: string|object|unknown[],
  *   questions: Record<string, object>,
  *   model?: string,
+ *   apiKey?: string,
  *   timeoutMs?: number,
  * }} opts
  * @returns {Promise<{ answers: Record<string, object>, usage?: object, model?: string }>}
  */
 export async function jevEvaluate(opts) {
-  const apiKey = String(env.AI_GATEWAY_API_KEY || "").trim();
+  const apiKey =
+    String(opts.apiKey || "").trim() || String(env.AI_GATEWAY_API_KEY || "").trim();
   if (!apiKey) {
-    const err = new Error("AI_GATEWAY_API_KEY is not configured");
+    const err = new Error("Jev API key is not configured");
     err.code = "jev_no_key";
     throw err;
   }
@@ -85,12 +130,16 @@ export async function jevEvaluate(opts) {
 }
 
 /**
- * Ask Jev whether this Auto message should REPLY in chat or QUEUE_GOAL a computer/peer job.
+ * Ask Jev: REPLY in chat, QUEUE_GOAL (computer/peers), or COMPOSIO (connected apps).
  * @param {string} text
- * @param {{ jevMode?: "auto"|"on"|"off" }} [opts]
+ * @param {{
+ *   enabled?: boolean,
+ *   apiKey?: string,
+ *   jevMode?: "auto"|"on"|"off",
+ * }} [opts]
  * @returns {Promise<{
  *   ok: boolean,
- *   action: "reply"|"queue_goal"|"uncertain",
+ *   action: "reply"|"queue_goal"|"composio"|"uncertain",
  *   choice: string,
  *   confidence: number,
  *   probabilities: Record<string, number>,
@@ -110,7 +159,14 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       reason: "empty",
     };
   }
-  if (!isJevEnabled(opts.jevMode)) {
+  const apiKey = String(opts.apiKey || "").trim();
+  if (
+    !isJevEnabled({
+      enabled: opts.enabled !== false && Boolean(apiKey),
+      apiKey,
+      jevMode: opts.jevMode,
+    })
+  ) {
     return {
       ok: false,
       action: "uncertain",
@@ -123,30 +179,34 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
 
   try {
     const result = await jevEvaluate({
+      apiKey,
       state: {
         product: "YamBot",
         role: "YamBot Auto router",
         user_message: body,
         rules: [
-          "reply = answer in chat only (no Chromium / no peer fan-out this turn)",
-          "queue_goal = start live computer or message peers NOW",
+          "reply = answer in chat only (no Chromium, no peer fan-out, no Composio execute this turn)",
+          "queue_goal = start live computer / Chromium or message peers NOW",
+          "composio = connected-app API tools (Gmail, Sheets, Slack, Drive, Notion, GitHub, etc.) — NOT the browser",
           "Past-work questions (did we open X today?) = reply",
           "Memory/preference store with URLs = reply",
           "Capability questions (can you open websites?) = reply until they name a concrete live job",
-          "Imperative open/go to/visit/click/fill/log in NOW = queue_goal",
-          "Gmail / Slack / Sheets / Notion / GitHub / Composio app actions (search inbox, send Slack, etc.) = reply — NOT queue_goal (apps use API tools, not the browser)",
+          "Imperative open/go to/visit/click/fill/log in NOW on a website = queue_goal",
+          "Search inbox, send email via Gmail, list spreadsheets, Slack message, etc. = composio",
         ],
       },
       questions: {
         action: {
           type: "choice",
           instructions:
-            "Should YamBot answer in chat (reply) or start a live computer / peer task (queue_goal)?",
+            "Should YamBot answer in chat (reply), start a live computer / peer task (queue_goal), or use connected-app API tools (composio)?",
           criteria: {
             reply:
-              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy, OR connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Composio (search email, list spreadsheets, send Slack, etc.). Naming a domain in a question is not enough.",
+              "Chat answer only: greetings, past work / day history, status, memory store, preferences, planning, drafts, capability/policy. Naming a domain in a question is not enough for queue_goal.",
             queue_goal:
               "Live browser/computer job now: open/go to/navigate/visit a website in Chromium, click, fill, submit, log in on a page, live browse research, or message_agent / peer fan-out. Do NOT choose queue_goal for Gmail/Slack/Sheets/spreadsheet/Composio API actions.",
+            composio:
+              "Connected-app actions via Gmail/Slack/Sheets/Notion/GitHub/Drive/Composio APIs (search email, send Slack, list spreadsheets, label mail, etc.). Not Chromium.",
           },
         },
       },
@@ -168,7 +228,8 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       Number(probs[choice]) ||
       Math.max(0, ...Object.values(probs).map((n) => Number(n) || 0));
 
-    if (choice !== "reply" && choice !== "queue_goal") {
+    const allowed = new Set(["reply", "queue_goal", "composio"]);
+    if (!allowed.has(choice)) {
       return {
         ok: true,
         action: "uncertain",
@@ -190,7 +251,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
     }
     return {
       ok: true,
-      action: choice,
+      action: /** @type {"reply"|"queue_goal"|"composio"} */ (choice),
       choice,
       confidence,
       probabilities: probs,

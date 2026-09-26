@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-25 20:35] Agent: optional per-agent Jev (reply / computer / Composio)
+
+- **Prompt Provided:** Enable Jev in agent settings + API key textbox; when on use Jev including Composio
+- **Architectural Flow:** `agent.jev.{enabled,apiKeyEnc}` (encrypted like Composio). Agent Edit → Jev tab. Auto calls `classifyAutoActionWithJev` with the agent key for confident reply / queue_goal / composio; uncertain → existing LLM router + hint. Day-history still wins first.
+- **Impacted Files:** Agent.js, jevEvaluate.js, agents.js, chatAutoTurn.js, chats.js, AgentEditPage.jsx, helpContent.js, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-25 19:00] Chat: show P prompt peek on mobile
 
 - **Prompt Provided:** in mobile p icon after chat message is not showing

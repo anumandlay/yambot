@@ -27,6 +27,7 @@ import {
   composioListCatalog,
   COMPOSIO_DEFAULT_TOOLKITS,
 } from "../utils/composioService.js";
+import { publicJevSummary } from "../utils/jevEvaluate.js";
 import { computeAgentReadiness } from "../utils/agentReadiness.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
@@ -115,6 +116,7 @@ function publicAgent(agent, ctx = {}) {
   a.email = publicEmailSummary(a);
   a.llm = publicLlmSummary(a);
   a.composio = publicComposioSummary(a);
+  a.jev = publicJevSummary(a);
   // Why: passwords live only on the dedicated memory/credentials endpoints (plaintext there by design).
   if (Array.isArray(a.credentials)) {
     a.credentials = a.credentials.map((c) => ({
@@ -436,6 +438,20 @@ function pickAgentFields(body, opts = {}) {
       composio.apiKeyEnc = "";
     }
     set("composio", composio);
+  }
+  if (body.jev != null && typeof body.jev === "object") {
+    const j = body.jev;
+    /** @type {object} */
+    const jev = {
+      enabled: Boolean(j.enabled),
+    };
+    const key = String(j.apiKey || "").trim();
+    if (key) {
+      jev.apiKeyEnc = encryptSecret(key);
+    } else if (j.clearApiKey) {
+      jev.apiKeyEnc = "";
+    }
+    set("jev", jev);
   }
   if (body.group != null || body.groupId != null) {
     const gid = body.group ?? body.groupId;
@@ -1527,6 +1543,15 @@ agentsRouter.put("/:id", async (req, res, next) => {
       agent.markModified("composio");
       delete fields.composio;
     }
+    if (fields.jev) {
+      // Why: blank API key in the form means keep the existing encrypted secret.
+      if (!fields.jev.apiKeyEnc) {
+        fields.jev.apiKeyEnc = agent.jev?.apiKeyEnc || "";
+      }
+      agent.set("jev", fields.jev);
+      agent.markModified("jev");
+      delete fields.jev;
+    }
     if (fields.computerEngine) {
       agent.computer.engine = fields.computerEngine;
       agent.markModified("computer");
@@ -2564,6 +2589,10 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
         autoApproveRisky: Boolean(src.composio?.autoApproveRisky),
         // Why: new copy gets a fresh Composio session on first connect.
         sessionId: "",
+      },
+      jev: {
+        enabled: Boolean(src.jev?.enabled),
+        apiKeyEnc: src.jev?.apiKeyEnc || "",
       },
       schedule: {
         enabled: scheduleEnabled,

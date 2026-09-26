@@ -366,6 +366,15 @@ const agentSchema = new mongoose.Schema(
       toolkitToolCache: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     /**
+     * Optional Jev (TypeSafe / Vercel AI Gateway) Auto router for this agent.
+     * When enabled + key set: confident reply / queue_goal / composio before the chat LLM.
+     */
+    jev: {
+      enabled: { type: Boolean, default: false },
+      /** Vercel AI Gateway API key (encrypted). Used as Bearer for evaluate. */
+      apiKeyEnc: { type: String, default: "" },
+    },
+    /**
      * Execution target — always cloud (kept for legacy task snapshots).
      */
     runner: {

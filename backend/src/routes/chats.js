@@ -67,6 +67,7 @@ import {
   expandComposioToolkitSlugs,
   normalizeToolkitSlug,
 } from "../utils/composioService.js";
+import { decryptAgentJevApiKey } from "../utils/jevEvaluate.js";
 import {
   refreshChatContextIfNeeded,
 } from "../utils/chatContext.js";
@@ -1410,6 +1411,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             agentSkill: String(prepared?.snapshot?.skill || agentDoc?.skill || ""),
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
             composioApiKey: decryptAgentComposioApiKey(agentDoc),
+            // Why: optional per-agent Jev router (reply / computer / Composio).
+            jevEnabled: Boolean(agentDoc?.jev?.enabled),
+            jevApiKey: decryptAgentJevApiKey(agentDoc),
             composioToolkitSlugs: expandComposioToolkitSlugs(
               Array.isArray(agentDoc?.composio?.toolkitSlugs)
                 ? agentDoc.composio.toolkitSlugs

@@ -121,6 +121,14 @@ const EMPTY = {
     autoApproveRisky: false,
   },
   /**
+   * Optional Jev Auto router (Vercel AI Gateway key) — reply / computer / Composio.
+   */
+  jev: {
+    enabled: false,
+    apiKey: "",
+    hasApiKey: false,
+  },
+  /**
    * Desktop engine is always Playwright Chromium (CUA removed from product UI).
    */
   computerEngine: "playwright",
@@ -147,6 +155,7 @@ const AGENT_EDIT_TABS = [
   { id: "llm", label: "LLM" },
   { id: "email", label: "Email" },
   { id: "composio", label: "Composio" },
+  { id: "jev", label: "Jev" },
   { id: "advanced", label: "Team & policy" },
   { id: "memory", label: "Memory", editOnly: true },
 ];
@@ -369,6 +378,11 @@ export function AgentEditPage() {
                 : [],
               autoApproveRisky: Boolean(a.composio?.autoApproveRisky),
             },
+            jev: {
+              enabled: Boolean(a.jev?.enabled),
+              apiKey: "",
+              hasApiKey: Boolean(a.jev?.hasApiKey),
+            },
             computerEngine: "playwright",
           });
           setMemory(a.memory || []);
@@ -530,6 +544,17 @@ export function AgentEditPage() {
     setForm((prev) => ({
       ...prev,
       composio: { ...prev.composio, [key]: value },
+    }));
+  }
+
+  /**
+   * @param {string} key
+   * @param {unknown} value
+   */
+  function updateJev(key, value) {
+    setForm((prev) => ({
+      ...prev,
+      jev: { ...prev.jev, [key]: value },
     }));
   }
 
@@ -939,6 +964,11 @@ export function AgentEditPage() {
           : [],
         autoApproveRisky: Boolean(form.composio?.autoApproveRisky),
       },
+      jev: {
+        enabled: Boolean(form.jev?.enabled),
+        apiKey: String(form.jev?.apiKey || "").trim(),
+        clearApiKey: false,
+      },
     };
     try {
       if (isNew) {
@@ -982,6 +1012,13 @@ export function AgentEditPage() {
                 autoApproveRisky: Boolean(data.agent.composio.autoApproveRisky),
               }
             : prev.composio,
+          jev: data?.agent?.jev
+            ? {
+                enabled: Boolean(data.agent.jev.enabled),
+                apiKey: "",
+                hasApiKey: Boolean(data.agent.jev.hasApiKey),
+              }
+            : prev.jev,
         }));
       }
     } catch (err) {
@@ -2316,6 +2353,45 @@ export function AgentEditPage() {
                 </div>
               ) : null}
             </div>
+          </div>
+        </fieldset>
+        </div>
+        ) : null}
+
+        {editTab === "jev" ? (
+        <div className="flex flex-col gap-3" role="tabpanel">
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/70 p-3 sm:p-4">
+          <SectionTitle helpId="agent.jev.enabled" as="div" className="text-sm font-semibold text-teal-900">
+            Jev Auto router
+          </SectionTitle>
+          <p className="text-xs text-teal-900/70">
+            Optional. When enabled, Auto asks Jev (via Vercel AI Gateway) to pick reply, live computer,
+            or Composio before the chat LLM. Uncertain or missing key falls back to the normal LLM
+            router. Paste a Gateway API key from vercel.com / AI Gateway.
+          </p>
+          <label className="flex min-h-11 items-center gap-2 text-sm">
+            <input
+              type="checkbox"
+              checked={Boolean(form.jev?.enabled)}
+              onChange={(e) => updateJev("enabled", e.target.checked)}
+            />
+            <FieldLabel helpId="agent.jev.enabled">Enable Jev for this agent</FieldLabel>
+          </label>
+          <div>
+            <FieldLabel helpId="agent.jev.apiKey">Jev API key</FieldLabel>
+            <input
+              className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 text-sm"
+              type="password"
+              autoComplete="off"
+              value={form.jev?.apiKey || ""}
+              onChange={(e) => updateJev("apiKey", e.target.value)}
+              placeholder={
+                form.jev?.hasApiKey
+                  ? "Saved — leave blank to keep"
+                  : "Vercel AI Gateway API key"
+              }
+              disabled={!form.jev?.enabled}
+            />
           </div>
         </fieldset>
         </div>

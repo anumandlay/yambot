@@ -1,7 +1,7 @@
 /**
  * @fileoverview Hermes-style Auto chat turn — model picks from YamBot chat tools.
  * Purpose: The chat LLM decides three modes — normal REPLY, live QUEUE_GOAL (computer/peers),
- * or Composio app tools. No Jev / heuristic short-circuit for that choice.
+ * or Composio app tools. Optional per-agent Jev can short-circuit that choice when enabled.
  * Downstream: chats.js Auto mode only.
  */
 
@@ -33,6 +33,7 @@ import {
   COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
 import { looksLikeHybridCombo, planComboFromText } from "./comboRunner.js";
+import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 import {
   looksLikeScheduleManageRequest,
   looksLikeScheduleUpdateRequest,
@@ -2081,11 +2082,12 @@ export function autoTurnHeuristicGate(_text) {
 /**
  * Soft classifier note injected into the Auto user message so the LLM sees context signals.
  * Why: no hard route — the model must pick REPLY (chat), QUEUE_GOAL (live computer), or composio_* tools.
+ * When Jev ran but was uncertain, include its preference so the LLM can weight it.
  * @param {string} text
- * @param {{ jev?: { action?: string, choice?: string, confidence?: number, reason?: string }|null }} [_opts]
+ * @param {{ jev?: { action?: string, choice?: string, confidence?: number, reason?: string }|null }} [opts]
  * @returns {string}
  */
-export function formatAutoClassifierHint(text, _opts = {}) {
+export function formatAutoClassifierHint(text, opts = {}) {
   const c = classifyMessageIntent(text, {});
   const reason = String(c.reason || "unknown");
   const intent = String(c.intent || "unknown");
@@ -2098,6 +2100,21 @@ export function formatAutoClassifierHint(text, _opts = {}) {
     "2) QUEUE_GOAL — live cloud computer / peers NOW (open/click/fill a site, fan-out).",
     "3) Composio tools (composio_search → composio_execute) — Gmail/Sheets/Slack/Drive and other connected apps. Never invent browser goals for those.",
   ];
+  const jev = opts?.jev;
+  if (jev && typeof jev === "object" && String(jev.reason || "") !== "jev_disabled") {
+    lines.push(
+      `jev_action=${String(jev.action || "")}; jev_choice=${String(jev.choice || "")}; jev_confidence=${Number(jev.confidence) || 0}; jev_reason=${String(jev.reason || "")}`
+    );
+    if (jev.action === "reply") {
+      lines.push("Jev prefers REPLY — follow unless clearly wrong.");
+    } else if (jev.action === "queue_goal") {
+      lines.push("Jev prefers QUEUE_GOAL — live computer only if the user wants a browse/run NOW.");
+    } else if (jev.action === "composio") {
+      lines.push("Jev prefers Composio tools — use composio_* over QUEUE_GOAL.");
+    } else if (jev.action === "uncertain") {
+      lines.push("Jev was uncertain — you own the decision.");
+    }
+  }
   if (reason === "day_history_or_status" || reason === "vague_chat_followup") {
     lines.push(
       "Signal: looks like past-work / status — prefer REPLY from day history. Do NOT start a live computer."
@@ -2698,19 +2715,6 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  if (composioReady && matchComposioIntent(text)) {
-    return finalize(
-      await runDeterministicComposioIntentTurn({
-        runtime,
-        userText: text,
-        creds,
-        onDelta: typeof delta === "function" ? delta : undefined,
-        track,
-        spec: matchComposioIntent(text),
-      })
-    );
-  }
-
   // Why: day-history / vague "what" must never reach QUEUE_GOAL — models invent login goals from thread.
   if (looksLikeDayHistoryOrStatusRequest(text) || looksLikeVagueChatFollowup(text)) {
     track.setPath("day_history_forced_qa");
@@ -2737,9 +2741,110 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
+  // Why: optional per-agent Jev — confident reply / computer / Composio before the chat LLM.
+  /** @type {Awaited<ReturnType<typeof classifyAutoActionWithJev>>|null} */
+  let jevDecision = null;
+  /** Why: when Jev picks composio but intent matcher misses, still force the tools loop. */
+  let jevForceTools = false;
+  const jevApiKey = String(runtime?.jevApiKey || "").trim();
+  const jevAgentOn = Boolean(runtime?.jevEnabled) && Boolean(jevApiKey);
+  if (
+    jevAgentOn &&
+    isJevEnabled({ enabled: true, apiKey: jevApiKey, jevMode })
+  ) {
+    jevDecision = await classifyAutoActionWithJev(text, {
+      enabled: true,
+      apiKey: jevApiKey,
+      jevMode,
+    });
+    if (jevDecision.action === "queue_goal") {
+      track.setPath("jev_queue");
+      track.markDecision("queue_goal");
+      const ack = defaultQueueAck(text, agentName);
+      await pushReply(ack);
+      return finalize({
+        action: "queue_goal",
+        content: ack,
+        goal: text,
+        ack,
+        reason: "jev_confident_queue",
+        jev: jevDecision,
+        timing: track.finish(),
+      });
+    }
+    if (jevDecision.action === "composio") {
+      if (!composioReady) {
+        track.setPath("jev_composio_unconfigured");
+        track.markDecision("reply");
+        const content =
+          "Jev chose a connected-app action, but Composio isn’t enabled for this agent. Turn on Composio (API key + apps) in agent settings, or rephrase.";
+        await pushReply(content);
+        return finalize({
+          action: "reply",
+          content,
+          goal: "",
+          ack: "",
+          reason: "jev_composio_not_configured",
+          jev: jevDecision,
+          timing: track.finish(),
+        });
+      }
+      const spec = matchComposioIntent(text);
+      if (spec) {
+        return finalize({
+          ...(await runDeterministicComposioIntentTurn({
+            runtime,
+            userText: text,
+            creds,
+            onDelta: typeof delta === "function" ? delta : undefined,
+            track,
+            spec,
+          })),
+          jev: jevDecision,
+        });
+      }
+      // Why: no deterministic intent — tools LLM with Jev composio hint.
+      jevForceTools = true;
+    }
+    if (jevDecision.action === "reply") {
+      track.setPath("jev_reply");
+      track.markDecision("reply");
+      return finalize({
+        ...(await runChatAutoTurnTextFallback(
+          {
+            question: text,
+            snapshot,
+            creds,
+            chatContext: threadEarly,
+            historyMessages: historyEarly,
+            stream: true,
+            onDelta,
+            signal,
+          },
+          track
+        )),
+        jev: jevDecision,
+        reason: "jev_confident_reply",
+      });
+    }
+  }
+
+  if (composioReady && matchComposioIntent(text)) {
+    return finalize(
+      await runDeterministicComposioIntentTurn({
+        runtime,
+        userText: text,
+        creds,
+        onDelta: typeof delta === "function" ? delta : undefined,
+        track,
+        spec: matchComposioIntent(text),
+      })
+    );
+  }
+
   // Why: Hermes flow — Parse → tool decision → Respond.
   // Default answer-direct (stream text). Tools loop only when intent needs lookups/apps/computer.
-  if (!autoTurnNeedsTools(text, runtime)) {
+  if (!jevForceTools && !autoTurnNeedsTools(text, runtime)) {
     track.setPath("text_fast");
     track.markDecision("reply");
     return finalize(
@@ -2759,8 +2864,7 @@ export async function runChatAutoTurn(opts) {
     );
   }
 
-  // Why: tools needed — Composio / live computer / status / peers.
-  const jevDecision = null;
+  // Why: tools needed — Composio / live computer / status / peers (or Jev forced composio).
 
   /** @type {object[]} */
   const messages = assembleAutoLlmMessages({
@@ -2769,7 +2873,7 @@ export async function runChatAutoTurn(opts) {
       userText: text,
     }),
     historyMessages: historyEarly,
-    userContent: buildAutoUserContent(text),
+    userContent: buildAutoUserContent(text, { jev: jevDecision }),
   });
   captureLlmPrompt({
     mode: "tools",
