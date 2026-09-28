@@ -4,6 +4,7 @@
  * Downstream: backend/src/routes/chats.js POST /messages.
  */
 
+import { looksLikeComposioAppManageRequest } from "./composioFromChat.js";
 import { looksLikeMcpServerManageRequest } from "./mcpFromChat.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
@@ -94,6 +95,8 @@ export function classifyLiveRunFollowup(text) {
   if (!raw) return "reply";
   // Why: an MCP URL in chat saves a server. It must not open the live browser.
   if (looksLikeMcpServerManageRequest(raw)) return "reply";
+  // Why: adding or reconnecting a Composio app stays in chat, even while a computer is open.
+  if (looksLikeComposioAppManageRequest(raw)) return "reply";
 
   if (
     looksLikeDayHistoryOrStatusRequest(raw) ||

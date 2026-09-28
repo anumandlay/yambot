@@ -104,6 +104,7 @@ import {
 import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
 import { looksLikeMcpServerManageRequest } from "../utils/mcpFromChat.js";
+import { looksLikeComposioAppManageRequest } from "../utils/composioFromChat.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
@@ -1212,12 +1213,18 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let pendingComposioApproval = null;
       /** @type {object|null} */
       let pendingComboFollowup = null;
+      /** @type {{ role?: string, content?: string }[]} */
+      let recentChatTurns = [];
       {
         const recent = await Message.find({ chat: chat._id })
           .sort({ _id: -1 })
           .limit(10)
           .select("role content meta _id")
           .lean();
+        recentChatTurns = [...recent].reverse().map((row) => ({
+          role: row.role,
+          content: row.content,
+        }));
         pendingComposioApproval = resolvePendingComposioApprovalFromMessages(recent, {
           excludeIds: [String(message._id)],
         });
@@ -1229,8 +1236,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         }
         // Why: composio / combo confirm/deny must win over “yes, open the computer” offers.
         if (
-          looksLikeAffirmativeConfirm(questionText) ||
-          looksLikeComposioRiskyConfirm(questionText)
+          (looksLikeAffirmativeConfirm(questionText) ||
+            looksLikeComposioRiskyConfirm(questionText)) &&
+          !looksLikeComposioAppManageRequest(questionText, chat.interactionState)
         ) {
           if (!pendingComposioApproval && !pendingComboFollowup) {
             confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
@@ -1344,9 +1352,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         // Why: schedule list/create/stop needs no LLM context pack — skip prepare entirely.
         const scheduleManage = looksLikeScheduleManageRequest(questionText);
         const mcpServerManage = looksLikeMcpServerManageRequest(questionText);
+        const composioAppManage = looksLikeComposioAppManageRequest(questionText);
         const light =
           scheduleManage ||
           mcpServerManage ||
+          composioAppManage ||
           !autoTurnNeedsTools(questionText, {
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
             mcpEnabled: Boolean(agentDoc?.mcp?.enabled),
@@ -1374,10 +1384,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         try {
         await withChatAutoLock(String(chat._id), async () => {
           let prepared;
-          if (scheduleManage || mcpServerManage) {
+          if (scheduleManage || mcpServerManage || composioAppManage) {
             prepared = {
               chatContextBlock: "",
-              historyMessages: [],
+              historyMessages: composioAppManage ? recentChatTurns : [],
               curated: {
                 userCuratedEntries: [],
                 agentCuratedEntries: [],

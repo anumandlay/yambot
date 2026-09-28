@@ -332,6 +332,8 @@ describe("live run follow-up routing", () => {
       classifyLiveRunFollowup("add mcp https://app.mockmcp.com/servers/abc/mcp bearer tokenvalue"),
       "reply"
     );
+    assert.equal(classifyLiveRunFollowup("yes reauthentiate"), "reply");
+    assert.equal(classifyLiveRunFollowup("add composio gmail"), "reply");
     assert.equal(classifyLiveRunFollowup("check my gmail for unread mail"), "new_job");
   });
 });

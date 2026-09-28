@@ -5,7 +5,7 @@
  * Downstream: Chat.interactionState, chatAutoTurn.js.
  */
 
-const TARGET_TYPES = ["mcp_tool", "skill", "agent", "email", "file"];
+const TARGET_TYPES = ["mcp_tool", "skill", "agent", "email", "file", "composio_app"];
 
 /**
  * @returns {{ pending: null, lastPresentedList: null }}

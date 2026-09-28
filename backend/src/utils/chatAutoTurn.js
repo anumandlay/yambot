@@ -56,6 +56,7 @@ import {
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { looksLikeMcpServerManageRequest, applyMcpServerFromChat } from "./mcpFromChat.js";
+import { looksLikeComposioAppManageRequest, applyComposioAppFromChat } from "./composioFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 import {
@@ -2883,6 +2884,53 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
+  // Why: “add composio gmail” and “yes reauthenticate” save or reconnect the app — before Jev can start a computer.
+  if (looksLikeComposioAppManageRequest(text, interactionState) && runtime?.agent) {
+    track.setPath("composio_app_manage");
+    track.markDecision("reply");
+    try {
+      const applied = await applyComposioAppFromChat({
+        agent: runtime.agent,
+        userId: runtime.userId,
+        text,
+        history: historyEarly,
+        apiKey: runtime.composioApiKey,
+        state: interactionState,
+      });
+      const content = String(applied.content || "Composio updated.").trim();
+      if (content) await pushReply(content);
+      if (applied.pending !== undefined) {
+        replaceInteraction({ ...interactionState, pending: applied.pending });
+      }
+      if (applied.ok && runtime) {
+        runtime.composioEnabled = Boolean(runtime.agent.composio?.enabled);
+        runtime.composioToolkitSlugs = Array.isArray(runtime.agent.composio?.toolkitSlugs)
+          ? runtime.agent.composio.toolkitSlugs
+          : [];
+        runtime.composioSessionId = String(runtime.agent.composio?.sessionId || "").trim() || null;
+      }
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: applied.ok ? "composio_app_saved" : "composio_app_manage",
+        timing: track.finish(),
+      });
+    } catch (err) {
+      const content = `Could not update Composio: ${String(err?.message || err)}`;
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "composio_app_manage_error",
+        timing: track.finish(),
+      });
+    }
+  }
+
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
   // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
   if (looksLikeScheduleManageRequest(text) && runtime?.agent) {
@@ -4317,6 +4365,15 @@ async function fulfillStoredTarget(hit, runtime) {
     return [`Skill: ${skill.name}`, skill.slug ? `Slug: ${skill.slug}` : "", blurb]
       .filter(Boolean)
       .join("\n");
+  }
+  if (target.type === "composio_app") {
+    const applied = await applyComposioAppFromChat({
+      agent: runtime?.agent,
+      userId: runtime?.userId,
+      text: `reconnect ${target.name}`,
+      apiKey: runtime?.composioApiKey,
+    });
+    return applied.content;
   }
   if (target.type === "agent") {
     return `You picked ${target.name}. Tell me what to send them.`;

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 16:23] Add a Composio app from chat
+
+- **Prompt Provided:** Add Composio apps from chat, the same way reminders are added. “yes reauthentiate” after the Apollo list started a computer instead of reconnecting.
+- **Architectural Flow:** A message that adds, lists, removes, or reconnects a Composio app is handled before the model. The app slug is saved on the agent, then Composio returns a sign-in link. “yes” after one expired app, or “yes reauthenticate” after a reply that named that app, reconnects it and does not start the computer.
+- **Impacted Files:** composioFromChat.js, composioFromChat.test.js, chatAutoTurn.js, chats.js, messageIntent.js, referenceState.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 16:13] Add an MCP server from chat
 
 - **Prompt Provided:** Add the MCP server directly from the chat, the same way reminders are added from chat.
