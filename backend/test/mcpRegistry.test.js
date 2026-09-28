@@ -8,6 +8,7 @@ import {
   mcpToolName,
   normalizeAuthHeader,
   normalizeMcpConfig,
+  plainMcpServer,
   publicMcpSummary,
   resolveMcpTool,
 } from "../src/utils/mcpRegistry.js";
@@ -40,6 +41,15 @@ test("resolves an OpenAI name back to the remote tool", () => {
   );
   assert.equal(hit?.remoteName, "search_code");
   assert.equal(hit?.server.name, "github");
+});
+
+test("keeps a Mongoose-style server name that spread would drop", () => {
+  const doc = { tools: [{ name: "GreetMe" }], toObject() { return {}; } };
+  Object.defineProperty(doc, "name", { value: "mockmcp", enumerable: false });
+  const plain = plainMcpServer(doc);
+  const hit = resolveMcpTool([{ ...plain, tools: doc.tools }], "mcp_mockmcp_greetme");
+  assert.equal(plain.name, "mockmcp");
+  assert.equal(hit?.remoteName, "GreetMe");
 });
 
 test("keeps a previous secret when the form leaves the header blank", () => {

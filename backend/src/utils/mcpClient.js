@@ -6,7 +6,7 @@
  */
 
 import { decryptSecret } from "./crypto.js";
-import { filterMcpTools, mcpToolsToOpenAi, resolveMcpTool } from "./mcpRegistry.js";
+import { filterMcpTools, mcpToolsToOpenAi, plainMcpServer, resolveMcpTool } from "./mcpRegistry.js";
 
 /** @type {Map<string, { client: object, transport: object, tools: object[], at: number }>} */
 const pool = new Map();
@@ -162,21 +162,30 @@ export async function callRegisteredMcpTool(runtime, openaiName, args) {
   }
   const keyServers = [];
   for (const server of servers) {
+    const plain = plainMcpServer(server);
     let tools = [];
+    let connectError = "";
     try {
       const session = await ensureMcpSession(poolKeyFor(userId, agentId, server), server);
       tools = session.tools;
     } catch (err) {
-      tools = [];
-      server._connectError = err?.message || String(err);
+      connectError = err?.message || String(err);
+      // Why: Connect already cached the names. Use them so a warm-session miss can still call.
+      tools = plain.cachedTools;
     }
-    keyServers.push({ ...server, tools });
+    keyServers.push({ ...plain, tools, _connectError: connectError });
   }
   const hit = resolveMcpTool(keyServers, openaiName);
   if (!hit) {
+    const connectDetail = keyServers
+      .map((s) => s._connectError)
+      .filter(Boolean)
+      .join("; ");
     return JSON.stringify({
       ok: false,
-      detail: `No MCP tool named ${openaiName}. Discover the server and check include/exclude.`,
+      detail: connectDetail
+        ? `MCP connect failed: ${connectDetail}`.slice(0, 500)
+        : `No MCP tool named ${openaiName}. Discover the server and check include/exclude.`,
     });
   }
   const poolKey = poolKeyFor(userId, agentId, hit.server);

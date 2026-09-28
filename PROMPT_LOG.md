@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 15:38] Resolve MCP tool names stored on the agent document
+
+- **Prompt Provided:** Chat listed mockmcp tools, then failed with “No MCP tool named mcp_mockmcp_greetme.”
+- **Architectural Flow:** The model is given mcp_server_tool names from the live session. The call copied the Mongoose server row with a spread, which dropped the server name, so the same name could not be matched. The call now copies name, URL, and secrets explicitly, and falls back to the cached tool list if reconnect fails.
+- **Impacted Files:** mcpRegistry.js, mcpClient.js, mcpRegistry.test.js, PROMPT_LOG
+
 ## [2026-09-28 15:32] Let MCP messages reach the tools loop
 
 - **Prompt Provided:** Chat on Trial Expiry Checker answered “I don't have a mockmcp tool” after Connect had already listed GreetMe and the other MockMCP tools.

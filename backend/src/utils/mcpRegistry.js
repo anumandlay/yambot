@@ -113,6 +113,32 @@ export function filterMcpTools(tools, spec = {}) {
 }
 
 /**
+ * Plain server row for tool lookup.
+ * Why: Agent.mcp.servers is a Mongoose subdocument. Spreading it drops `name`,
+ * so a live tool such as mcp_mockmcp_greetme fails to resolve even though the model was given that name.
+ * @param {object} server
+ * @returns {object}
+ */
+export function plainMcpServer(server) {
+  const src = typeof server?.toObject === "function" ? server.toObject() : server || {};
+  return {
+    name: String(src.name || server?.name || ""),
+    transport: String(src.transport || server?.transport || "http"),
+    url: String(src.url || server?.url || ""),
+    command: String(src.command || server?.command || ""),
+    args: Array.isArray(src.args) ? src.args : Array.isArray(server?.args) ? server.args : [],
+    include: Array.isArray(src.include) ? src.include : Array.isArray(server?.include) ? server.include : [],
+    exclude: Array.isArray(src.exclude) ? src.exclude : Array.isArray(server?.exclude) ? server.exclude : [],
+    secretsEnc: String(src.secretsEnc || server?.secretsEnc || ""),
+    cachedTools: Array.isArray(src.cachedTools)
+      ? src.cachedTools
+      : Array.isArray(server?.cachedTools)
+        ? server.cachedTools
+        : [],
+  };
+}
+
+/**
  * Find which configured server and remote tool an OpenAI name refers to.
  * @param {{ name: string, tools?: { name: string }[] }[]} servers
  * @param {string} openaiName
