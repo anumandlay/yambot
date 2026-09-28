@@ -758,9 +758,9 @@ export const HELP = {
   "agent.jev.sitePlays": {
     title: "Jev site paths",
     body: helpBody(
-      "The first time an agent opens a site, logs in, or clicks through a form, those steps are saved here.",
-      "The next similar request replays the steps without asking the model for each click. If you asked for a list or a summary, the model reads the live page after the replay and writes the answer.",
-      "Passwords are not stored in the path. Replay uses the password in the goal or a saved login for that site. Delete a bad path here."
+      "The first time an agent opens a site, logs in, or clicks through a form, those steps are saved here, grouped by website.",
+      "Open a site to see every saved case and the step flow. The next similar request replays those steps. If you asked for a list or a summary, the model reads the live page after the replay.",
+      "Passwords are not stored in the path. Replay uses the password in the goal or a saved login for that site. Delete a bad path from the popup."
     ),
   },
   "agent.jev.cases": {

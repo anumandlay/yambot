@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 10:36] Jev site popup: cases and step flow
+
+- **Prompt Provided:** For Jev sites, show a popup of the cases for that website and the flow.
+- **Architectural Flow:** Agent → Jev groups saved site paths by host. Opening a site shows each stored goal and the ordered steps (open, click, fill). Password characters stay out of the popup; other fill text is included. Delete still removes one path.
+- **Impacted Files:** jevEvaluate.js, JevSiteFlowDialog.jsx, AgentEditPage.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-28 10:24] Show saved API keys in agent text boxes
 
 - **Prompt Provided:** In the whole project, show API keys in textboxes.

@@ -18,6 +18,7 @@ import {
 import { HelpTooltip } from "../components/HelpTooltip.jsx";
 import { LiveScreen } from "../components/LiveScreen.jsx";
 import { SiteProfilesPanel } from "../components/SiteProfilesPanel.jsx";
+import { groupJevSitePlays, JevSiteFlowDialog } from "../components/JevSiteFlowDialog.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
 import { resizeImageFileToAvatar } from "../lib/agentAvatar.js";
 
@@ -245,6 +246,8 @@ export function AgentEditPage() {
   const [composioAwaitingToolkit, setComposioAwaitingToolkit] = useState("");
   /** Why: cancel in-flight poll when user starts Connect on another app or leaves. */
   const composioAwaitRef = useRef("");
+  /** Host whose saved Jev cases and step flow are open in the popup. */
+  const [siteFlowHost, setSiteFlowHost] = useState("");
 
 
   useEffect(() => {
@@ -258,6 +261,13 @@ export function AgentEditPage() {
       })
       .catch(() => {});
   }, [isNew]);
+
+  // Why: deleting the last case for an open site should close the popup.
+  useEffect(() => {
+    if (!siteFlowHost) return;
+    const still = groupJevSitePlays(form.jev?.sitePlays).some((g) => g.host === siteFlowHost);
+    if (!still) setSiteFlowHost("");
+  }, [form.jev?.sitePlays, siteFlowHost]);
 
   useEffect(() => {
     (async () => {
@@ -2543,8 +2553,7 @@ export function AgentEditPage() {
           </SectionTitle>
           <p className="text-xs text-teal-900/70">
             After a successful browser run, Jev stores the open / login / click steps for that site.
-            The next similar request replays them. If you asked for a list or a summary, the LLM reads
-            the page after those steps.
+            Open a website to see each saved case and the step flow.
           </p>
           {isNew ? (
             <p className="text-xs text-teal-900/60">Save the agent first — paths appear after a browser run.</p>
@@ -2552,44 +2561,37 @@ export function AgentEditPage() {
             <p className="text-xs text-teal-900/60">No site paths yet.</p>
           ) : (
             <ul className="flex max-h-[28rem] flex-col gap-2 overflow-y-auto">
-              {[...form.jev.sitePlays]
-                .slice()
-                .reverse()
-                .map((p) => (
-                  <li
-                    key={p.id || `${p.host}-${p.goalSample}`}
-                    className="rounded-xl border border-violet-100 bg-white p-3"
+              {groupJevSitePlays(form.jev.sitePlays).map((group) => (
+                <li key={group.host}>
+                  <button
+                    type="button"
+                    onClick={() => setSiteFlowHost(group.host)}
+                    className="flex min-h-11 w-full items-center justify-between gap-2 rounded-xl border border-violet-100 bg-white px-3 py-2.5 text-left hover:bg-violet-50"
                   >
-                    <div className="flex items-start justify-between gap-2">
-                      <div className="min-w-0">
-                        <p className="text-xs font-semibold text-violet-950">{p.host || "site"}</p>
-                        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-teal-950">
-                          {String(p.goalSample || "")}
-                        </p>
-                        <p className="mt-1 text-[0.65rem] text-teal-900/55">
-                          {(Array.isArray(p.steps) ? p.steps : [])
-                            .map((s) =>
-                              s.op === "goto" ? "open" : s.op === "fill" ? `fill ${s.name || ""}` : s.name || s.op
-                            )
-                            .filter(Boolean)
-                            .join(" → ")
-                            .slice(0, 180)}
-                          {p.handoff === "summarize" ? " → then summarize" : ""}
-                        </p>
-                      </div>
-                      <button
-                        type="button"
-                        disabled={busy || !p.id}
-                        onClick={() => void deleteJevSitePlay(String(p.id))}
-                        className="shrink-0 rounded-lg border border-red-200 bg-white px-2 py-1 text-[0.65rem] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </li>
-                ))}
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-violet-950">{group.host}</span>
+                      <span className="mt-0.5 block text-xs text-teal-900/60">
+                        {group.items.length} {group.items.length === 1 ? "case" : "cases"}
+                        {group.items[0]?.goalSample
+                          ? ` · ${String(group.items[0].goalSample).slice(0, 80)}`
+                          : ""}
+                      </span>
+                    </span>
+                    <span className="shrink-0 text-xs font-semibold text-violet-800">View flow</span>
+                  </button>
+                </li>
+              ))}
             </ul>
           )}
+          {siteFlowHost ? (
+            <JevSiteFlowDialog
+              host={siteFlowHost}
+              plays={groupJevSitePlays(form.jev?.sitePlays).find((g) => g.host === siteFlowHost)?.items || []}
+              busy={busy}
+              onClose={() => setSiteFlowHost("")}
+              onDelete={(playId) => void deleteJevSitePlay(playId)}
+            />
+          ) : null}
         </fieldset>
         </div>
         ) : null}

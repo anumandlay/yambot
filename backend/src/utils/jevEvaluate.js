@@ -48,13 +48,17 @@ export function publicJevSummary(agent) {
     handoff: p.handoff === "summarize" ? "summarize" : "none",
     hits: Number(p.hits) || 0,
     at: p.at || null,
-    steps: (Array.isArray(p.steps) ? p.steps : []).map((s) => ({
-      op: String(s.op || ""),
-      url: String(s.url || "").slice(0, 500),
-      name: String(s.name || "").slice(0, 120),
-      // Why: password characters are never stored; the flag is enough for the editor.
-      secret: s.secret === "password" ? "password" : "",
-    })),
+    steps: (Array.isArray(p.steps) ? p.steps : []).map((s) => {
+      const secret = s.secret === "password" ? "password" : "";
+      return {
+        op: String(s.op || ""),
+        url: String(s.url || "").slice(0, 500),
+        name: String(s.name || "").slice(0, 120),
+        // Why: the flow popup shows what was typed, except passwords, which are never stored.
+        text: secret ? "" : String(s.text || "").slice(0, 200),
+        secret,
+      };
+    }),
   }));
   return {
     enabled: Boolean(j.enabled),
