@@ -11,6 +11,7 @@ import {
   buildChatContextPrompt,
   refreshChatContextIfNeeded,
 } from "./chatContext.js";
+import { maybeSummarizeAgentMemory } from "./memorySummarizeCron.js";
 
 /**
  * Build snapshot + chat context without blocking on summary LLM.
@@ -44,8 +45,11 @@ export async function prepareChatPromptContext(opts) {
     light = false,
   } = opts;
 
-  // Why: never block first token on a summary LLM — refresh in background.
+  // Why: chat fold stays in the background so the first token is not blocked.
+  // Memory compress only calls the model when stores already fill half the window;
+  // under that line it returns immediately, so awaiting it is free on normal turns.
   void refreshChatContextIfNeeded(chat, creds).catch(() => {});
+  await maybeSummarizeAgentMemory(agentDoc, creds).catch(() => {});
 
   const { resolveCuratedMemoryForPrompt } = await import("./semanticMemory.js");
 

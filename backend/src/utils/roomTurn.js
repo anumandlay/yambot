@@ -23,6 +23,7 @@ import {
   shouldAnswerPeerCheaply,
 } from "./agentMessageBus.js";
 import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
+import { maybeSummarizeAgentMemory } from "./memorySummarizeCron.js";
 import { mem0IngestChatTurn } from "./mem0Service.js";
 /**
  * @param {string} content
@@ -106,6 +107,7 @@ async function cheapRoomMemberReply(opts) {
     console.warn("[roomTurn] curated/mem0 pull failed:", agent.name, err?.message || err);
   }
 
+  await maybeSummarizeAgentMemory(agent, creds).catch(() => {});
   const snapshot = toAgentSnapshot(agent, {
     goal: humanMessage,
     userCuratedEntries: curatedEntries.userCuratedEntries,

@@ -12,6 +12,7 @@ import { buildCompanyContextBlock, prependContextToGoal } from "./entityContext.
 import { resolveLlmCredentialsForAgent } from "./llmCredentials.js";
 import { postCuratedPullMessage, resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "./computerUseMode.js";
+import { maybeSummarizeAgentMemory } from "./memorySummarizeCron.js";
 
 /**
  * One human chat per agent — find the newest agent chat or create it.
@@ -175,6 +176,8 @@ export async function enqueueTask(opts) {
     userId: String(userId),
     agentId: String(agentId),
   });
+
+  await maybeSummarizeAgentMemory(agentDoc, creds).catch(() => {});
 
   const task = await Task.create({
     user: userId,

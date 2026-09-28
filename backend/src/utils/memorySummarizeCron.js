@@ -1,8 +1,8 @@
 /**
- * @fileoverview 30-minute all-agents memory summarizer.
- * Purpose: When an agent has new dayLogs / short notes / curated / Mem0 / chat since the
- * last pass, LLM-compress those into a clean day summary + curated list + episodic note.
- * Downstream: startAgentScheduler in scheduler.js; Agent.memoryContentChangedAt markers.
+ * @fileoverview Agent-memory summarizer gated on LLM context fill.
+ * Purpose: Compress dayLogs / short notes / Mem0 only when those stores already occupy
+ * about half the model context window. No timer — callers run this while packing a prompt.
+ * Downstream: chatPromptPrepare, enqueueTask, room turns, scheduled computer snapshots.
  */
 
 import { Agent, utcDayKey } from "../models/Agent.js";
@@ -23,34 +23,23 @@ import {
   isEphemeralListResult,
   looksLikeListDumpBody,
 } from "./curatedMemoryFilter.js";
+import { chatContextBudgetFromTokens } from "./llmContextWindow.js";
 
-/** How often the global tick runs. */
-export const MEMORY_SUMMARIZE_INTERVAL_MS = 30 * 60 * 1000;
-
-/** Max agents processed per tick (all agents are scanned; only dirty ones run). */
-const MAX_AGENTS_PER_TICK = 12;
+/** ~4 characters per token — same estimate chat context uses. */
+const CHARS_PER_TOKEN = 4;
 
 /**
- * Agents with new content since last summarize (or never summarized).
- * @returns {Promise<import('mongoose').Document[]>}
+ * Agents currently inside maybeSummarizeAgentMemory (avoid overlapping LLM calls).
+ * @type {Set<string>}
  */
-async function findAgentsNeedingMemorySummarize() {
-  return Agent.find({
-    deletedAt: null,
-    active: { $ne: false },
-    memoryContentChangedAt: { $ne: null },
-    $or: [
-      { lastMemorySummarizeAt: null },
-      {
-        $expr: {
-          $gt: ["$memoryContentChangedAt", "$lastMemorySummarizeAt"],
-        },
-      },
-    ],
-  })
-    .sort({ memoryContentChangedAt: -1 })
-    .limit(MAX_AGENTS_PER_TICK);
-}
+const summarizeInflight = new Set();
+
+/**
+ * changedAt timestamp of the last failed summarize, per agent.
+ * Why: a bad JSON reply must not call the LLM again until memory actually changes.
+ * @type {Map<string, number>}
+ */
+const summarizeFailedAtChange = new Map();
 
 /**
  * Build compact source text for the summarizer LLM.
@@ -123,6 +112,71 @@ function parseSummarizeJson(raw) {
     };
   } catch {
     return null;
+  }
+}
+
+/**
+ * Rough token size of the agent's stored memory (day history, short notes, curated).
+ * Mem0 is remote — counted only inside the LLM pass, after the local stores already
+ * cross the half-window gate.
+ * @param {object|null|undefined} agent
+ * @returns {number}
+ */
+export function estimateAgentMemoryFillTokens(agent) {
+  let chars = 0;
+  const days = Array.isArray(agent?.dayLogs) ? agent.dayLogs : [];
+  for (const d of days) {
+    chars += String(d?.summary || "").length + String(d?.detail || "").length;
+  }
+  const notes = Array.isArray(agent?.memory) ? agent.memory : [];
+  for (const n of notes) chars += String(n?.content || "").length;
+  const curated = agent?.curatedMemory?.entries;
+  const entries = Array.isArray(curated) ? curated : [];
+  for (const e of entries) {
+    chars += String(typeof e === "string" ? e : e?.content || "").length;
+  }
+  return Math.max(0, Math.ceil(chars / CHARS_PER_TOKEN));
+}
+
+/**
+ * True when stored memory is at or above half the model context window.
+ * @param {object|null|undefined} agent
+ * @param {object|null|undefined} creds
+ * @returns {boolean}
+ */
+export function agentMemoryExceedsHalfWindow(agent, creds) {
+  const budget = chatContextBudgetFromTokens(creds || {});
+  return estimateAgentMemoryFillTokens(agent) >= budget.summarizeAtTokens;
+}
+
+/**
+ * LLM-compress one agent when its memory fill is past half the context window.
+ * Under the threshold this returns immediately and does not call the model.
+ * @param {import('mongoose').Document|null|undefined} agent
+ * @param {object|null|undefined} [creds]
+ * @returns {Promise<{ ok: boolean, skipped?: string, error?: string }>}
+ */
+export async function maybeSummarizeAgentMemory(agent, creds) {
+  if (!agent?._id) return { ok: false, skipped: "no_agent" };
+  if (!agentMemoryExceedsHalfWindow(agent, creds)) {
+    return { ok: false, skipped: "under_threshold" };
+  }
+  const id = String(agent._id);
+  const changedAt = agent.memoryContentChangedAt
+    ? new Date(agent.memoryContentChangedAt).getTime()
+    : 0;
+  if (summarizeFailedAtChange.get(id) === changedAt && changedAt) {
+    return { ok: false, skipped: "last_attempt_failed" };
+  }
+  if (summarizeInflight.has(id)) return { ok: false, skipped: "inflight" };
+  summarizeInflight.add(id);
+  try {
+    const result = await summarizeAgentMemory(agent);
+    if (result?.error) summarizeFailedAtChange.set(id, changedAt || Date.now());
+    else if (result?.ok) summarizeFailedAtChange.delete(id);
+    return result;
+  } finally {
+    summarizeInflight.delete(id);
   }
 }
 
@@ -269,7 +323,7 @@ export async function summarizeAgentMemory(agent) {
   // Why: do not clear memoryContentChangedAt — new writes after this stamp will still trigger.
   await agent.save();
 
-  // Why: curated MEMORY is operator-owned (Memory page) — cron must not rewrite it.
+  // Why: curated MEMORY is operator-owned (Memory page) — this pass must not rewrite it.
 
   // --- Mem0: drop obsolete near-dupes; only add facts not already present ---
   if (parsed.mem0Facts.length) {
@@ -295,7 +349,7 @@ export async function summarizeAgentMemory(agent) {
           agentId: String(agent._id),
           scope: "agent",
           content: fact,
-          metadata: { source: "memory_summarize_cron" },
+          metadata: { source: "memory_summarize_fill" },
         }).catch(() => {});
       }
     } catch (err) {
@@ -314,41 +368,4 @@ export async function summarizeAgentMemory(agent) {
   }
 
   return { ok: true };
-}
-
-/**
- * Scan all agents; summarize those with new content since last cron.
- * @returns {Promise<{ checked: number, ran: number, skipped: number, errors: number }>}
- */
-export async function tickMemorySummarize() {
-  /** @type {{ checked: number, ran: number, skipped: number, errors: number }} */
-  const stats = { checked: 0, ran: 0, skipped: 0, errors: 0 };
-  let agents = [];
-  try {
-    agents = await findAgentsNeedingMemorySummarize();
-  } catch (err) {
-    console.error("[memorySummarize] find failed:", err?.message || err);
-    return stats;
-  }
-  stats.checked = agents.length;
-  for (const agent of agents) {
-    try {
-      const result = await summarizeAgentMemory(agent);
-      if (result.ok) stats.ran += 1;
-      else if (result.error) {
-        stats.errors += 1;
-        console.warn(
-          `[memorySummarize] agent ${agent._id} error:`,
-          result.error
-        );
-      } else stats.skipped += 1;
-    } catch (err) {
-      stats.errors += 1;
-      console.warn(
-        `[memorySummarize] agent ${agent._id} threw:`,
-        err?.message || err
-      );
-    }
-  }
-  return stats;
 }

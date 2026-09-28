@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 08:55] Memory summarize on 50% context, not a 30-minute timer
+
+- **Prompt Provided:** Remove the 30-minute memory summarizer. Memory or chat context must summarise when the context is above 50% of the LLM context window.
+- **Architectural Flow:** Scheduler no longer calls `tickMemorySummarize`. Chat threads still fold via `refreshChatContextIfNeeded` at 50% of `contextTokens`. Agent day logs / notes / curated call the LLM only from prompt packing (`prepareChatPromptContext`, `enqueueTask`, room turns, scheduled computer snapshots) when `estimateAgentMemoryFillTokens` ≥ that same half-window. A failed JSON parse does not retry until memory changes again.
+- **Impacted Files:** memorySummarizeCron.js, scheduler.js, chatPromptPrepare.js, enqueueTask.js, roomTurn.js, Agent.js, memorySummarizeFill.test.js, PROMPT_LOG
+
 ## [2026-09-26 11:45] Progressive skills Phases 1–4 (catalog + skill_view)
 
 - **Prompt Provided:** Implement progressive skills 1,2,3,4 one by one

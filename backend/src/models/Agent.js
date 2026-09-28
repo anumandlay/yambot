@@ -576,11 +576,11 @@ const agentSchema = new mongoose.Schema(
     },
     /**
      * When dayLogs / short notes / curated / Mem0 / chat last changed for this agent.
-     * Why: 30m memory summarizer only runs when this is newer than lastMemorySummarizeAt.
+     * Why: memory compress runs only after fill passes half the context window, and only if this is newer than lastMemorySummarizeAt.
      */
     memoryContentChangedAt: { type: Date, default: null, index: true },
     /**
-     * Last successful 30m memory summarizer pass for this agent.
+     * Last successful memory compress (half-window gate), not a timer.
      */
     lastMemorySummarizeAt: { type: Date, default: null },
     /**

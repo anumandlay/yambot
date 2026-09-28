@@ -46,7 +46,7 @@ import {
   COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
 import { resolveComposioPlan } from "./composioLlmPlan.js";
-import { tickMemorySummarize, MEMORY_SUMMARIZE_INTERVAL_MS } from "./memorySummarizeCron.js";
+import { maybeSummarizeAgentMemory } from "./memorySummarizeCron.js";
 import {
   decryptAgentComposioApiKey,
   expandComposioToolkitSlugs,
@@ -479,6 +479,8 @@ export async function runScheduledAgent(agent, job = null) {
     userId: String(agent.user || owner?._id || ""),
     agentId: String(agent._id),
   });
+  // Why: compress stored memory only when it already fills half the model window.
+  await maybeSummarizeAgentMemory(agent, creds).catch(() => {});
   const snapshot = toAgentSnapshot(agent, {
     goal: workerGoal,
     userCuratedEntries: curated.userCuratedEntries,
@@ -811,25 +813,8 @@ export function startAgentScheduler(opts = {}) {
       console.error("[scheduler] apiAgents tick failed", err?.message || err)
     );
   }, 15_000);
-  setInterval(() => {
-    void tickMemorySummarize()
-      .then((s) => {
-        if (s.ran || s.errors || s.checked) {
-          console.log(
-            `[scheduler] memorySummarize checked=${s.checked} ran=${s.ran} skipped=${s.skipped} errors=${s.errors}`
-          );
-        }
-      })
-      .catch((err) =>
-        console.error("[scheduler] memorySummarize failed", err?.message || err)
-      );
-  }, MEMORY_SUMMARIZE_INTERVAL_MS);
-  // Why: first pass after boot so dirty agents don't wait a full 30m.
-  setTimeout(() => {
-    void tickMemorySummarize().catch(() => {});
-  }, 45_000);
   console.log(
-    `[scheduler] started (schedules every ${scheduleTickMs}ms; full tick every ${intervalMs}ms; api agents every 15s; memory summarize every ${MEMORY_SUMMARIZE_INTERVAL_MS}ms)`
+    `[scheduler] started (schedules every ${scheduleTickMs}ms; full tick every ${intervalMs}ms; api agents every 15s)`
   );
 }
 
