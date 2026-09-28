@@ -2468,7 +2468,7 @@ export function AgentEditPage() {
           <p className="text-xs text-teal-900/70">
             Stored from each Auto turn’s final outcome (reply / computer / Composio). These are sent to
             Jev on later turns as <code className="rounded bg-violet-50 px-1">learned_cases</code>.
-            Newest kept (max 80). Save is not required to delete.
+            Questions that differ only by the day share one case. Newest kept (max 80). Save is not required to delete.
           </p>
           {isNew ? (
             <p className="text-xs text-teal-900/60">Save the agent first — cases appear after Auto chats.</p>

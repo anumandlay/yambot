@@ -27,7 +27,7 @@ import {
   composioListCatalog,
   COMPOSIO_DEFAULT_TOOLKITS,
 } from "../utils/composioService.js";
-import { publicJevSummary, deleteJevLearningCase } from "../utils/jevEvaluate.js";
+import { publicJevSummary, deleteJevLearningCase, collapseSimilarJevCases } from "../utils/jevEvaluate.js";
 import { computeAgentReadiness } from "../utils/agentReadiness.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
@@ -1137,6 +1137,10 @@ agentsRouter.get("/:id", async (req, res, next) => {
     if (!agent) {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
+    }
+    // Why: the Jev tab should show one case when asks differ only by yesterday / day before yesterday.
+    if (Array.isArray(agent.jev?.cases) && collapseSimilarJevCases(agent.jev.cases) > 0) {
+      await Agent.updateOne({ _id: agent._id }, { $set: { "jev.cases": agent.jev.cases } });
     }
     const [hasTrigger, recentTasks] = await Promise.all([
       Trigger.exists({ user: req.userId, agent: agent._id, enabled: { $ne: false } }),

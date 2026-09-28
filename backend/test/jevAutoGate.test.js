@@ -13,6 +13,9 @@ import {
   publicJevSummary,
   summarizeJevForChatMeta,
   outcomeFromAutoTurn,
+  jevCaseSignature,
+  collapseSimilarJevCases,
+  buildJevAutoEvaluatePayload,
 } from "../src/utils/jevEvaluate.js";
 
 describe("Auto classifier hint (optional Jev)", () => {
@@ -117,5 +120,27 @@ describe("Auto classifier hint (optional Jev)", () => {
       "composio"
     );
     assert.equal(outcomeFromAutoTurn({ action: "reply", reason: "jev_confident_reply" }), "reply");
+  });
+
+  it("merges reply cases that differ only by the day", () => {
+    const a = "what did we do yesterday";
+    const b = "what did we do day before yesterday";
+    assert.equal(jevCaseSignature(a), jevCaseSignature(b));
+    assert.notEqual(jevCaseSignature(a), jevCaseSignature("open vughy.com and login"));
+    const cases = [
+      { userMessage: a, outcome: "reply", reason: "jev_confident_reply", at: "2026-09-28T17:11:05.000Z" },
+      { userMessage: b, outcome: "reply", reason: "jev_confident_reply", at: "2026-09-28T17:11:35.000Z" },
+      { userMessage: "open vughy.com", outcome: "queue_goal", reason: "jev_confident_queue", at: "2026-09-28T17:00:00.000Z" },
+    ];
+    assert.equal(collapseSimilarJevCases(cases), 1);
+    assert.equal(cases.length, 2);
+    assert.equal(cases[0].userMessage, b);
+    const payload = buildJevAutoEvaluatePayload("what did we do today", {
+      cases: [
+        { userMessage: a, outcome: "reply" },
+        { userMessage: b, outcome: "reply" },
+      ],
+    });
+    assert.equal(payload.state.learned_cases.length, 1);
   });
 });

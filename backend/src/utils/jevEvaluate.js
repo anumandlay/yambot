@@ -97,16 +97,67 @@ export function outcomeFromAutoTurn(turn) {
 }
 
 /**
- * Normalize user text for case dedupe.
+ * Routing fingerprint for a learned case.
+ * Why: “what did we do yesterday” and “what did we do day before yesterday” are the same reply example.
+ * Day words and calendar dates become `{when}` so those questions share one case. Other wording stays.
  * @param {string} text
  * @returns {string}
  */
-function normalizeJevCaseKey(text) {
-  return String(text || "")
+export function jevCaseSignature(text) {
+  let s = String(text || "")
     .trim()
     .toLowerCase()
+    .replace(/[“”"']/g, "")
+    .replace(/[?!.,]+/g, " ")
     .replace(/\s+/g, " ")
-    .slice(0, JEV_CASE_MESSAGE_MAX);
+    .trim();
+  s = s
+    .replace(/\b(?:the\s+)?day before yesterday\b/g, "{when}")
+    .replace(/\btwo days ago\b/g, "{when}")
+    .replace(/\byesterday\b/g, "{when}")
+    .replace(/\btoday\b/g, "{when}")
+    .replace(/\bthis (?:morning|afternoon|evening|day)\b/g, "{when}")
+    .replace(/\blast night\b/g, "{when}")
+    .replace(/\bso far\b/g, "{when}")
+    .replace(/\bearlier\b/g, "{when}")
+    .replace(/\b\d{4}-\d{2}-\d{2}\b/g, "{when}")
+    .replace(/\b\d{1,2}\/\d{1,2}\/\d{2,4}\b/g, "{when}");
+  return s.replace(/\s+/g, " ").trim().slice(0, JEV_CASE_MESSAGE_MAX);
+}
+
+/**
+ * Drop learned cases that share an outcome and a day-normalized signature.
+ * Keeps the newest example in each group. Mutates `cases`.
+ * @param {object[]|undefined} cases
+ * @returns {number} how many rows were removed
+ */
+export function collapseSimilarJevCases(cases) {
+  if (!Array.isArray(cases) || cases.length < 2) return 0;
+  /** @type {Map<string, number>} */
+  const kept = new Map();
+  /** @type {object[]} */
+  const out = [];
+  for (const c of cases) {
+    const outcome = String(c?.outcome || "");
+    const sig = jevCaseSignature(c?.userMessage);
+    if (!sig || !JEV_CASE_OUTCOMES.includes(outcome)) {
+      out.push(c);
+      continue;
+    }
+    const key = `${outcome}\n${sig}`;
+    const prev = kept.get(key);
+    if (prev == null) {
+      kept.set(key, out.length);
+      out.push(c);
+      continue;
+    }
+    const prevAt = new Date(out[prev]?.at || 0).getTime();
+    const nextAt = new Date(c?.at || 0).getTime();
+    if (nextAt >= prevAt) out[prev] = c;
+  }
+  const removed = cases.length - out.length;
+  if (removed > 0) cases.splice(0, cases.length, ...out);
+  return removed;
 }
 
 /**
@@ -138,13 +189,14 @@ export async function appendJevLearningCase(agent, opts = {}) {
 
   agent.jev = agent.jev || {};
   if (!Array.isArray(agent.jev.cases)) agent.jev.cases = [];
-  const key = normalizeJevCaseKey(userMessage);
+  collapseSimilarJevCases(agent.jev.cases);
+  const key = jevCaseSignature(userMessage);
   const existing = agent.jev.cases.find(
-    (c) =>
-      normalizeJevCaseKey(c.userMessage) === key && String(c.outcome || "") === outcome
+    (c) => jevCaseSignature(c.userMessage) === key && String(c.outcome || "") === outcome
   );
   if (existing) {
-    // Why: same question + same outcome — refresh timestamp / reason, don’t grow duplicates.
+    // Why: same route + same outcome — keep one row, including when only the day word changed.
+    existing.userMessage = userMessage;
     existing.at = new Date();
     if (reason) existing.reason = reason;
     if (jevGuess) existing.jevGuess = jevGuess;
@@ -371,7 +423,9 @@ function redactJevAnswerRaw(ans) {
  */
 export function buildJevAutoEvaluatePayload(userMessage, opts = {}) {
   const body = String(userMessage || "").trim().slice(0, 4000);
-  const cases = (Array.isArray(opts.cases) ? opts.cases : [])
+  const folded = Array.isArray(opts.cases) ? opts.cases.map((c) => ({ ...c })) : [];
+  collapseSimilarJevCases(folded);
+  const cases = folded
     .map((c) => ({
       user_message: String(c.userMessage || c.user_message || "")
         .trim()

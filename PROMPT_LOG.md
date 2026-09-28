@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 13:16] Merge similar Jev cases that differ only by the day
+
+- **Prompt Provided:** On the agent Jev tab, “what did we do yesterday” and “what did we do day before yesterday” are two learned cases, both reply.
+- **Architectural Flow:** Learned cases that share an outcome and differ only by a day phrase (yesterday, day before yesterday, today, a date) collapse to the newest example. Opening the agent saves that merge. Later Auto turns reuse the same case instead of adding another.
+- **Impacted Files:** jevEvaluate.js, agents.js, AgentEditPage.jsx, helpContent.js, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 13:12] Hide date reasoning on “what did we do” questions
 
 - **Prompt Provided:** “what did we do day before yesterday” replied with the model’s date math, including “dont show this text”.

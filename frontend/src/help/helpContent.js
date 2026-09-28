@@ -767,6 +767,7 @@ export const HELP = {
     title: "Learned Jev cases",
     body: helpBody(
       "Each Auto turn stores the user message plus the final outcome (reply, computer, or Composio).",
+      "Questions that differ only by the day, such as yesterday and day before yesterday, share one case.",
       "Those examples are sent to Jev on later turns as learned_cases so similar questions route better. Delete any bad example here."
     ),
   },
