@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 10:24] Show saved API keys in agent text boxes
+
+- **Prompt Provided:** In the whole project, show API keys in textboxes.
+- **Architectural Flow:** Agent GET already returns Settings and LLM-profile keys in full. Jev and Composio summaries now include the decrypted key for the signed-in owner. Agent edit fills those text inputs (not password dots) so the saved key is visible and a save writes the same value back.
+- **Impacted Files:** jevEvaluate.js, composioService.js, AgentEditPage.jsx, helpContent.js, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 10:19] Jev calls official TypeSafe only
 
 - **Prompt Provided:** Remove Vercel and use only official TypeSafe AI.

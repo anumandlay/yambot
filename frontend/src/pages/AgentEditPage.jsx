@@ -373,8 +373,8 @@ export function AgentEditPage() {
             },
             composio: {
               enabled: Boolean(a.composio?.enabled),
-              apiKey: "",
-              hasApiKey: Boolean(a.composio?.hasApiKey),
+              apiKey: a.composio?.apiKey || "",
+              hasApiKey: Boolean(a.composio?.hasApiKey || a.composio?.apiKey),
               toolkitSlugs: Array.isArray(a.composio?.toolkitSlugs)
                 ? a.composio.toolkitSlugs
                 : [],
@@ -382,8 +382,8 @@ export function AgentEditPage() {
             },
             jev: {
               enabled: Boolean(a.jev?.enabled),
-              apiKey: "",
-              hasApiKey: Boolean(a.jev?.hasApiKey),
+              apiKey: a.jev?.apiKey || "",
+              hasApiKey: Boolean(a.jev?.hasApiKey || a.jev?.apiKey),
               cases: Array.isArray(a.jev?.cases) ? a.jev.cases : [],
               sitePlays: Array.isArray(a.jev?.sitePlays) ? a.jev.sitePlays : [],
             },
@@ -582,7 +582,7 @@ export function AgentEditPage() {
           sitePlays: Array.isArray(data?.agent?.jev?.sitePlays) ? data.agent.jev.sitePlays : [],
           enabled: Boolean(data?.agent?.jev?.enabled ?? prev.jev?.enabled),
           hasApiKey: Boolean(data?.agent?.jev?.hasApiKey ?? prev.jev?.hasApiKey),
-          apiKey: "",
+          apiKey: data?.agent?.jev?.apiKey || prev.jev?.apiKey || "",
         },
       }));
       setOkMsg("Learned case removed");
@@ -1068,8 +1068,8 @@ export function AgentEditPage() {
           composio: data?.agent?.composio
             ? {
                 enabled: Boolean(data.agent.composio.enabled),
-                apiKey: "",
-                hasApiKey: Boolean(data.agent.composio.hasApiKey),
+                apiKey: data.agent.composio.apiKey || "",
+                hasApiKey: Boolean(data.agent.composio.hasApiKey || data.agent.composio.apiKey),
                 toolkitSlugs: Array.isArray(data.agent.composio.toolkitSlugs)
                   ? data.agent.composio.toolkitSlugs
                   : [],
@@ -1079,8 +1079,8 @@ export function AgentEditPage() {
           jev: data?.agent?.jev
             ? {
                 enabled: Boolean(data.agent.jev.enabled),
-                apiKey: "",
-                hasApiKey: Boolean(data.agent.jev.hasApiKey),
+                apiKey: data.agent.jev.apiKey || "",
+                hasApiKey: Boolean(data.agent.jev.hasApiKey || data.agent.jev.apiKey),
                 cases: Array.isArray(data.agent.jev.cases) ? data.agent.jev.cases : [],
                 sitePlays: Array.isArray(data.agent.jev.sitePlays) ? data.agent.jev.sitePlays : [],
               }
@@ -2158,16 +2158,13 @@ export function AgentEditPage() {
             <div className="sm:col-span-2">
               <FieldLabel helpId="agent.composio.apiKey">Composio API key</FieldLabel>
               <input
-                className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 text-sm"
-                type="password"
+                className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 font-mono text-sm"
+                type="text"
                 autoComplete="off"
+                spellCheck={false}
                 value={form.composio?.apiKey || ""}
                 onChange={(e) => updateComposio("apiKey", e.target.value)}
-                placeholder={
-                  form.composio?.hasApiKey
-                    ? "Saved — leave blank to keep"
-                    : "ak_… from app.composio.dev"
-                }
+                placeholder="ak_… from app.composio.dev"
                 disabled={!form.composio?.enabled}
               />
             </div>
@@ -2450,16 +2447,13 @@ export function AgentEditPage() {
           <div>
             <FieldLabel helpId="agent.jev.apiKey">Jev API key</FieldLabel>
             <input
-              className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 text-sm"
-              type="password"
+              className="mt-1 w-full rounded-xl border border-teal-200 bg-white px-3 py-2.5 font-mono text-sm"
+              type="text"
               autoComplete="off"
+              spellCheck={false}
               value={form.jev?.apiKey || ""}
               onChange={(e) => updateJev("apiKey", e.target.value)}
-              placeholder={
-                form.jev?.hasApiKey
-                  ? "Saved — leave blank to keep"
-                  : "TypeSafe API key"
-              }
+              placeholder="TypeSafe API key"
               disabled={!form.jev?.enabled}
             />
           </div>

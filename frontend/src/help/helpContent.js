@@ -730,7 +730,7 @@ export const HELP = {
   "agent.composio.apiKey": {
     title: "Composio API key",
     body: helpBody(
-      "Stored encrypted on this agent. Leave blank on save to keep the existing key. Get a key from the Composio dashboard."
+      "Composio API key for this agent, shown in the box and stored encrypted. Get a key from the Composio dashboard."
     ),
   },
   "agent.composio.apps": {
@@ -751,7 +751,7 @@ export const HELP = {
   "agent.jev.apiKey": {
     title: "Jev API key",
     body: helpBody(
-      "TypeSafe API key for this agent, stored encrypted. Leave blank on save to keep the existing key.",
+      "TypeSafe API key for this agent, shown in the box and stored encrypted.",
       "Create the key at typesafe.ai. Not the same as your LLM provider key."
     ),
   },

@@ -62,14 +62,14 @@ describe("Auto classifier hint (optional Jev)", () => {
     assert.equal(isJevEnabled({ enabled: true, apiKey: "sk-test", jevMode: "off" }), false);
   });
 
-  it("publicJevSummary redacts key", () => {
+  it("publicJevSummary exposes the key field for the editor", () => {
     const summary = publicJevSummary({
       jev: { enabled: true, apiKeyEnc: "enc-blob" },
     });
     assert.equal(summary.enabled, true);
     assert.equal(summary.hasApiKey, true);
     assert.equal(summary.configured, true);
-    assert.equal(summary.apiKeyMasked, "••••••••");
+    assert.equal(typeof summary.apiKey, "string");
   });
 
   it("summarizeJevForChatMeta marks used/decided for chips", () => {

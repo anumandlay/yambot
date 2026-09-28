@@ -80,19 +80,20 @@ export function resolveComposioApiKey(opts = {}) {
 }
 
 /**
- * Safe Composio summary for agent API responses (never returns the raw key).
+ * Composio summary for agent API responses, including the decrypted key for the editor.
  * @param {object} agent
  * @returns {{
  *   enabled: boolean,
  *   hasApiKey: boolean,
- *   apiKeyMasked: string,
+ *   apiKey: string,
  *   toolkitSlugs: string[],
  *   configured: boolean,
  * }}
  */
 export function publicComposioSummary(agent) {
   const c = agent?.composio || {};
-  const hasApiKey = Boolean(c.apiKeyEnc);
+  const apiKey = decryptAgentComposioApiKey(agent);
+  const hasApiKey = Boolean(apiKey || c.apiKeyEnc);
   const toolkitSlugs = (Array.isArray(c.toolkitSlugs) ? c.toolkitSlugs : [])
     .map((s) => normalizeToolkitSlug(s))
     .filter(Boolean);
@@ -106,7 +107,7 @@ export function publicComposioSummary(agent) {
   return {
     enabled: Boolean(c.enabled),
     hasApiKey,
-    apiKeyMasked: hasApiKey ? "••••••••" : "",
+    apiKey,
     toolkitSlugs,
     autoApproveRisky: Boolean(c.autoApproveRisky),
     toolkitToolCacheCounts,

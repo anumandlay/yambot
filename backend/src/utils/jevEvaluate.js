@@ -22,13 +22,15 @@ export const JEV_CASE_MESSAGE_MAX = 500;
 export const JEV_CASE_OUTCOMES = ["reply", "queue_goal", "composio"];
 
 /**
- * Public redacted Jev settings for agent GET responses (includes learned cases).
+ * Jev settings for agent GET responses (includes learned cases and the decrypted key).
+ * Why: the agent editor shows the saved TypeSafe key in a text box, same as Settings LLM keys.
  * @param {object} agent
  * @returns {object}
  */
 export function publicJevSummary(agent) {
   const j = agent?.jev || {};
-  const hasApiKey = Boolean(j.apiKeyEnc);
+  const apiKey = decryptAgentJevApiKey(agent);
+  const hasApiKey = Boolean(apiKey || j.apiKeyEnc);
   const cases = (Array.isArray(j.cases) ? j.cases : [])
     .map((c) => ({
       id: c._id ? String(c._id) : "",
@@ -57,7 +59,7 @@ export function publicJevSummary(agent) {
   return {
     enabled: Boolean(j.enabled),
     hasApiKey,
-    apiKeyMasked: hasApiKey ? "••••••••" : "",
+    apiKey,
     configured: Boolean(j.enabled && hasApiKey),
     cases,
     caseCount: cases.length,
