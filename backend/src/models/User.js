@@ -16,9 +16,6 @@ import {
  * @property {string} [llmApiKeyEnc]
  * @property {string} [llmBaseUrl]
  * @property {string} [llmModel]
- * @property {string} [visionApiKeyEnc]
- * @property {string} [visionBaseUrl]
- * @property {string} [visionModel]
  * @property {string} [dbcUsername]
  * @property {string} [dbcPasswordEnc]
  * @property {number} [maxSteps]
@@ -57,19 +54,6 @@ const settingsSchema = new mongoose.Schema(
      * Why: chat session packing uses this when the agent has no profile override.
      */
     llmContextTokens: { type: Number, default: 0, min: 0, max: 2_000_000 },
-    /** Optional separate credentials for multimodal (viewport screenshot) steps. */
-    visionApiKeyEnc: { type: String, default: "" },
-    visionBaseUrl: { type: String, default: "" },
-    visionModel: { type: String, default: "" },
-    /**
-     * Default LlmProfile for vision screenshots when an agent has no llm.visionProfile.
-     * Empty = legacy visionApiKey/base/model, then main LLM.
-     */
-    visionProfile: {
-      type: mongoose.Schema.Types.ObjectId,
-      ref: "LlmProfile",
-      default: null,
-    },
     dbcUsername: { type: String, default: "" },
     dbcPasswordEnc: { type: String, default: "" },
     maxSteps: { type: Number, default: 0 },

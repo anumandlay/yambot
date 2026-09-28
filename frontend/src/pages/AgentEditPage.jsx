@@ -43,7 +43,6 @@ const EMPTY = {
     allowCaptcha: true,
     askBeforeLogin: true,
     askBeforeSubmit: false,
-    visionEnabled: false,
   },
   role: "worker",
   lifecycleStatus: "active",
@@ -93,7 +92,6 @@ const EMPTY = {
   ],
   llm: {
     profileId: "",
-    visionProfileId: "",
     /** True only for pre-profile agents that still have inline credentials. */
     useCustom: false,
   },
@@ -310,7 +308,6 @@ export function AgentEditPage() {
               allowCaptcha: a.autonomy?.allowCaptcha !== false,
               askBeforeLogin: a.autonomy?.askBeforeLogin === true,
               askBeforeSubmit: a.autonomy?.askBeforeSubmit === true,
-              visionEnabled: a.autonomy?.visionEnabled === true,
             },
             role: a.role === "manager" ? "manager" : "worker",
             lifecycleStatus: a.lifecycleStatus || "active",
@@ -364,7 +361,6 @@ export function AgentEditPage() {
             })),
             llm: {
               profileId: a.llm?.profileId || "",
-              visionProfileId: a.llm?.visionProfileId || "",
               useCustom: Boolean(a.llm?.useCustom && !a.llm?.profileId),
             },
             email: {
@@ -1020,7 +1016,6 @@ export function AgentEditPage() {
       allowedDomains: form.allowedDomains,
       llm: {
         profileId: form.llm?.profileId || "",
-        visionProfileId: form.llm?.visionProfileId || "",
         // Why: preserve pre-profile inline override until the user picks Default or a named profile.
         useCustom: Boolean(!form.llm?.profileId && form.llm?.useCustom),
       },
@@ -1063,7 +1058,6 @@ export function AgentEditPage() {
           llm: data?.agent?.llm
             ? {
                 profileId: data.agent.llm.profileId || "",
-                visionProfileId: data.agent.llm.visionProfileId || "",
                 useCustom: Boolean(data.agent.llm.useCustom && !data.agent.llm.profileId),
               }
             : prev.llm,
@@ -1899,7 +1893,6 @@ export function AgentEditPage() {
                       allowedDomains: form.allowedDomains,
                       llm: {
                         profileId: form.llm?.profileId || "",
-                        visionProfileId: form.llm?.visionProfileId || "",
                         useCustom: Boolean(!form.llm?.profileId && form.llm?.useCustom),
                       },
                     };
@@ -1911,7 +1904,6 @@ export function AgentEditPage() {
                       ...prev,
                       llm: {
                         profileId: saved?.agent?.llm?.profileId || "",
-                        visionProfileId: saved?.agent?.llm?.visionProfileId || "",
                         useCustom: Boolean(
                           saved?.agent?.llm?.useCustom && !saved?.agent?.llm?.profileId
                         ),
@@ -2818,44 +2810,6 @@ export function AgentEditPage() {
               <FieldLabel helpId={`agent.autonomy.${key}`}>{label}</FieldLabel>
             </label>
           ))}
-          <label className="flex min-h-11 items-center gap-2 text-sm">
-            <input
-              type="checkbox"
-              checked={Boolean(form.autonomy.visionEnabled)}
-              onChange={(e) => updateAutonomy("visionEnabled", e.target.checked)}
-            />
-            <FieldLabel helpId="agent.autonomy.visionEnabled">
-              Enable vision screenshots (error recovery on cloud worker)
-            </FieldLabel>
-          </label>
-          <label className="flex flex-col gap-1 text-sm">
-            <FieldLabel helpId="agent.llm.visionProfile">Vision LLM for this agent</FieldLabel>
-            <select
-              className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-              value={form.llm?.visionProfileId || ""}
-              onChange={(e) => updateLlm("visionProfileId", e.target.value)}
-              disabled={!form.autonomy.visionEnabled}
-            >
-              <option value="">Default (Settings vision profile)</option>
-              {llmProfiles.map((p) => {
-                const id = p._id || p.id;
-                return (
-                  <option key={id} value={id}>
-                    {p.name}
-                    {p.model ? ` · ${p.model}` : ""}
-                  </option>
-                );
-              })}
-            </select>
-          </label>
-          <p className="text-xs text-teal-900/60">
-            Only used when vision screenshots are enabled. Empty = Settings → default vision LLM
-            profile. Manage profiles under{" "}
-            <Link to="/settings/llms" className="font-semibold text-teal-800 underline">
-              Settings → LLM profiles
-            </Link>
-            .
-          </p>
           <label className="flex min-h-11 items-center gap-2 text-sm">
             <input
               type="checkbox"

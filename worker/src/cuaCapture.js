@@ -1,6 +1,6 @@
 /**
- * @fileoverview Hermes-parity window capture via cua-driver (SOM / AX / vision).
- * Purpose: Sticky Chrome target + numbered elements + screenshot for CUA LLM turns.
+ * @fileoverview Hermes-parity window capture via cua-driver (SOM / AX).
+ * Purpose: Sticky Chrome target + numbered elements for CUA LLM turns. Screenshots are not captured.
  * Downstream: computerUse.js, agent.js CUA observation builder, cuaActions.js.
  */
 
@@ -152,10 +152,9 @@ export function createCuaCapture(session) {
         if (!resolved.ok) return { ok: false, error: resolved.error };
       }
 
-      // Why: on Xvfb, include_screenshot often fails (MIT-SHM Match) even when AT-SPI tree works.
-      // Prefer tree for som/ax; Playwright supplies the vision image in agent.js when shot missing.
+      // Why: the model uses the element list, not a screenshot.
       const wantTree = mode !== "vision";
-      const wantShot = mode === "vision" || mode === "som";
+      const wantShot = false;
       const timeoutMs = mode === "vision" ? 20000 : 25000;
 
       let gws = await session.callTool(
@@ -281,7 +280,7 @@ export function createCuaCapture(session) {
         `Window: ${cap.appName || "?"} — ${cap.title || "?"}`,
         `pid=${cap.pid} window_id=${cap.windowId} elements=${cap.elements?.length || 0}`,
         "Pick the element whose label matches the control you want (exact words matter).",
-        "Coords (if used): Playwright viewport CSS from the attached viewport screenshot — not AT-SPI frame x/y.",
+        "Coords (if used): Playwright viewport CSS pixels — not AT-SPI frame x/y. No screenshot is attached.",
       ];
       // Prefer interactive roles so the model does not pick chrome chrome / container indices.
       const ranked = [...(cap.elements || [])].sort((a, b) => {

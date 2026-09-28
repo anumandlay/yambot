@@ -1017,7 +1017,6 @@ export function sanitizePageObservation(obs, extras = {}) {
     structures: obs.structures || undefined,
     plan: extras.plan || undefined,
     progress: extras.progress || undefined,
-    visionAttached: extras.visionAttached || undefined,
     telemetry: extras.telemetry || undefined,
     capturedAt: new Date().toISOString(),
   };

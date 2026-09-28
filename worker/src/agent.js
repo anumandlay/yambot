@@ -56,8 +56,6 @@ import {
   attachFailureClass,
   attachFingerprints,
   buildPageState,
-  buildVisionUserContent,
-  captureViewportBase64,
   checkPreconditions,
   createBrowserTelemetry,
   createGoalPlan,
@@ -91,7 +89,6 @@ import {
   isEphemeralDismissClick,
   isElementMissingError,
   actionDisplayName,
-  shouldAttachVision,
   switchTab,
   updatePlanFromObservation,
   waitForDomSettle,
@@ -346,7 +343,7 @@ function applySignupPathHint(url, goalLower) {
 
 /**
  * Flattens chat-completion messages into readable text for the chat thread.
- * Why: vision payloads include huge base64 images — replace those; truncate long DOM dumps.
+ * Why: older multimodal payloads included huge base64 images — replace those; truncate long DOM dumps.
  * @param {object[]} messages
  * @param {number} [maxChars]
  * @returns {{ text: string, truncated: boolean, roles: string[] }}
@@ -1205,21 +1202,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const llmApiKey = c.llmApiKey || "";
     const llmBaseUrl = c.llmBaseUrl || "https://api.minimax.io/v1";
     const llmModel = c.llmModel || "MiniMax-M2.7";
-    const visionApiKey = c.visionApiKey || "";
-    const visionBaseUrl = c.visionBaseUrl || "";
-    const visionModel = c.visionModel || "";
     return {
       llmApiKey,
       llmBaseUrl,
       llmModel,
       openAiAccountId: c.openAiAccountId || "",
-      visionApiKey,
-      visionBaseUrl,
-      visionModel,
-      /** Credentials for multimodal steps — falls back to main LLM when vision fields are blank. */
-      visionLlmApiKey: visionApiKey || llmApiKey,
-      visionLlmBaseUrl: visionBaseUrl || llmBaseUrl,
-      visionLlmModel: visionModel || llmModel,
       /** Agent → Jev key for Ultrafast TypeSafe choose (and chat Auto when enabled). */
       jevApiKey: String(c.jevApiKey || "").trim(),
       jevConfigured: Boolean(c.jevConfigured) || Boolean(String(c.jevApiKey || "").trim()),
@@ -2683,19 +2670,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
 
         const sessionTelemetry = telemetry?.getSummary();
-        const prevResult = history[history.length - 1]?.result;
-        const visionAllowed = agentSnapshot?.autonomy?.visionEnabled === true;
         const cuaActive = computerUse.isActive();
-        // Why: CUA always needs a viewport image; otherwise keep existing vision policy.
-        const wantVision =
-          !remoteHumanControl &&
-          (cuaActive ||
-            (visionAllowed && shouldAttachVision({ step, result: prevResult })));
 
         /** @type {string} */
         let cuaCaptureBlock = "";
-        /** @type {string} */
-        let cuaShotB64 = "";
         if (cuaActive && computerUse.getCaptureApi()) {
           try {
             const capturePromise = computerUse.getCaptureApi().capture({ mode: "som" });
@@ -2707,7 +2685,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
             ]);
             computerUse.setLastCapture(cap);
             cuaCaptureBlock = computerUse.getCaptureApi().formatForPrompt(cap);
-            if (cap?.ok && cap.screenshotB64) cuaShotB64 = cap.screenshotB64;
             if (!cap?.ok) {
               log(`[${config.workerName}] cua capture soft-fail:`, cap?.error || "unknown");
             }
@@ -2791,21 +2768,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           .filter(Boolean)
           .join("\n\n");
 
-        let userContent = userTextParts;
-        let visionAttached = false;
-        if (wantVision) {
-          try {
-            // Why: cua-driver window PNGs include chrome chrome + different size; model x/y must
-            // match Playwright viewport CSS from the attached image — always prefer viewport JPEG.
-            const b64 = (await captureViewportBase64(page)) || cuaShotB64;
-            if (b64) {
-              userContent = buildVisionUserContent(userTextParts, b64);
-              visionAttached = true;
-            }
-          } catch (err) {
-            log(`[${config.workerName}] vision capture failed:`, err?.message || err);
-          }
-        }
+        const userContent = userTextParts;
 
         // Why: skill_view may bind mid-run via currentActiveDbSkill (progressive load).
         const boundDbSkill = currentActiveDbSkill;
@@ -2850,15 +2813,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
               /mail\.google\.com/i.test(String(obs?.url || ""))
                 ? "GMAIL LABELING (fast path): With conversations selected, prefer toolbar Labels (or keyboard l) — not endless More→Label as retries. If the More menu is already open, use ONE choose_menu_item { path:[\"Label as\",\"Tradingview\"] } (or the goal label name). Submenus open via the right-edge chevron / ArrowRight — do not loop center-clicks on Label as."
                 : "",
-              visionAttached
-                ? cuaActive
-                  ? "A CUA / viewport screenshot is attached — prefer computer_use click by element index from CUA CAPTURE."
-                  : "A viewport screenshot is attached — correlate refs with visible UI."
-                : computerUse.isActive()
-                  ? "CUA mode is on but screenshot capture failed — use computer_use with coords or fall back to DOM refs."
-                  : visionAllowed
-                    ? "A screenshot may attach after failed verification steps."
-                    : "Vision screenshots are disabled for this agent — use DOM refs and text only.",
+              cuaActive
+                ? "No screenshot is attached. Use computer_use from the CUA CAPTURE text, or fall back to DOM refs."
+                : "Use DOM refs and page text only. Screenshots are not sent to the model.",
               "Focus on CURRENT SUBGOAL — call finish when the full goal or success criteria are met.",
               "PAGE READY: navigate already waits for domcontentloaded then snapshots — do not wait_for invented site phrases. Act on ACTION SURFACE refs in CURRENT PAGE SNAPSHOT.",
               formatAgentSnapshot(agentSnapshot, goal),
@@ -2882,7 +2839,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
               stateDiff,
               plan: goalPlan,
               progress: goalProgress,
-              visionAttached,
               telemetry: sessionTelemetry,
             }),
             pageState,
@@ -2890,7 +2846,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
             plan: goalPlan,
             progress: goalProgress,
             structures: obs.structures,
-            visionAttached,
             telemetry: sessionTelemetry,
           },
           appendMessage: obs.url
@@ -2901,21 +2856,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
         let content;
         try {
           metrics.mark(stepClock, "llm");
-          const llmCreds = visionAttached
-            ? {
-                apiKey: settings.visionLlmApiKey,
-                baseUrl: settings.visionLlmBaseUrl,
-                model: settings.visionLlmModel,
-              }
-            : {
-                apiKey: settings.llmApiKey,
-                baseUrl: settings.llmBaseUrl,
-                model: settings.llmModel,
-              };
           const llm = await trackedChatCompletion({
-            apiKey: llmCreds.apiKey,
-            baseUrl: llmCreds.baseUrl,
-            model: llmCreds.model,
+            apiKey: settings.llmApiKey,
+            baseUrl: settings.llmBaseUrl,
+            model: settings.llmModel,
             messages,
             openAiAccountId: settings.openAiAccountId,
             traceLabel: "step",

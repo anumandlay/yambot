@@ -9,7 +9,7 @@
  * silently killed the previous ✕/SVG overlay — Zoom looked cursor-less.
  *
  * Coordinate spaces must not be mixed:
- * - viewport CSS: Playwright page.mouse + attached vision screenshot (origin = content top-left)
+ * - viewport CSS: Playwright page.mouse (origin = content top-left)
  * - screen/desktop: AT-SPI frames + xdotool (origin = X root)
  * Downstream: agent.js click / click_at / type / type_at / computer_use when CUA is active.
  */

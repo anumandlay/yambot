@@ -306,7 +306,7 @@ export const HELP = {
   "nav.settings": {
     title: "Settings",
     body: helpBody(
-      "Settings stores your account secrets: LLM API credentials (required for agents to think), optional Vision LLM (screenshot error recovery), and DeathByCaptcha (automated CAPTCHA solving).",
+      "Settings stores your account secrets: LLM API credentials (required for agents to think) and DeathByCaptcha (automated CAPTCHA solving).",
       "Secrets are encrypted on the server and injected into cloud workers at task runtime — never embedded in the browser extension (cloud-only product)."
     ),
     learnMore: "howto-settings",
@@ -970,21 +970,6 @@ export const HELP = {
       "Lighter than full Governance approval: agent asks in chat ('Reply yes to continue') before submit-like clicks."
     ),
   },
-  "agent.autonomy.visionEnabled": {
-    title: "Vision screenshots",
-    body: helpBody(
-      "When enabled, cloud worker may attach viewport screenshots to LLM on verification failures.",
-      "Uses this agent's Vision LLM profile if set, else Settings → default vision LLM profile, else legacy vision fields / main LLM.",
-      "Costs more tokens but recovers from stale refs and hidden UI."
-    ),
-  },
-  "agent.llm.visionProfile": {
-    title: "Vision LLM for this agent",
-    body: helpBody(
-      "Optional. Pick a saved LLM profile used only for vision screenshot steps.",
-      "Leave as Default to use Settings → default vision LLM profile."
-    ),
-  },
   "agent.active": {
     title: "Agent active",
     body: helpBody(
@@ -1514,31 +1499,6 @@ export const HELP = {
     body: helpBody(
       "Your model’s context window in tokens (e.g. 128000, 200000). Chat memory keeps more recent turns and summarizes later based on this size.",
       "Leave blank to infer from the model name (Claude ≈ 200k, GPT-4o ≈ 128k, MiniMax ≈ 200k). Profile value overrides Settings when the agent uses that profile."
-    ),
-  },
-  "settings.visionProfile": {
-    title: "Default vision LLM profile",
-    body: helpBody(
-      "Account-wide profile for vision screenshots when an agent does not pick its own vision LLM.",
-      "Create vision-capable profiles under Settings → LLM profiles, then select one here."
-    ),
-  },
-  "settings.visionApiKey": {
-    title: "Vision API key",
-    body: helpBody(
-      "Optional separate key for multimodal/vision models. Blank = use main LLM key for screenshot analysis."
-    ),
-  },
-  "settings.visionBaseUrl": {
-    title: "Vision base URL",
-    body: helpBody(
-      "Optional vision endpoint. Blank = main LLM base URL."
-    ),
-  },
-  "settings.visionModel": {
-    title: "Vision model",
-    body: helpBody(
-      "Model for image inputs (e.g. gpt-4o-mini). Blank = main LLM model. Used when agent.autonomy.visionEnabled and error recovery attaches screenshots."
     ),
   },
   "settings.testLlm": {
@@ -2162,7 +2122,7 @@ export const HOW_TO_SECTIONS = [
     body: helpBody(
       "1. Register / log in.",
       "2. Open Settings → add LLM API key, base URL, and model → Save.",
-      "3. Optional: Vision LLM for screenshot recovery; DeathByCaptcha for some CAPTCHAs.",
+      "3. Optional: DeathByCaptcha for some CAPTCHAs.",
       "4. Agents → New agent → fill Name, Skill, Profile, Standing instructions → Save.",
       "5. Chats → pick agent → Open chat → type a goal → watch live screen.",
       "6. Optional: Policies for approval gates and URL blocks; Goals for recurring objectives."
@@ -2189,7 +2149,7 @@ export const HOW_TO_SECTIONS = [
       "Step 6: Success criteria — default done conditions for tasks.",
       "Step 7: Optional Start URL and Allowed domains to constrain navigation.",
       "Step 8: Facts — stable key-values (login_portal_url, etc.).",
-      "Step 9: Autonomy checkboxes — submit, CAPTCHA, login, vision per risk tolerance.",
+      "Step 9: Autonomy checkboxes — submit, CAPTCHA, and login per risk tolerance.",
       "Step 10: Optional Scheduler — recurring goal text + interval.",
       "Step 11: Optional Email — SMTP/IMAP for send_email/check_email actions.",
       "Step 12: Save — wait for cloud container; open chat or Live Wall to verify.",

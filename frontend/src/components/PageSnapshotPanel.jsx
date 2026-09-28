@@ -62,9 +62,6 @@ export function formatPageObservationText(obs) {
   if (obs.a11y?.yaml) {
     lines.push(`A11y tree: ${obs.a11y.yaml.split("\n").length} lines${obs.a11y.truncated ? " (truncated)" : ""}`);
   }
-  if (obs.visionAttached) {
-    lines.push("Vision: screenshot attached to LLM this step");
-  }
   if (Array.isArray(obs.openMenus) && obs.openMenus.length) {
     lines.push("Open menus:");
     for (const menu of obs.openMenus) {
@@ -116,7 +113,6 @@ export function snapshotsFromTaskEvents(events) {
       plan: evt.payload?.plan,
       progress: evt.payload?.progress,
       structures: evt.payload?.structures,
-      visionAttached: evt.payload?.visionAttached,
       telemetry: evt.payload?.telemetry,
     }));
 }
@@ -178,7 +174,6 @@ export function PageSnapshotPanel({
   const currentDiff = snapshots[activeIndex]?.stateDiff;
   const currentPlan = snapshots[activeIndex]?.plan;
   const currentProgress = snapshots[activeIndex]?.progress;
-  const currentVision = snapshots[activeIndex]?.visionAttached;
   const currentTelemetry = snapshots[activeIndex]?.telemetry;
   const displayObs =
     current && (currentState || currentDiff || currentPlan || currentProgress)
@@ -189,7 +184,6 @@ export function PageSnapshotPanel({
           plan: currentPlan || current.plan,
           progress: currentProgress || current.progress,
           structures: snapshots[activeIndex]?.structures || current.structures,
-          visionAttached: currentVision ?? current.visionAttached,
           telemetry: currentTelemetry || current.telemetry,
         }
       : current;

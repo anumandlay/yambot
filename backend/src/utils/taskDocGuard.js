@@ -26,7 +26,6 @@ export function slimTaskEventPayload(type, payload) {
       step: raw.step ?? null,
       url: String(raw.url || "").slice(0, 500),
       title: String(raw.title || "").slice(0, 200),
-      visionAttached: Boolean(raw.visionAttached),
       // Why: full observation lives in the worker loop — do not mirror into Mongo.
       slimmed: true,
     };

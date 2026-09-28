@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 11:23] Remove vision screenshots and Vision LLM
+
+- **Prompt Provided:** Remove everything related to vision.
+- **Architectural Flow:** The browser agent no longer attaches viewport screenshots or switches to a vision model. Settings and the agent form drop the vision checkbox, vision profile, and vision API fields. Steps use the main LLM with page text and element refs. Computer-use still sends its text capture, without an image.
+- **Impacted Files:** vision.js (deleted), agent.js, browserState/index.js, pageDom.js, llmCredentials.js, worker.js, settings.js, agents.js, Agent.js, User.js, agentEmail.js, seedLlm.js, taskDocGuard.js, SettingsPage.jsx, SettingsLlmProfilesPage.jsx, AgentEditPage.jsx, PageSnapshotPanel.jsx, helpContent.js, PROMPT_LOG
+
 ## [2026-09-28 10:57] Move Skills and Operations into Start here; drop More
 
 - **Prompt Provided:** Move skills and operations to the Start here group, then remove functionality relating to the other pages in the More menu.

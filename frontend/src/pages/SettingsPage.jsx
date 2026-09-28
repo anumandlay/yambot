@@ -4,7 +4,6 @@
  */
 
 import { useEffect, useState } from "react";
-import { Link } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
 import { ButtonWithHelp, FieldLabel } from "../components/FieldLabel.jsx";
@@ -15,21 +14,14 @@ export function SettingsPage() {
     llmBaseUrl: "https://api.minimax.io/v1",
     llmModel: "MiniMax-M2.7",
     llmContextTokens: "",
-    visionProfileId: "",
-    visionApiKey: "",
-    visionBaseUrl: "",
-    visionModel: "",
     dbcUsername: "",
     dbcPassword: "",
     confirmBeforeSubmit: false,
     llmApiKeyMasked: "",
-    visionApiKeyMasked: "",
     dbcPasswordMasked: "",
     hasLlmApiKey: false,
-    hasVisionApiKey: false,
     hasDbcPassword: false,
   });
-  const [llmProfiles, setLlmProfiles] = useState([]);
   const [error, setError] = useState(null);
   const [okMsg, setOkMsg] = useState("");
   const [busy, setBusy] = useState(false);
@@ -40,18 +32,12 @@ export function SettingsPage() {
    * Loads settings from API into form state (full API keys / secrets shown).
    */
   async function reloadSettings() {
-    const [data, llmData] = await Promise.all([
-      api("/api/settings"),
-      api("/api/llm-profiles").catch(() => ({ profiles: [] })),
-    ]);
+    const data = await api("/api/settings");
     const settings = data.settings || {};
-    setLlmProfiles(llmData.profiles || []);
     setForm((prev) => ({
       ...prev,
       ...settings,
-      visionProfileId: settings.visionProfileId || "",
       llmApiKey: settings.llmApiKey || "",
-      visionApiKey: settings.visionApiKey || "",
       dbcPassword: settings.dbcPassword || "",
       llmContextTokens:
         settings.llmContextTokens > 0 ? String(settings.llmContextTokens) : "",
@@ -94,10 +80,6 @@ export function SettingsPage() {
           llmModel: form.llmModel,
           llmContextTokens:
             form.llmContextTokens === "" ? 0 : Number(form.llmContextTokens) || 0,
-          visionProfileId: form.visionProfileId || "",
-          visionApiKey: form.visionApiKey,
-          visionBaseUrl: form.visionBaseUrl,
-          visionModel: form.visionModel,
           dbcUsername: form.dbcUsername,
           dbcPassword: form.dbcPassword,
           confirmBeforeSubmit: Boolean(form.confirmBeforeSubmit),
@@ -242,77 +224,6 @@ export function SettingsPage() {
             {testingLlm ? "Testing…" : "Test LLM connection"}
           </button>
         </ButtonWithHelp>
-
-        <h2 className="mt-2 text-sm font-semibold text-teal-900/80">Vision LLM (optional)</h2>
-        <p className="text-xs text-teal-900/60">
-          Used when an agent has vision screenshots enabled and the worker attaches a viewport image.
-          Pick a default profile here; each agent can override it. Create profiles under{" "}
-          <Link to="/settings/llms" className="font-semibold text-teal-800 underline">
-            Settings → LLM profiles
-          </Link>
-          .
-        </p>
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.visionProfile">Default vision LLM profile</FieldLabel>
-          <select
-            className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-            value={form.visionProfileId || ""}
-            onChange={(e) => update("visionProfileId", e.target.value)}
-          >
-            <option value="">None — use legacy vision fields or main LLM</option>
-            {llmProfiles.map((p) => {
-              const id = p._id || p.id;
-              return (
-                <option key={id} value={id}>
-                  {p.name}
-                  {p.model ? ` · ${p.model}` : ""}
-                </option>
-              );
-            })}
-          </select>
-        </label>
-        {llmProfiles.length === 0 ? (
-          <p className="text-xs text-teal-900/60">
-            No profiles yet.{" "}
-            <Link to="/settings/llms" className="font-semibold text-teal-800 underline">
-              Create an LLM profile
-            </Link>{" "}
-            first (preferably a vision-capable model).
-          </p>
-        ) : null}
-        <p className="text-xs text-teal-900/50">
-          Legacy fallback (only if no default vision profile is selected):
-        </p>
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.visionApiKey">Vision API key</FieldLabel>
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3 font-mono text-sm"
-            type="text"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder="Leave blank to use main LLM key"
-            value={form.visionApiKey}
-            onChange={(e) => update("visionApiKey", e.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.visionBaseUrl">Vision base URL</FieldLabel>
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            placeholder="Same as main LLM if empty"
-            value={form.visionBaseUrl}
-            onChange={(e) => update("visionBaseUrl", e.target.value)}
-          />
-        </label>
-        <label className="flex flex-col gap-1 text-sm">
-          <FieldLabel helpId="settings.visionModel">Vision model</FieldLabel>
-          <input
-            className="min-h-11 rounded-xl border border-teal-100 px-3"
-            placeholder="e.g. gpt-4o-mini — same as main LLM if empty"
-            value={form.visionModel}
-            onChange={(e) => update("visionModel", e.target.value)}
-          />
-        </label>
 
         <h2 className="mt-2 text-sm font-semibold text-teal-900/80">DeathByCaptcha</h2>
         <label className="flex flex-col gap-1 text-sm">

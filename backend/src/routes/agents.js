@@ -286,7 +286,6 @@ function pickAgentFields(body, opts = {}) {
       allowCaptcha: body.autonomy.allowCaptcha !== false,
       askBeforeLogin: body.autonomy.askBeforeLogin === true,
       askBeforeSubmit: body.autonomy.askBeforeSubmit === true,
-      visionEnabled: body.autonomy.visionEnabled === true,
     });
   }
   if (body.role != null) {
@@ -360,16 +359,9 @@ function pickAgentFields(body, opts = {}) {
       profileRaw && String(profileRaw).trim() && String(profileRaw) !== "settings"
         ? String(profileRaw).trim()
         : null;
-    const visionRaw = l.visionProfileId ?? l.visionProfile ?? null;
-    const visionProfileId =
-      visionRaw && String(visionRaw).trim() && String(visionRaw) !== "settings"
-        ? String(visionRaw).trim()
-        : null;
-
     /** @type {object} */
     const llm = {
       profile: profileId,
-      visionProfile: visionProfileId,
       // Why: profile selection is the product path; useCustom stays true when a profile is set.
       useCustom: Boolean(profileId),
       baseUrl: "",
@@ -891,19 +883,6 @@ agentsRouter.post("/", async (req, res, next) => {
         return;
       }
     }
-    if (fields.llm?.visionProfile) {
-      const { LlmProfile } = await import("../models/LlmProfile.js");
-      const ok = await LlmProfile.exists({ _id: fields.llm.visionProfile, user: req.userId });
-      if (!ok) {
-        res.status(400).json({
-          ok: false,
-          title: "Invalid vision LLM",
-          detail: "That vision LLM profile was not found. Pick another or create one in Settings.",
-        });
-        return;
-      }
-    }
-
     const settings = await getPlatformSettings();
     const agentPriceCents = Math.max(0, Number(settings.agentPriceCents) || 0);
 
@@ -1504,20 +1483,6 @@ agentsRouter.put("/:id", async (req, res, next) => {
         fields.llm.baseUrl = "";
         fields.llm.model = "";
         fields.llm.profile = null;
-      }
-      if (fields.llm.visionProfile) {
-        const { LlmProfile } = await import("../models/LlmProfile.js");
-        const ok = await LlmProfile.exists({ _id: fields.llm.visionProfile, user: req.userId });
-        if (!ok) {
-          res.status(400).json({
-            ok: false,
-            title: "Invalid vision LLM",
-            detail: "That vision LLM profile was not found. Pick another or create one in Settings.",
-          });
-          return;
-        }
-      } else {
-        fields.llm.visionProfile = null;
       }
       agent.set("llm", fields.llm);
       agent.markModified("llm");
@@ -2620,7 +2585,6 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
       llm: {
         useCustom: Boolean(src.llm?.profile || src.llm?.useCustom),
         profile: src.llm?.profile || null,
-        visionProfile: src.llm?.visionProfile || null,
         apiKeyEnc: src.llm?.apiKeyEnc || "",
         baseUrl: src.llm?.baseUrl || "",
         model: src.llm?.model || "",

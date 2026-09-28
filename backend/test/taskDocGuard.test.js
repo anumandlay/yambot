@@ -19,7 +19,6 @@ describe("taskDocGuard", () => {
       title: "Example",
       pageObservation: { huge: "x".repeat(50_000) },
       structures: [{ a: 1 }],
-      visionAttached: true,
     });
     assert.equal(slim.step, 3);
     assert.equal(slim.slimmed, true);

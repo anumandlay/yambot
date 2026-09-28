@@ -27,7 +27,6 @@ export async function migrateStaleLlmSettings() {
       { "settings.llmBaseUrl": /127\.0\.0\.1/i },
       { "settings.llmGatewayMode": "litellm" },
       { "settings.llmAuthMode": "litellm" },
-      { "settings.visionBaseUrl": /litellm|bot\.vughy\.com/i },
     ],
   };
   const urlFix = await User.updateMany(staleUrlFilter, {
@@ -66,17 +65,10 @@ export async function migrateStaleLlmSettings() {
     const s = user.settings || {};
     const nextBase = normalizeLlmBaseUrl(s.llmBaseUrl, env.DEFAULT_LLM_BASE_URL);
     const nextModel = normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL);
-    const visionBase = s.visionBaseUrl
-      ? normalizeLlmBaseUrl(s.visionBaseUrl, nextBase)
-      : s.visionBaseUrl;
-    const changed =
-      nextBase !== s.llmBaseUrl ||
-      nextModel !== s.llmModel ||
-      (s.visionBaseUrl && visionBase !== s.visionBaseUrl);
+    const changed = nextBase !== s.llmBaseUrl || nextModel !== s.llmModel;
     if (!changed) continue;
     user.settings.llmBaseUrl = nextBase;
     user.settings.llmModel = nextModel;
-    if (s.visionBaseUrl) user.settings.visionBaseUrl = visionBase;
     user.markModified("settings");
     await user.save();
     pathFixCount += 1;

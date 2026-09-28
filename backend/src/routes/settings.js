@@ -40,7 +40,7 @@ function mask(value) {
 
 /**
  * GET /api/settings — config for Settings → LLM.
- * Why: operators asked to see full LLM/vision API keys on /settings/llm (not masked).
+ * Why: operators asked to see full LLM API keys on /settings/llm (not masked).
  */
 settingsRouter.get("/", async (req, res, next) => {
   try {
@@ -51,7 +51,6 @@ settingsRouter.get("/", async (req, res, next) => {
     }
     const s = user.settings || {};
     const savedKey = decryptSecret(s.llmApiKeyEnc || "") || "";
-    const savedVisionKey = decryptSecret(s.visionApiKeyEnc || "") || "";
     const savedDbcPass = decryptSecret(s.dbcPasswordEnc || "") || "";
     const oauthOpenAi =
       s.llmAuthMode === "oauth" && s.llmOAuthProvider === "openai" && isLlmOAuthConnected(s);
@@ -75,14 +74,6 @@ settingsRouter.get("/", async (req, res, next) => {
           ? resolveOpenAiOAuthModel(s.llmModel)
           : normalizeLlmModel(s.llmModel, env.DEFAULT_LLM_MODEL),
         llmContextTokens: normalizeContextTokens(s.llmContextTokens) || 0,
-        visionApiKey: savedVisionKey,
-        visionApiKeyMasked: mask(savedVisionKey),
-        hasVisionApiKey: Boolean(savedVisionKey),
-        visionBaseUrl: s.visionBaseUrl
-          ? normalizeLlmBaseUrl(s.visionBaseUrl, env.DEFAULT_LLM_BASE_URL)
-          : "",
-        visionModel: s.visionModel ? normalizeLlmModel(s.visionModel, env.DEFAULT_LLM_MODEL) : "",
-        visionProfileId: s.visionProfile ? String(s.visionProfile) : "",
         dbcUsername: s.dbcUsername || "",
         dbcPassword: savedDbcPass,
         dbcPasswordMasked: mask(savedDbcPass),
@@ -120,32 +111,6 @@ settingsRouter.put("/", async (req, res, next) => {
         body.llmContextTokens ?? body.contextTokens
       );
     }
-    if (typeof body.visionBaseUrl === "string" && body.visionBaseUrl.trim()) {
-      user.settings.visionBaseUrl = normalizeLlmBaseUrl(body.visionBaseUrl.trim(), env.DEFAULT_LLM_BASE_URL);
-    }
-    if (typeof body.visionModel === "string" && body.visionModel.trim()) {
-      user.settings.visionModel = normalizeLlmModel(body.visionModel.trim(), env.DEFAULT_LLM_MODEL);
-    }
-    if (body.visionProfileId !== undefined || body.visionProfile !== undefined) {
-      const raw = body.visionProfileId ?? body.visionProfile;
-      const visionProfileId =
-        raw && String(raw).trim() && String(raw) !== "settings" ? String(raw).trim() : "";
-      if (visionProfileId) {
-        const { LlmProfile } = await import("../models/LlmProfile.js");
-        const ok = await LlmProfile.exists({ _id: visionProfileId, user: req.userId });
-        if (!ok) {
-          res.status(400).json({
-            ok: false,
-            title: "Invalid vision LLM",
-            detail: "That vision LLM profile was not found. Create one under Settings → LLM profiles.",
-          });
-          return;
-        }
-        user.settings.visionProfile = visionProfileId;
-      } else {
-        user.settings.visionProfile = null;
-      }
-    }
     if (typeof body.dbcUsername === "string") user.settings.dbcUsername = body.dbcUsername.trim();
     if (typeof body.confirmBeforeSubmit === "boolean") {
       user.settings.confirmBeforeSubmit = body.confirmBeforeSubmit;
@@ -162,9 +127,6 @@ settingsRouter.put("/", async (req, res, next) => {
 
     if (typeof body.llmApiKey === "string" && body.llmApiKey.trim()) {
       user.settings.llmApiKeyEnc = encryptSecret(body.llmApiKey.trim());
-    }
-    if (typeof body.visionApiKey === "string" && body.visionApiKey.trim()) {
-      user.settings.visionApiKeyEnc = encryptSecret(body.visionApiKey.trim());
     }
     if (typeof body.dbcPassword === "string" && body.dbcPassword.trim()) {
       user.settings.dbcPasswordEnc = encryptSecret(body.dbcPassword.trim());
