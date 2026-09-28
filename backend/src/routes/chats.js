@@ -87,7 +87,7 @@ import {
   expandComposioToolkitSlugs,
   normalizeToolkitSlug,
 } from "../utils/composioService.js";
-import { decryptAgentJevApiKey, summarizeJevForChatMeta, appendJevLearningCase } from "../utils/jevEvaluate.js";
+import { decryptAgentJevApiKey, summarizeJevForChatMeta, appendJevLearningCase, mergeJevCasesWithLlm } from "../utils/jevEvaluate.js";
 import {
   refreshChatContextIfNeeded,
 } from "../utils/chatContext.js";
@@ -1467,10 +1467,21 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         });
         // Why: every Auto turn teaches Jev — store final outcome as a learned case.
         try {
-          await appendJevLearningCase(agentDoc, {
+          const learned = await appendJevLearningCase(agentDoc, {
             userText: questionText,
             turn,
           });
+          // Why: a new wording is checked against the other cases of the same outcome before this request saves the agent again.
+          if (learned && !learned.refreshed) {
+            let mergeCreds = qaCreds;
+            if (!mergeCreds?.apiKey) {
+              const userForMerge = await User.findById(req.userId);
+              mergeCreds = await resolveLlmCredentialsForAgent(userForMerge, agentDoc);
+            }
+            if (mergeCreds?.apiKey) {
+              await mergeJevCasesWithLlm(agentDoc, mergeCreds, { outcome: learned.outcome });
+            }
+          }
         } catch (learnErr) {
           console.warn("[chats] jev case learn failed:", learnErr?.message || learnErr);
         }

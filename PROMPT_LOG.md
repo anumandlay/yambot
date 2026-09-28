@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 13:23] LLM merge for similar Jev cases
+
+- **Prompt Provided:** When several learned cases ask the same thing in different words, use an LLM chat so one question and one case remain.
+- **Architectural Flow:** Reply, computer, and Composio stay in separate groups. A new case is compared with the other cases of that same outcome. The Jev tab Merge button regroups the full list. The newest wording is kept. Day-word duplicates still collapse without a model call.
+- **Impacted Files:** jevEvaluate.js, agents.js, chats.js, AgentEditPage.jsx, helpContent.js, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 13:16] Merge similar Jev cases that differ only by the day
 
 - **Prompt Provided:** On the agent Jev tab, “what did we do yesterday” and “what did we do day before yesterday” are two learned cases, both reply.

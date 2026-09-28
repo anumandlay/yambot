@@ -16,6 +16,8 @@ import {
   jevCaseSignature,
   collapseSimilarJevCases,
   buildJevAutoEvaluatePayload,
+  parseJevCaseGroups,
+  applyJevCaseGroups,
 } from "../src/utils/jevEvaluate.js";
 
 describe("Auto classifier hint (optional Jev)", () => {
@@ -142,5 +144,32 @@ describe("Auto classifier hint (optional Jev)", () => {
       ],
     });
     assert.equal(payload.state.learned_cases.length, 1);
+  });
+
+  it("keeps the newest wording when the model groups the same job", () => {
+    const groups = parseJevCaseGroups(
+      '```json\n{"groups":[["a","b"],["c","computer"]]}\n```'
+    );
+    assert.deepEqual(groups, [
+      ["a", "b"],
+      ["c", "computer"],
+    ]);
+    const cases = [
+      { _id: "a", userMessage: "get the india trial list", outcome: "reply", at: "2026-09-28T17:00:00.000Z" },
+      { _id: "b", userMessage: "show india trials expiring", outcome: "reply", at: "2026-09-28T17:05:00.000Z" },
+      { _id: "c", userMessage: "open vughy.com", outcome: "queue_goal", at: "2026-09-28T17:06:00.000Z" },
+      { _id: "computer", userMessage: "open nseindia.com", outcome: "queue_goal", at: "2026-09-28T17:07:00.000Z" },
+    ];
+    assert.equal(applyJevCaseGroups(cases, groups), 2);
+    assert.deepEqual(
+      cases.map((c) => c._id),
+      ["b", "computer"]
+    );
+    const crossed = [
+      { _id: "r", userMessage: "what did we do", outcome: "reply", at: "2026-09-28T17:00:00.000Z" },
+      { _id: "q", userMessage: "open the site", outcome: "queue_goal", at: "2026-09-28T17:01:00.000Z" },
+    ];
+    assert.equal(applyJevCaseGroups(crossed, [["r", "q"]]), 0);
+    assert.equal(crossed.length, 2);
   });
 });

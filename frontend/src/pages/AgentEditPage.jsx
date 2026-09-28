@@ -569,6 +569,36 @@ export function AgentEditPage() {
   }
 
   /**
+   * Ask the agent LLM to fold same-job questions into one learned case.
+   * Reply, computer, and Composio stay in separate groups.
+   */
+  async function mergeJevCases() {
+    if (isNew || !agentId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api(`/api/agents/${agentId}/jev/cases/merge`, { method: "POST" });
+      setForm((prev) => ({
+        ...prev,
+        jev: {
+          ...prev.jev,
+          cases: Array.isArray(data?.agent?.jev?.cases) ? data.agent.jev.cases : [],
+          sitePlays: Array.isArray(data?.agent?.jev?.sitePlays) ? data.agent.jev.sitePlays : [],
+          enabled: Boolean(data?.agent?.jev?.enabled ?? prev.jev?.enabled),
+          hasApiKey: Boolean(data?.agent?.jev?.hasApiKey ?? prev.jev?.hasApiKey),
+          apiKey: data?.agent?.jev?.apiKey || prev.jev?.apiKey || "",
+        },
+      }));
+      const removed = Number(data?.removed) || 0;
+      setOkMsg(removed > 0 ? `Merged ${removed} similar case${removed === 1 ? "" : "s"}` : "No similar cases to merge");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
    * Remove one learned Jev case from the agent (does not require Save).
    * @param {string} caseId
    */
@@ -2462,13 +2492,26 @@ export function AgentEditPage() {
         </fieldset>
 
         <fieldset className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-white/70 p-3 sm:p-4">
-          <SectionTitle helpId="agent.jev.cases" as="div" className="text-sm font-semibold text-violet-950">
-            Learned cases ({Array.isArray(form.jev?.cases) ? form.jev.cases.length : 0})
-          </SectionTitle>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <SectionTitle helpId="agent.jev.cases" as="div" className="text-sm font-semibold text-violet-950">
+              Learned cases ({Array.isArray(form.jev?.cases) ? form.jev.cases.length : 0})
+            </SectionTitle>
+            {!isNew && Array.isArray(form.jev?.cases) && form.jev.cases.length > 1 ? (
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => void mergeJevCases()}
+                className="rounded-lg border border-violet-300 bg-white px-2.5 py-1 text-xs font-semibold text-violet-900 hover:bg-violet-50 disabled:opacity-50"
+              >
+                Merge similar
+              </button>
+            ) : null}
+          </div>
           <p className="text-xs text-teal-900/70">
             Stored from each Auto turn’s final outcome (reply / computer / Composio). These are sent to
             Jev on later turns as <code className="rounded bg-violet-50 px-1">learned_cases</code>.
-            Questions that differ only by the day share one case. Newest kept (max 80). Save is not required to delete.
+            Questions that differ only by the day share one case. Merge similar folds questions that mean
+            the same job. Newest kept (max 80). Save is not required to delete.
           </p>
           {isNew ? (
             <p className="text-xs text-teal-900/60">Save the agent first — cases appear after Auto chats.</p>

@@ -7,6 +7,7 @@
 
 import { env } from "./env.js";
 import { decryptSecret } from "./crypto.js";
+import { llmChatCompletion } from "./llmChat.js";
 
 const TYPESAFE_SYSTEMONE_URL = "https://api.typesafe.ai/v1/systemone";
 /** Official hosted model. The old Vercel id `typesafe-ai/jev` is not valid here. */
@@ -161,6 +162,136 @@ export function collapseSimilarJevCases(cases) {
 }
 
 /**
+ * Read the model's JSON groups. A group is a list of case ids that mean the same job.
+ * @param {string} raw
+ * @returns {string[][]}
+ */
+export function parseJevCaseGroups(raw) {
+  const text = String(raw || "").trim();
+  const fence = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
+  const candidate = fence ? fence[1].trim() : text;
+  /** @type {unknown} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(candidate);
+  } catch {
+    const brace = candidate.match(/\{[\s\S]*\}/);
+    if (!brace) return [];
+    try {
+      parsed = JSON.parse(brace[0]);
+    } catch {
+      return [];
+    }
+  }
+  const groups = parsed && typeof parsed === "object" ? parsed.groups : null;
+  if (!Array.isArray(groups)) return [];
+  return groups
+    .filter((g) => Array.isArray(g))
+    .map((g) => [...new Set(g.map((id) => String(id || "").trim()).filter(Boolean))]);
+}
+
+/**
+ * Drop older cases inside each same-outcome group. The newest wording stays.
+ * Ids from another outcome are ignored, so a chat question cannot absorb a computer job.
+ * @param {object[]} cases
+ * @param {string[][]} groups
+ * @returns {number}
+ */
+export function applyJevCaseGroups(cases, groups) {
+  if (!Array.isArray(cases) || !cases.length || !Array.isArray(groups)) return 0;
+  /** @type {Map<string, object>} */
+  const byId = new Map();
+  for (const c of cases) {
+    const id = String(c?._id || c?.id || "");
+    if (id) byId.set(id, c);
+  }
+  /** @type {Set<string>} */
+  const drop = new Set();
+  for (const group of groups) {
+    const members = (Array.isArray(group) ? group : [])
+      .map((id) => String(id || "").trim())
+      .filter((id) => byId.has(id) && !drop.has(id));
+    const unique = [...new Set(members)];
+    if (unique.length < 2) continue;
+    const outcomes = new Set(unique.map((id) => String(byId.get(id)?.outcome || "")));
+    if (outcomes.size !== 1 || !JEV_CASE_OUTCOMES.includes([...outcomes][0])) continue;
+    unique.sort(
+      (a, b) =>
+        new Date(byId.get(b)?.at || 0).getTime() - new Date(byId.get(a)?.at || 0).getTime()
+    );
+    for (const id of unique.slice(1)) drop.add(id);
+  }
+  if (!drop.size) return 0;
+  const next = cases.filter((c) => !drop.has(String(c?._id || c?.id || "")));
+  cases.splice(0, cases.length, ...next);
+  return drop.size;
+}
+
+/**
+ * Ask the agent LLM which questions in one outcome are the same job.
+ * @param {object[]} batch — cases that already share one outcome
+ * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }} creds
+ * @returns {Promise<string[][]>}
+ */
+async function askJevCaseGroups(batch, creds) {
+  const lines = batch.map((c) => {
+    const id = String(c?._id || c?.id || "");
+    const text = String(c?.userMessage || "").replace(/\s+/g, " ").trim().slice(0, 240);
+    return `${id} | ${text}`;
+  });
+  const raw = await llmChatCompletion({
+    apiKey: String(creds.apiKey || ""),
+    baseUrl: String(creds.llmBaseUrl || ""),
+    model: String(creds.llmModel || ""),
+    openAiAccountId: creds.openAiAccountId,
+    temperature: 0,
+    maxTokens: 700,
+    timeoutMs: 20_000,
+    messages: [
+      {
+        role: "system",
+        content:
+          "You group user questions that ask for the same job. Same job means the same request in different words. A different website, app, or action is a different job. Reply with JSON only: {\"groups\":[[\"id\",\"id\"]]}. Use only ids from the list. Put each id in at most one group. Omit a question that matches nothing.",
+      },
+      { role: "user", content: lines.join("\n") },
+    ],
+  });
+  return parseJevCaseGroups(raw);
+}
+
+/**
+ * Collapse day-word duplicates, then ask the LLM to merge same-outcome questions that mean the same job.
+ * @param {object} agent — mongoose Agent doc
+ * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }} creds
+ * @param {{ outcome?: string }} [opts] — when set, only that outcome is sent to the model
+ * @returns {Promise<number>} rows removed
+ */
+export async function mergeJevCasesWithLlm(agent, creds, opts = {}) {
+  if (!agent?.jev || !Array.isArray(agent.jev.cases)) return 0;
+  if (!String(creds?.apiKey || "").trim()) return 0;
+  let removed = collapseSimilarJevCases(agent.jev.cases);
+  const only = JEV_CASE_OUTCOMES.includes(String(opts.outcome || "")) ? String(opts.outcome) : "";
+  for (const outcome of JEV_CASE_OUTCOMES) {
+    if (only && outcome !== only) continue;
+    const batch = agent.jev.cases.filter((c) => String(c?.outcome || "") === outcome && c?._id);
+    if (batch.length < 2) continue;
+    let groups = [];
+    try {
+      groups = await askJevCaseGroups(batch, creds);
+    } catch (err) {
+      console.warn("[jev] case merge skipped:", err?.message || err);
+      continue;
+    }
+    removed += applyJevCaseGroups(agent.jev.cases, groups);
+  }
+  if (removed > 0) {
+    agent.markModified("jev");
+    await agent.save();
+  }
+  return removed;
+}
+
+/**
  * Append one learned case from a finished Auto turn (when Jev is enabled on the agent).
  * @param {object} agent — mongoose Agent doc
  * @param {{
@@ -209,6 +340,7 @@ export async function appendJevLearningCase(agent, opts = {}) {
       reason: existing.reason,
       jevGuess: existing.jevGuess,
       at: existing.at,
+      refreshed: true,
     };
   }
 
@@ -233,6 +365,7 @@ export async function appendJevLearningCase(agent, opts = {}) {
     reason,
     jevGuess,
     at: last?.at || new Date(),
+    refreshed: false,
   };
 }
 

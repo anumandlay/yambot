@@ -27,7 +27,7 @@ import {
   composioListCatalog,
   COMPOSIO_DEFAULT_TOOLKITS,
 } from "../utils/composioService.js";
-import { publicJevSummary, deleteJevLearningCase, collapseSimilarJevCases } from "../utils/jevEvaluate.js";
+import { publicJevSummary, deleteJevLearningCase, collapseSimilarJevCases, mergeJevCasesWithLlm } from "../utils/jevEvaluate.js";
 import { computeAgentReadiness } from "../utils/agentReadiness.js";
 import { Trigger } from "../models/Trigger.js";
 import { SiteProfile, appendSiteHint, toSiteProfileSnapshot } from "../models/SiteProfile.js";
@@ -1534,6 +1534,33 @@ agentsRouter.put("/:id", async (req, res, next) => {
     syncComputerDesired(agent);
     await agent.save();
     res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/jev/cases/merge — group same-job questions into one case per outcome.
+ */
+agentsRouter.post("/:id/jev/cases/merge", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent not found." });
+      return;
+    }
+    const user = await User.findById(req.userId);
+    const creds = await resolveLlmCredentialsForAgent(user, agent);
+    if (!creds?.apiKey) {
+      res.status(400).json({
+        ok: false,
+        title: "LLM not configured",
+        detail: "Add an LLM key in Settings before merging similar cases.",
+      });
+      return;
+    }
+    const removed = await mergeJevCasesWithLlm(agent, creds);
+    res.json({ ok: true, removed, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
   }
