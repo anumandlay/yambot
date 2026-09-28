@@ -4,6 +4,7 @@
  * Downstream: backend/src/routes/chats.js POST /messages.
  */
 
+import { looksLikeMcpServerManageRequest } from "./mcpFromChat.js";
 import { llmChatCompletion } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
 import { formatAgentPrompt } from "../models/Agent.js";
@@ -91,6 +92,8 @@ export function classifyLiveRunFollowup(text) {
   const raw = String(text || "").trim();
   const lower = raw.toLowerCase();
   if (!raw) return "reply";
+  // Why: an MCP URL in chat saves a server. It must not open the live browser.
+  if (looksLikeMcpServerManageRequest(raw)) return "reply";
 
   if (
     looksLikeDayHistoryOrStatusRequest(raw) ||

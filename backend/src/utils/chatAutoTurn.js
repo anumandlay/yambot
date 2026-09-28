@@ -55,6 +55,7 @@ import {
   looksLikeReminderCreateRequest,
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
+import { looksLikeMcpServerManageRequest, applyMcpServerFromChat } from "./mcpFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 import {
@@ -2840,6 +2841,46 @@ export async function runChatAutoTurn(opts) {
       })),
       clearPendingComposioApproval: true,
     });
+  }
+
+  // Why: “add mcp https://… bearer …” saves the server the way a reminder does — before the model.
+  if (looksLikeMcpServerManageRequest(text) && runtime?.agent) {
+    track.setPath("mcp_server_manage");
+    track.markDecision("reply");
+    try {
+      const applied = await applyMcpServerFromChat({
+        agent: runtime.agent,
+        userId: runtime.userId,
+        text,
+      });
+      const content = String(applied.content || "MCP updated.").trim();
+      if (content) await pushReply(content);
+      if (applied.ok && runtime) {
+        runtime.mcpEnabled = Boolean(runtime.agent.mcp?.enabled);
+        runtime.mcpServerNames = (runtime.agent.mcp?.servers || [])
+          .map((server) => String(server?.name || ""))
+          .filter(Boolean);
+      }
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: applied.ok ? "mcp_server_saved" : "mcp_server_manage",
+        timing: track.finish(),
+      });
+    } catch (err) {
+      const content = `Could not update MCP: ${String(err?.message || err)}`;
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "mcp_server_manage_error",
+        timing: track.finish(),
+      });
+    }
   }
 
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.

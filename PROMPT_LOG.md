@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 16:13] Add an MCP server from chat
+
+- **Prompt Provided:** Add the MCP server directly from the chat, the same way reminders are added from chat.
+- **Architectural Flow:** A message that adds, lists, or removes an MCP server is handled before the model. The URL and token are saved on the agent (token encrypted). The server is connected first, and the tool names are cached only when that connect succeeds. A URL in that message stays in chat even if a computer is already running.
+- **Impacted Files:** mcpFromChat.js, mcpFromChat.test.js, chatAutoTurn.js, chats.js, messageIntent.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 16:08] Hide fake MCP gadget tags on the text path
 
 - **Prompt Provided:** The 3:47 chat still showed a `<tool_req><gadget name="mcp_mockmcp_greetme">` block instead of calling GreetMe.

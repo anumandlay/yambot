@@ -103,6 +103,7 @@ import {
 } from "../utils/composioApprovalGate.js";
 import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
+import { looksLikeMcpServerManageRequest } from "../utils/mcpFromChat.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
@@ -1342,8 +1343,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         // Why: Hermes tool-decision — light prep (skip Mem0) whenever tools are not needed.
         // Why: schedule list/create/stop needs no LLM context pack — skip prepare entirely.
         const scheduleManage = looksLikeScheduleManageRequest(questionText);
+        const mcpServerManage = looksLikeMcpServerManageRequest(questionText);
         const light =
           scheduleManage ||
+          mcpServerManage ||
           !autoTurnNeedsTools(questionText, {
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
             mcpEnabled: Boolean(agentDoc?.mcp?.enabled),
@@ -1371,7 +1374,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         try {
         await withChatAutoLock(String(chat._id), async () => {
           let prepared;
-          if (scheduleManage) {
+          if (scheduleManage || mcpServerManage) {
             prepared = {
               chatContextBlock: "",
               historyMessages: [],
