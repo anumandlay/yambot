@@ -194,8 +194,8 @@ export function AgentActionsPage() {
             Scheduled goals
           </Link>
           {" · "}
-          <Link to="/company" className="font-semibold text-teal-800 underline">
-            Company (entities)
+          <Link to="/operations" className="font-semibold text-teal-800 underline">
+            Operations
           </Link>
           {" · "}
           <Link to="/how-to" className="font-semibold text-teal-800 underline">

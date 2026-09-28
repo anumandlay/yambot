@@ -26,28 +26,19 @@ import { SystemPage } from "./pages/SystemPage.jsx";
 import { LiveWallPage } from "./pages/LiveWallPage.jsx";
 import { GoalsPage } from "./pages/GoalsPage.jsx";
 import { GoalEditPage } from "./pages/GoalEditPage.jsx";
-import { GovernancePage } from "./pages/GovernancePage.jsx";
-import { PoliciesPage } from "./pages/PoliciesPage.jsx";
-import { WorkforcePage } from "./pages/WorkforcePage.jsx";
 import { OperationsPage } from "./pages/OperationsPage.jsx";
-import { CompanyPage } from "./pages/CompanyPage.jsx";
 import { SkillsPage } from "./pages/SkillsPage.jsx";
 import { SkillEditPage } from "./pages/SkillEditPage.jsx";
 import { HowToPage } from "./pages/HowToPage.jsx";
 import { AdminLoginPage } from "./pages/AdminLoginPage.jsx";
 import { AdminUsersPage } from "./pages/AdminUsersPage.jsx";
 import { WalletPage } from "./pages/WalletPage.jsx";
-import { QueuesPage } from "./pages/QueuesPage.jsx";
-import { TicketDetailPage } from "./pages/TicketDetailPage.jsx";
 import { PortalTicketPage } from "./pages/PortalTicketPage.jsx";
-import { DealsPage } from "./pages/DealsPage.jsx";
-import { InvoicesPage } from "./pages/InvoicesPage.jsx";
 import { StartPage } from "./pages/StartPage.jsx";
 import { BusinessSetupPage } from "./pages/BusinessSetupPage.jsx";
 import { BusinessArchitectPage } from "./pages/BusinessArchitectPage.jsx";
 import { CommandCenterPage } from "./pages/CommandCenterPage.jsx";
 import { ConnectionsPage } from "./pages/ConnectionsPage.jsx";
-import { DecisionsPage } from "./pages/DecisionsPage.jsx";
 import { AgentActionsPage } from "./pages/AgentActionsPage.jsx";
 import { AgentRunsPage } from "./pages/AgentRunsPage.jsx";
 import { AgentMemoryPage } from "./pages/AgentMemoryPage.jsx";
@@ -247,7 +238,6 @@ export default function App() {
           <Route path="/start" element={<StartPage />} />
           <Route path="/command" element={<CommandCenterPage />} />
           <Route path="/connections" element={<ConnectionsPage />} />
-          <Route path="/decisions" element={<DecisionsPage />} />
           <Route path="/business" element={<BusinessSetupPage />} />
           <Route path="/architect" element={<BusinessArchitectPage />} />
           <Route path="/" element={<ChatsPage />} />
@@ -268,15 +258,7 @@ export default function App() {
           <Route path="/goals" element={<GoalsPage />} />
           <Route path="/goals/new" element={<GoalEditPage />} />
           <Route path="/goals/:goalId" element={<GoalEditPage />} />
-          <Route path="/governance" element={<GovernancePage />} />
-          <Route path="/policies" element={<PoliciesPage />} />
-          <Route path="/workforce" element={<WorkforcePage />} />
           <Route path="/operations" element={<OperationsPage />} />
-          <Route path="/queues" element={<QueuesPage />} />
-          <Route path="/tickets/:ticketId" element={<TicketDetailPage />} />
-          <Route path="/deals" element={<DealsPage />} />
-          <Route path="/invoices" element={<InvoicesPage />} />
-          <Route path="/company" element={<CompanyPage />} />
           <Route path="/skills" element={<SkillsPage />} />
           <Route path="/skills/new" element={<SkillEditPage />} />
           <Route path="/skills/:skillId" element={<SkillEditPage />} />

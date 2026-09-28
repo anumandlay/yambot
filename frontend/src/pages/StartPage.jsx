@@ -65,8 +65,7 @@ export function StartPage() {
           </li>
         </ol>
         <p className="mt-3 text-xs text-teal-900/60">
-          Advanced features (Goals, Workforce, Company CRM, etc.) unlock after setup — find them
-          under <strong>More</strong> in the sidebar.
+          Scheduled goals, Operations, and Skills are in the sidebar under Start here.
         </p>
       </section>
 

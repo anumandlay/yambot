@@ -1,18 +1,16 @@
 /**
  * @fileoverview Left app sidebar with collapse/toggle — replaces the old top nav.
- * Purpose: Mobile drawer + desktop sticky rail grouped into Start / More / Account.
+ * Purpose: Mobile drawer + desktop sticky rail grouped into Start here / Account.
  * Downstream: ProtectedLayout in App.jsx.
  */
 
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
 import { Link, NavLink } from "react-router-dom";
 import { useAuth } from "../context/AuthContext.jsx";
 import { useHelp } from "../context/HelpContext.jsx";
 import { useSetupStatus } from "../hooks/useSetupStatus.js";
 import { HelpTooltip } from "./HelpTooltip.jsx";
 import { HelpToggle } from "./HelpToggle.jsx";
-
-const MORE_COLLAPSE_KEY = "yambot.sidebar.moreCollapsed";
 
 /**
  * @param {{
@@ -26,13 +24,6 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
   const { user, logout } = useAuth();
   const { helpEnabled } = useHelp();
   const { complete: setupComplete } = useSetupStatus();
-  const [moreCollapsed, setMoreCollapsed] = useState(() => {
-    try {
-      return localStorage.getItem(MORE_COLLAPSE_KEY) !== "0";
-    } catch {
-      return true;
-    }
-  });
 
   // Why: lock body scroll while the mobile drawer is open.
   useEffect(() => {
@@ -43,14 +34,6 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       document.body.style.overflow = prev;
     };
   }, [open]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem(MORE_COLLAPSE_KEY, moreCollapsed ? "1" : "0");
-    } catch {
-      /* ignore */
-    }
-  }, [moreCollapsed]);
 
   const linkClass = ({ isActive }) =>
     `flex min-h-11 items-center gap-3 rounded-xl px-3 text-sm font-semibold transition-colors ${
@@ -141,52 +124,12 @@ export function AppSidebar({ open, onClose, collapsed, onToggleCollapsed }) {
       <NavItem to="/runs" helpId="nav.runs" letter="R" label="Agent runs" />
       <NavItem to="/live" helpId="nav.live" letter="L" label="Live Wall" />
       <NavItem to="/goals" helpId="nav.goals" letter="G" label="Scheduled goals" />
+      <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
+      <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
 
       {helpEnabled ? (
         <NavItem to="/how-to" helpId="nav.howto" letter="?" label="How To" />
       ) : null}
-
-      {/* Why: enterprise modules overwhelm new users — tuck them under a collapsible group. */}
-      {collapsed ? (
-        <>
-          <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
-          <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
-          <NavItem to="/queues" helpId="nav.queues" letter="Q" label="Queues" />
-          <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
-          <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
-          <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
-          <NavItem to="/decisions" helpId="nav.decisions" letter="Dj" label="Decisions" />
-          <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
-          <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
-          <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
-        </>
-      ) : (
-        <>
-          <button
-            type="button"
-            onClick={() => setMoreCollapsed((v) => !v)}
-            className="mt-2 flex min-h-9 items-center justify-between rounded-lg px-3 text-[0.65rem] font-bold uppercase tracking-wider text-teal-800/50 hover:bg-teal-50"
-            aria-expanded={!moreCollapsed}
-          >
-            <span>More</span>
-            <span aria-hidden>{moreCollapsed ? "▸" : "▾"}</span>
-          </button>
-          {!moreCollapsed ? (
-            <div className="flex flex-col gap-0.5">
-              <NavItem to="/workforce" helpId="nav.workforce" letter="W" label="Workforce" />
-              <NavItem to="/operations" helpId="nav.operations" letter="O" label="Operations" />
-              <NavItem to="/queues" helpId="nav.queues" letter="Q" label="Queues" />
-              <NavItem to="/deals" helpId="nav.deals" letter="D" label="Deals" />
-              <NavItem to="/invoices" helpId="nav.invoices" letter="Inv" label="Invoices" />
-              <NavItem to="/company" helpId="nav.company" letter="Co" label="Company" />
-              <NavItem to="/decisions" helpId="nav.decisions" letter="Dj" label="Decisions" />
-              <NavItem to="/skills" helpId="nav.skills" letter="Sk" label="Skills" />
-              <NavItem to="/policies" helpId="nav.policies" letter="P" label="Policies" />
-              <NavItem to="/governance" helpId="nav.governance" letter="⊛" label="Governance" />
-            </div>
-          ) : null}
-        </>
-      )}
 
       <SectionLabel label="Account" />
       <NavItem to="/settings" helpId="nav.settings" letter="⚙" label="Settings" />

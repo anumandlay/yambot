@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 10:57] Move Skills and Operations into Start here; drop More
+
+- **Prompt Provided:** Move skills and operations to the Start here group, then remove functionality relating to the other pages in the More menu.
+- **Architectural Flow:** Sidebar Start here includes Operations and Skills. The More group is gone. Routes and screens for Workforce, Queues, ticket detail, Deals, Invoices, Company, Decisions, Policies, and Governance are removed. Account, chats, agents, and Operations/Skills stay.
+- **Impacted Files:** AppSidebar.jsx, App.jsx, StartPage.jsx, AgentActionsPage.jsx, deleted More page files, PROMPT_LOG
+
 ## [2026-09-28 10:36] Jev site popup: cases and step flow
 
 - **Prompt Provided:** For Jev sites, show a popup of the cases for that website and the flow.
