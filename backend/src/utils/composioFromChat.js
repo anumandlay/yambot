@@ -27,6 +27,15 @@ const KNOWN_APPS = [
 ];
 
 /**
+ * “re authenticate”, “re-authenticate”, and “reauthenticate” are the same request.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isReauthPhrase(text) {
+  return /\bre[\s-]*auth|\breconnect\b/i.test(String(text || ""));
+}
+
+/**
  * @param {string} text
  * @returns {boolean}
  */
@@ -67,7 +76,7 @@ function appFromHistory(history) {
     .reverse();
   for (const row of recent) {
     const content = String(row?.content || "");
-    if (!/reconnect|re-?auth|expired/i.test(content)) continue;
+    if (!isReauthPhrase(content) && !/expired/i.test(content)) continue;
     const hit = extractComposioApp(content);
     if (hit) return hit;
   }
@@ -90,7 +99,7 @@ export function looksLikeComposioAppManageRequest(text, state = null) {
     return true;
   }
   if (/^(list|show)\s+(my\s+)?composio\b/i.test(raw)) return true;
-  if (/\bre-?auth|\breconnect\b/i.test(raw)) return true;
+  if (isReauthPhrase(raw)) return true;
   if (hasExtraTask(raw)) return false;
   if (/\b(remove|delete|disconnect)\b/i.test(raw) && (/\bcomposio\b/i.test(raw) || extractComposioApp(raw))) {
     return true;
@@ -118,7 +127,7 @@ export function parseComposioAppChat(text, history = [], state = null) {
   ) {
     return { action: "list" };
   }
-  if (/\bre-?auth|\breconnect\b/i.test(raw) || (state?.pending?.target?.type === "composio_app" && /^(yes|yeah|yep|ok|okay|sure)\b/i.test(raw))) {
+  if (isReauthPhrase(raw) || (state?.pending?.target?.type === "composio_app" && /^(yes|yeah|yep|ok|okay|sure)\b/i.test(raw))) {
     const app = extractComposioApp(raw) || appFromHistory(history) || {
       slug: normalizeToolkitSlug(state?.pending?.target?.name),
       label: String(state?.pending?.target?.name || ""),

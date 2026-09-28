@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 16:37] Treat “re authenticate” as a reconnect
+
+- **Prompt Provided:** After the app list, “re authenticate” started the computer instead of reconnecting Apollo.
+- **Architectural Flow:** The reconnect check only matched “reauthenticate” and “re-authenticate”. A space between “re” and “authenticate” missed it, so Jev queued a computer. That spacing now counts as a reconnect and uses the app the chat is already waiting on.
+- **Impacted Files:** composioFromChat.js, composioFromChat.test.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 16:23] Add a Composio app from chat
 
 - **Prompt Provided:** Add Composio apps from chat, the same way reminders are added. “yes reauthentiate” after the Apollo list started a computer instead of reconnecting.

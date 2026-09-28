@@ -13,9 +13,22 @@ test("app management is not an inbox request", () => {
   assert.equal(looksLikeComposioAppManageRequest("how many composio apps are added?"), true);
   assert.equal(looksLikeComposioAppManageRequest("add composio gmail"), true);
   assert.equal(looksLikeComposioAppManageRequest("yes reauthentiate"), true);
+  assert.equal(looksLikeComposioAppManageRequest("re authenticate"), true);
   assert.equal(looksLikeComposioAppManageRequest("reconnect apollo"), true);
   assert.equal(looksLikeComposioAppManageRequest("check my gmail"), false);
   assert.equal(looksLikeComposioAppManageRequest("Use mockmcp. Greet me."), false);
+});
+
+test("re authenticate with a space still reconnects the waiting app", () => {
+  const pending = {
+    kind: "confirm",
+    expects: "yes_no",
+    target: { type: "composio_app", name: "apollo" },
+  };
+  assert.equal(looksLikeComposioAppManageRequest("re authenticate", { pending }), true);
+  const parsed = parseComposioAppChat("re authenticate", [], { pending });
+  assert.equal(parsed.action, "reconnect");
+  assert.equal(parsed.slug, "apollo");
 });
 
 test("yes reauthenticate uses the app named in the previous reply", () => {

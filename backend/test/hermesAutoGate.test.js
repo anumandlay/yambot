@@ -333,6 +333,7 @@ describe("live run follow-up routing", () => {
       "reply"
     );
     assert.equal(classifyLiveRunFollowup("yes reauthentiate"), "reply");
+    assert.equal(classifyLiveRunFollowup("re authenticate"), "reply");
     assert.equal(classifyLiveRunFollowup("add composio gmail"), "reply");
     assert.equal(classifyLiveRunFollowup("check my gmail for unread mail"), "new_job");
   });
