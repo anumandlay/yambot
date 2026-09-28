@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 15:32] Let MCP messages reach the tools loop
+
+- **Prompt Provided:** Chat on Trial Expiry Checker answered “I don't have a mockmcp tool” after Connect had already listed GreetMe and the other MockMCP tools.
+- **Architectural Flow:** Jev had classified the line as a confident reply, so Auto never attached MCP tools. A message that names mcp or a saved server now stays on the tools path, the same way a Composio question already does.
+- **Impacted Files:** chatAutoTurn.js, lightweightFastPath.test.js, PROMPT_LOG
+
 ## [2026-09-28 15:17] Connect MCP from a URL and token
 
 - **Prompt Provided:** Streamable HTTP MockMCP URL and auth token did nothing on the agent MCP tab.

@@ -28,6 +28,21 @@ assert.equal(
   autoTurnNeedsTools("list my connected apps", { composioEnabled: false }),
   false
 );
+assert.equal(
+  autoTurnNeedsTools("Use mockmcp. Greet me. My name is Ayamu.", {
+    mcpEnabled: true,
+    mcpServerNames: ["mockmcp"],
+  }),
+  true
+);
+assert.equal(
+  autoTurnNeedsTools("Use mockmcp. Greet me. My name is Ayamu.", {
+    mcpEnabled: false,
+    mcpServerNames: ["mockmcp"],
+  }),
+  false
+);
+assert.equal(autoTurnNeedsTools("Use the mcp server status.", { mcpEnabled: true }), true);
 
 assert.equal(looksLikeLightweightChat("how are you"), true);
 assert.equal(looksLikeLightweightChat("check my gmail"), false);
