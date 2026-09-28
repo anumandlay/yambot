@@ -20,6 +20,38 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
   const [busyName, setBusyName] = useState("");
   const [note, setNote] = useState("");
   const [err, setErr] = useState("");
+  const blank = {
+    name: "",
+    transport: "http",
+    url: "",
+    command: "",
+    argsText: "",
+    include: "",
+    exclude: "",
+    headerAuthorization: "",
+    envText: "",
+    tools: [],
+  };
+  const draft = servers.length === 0;
+  const rows = draft ? [blank] : servers;
+
+  /**
+   * Name used when the nickname box is empty. mockmcp.com → mockmcp.
+   * @param {string} url
+   * @returns {string}
+   */
+  function nameFromUrl(url) {
+    try {
+      const host = new URL(String(url).trim()).hostname.replace(/^www\./, "");
+      const parts = host.split(".").filter(Boolean);
+      const base = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+      return String(base || "mcp")
+        .toLowerCase()
+        .replace(/[^a-z0-9_]+/g, "_");
+    } catch {
+      return "mcp";
+    }
+  }
 
   /**
    * @param {object} next
@@ -34,8 +66,12 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
    * @param {string|boolean} value
    */
   function patchServer(index, key, value) {
+    if (draft) {
+      setMcp({ enabled: true, servers: [{ ...blank, [key]: value }] });
+      return;
+    }
     const next = servers.map((row, i) => (i === index ? { ...row, [key]: value } : row));
-    setMcp({ ...mcp, servers: next });
+    setMcp({ ...mcp, enabled: true, servers: next });
   }
 
   function addServer() {
@@ -63,25 +99,51 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
    * @param {number} index
    */
   async function discover(index) {
-    const row = servers[index];
-    const name = String(row?.name || "").trim();
-    if (!name || isNew) return;
+    const row = rows[index];
+    const url = String(row?.url || "").trim();
+    if ((row?.transport || "http") !== "stdio" && !url) {
+      setErr("Paste the MCP URL, then connect.");
+      return;
+    }
+    if (isNew) {
+      setErr("Save the agent first, then connect.");
+      return;
+    }
+    const name = String(row?.name || "").trim() || nameFromUrl(url);
+    const nextServers = draft
+      ? [{ ...blank, ...row, name }]
+      : servers.map((item, i) => (i === index ? { ...item, name } : item));
+    const nextMcp = { ...mcp, enabled: true, servers: nextServers };
+    setMcp(nextMcp);
     setBusyName(name);
     setErr("");
-    setNote("");
+    setNote("Connecting…");
     try {
       await api(`/api/agents/${agentId}`, {
         method: "PUT",
-        body: JSON.stringify({ mcp: { ...mcp, enabled: true } }),
+        body: JSON.stringify({ mcp: nextMcp }),
+        timeoutMs: 20000,
       });
       const data = await api(`/api/agents/${agentId}/mcp/discover`, {
         method: "POST",
         body: JSON.stringify({ name }),
+        timeoutMs: 60000,
       });
-      patchServer(index, "tools", data.tools || []);
-      setNote(`${name}: ${(data.tools || []).length} tools`);
+      const tools = data.tools || [];
+      setMcp({
+        ...nextMcp,
+        servers: nextMcp.servers.map((item) =>
+          item.name === name ? { ...item, tools, headerAuthorization: "" } : item
+        ),
+      });
+      setNote(
+        tools.length
+          ? `Connected ${name}. Tools: ${tools.map((t) => t.name).join(", ")}`
+          : `Connected ${name}. This server returned no tools.`
+      );
     } catch (e) {
-      setErr(e?.message || "Discover failed");
+      setNote("");
+      setErr(e?.detail || e?.message || "Discover failed");
     } finally {
       setBusyName("");
     }
@@ -92,9 +154,8 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
       <fieldset className="flex flex-col gap-3 rounded-xl border border-teal-100 bg-white/70 p-3 sm:p-4">
         <div className="text-sm font-semibold text-teal-900">MCP servers</div>
         <p className="text-xs text-teal-900/70">
-          Each server stays connected. Its tools show up in Auto chat as mcp_server_tool. Use include
-          or exclude so the model does not see every tool. HTTP is the usual choice. A header or env
-          value is stored encrypted and left unchanged when the box is blank.
+          For MockMCP choose Streamable HTTP, paste the server URL, paste the auth token, then
+          Connect. The name can stay blank. A blank token box keeps the saved token.
         </p>
         <label className="flex min-h-11 items-center gap-2 text-sm">
           <input
@@ -104,7 +165,7 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
           />
           Enable MCP for this agent
         </label>
-        {servers.map((row, index) => (
+        {rows.map((row, index) => (
           <div key={index} className="flex flex-col gap-2 rounded-lg border border-teal-100 p-3">
             <div className="grid gap-2 sm:grid-cols-2">
               <label className="flex flex-col gap-1 text-xs">
@@ -113,7 +174,7 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
                   className="min-h-11 rounded-lg border border-teal-200 px-2 text-sm"
                   value={row.name || ""}
                   onChange={(e) => patchServer(index, "name", e.target.value)}
-                  placeholder="github"
+                  placeholder="optional — filled from the URL"
                 />
               </label>
               <label className="flex flex-col gap-1 text-xs">
@@ -123,7 +184,7 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
                   value={row.transport || "http"}
                   onChange={(e) => patchServer(index, "transport", e.target.value)}
                 >
-                  <option value="http">HTTP</option>
+                  <option value="http">Streamable HTTP</option>
                   <option value="sse">SSE</option>
                   <option value="stdio">stdio</option>
                 </select>
@@ -162,13 +223,13 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
               </label>
             )}
             <label className="flex flex-col gap-1 text-xs">
-              Authorization header
+              Auth token
               <input
                 type="password"
                 className="min-h-11 rounded-lg border border-teal-200 px-2 text-sm"
                 value={row.headerAuthorization || ""}
                 onChange={(e) => patchServer(index, "headerAuthorization", e.target.value)}
-                placeholder={row.hasSecrets ? "Saved — leave blank to keep" : "Bearer …"}
+                placeholder={row.hasSecrets ? "Saved — leave blank to keep" : "Bearer token or the raw token"}
                 autoComplete="off"
               />
             </label>
@@ -210,10 +271,10 @@ export function AgentMcpPanel({ form, setForm, agentId, isNew }) {
               <button
                 type="button"
                 className="min-h-11 rounded-lg bg-teal-800 px-3 text-sm text-white disabled:opacity-50"
-                disabled={isNew || !row.name || busyName === row.name}
+                disabled={Boolean(busyName)}
                 onClick={() => discover(index)}
               >
-                {busyName === row.name ? "Connecting…" : "Discover tools"}
+                {busyName && busyName === (row.name || nameFromUrl(row.url)) ? "Connecting…" : "Connect"}
               </button>
               <button
                 type="button"

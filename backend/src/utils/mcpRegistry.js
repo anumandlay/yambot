@@ -6,6 +6,53 @@
  */
 
 /**
+ * Pull a usable server name from an MCP URL when the form name is blank.
+ * Why: MockMCP and similar cards ask for type, URL, and token — not a nickname.
+ * @param {string} url
+ * @returns {string}
+ */
+export function nameFromMcpUrl(url) {
+  try {
+    const host = new URL(String(url || "").trim()).hostname.replace(/^www\./, "");
+    const parts = host.split(".").filter(Boolean);
+    const base = parts.length >= 2 ? parts[parts.length - 2] : parts[0];
+    return mcpSlug(base);
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * Turn a pasted auth box into one Authorization header value.
+ * Why: people paste "Bearer …", the raw token, or the URL and the token together.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function normalizeAuthHeader(raw) {
+  const text = String(raw || "").trim();
+  if (!text) return "";
+  const bearer = text.match(/Bearer\s+([A-Za-z0-9._-]+)/i);
+  if (bearer) return `Bearer ${bearer[1]}`;
+  const token = text
+    .split(/\s+/)
+    .map((part) => part.trim())
+    .find((part) => part && !/^https?:\/\//i.test(part));
+  if (!token) return "";
+  return `Bearer ${token}`;
+}
+
+/**
+ * Keep only the http(s) URL if the box also contains a token.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function normalizeMcpUrl(raw) {
+  const text = String(raw || "").trim();
+  const match = text.match(/https?:\/\/[^\s]+/i);
+  return (match ? match[0] : text).replace(/[),]+$/, "").slice(0, 500);
+}
+
+/**
  * Safe slug for a server or tool name inside an OpenAI function name.
  * @param {string} value
  * @returns {string}
@@ -130,7 +177,8 @@ export function normalizeMcpConfig(raw, previous, encrypt, decrypt) {
   const seen = new Set();
   for (const row of incoming.slice(0, 8)) {
     if (!row || typeof row !== "object") continue;
-    const name = mcpSlug(row.name);
+    const url = normalizeMcpUrl(row.url);
+    const name = mcpSlug(row.name) || nameFromMcpUrl(url);
     if (!name || seen.has(name)) continue;
     seen.add(name);
     const transport = ["stdio", "http", "sse"].includes(row.transport) ? row.transport : "http";
@@ -149,7 +197,7 @@ export function normalizeMcpConfig(raw, previous, encrypt, decrypt) {
           prevSecrets = {};
         }
         const headers = { ...(prevSecrets.headers || {}) };
-        if (header) headers.Authorization = header;
+        if (header) headers.Authorization = normalizeAuthHeader(header);
         const nextEnv = Object.keys(env).length ? env : prevSecrets.env || {};
         secretsEnc = encrypt(JSON.stringify({ headers, env: nextEnv }));
       }
@@ -166,7 +214,7 @@ export function normalizeMcpConfig(raw, previous, encrypt, decrypt) {
     servers.push({
       name,
       transport,
-      url: String(row.url || "").trim().slice(0, 500),
+      url,
       command: String(row.command || "").trim().slice(0, 200),
       args,
       include: nameList(row.include),
@@ -176,7 +224,7 @@ export function normalizeMcpConfig(raw, previous, encrypt, decrypt) {
     });
   }
   return {
-    enabled: Boolean(raw?.enabled),
+    enabled: Boolean(raw?.enabled) || servers.length > 0,
     servers,
   };
 }

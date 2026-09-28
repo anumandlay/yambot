@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   filterMcpTools,
   mcpToolName,
+  normalizeAuthHeader,
   normalizeMcpConfig,
   publicMcpSummary,
   resolveMcpTool,
@@ -78,4 +79,32 @@ test("keeps a previous secret when the form leaves the header blank", () => {
   const pub = publicMcpSummary({ mcp: next });
   assert.equal(pub.servers[0].hasSecrets, true);
   assert.equal(JSON.stringify(pub).includes("Bearer"), false);
+});
+
+test("a URL and a pasted token are enough when the name box is empty", () => {
+  const enc = (s) => `enc:${s}`;
+  const dec = (s) => String(s).replace(/^enc:/, "");
+  const next = normalizeMcpConfig(
+    {
+      enabled: false,
+      servers: [
+        {
+          name: "",
+          transport: "http",
+          url: "https://app.mockmcp.com/servers/abc/mcp",
+          headerAuthorization:
+            "https://app.mockmcp.com/servers/abc/mcp Bearer mcp_test_token",
+        },
+      ],
+    },
+    null,
+    enc,
+    dec
+  );
+  assert.equal(next.enabled, true);
+  assert.equal(next.servers[0].name, "mockmcp");
+  assert.equal(next.servers[0].url, "https://app.mockmcp.com/servers/abc/mcp");
+  const stored = JSON.parse(dec(next.servers[0].secretsEnc));
+  assert.equal(stored.headers.Authorization, "Bearer mcp_test_token");
+  assert.equal(normalizeAuthHeader("mcp_plain_token"), "Bearer mcp_plain_token");
 });

@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 15:17] Connect MCP from a URL and token
+
+- **Prompt Provided:** Streamable HTTP MockMCP URL and auth token did nothing on the agent MCP tab.
+- **Architectural Flow:** A blank name no longer drops the server. The name comes from the URL. A pasted Bearer line or raw token becomes the Authorization header. Connect saves, opens the streamable HTTP session, and lists tools.
+- **Impacted Files:** mcpRegistry.js, mcpRegistry.test.js, AgentMcpPanel.jsx, PROMPT_LOG
+
 ## [2026-09-28 14:32] Add a warm MCP client for agent tools
 
 - **Prompt Provided:** Implement Hermes-style MCP: long-lived connections, discovery, mcp_server_tool names, and include/exclude filters.
