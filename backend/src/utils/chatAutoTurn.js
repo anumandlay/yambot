@@ -7,6 +7,7 @@
 
 import { llmChatCompletion, llmChatCompletionMessage, llmChatCompletionStream } from "./llmChat.js";
 import { stripModelThinking } from "./llmSanitize.js";
+import { formatCurrentCountNote } from "./countMemory.js";
 import { isAbortError } from "./llmAbort.js";
 import { formatAgentPrompt } from "../models/Agent.js";
 import { assembleAutoLlmMessages } from "./chatContext.js";
@@ -3872,9 +3873,19 @@ export function formatDayHistoryChatAnswer(snapshot, question = "") {
   if (n === 0) {
     return `Day history for ${dayLabel} exists but has no readable summary yet.`;
   }
+  const countNote = formatCurrentCountNote(
+    logs.map((d) => ({
+      day: d?.day,
+      text: `${d?.summary || ""}\n${d?.detail || ""}`,
+    }))
+  );
+  if (countNote) {
+    out.push("");
+    out.push(countNote);
+  }
   out.push("");
   out.push("(From agent dayLogs — not a live browser run.)");
-  return out.join("\n");
+  return redactCredentialLeaks(out.join("\n"));
 }
 
 /**

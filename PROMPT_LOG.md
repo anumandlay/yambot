@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 13:35] Stop model loops, hide memory passwords, finish lists only after extract
+
+- **Prompt Provided:** Add the five runtime gaps: stop repeated model errors, keep passwords out of the prompt, remember what this run already verified, finish list tasks only after the rows are read, and treat the newest dated count as current.
+- **Architectural Flow:** Two identical LLM or JSON errors end the run on the current page. Memory, day history, and notes are redacted before the model sees them; the login vault still holds the password. Each step records URL, country filter, and table size and tells the model not to repeat those steps. A list goal cannot finish until extract returned rows. Prompts label older account counts as history.
+- **Impacted Files:** loops.js, promptSecrets.js, runVerified.js, listFinish.js, agent.js, countMemory.js, Agent.js, chatAutoTurn.js, runGuards.test.js, PROMPT_LOG
+
 ## [2026-09-28 13:23] LLM merge for similar Jev cases
 
 - **Prompt Provided:** When several learned cases ask the same thing in different words, use an LLM chat so one question and one case remain.

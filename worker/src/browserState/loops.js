@@ -90,3 +90,21 @@ export function detectActionLoop(history, threshold = 3) {
   }
   return { detected: false };
 }
+
+/**
+ * Counts consecutive identical model failures.
+ * Why: browser-action loop detection ignores wait retries, so the same LLM error can repeat until the time budget.
+ * @param {{ key?: string, count?: number }} prev
+ * @param {string} kind
+ * @param {string} detail
+ * @param {number} [stopAfter]
+ * @returns {{ key: string, count: number, stop: boolean }}
+ */
+export function modelErrorStreak(prev, kind, detail, stopAfter = 2) {
+  const key = `${kind}|${String(detail || "")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 180)}`;
+  const count = prev?.key === key ? Number(prev.count || 0) + 1 : 1;
+  return { key, count, stop: count >= stopAfter };
+}

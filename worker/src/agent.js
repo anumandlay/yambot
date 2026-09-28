@@ -63,6 +63,7 @@ import {
   planFromSkill,
   computeGoalProgress,
   detectActionLoop,
+  modelErrorStreak,
   evaluateBlockedSubgoal,
   diffObservations,
   enrichActionResult,
@@ -122,6 +123,9 @@ import {
   extractSessionCredentials,
   resolveAskUserGuard,
 } from "./browserState/index.js";
+import { redactPromptSecrets } from "./promptSecrets.js";
+import { captureRunVerified, formatVerifiedBlock } from "./browserState/runVerified.js";
+import { goalWantsExtractedList, historyHasListExtract } from "./browserState/listFinish.js";
 import { expandMessageAgentTargetsForFanOut } from "./a2aFanout.js";
 
 const execFileAsync = promisify(execFile);
@@ -1384,18 +1388,20 @@ export function createCloudAgent({ api, config, log = console.log }) {
   function formatObservation(obs, pageState, stateDiff, goal, extras = {}) {
     if (pageState) {
       const profile = getFastModeProfile();
-      return formatStateProjection({
-        obs,
-        pageState,
-        stateDiff,
-        goal,
-        plan: extras.plan,
-        progress: extras.progress,
-        currentSubgoal: extras.currentSubgoal,
-        telemetry: extras.telemetry,
-        maxInteractives: profile.maxInteractives,
-        skipA11y: profile.skipA11y,
-      });
+      return redactPromptSecrets(
+        formatStateProjection({
+          obs,
+          pageState,
+          stateDiff,
+          goal,
+          plan: extras.plan,
+          progress: extras.progress,
+          currentSubgoal: extras.currentSubgoal,
+          telemetry: extras.telemetry,
+          maxInteractives: profile.maxInteractives,
+          skipA11y: profile.skipA11y,
+        })
+      );
     }
     const lines = [
       `URL: ${obs.url}`,
@@ -1432,8 +1438,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
       );
     }
     lines.push("Page text:");
-    lines.push(obs.text || "");
-    return lines.join("\n");
+    lines.push(redactPromptSecrets(obs.text || ""));
+    return redactPromptSecrets(lines.join("\n"));
   }
 
   function formatAgentSnapshot(snapshot, goal = "") {
@@ -1450,19 +1456,24 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const memory = Array.isArray(snapshot.memory)
       ? snapshot.memory
           .slice(0, 15)
-          .map((m) => `- [${m.kind || "note"}] ${m.content}`)
+          .map((m) => {
+            const when = m.at ? new Date(m.at).toISOString().slice(0, 10) : "";
+            return `- [${m.kind || "note"}${when ? ` ${when}` : ""}] ${redactPromptSecrets(m.content)}`;
+          })
           .join("\n")
       : "";
     const recentDays = Array.isArray(snapshot.dayHistoryRecent)
       ? snapshot.dayHistoryRecent
-          .map((d) => `- [${d.day}] ${d.summary || ""}`)
+          .map((d) => `- [${d.day}] ${redactPromptSecrets(d.summary || "")}`)
           .join("\n")
       : "";
     const relevantDays = Array.isArray(snapshot.dayHistoryRelevant)
       ? snapshot.dayHistoryRelevant
           .map((d) => {
-            const head = `- [${d.day}] ${d.summary || ""}`;
-            const detail = d.detail ? `\n  DETAIL: ${String(d.detail).replace(/\n/g, "\n  ")}` : "";
+            const head = `- [${d.day}] ${redactPromptSecrets(d.summary || "")}`;
+            const detail = d.detail
+              ? `\n  DETAIL: ${redactPromptSecrets(String(d.detail)).replace(/\n/g, "\n  ")}`
+              : "";
             return head + detail;
           })
           .join("\n")
@@ -1483,10 +1494,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
       .join("\n");
     return [
       `AGENT NAME: ${snapshot.name}`,
-      snapshot.skill ? `SKILL: ${snapshot.skill}` : "",
-      snapshot.description ? `DESCRIPTION: ${snapshot.description}` : "",
-      snapshot.profile ? `PROFILE / PERSONA:\n${snapshot.profile}` : "",
-      snapshot.instructions ? `STANDING INSTRUCTIONS:\n${snapshot.instructions}` : "",
+      snapshot.skill ? `SKILL: ${redactPromptSecrets(snapshot.skill)}` : "",
+      snapshot.description ? `DESCRIPTION: ${redactPromptSecrets(snapshot.description)}` : "",
+      snapshot.profile ? `PROFILE / PERSONA:\n${redactPromptSecrets(snapshot.profile)}` : "",
+      snapshot.instructions ? `STANDING INSTRUCTIONS:\n${redactPromptSecrets(snapshot.instructions)}` : "",
       factLines ? `FACTS YOU MAY USE:\n${factLines}` : "",
       snapshot.successCriteria
         ? `SUCCESS CRITERIA (call finish when met):\n${snapshot.successCriteria}`
@@ -1515,9 +1526,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
         ? `RELEVANT PAST WORK (matched keywords from this goal):\n${relevantDays}`
         : "",
       memory ? `AGENT MEMORY (episodic notes):\n${memory}` : "",
-      snapshot.curatedUserBlock ? String(snapshot.curatedUserBlock) : "",
-      snapshot.curatedMemoryBlock ? String(snapshot.curatedMemoryBlock) : "",
-      snapshot.chatContext ? String(snapshot.chatContext) : "",
+      snapshot.countMemoryBlock ? redactPromptSecrets(snapshot.countMemoryBlock) : "",
+      snapshot.curatedUserBlock ? redactPromptSecrets(snapshot.curatedUserBlock) : "",
+      snapshot.curatedMemoryBlock ? redactPromptSecrets(snapshot.curatedMemoryBlock) : "",
+      snapshot.chatContext ? redactPromptSecrets(snapshot.chatContext) : "",
       snapshot.peerAgentsBlock ? String(snapshot.peerAgentsBlock) : "",
       "CURATED MEMORY: Use action type memory { action: add|replace|remove, target: user|memory, content, old_text }. DEFAULT target is memory (THIS agent's MEMORY.md). When the human tells you to remember something in this chat/goal, ALWAYS use target memory — never user. Use target user ONLY for account-wide human identity/prefs that apply to every agent (e.g. “my name is…”, “I live in…”, tone for all agents), or when they explicitly say user/account memory. Writes apply next run; frozen prompt blocks do not change mid-run. At task start YamBot injects the top relevant curated facts for this goal (semantic when embeddings are available).",
       "You are running on this agent's dedicated cloud computer (persistent browser profile).",
@@ -2425,6 +2437,10 @@ export function createCloudAgent({ api, config, log = console.log }) {
       }
 
       let step = 0;
+      let modelFail = { key: "", count: 0 };
+      const listFinish = { refusals: 0 };
+      /** @type {{ url: string, title: string, country: string, rows: string }} */
+      let runVerified = { url: "", title: "", country: "", rows: "" };
       const effectiveMaxMinutes = taskMaxMinutes || settings.maxTaskMinutes || 0;
       /** @type {object|null} */
       let prevObs = null;
@@ -2576,6 +2592,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         // Why: only recheck after DBC auto-solve — human handoff must proceed to the LLM.
         if (captchaGate.handled && captchaGate.recheck) continue;
         let obs = captchaGate.obs;
+        runVerified = captureRunVerified(obs);
         if (obs?.url && /^https?:\/\//i.test(obs.url)) {
           lastKnownPageUrl = obs.url;
         }
@@ -2702,6 +2719,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
 
         const userTextParts = [
           `GOAL:\n${goal}`,
+          formatVerifiedBlock(runVerified),
           cuaActive ? computerUse.promptBlock() : "",
           cuaCaptureBlock,
           goalIncludesLoginCredentials(goal)
@@ -2721,7 +2739,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
             ? `NOTES SO FAR (latest only; older findings are in SESSION CONTEXT):\n${notes
                 .slice(-4)
                 .map((n) => {
-                  const s = String(n);
+                  const s = redactPromptSecrets(n);
                   // Why: extract notes are page text — do not cut the table after the first rows.
                   if (/^Extract \(/.test(s)) return s;
                   return s.slice(0, 700);
@@ -2873,7 +2891,20 @@ export function createCloudAgent({ api, config, log = console.log }) {
           metrics.mark(stepClock, "action");
         } catch (err) {
           const detail = String(err?.detail || err?.message || err);
+          modelFail = modelErrorStreak(modelFail, "llm", detail);
           log(`[${config.workerName}] LLM retry:`, detail);
+          if (modelFail.stop) {
+            const where = obs?.url ? ` on ${obs.url}` : "";
+            await complete(taskId, {
+              success: false,
+              summary: `Stopped${where} after the same model error twice: ${detail.slice(0, 240)}`,
+              error: "llm_error_repeat",
+              history,
+              siteDomain,
+              llmUsage,
+            });
+            return;
+          }
           notes.push(`LLM call failed (will retry): ${detail}`);
           await mirror(taskId, "step", {
             payload: {
@@ -2901,9 +2932,22 @@ export function createCloudAgent({ api, config, log = console.log }) {
         try {
           parsed = parseAgentResponse(content);
         } catch (err) {
-          // Why: Minimax/etc. often append prose after JSON — retry instead of killing the run.
+          // Why: Minimax/etc. often append prose after JSON — retry once, then stop on the same page.
           const detail = String(err?.message || err);
+          modelFail = modelErrorStreak(modelFail, "parse", detail);
           log(`[${config.workerName}] parse retry:`, detail);
+          if (modelFail.stop) {
+            const where = obs?.url ? ` on ${obs.url}` : "";
+            await complete(taskId, {
+              success: false,
+              summary: `Stopped${where} after the same model error twice: ${detail.slice(0, 240)}`,
+              error: "llm_error_repeat",
+              history,
+              siteDomain,
+              llmUsage,
+            });
+            return;
+          }
           notes.push(`Model JSON parse failed (will retry): ${detail}`);
           await mirror(taskId, "step", {
             payload: {
@@ -2924,6 +2968,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           await sleep(stepTiming.parseRetryMs);
           continue;
         }
+        modelFail = { key: "", count: 0 };
         const batchActions = Array.isArray(parsed.actions) && parsed.actions.length
           ? parsed.actions.slice(0, stepTiming.maxActionsPerTurn)
           : [parsed.action];
@@ -3004,6 +3049,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
               agentSnapshot,
               notes,
               history,
+              listFinish,
               cuaActive: computerUse.isActive(),
               computerUse,
             });
@@ -3258,8 +3304,11 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }).catch(() => {});
 
         if (result?.finished) {
-          const summary = actionToRun.summary || result?.summary || "Done";
-          const success = actionToRun.success !== false;
+          const success = result?.success === false ? false : actionToRun.success !== false;
+          const summary =
+            result?.success === false
+              ? result.summary || "Stopped: the list was not read."
+              : actionToRun.summary || result?.summary || "Done";
           // Why: post chat result FIRST — save-login can run after (was delaying the user bubble).
           if (success) {
             await persistSitePlay(api, config.agentId, goal, sitePlaySteps).catch(() => {});
@@ -3572,6 +3621,28 @@ export function createCloudAgent({ api, config, log = console.log }) {
           notes.push(
             `Soft-wait finish guard failed (${err?.message || err}) — continuing with finish.`
           );
+        }
+        if (goalWantsExtractedList(ctx.goal) && !historyHasListExtract(ctx.history)) {
+          const bag = ctx.listFinish || { refusals: 0 };
+          bag.refusals += 1;
+          if (bag.refusals < 2) {
+            ctx.notes?.push(
+              "Finish refused: the list has not been read. Call extract on the table, then finish with the rows."
+            );
+            return {
+              ok: false,
+              finished: false,
+              blockedFinish: true,
+              reason: "list_not_read",
+              summary: "The list has not been read yet.",
+            };
+          }
+          return {
+            ok: true,
+            finished: true,
+            success: false,
+            summary: "Stopped: the list was not read.",
+          };
         }
         const finishOk = action.success !== false;
         const helpedId =
