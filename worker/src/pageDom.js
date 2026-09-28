@@ -946,11 +946,12 @@ export function observeInPage() {
     return { present: unique.length > 0, signals: unique };
   }
 
-  function pageText(max = 6000) {
+  function pageText() {
     const clone = document.body?.cloneNode(true);
     if (!clone) return "";
     clone.querySelectorAll("script,style,noscript,svg").forEach((n) => n.remove());
-    return cleanText(clone.innerText, max);
+    // Why: no character cap — a trial list must include every row, not the first screenful.
+    return String(clone.innerText || "").replace(/\s+/g, " ").trim();
   }
 
   const pageHints = collectPageHints();
@@ -1010,7 +1011,7 @@ export function sanitizePageObservation(obs, extras = {}) {
           shadowHost: el.shadowHost,
         }))
       : [],
-    text: String(obs.text || "").slice(0, 8000),
+    text: String(obs.text || ""),
     interactiveCount: Array.isArray(obs.interactives) ? obs.interactives.length : 0,
     pageState: extras.pageState || undefined,
     stateDiff: extras.stateDiff || undefined,
@@ -1516,11 +1517,11 @@ export function executeInPage(action) {
     }
   }
 
-  function pageText(max = 8000) {
+  function pageText() {
     const clone = document.body?.cloneNode(true);
     if (!clone) return "";
     clone.querySelectorAll("script,style,noscript,svg").forEach((n) => n.remove());
-    return cleanText(clone.innerText, max);
+    return String(clone.innerText || "").replace(/\s+/g, " ").trim();
   }
 
   function detectCaptcha() {
@@ -1872,7 +1873,7 @@ export function executeInPage(action) {
         focus: action.focus || "main content",
         url: location.href,
         title: document.title,
-        text: pageText(8000),
+        text: pageText(),
         links: [...document.querySelectorAll("a[href]")]
           .filter(isVisible)
           .slice(0, 30)

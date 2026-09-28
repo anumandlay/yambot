@@ -21,7 +21,6 @@ export function isFastMode() {
  * @returns {{
  *   fast: boolean,
  *   maxInteractives: number,
- *   maxText: number,
  *   skipFrames: boolean,
  *   skipA11y: boolean,
  *   maxActionsPerTurn: number,
@@ -40,7 +39,6 @@ export function getFastModeProfile() {
       15,
       Number(process.env.YAMBOT_OBSERVE_LIMIT) || (fast ? 30 : 65)
     ),
-    maxText: Math.max(400, Number(process.env.YAMBOT_OBSERVE_TEXT) || (fast ? 1000 : 1800)),
     skipFrames:
       process.env.YAMBOT_SKIP_FRAMES === "1" ||
       process.env.YAMBOT_SKIP_FRAMES === "true" ||

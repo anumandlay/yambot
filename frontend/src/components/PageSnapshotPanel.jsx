@@ -89,7 +89,7 @@ export function formatPageObservationText(obs) {
       }${el.xpath ? ` xpath=${String(el.xpath).slice(0, 120)}` : ""}`
     );
   }
-  lines.push("Page text (truncated):");
+  lines.push("Page text:");
   lines.push(obs.text || "");
   return lines.join("\n");
 }

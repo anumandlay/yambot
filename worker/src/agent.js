@@ -1394,7 +1394,6 @@ export function createCloudAgent({ api, config, log = console.log }) {
         currentSubgoal: extras.currentSubgoal,
         telemetry: extras.telemetry,
         maxInteractives: profile.maxInteractives,
-        maxText: profile.maxText,
         skipA11y: profile.skipA11y,
       });
     }
@@ -1432,7 +1431,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }${el.xpath ? ` xpath=${String(el.xpath).slice(0, 120)}` : ""}`
       );
     }
-    lines.push("Page text (truncated):");
+    lines.push("Page text:");
     lines.push(obs.text || "");
     return lines.join("\n");
   }
@@ -2721,7 +2720,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
           notes.length
             ? `NOTES SO FAR (latest only; older findings are in SESSION CONTEXT):\n${notes
                 .slice(-4)
-                .map((n) => String(n).slice(0, 700))
+                .map((n) => {
+                  const s = String(n);
+                  // Why: extract notes are page text — do not cut the table after the first rows.
+                  if (/^Extract \(/.test(s)) return s;
+                  return s.slice(0, 700);
+                })
                 .join("\n---\n")}`
             : "",
           (() => {
@@ -3693,7 +3697,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
           [
             `Extract (${action.focus || "page"}) from ${result.url}`,
             result.title,
-            (result.text || "").slice(0, 2500),
+            result.text || "",
             (result.links || [])
               .slice(0, 15)
               .map((l) => `- ${l.text}: ${l.href}`)

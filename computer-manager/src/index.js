@@ -225,9 +225,6 @@ async function ensureRunning(agent) {
       ...(process.env.YAMBOT_OBSERVE_LIMIT
         ? [`YAMBOT_OBSERVE_LIMIT=${process.env.YAMBOT_OBSERVE_LIMIT}`]
         : ["YAMBOT_OBSERVE_LIMIT=30"]),
-      ...(process.env.YAMBOT_OBSERVE_TEXT
-        ? [`YAMBOT_OBSERVE_TEXT=${process.env.YAMBOT_OBSERVE_TEXT}`]
-        : ["YAMBOT_OBSERVE_TEXT=1000"]),
       ...(process.env.YAMBOT_INCLUDE_A11Y
         ? [`YAMBOT_INCLUDE_A11Y=${process.env.YAMBOT_INCLUDE_A11Y}`]
         : ["YAMBOT_INCLUDE_A11Y=false"]),

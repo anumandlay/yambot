@@ -1,6 +1,6 @@
 /**
  * @fileoverview Compact LLM projection of browser state (not full 6k text dump).
- * Purpose: Browser-Use–style ACTION SURFACE first, then light context (plan/diff/text).
+ * Purpose: Browser-Use–style ACTION SURFACE first, then plan/diff and the full page text.
  * Downstream: agent.js formatObservation for each LLM step.
  */
 
@@ -100,7 +100,7 @@ function formatFramesBlock(obs) {
 
 /**
  * Builds the compact observation string for the LLM.
- * Why: Lead with ACTION SURFACE (Browser-Use style). Keep plan/diff/text short; a11y is secondary.
+ * Why: Lead with ACTION SURFACE (Browser-Use style). Page text is not cut — a long table must stay intact.
  * @param {object} params
  * @returns {string}
  */
@@ -114,7 +114,6 @@ export function formatStateProjection({
   currentSubgoal = "",
   telemetry = null,
   maxInteractives = 65,
-  maxText = 1800,
   skipA11y = false,
 }) {
   const lines = [];
@@ -175,10 +174,9 @@ export function formatStateProjection({
   const telBlock = formatTelemetryBlock(telemetry);
   if (telBlock) lines.push("", telBlock);
 
-  const textBudget = surface.count >= 20 ? Math.min(maxText, 700) : maxText;
-  const text = String(obs.text || "").slice(0, textBudget);
+  const text = String(obs.text || "");
   if (text) {
-    lines.push("", "Page text (truncated):", text);
+    lines.push("", "Page text:", text);
   }
 
   return lines.join("\n");

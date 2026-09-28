@@ -92,7 +92,7 @@ export function fieldContext(goal, action, page, history) {
       role: action.role,
       value: action.value,
     },
-    page: { title: page.title, text: String(page.text || "").slice(0, 6000) },
+    page: { title: page.title, text: String(page.text || "") },
     recent_actions: (history || []).slice(-6).map((h) => ({
       action: h.action,
       text: h.text,

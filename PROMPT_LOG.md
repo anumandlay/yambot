@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 13:05] Unlimited page text for the browser agent
+
+- **Prompt Provided:** Change the page text cutoff to unlimited.
+- **Architectural Flow:** The worker no longer slices page text at 700, 1,000, 1,800, 6,000, or 8,000 characters. The step prompt and extract notes include the full page text. Busy pages (20+ controls) are no longer shortened to the sidebar and the first rows.
+- **Impacted Files:** format.js, pageDom.js, agent.js, fastMode.js, computer-manager/src/index.js, fieldText.js, PageSnapshotPanel.jsx, PROMPT_LOG
+
 ## [2026-09-28 11:23] Remove vision screenshots and Vision LLM
 
 - **Prompt Provided:** Remove everything related to vision.
