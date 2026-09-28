@@ -1462,6 +1462,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             },
             userId: String(req.userId),
             chatId: String(chat._id),
+            displayName: resolveHumanDisplayName(owner),
             agent: agentDoc,
             // Why: Hermes Phase 3 load_skill — full agent.skill for progressive skill tool.
             agentSkill: String(prepared?.snapshot?.skill || agentDoc?.skill || ""),

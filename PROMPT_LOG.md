@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 15:55] Resolve “1” onto an MCP tool before the model answers
+
+- **Prompt Provided:** A short “1” after a numbered MCP list should select that tool. A later “whose name?” question should win over the old list. “Yes” should confirm the pending tool.
+- **Architectural Flow:** Auto resolves the short message against the last MCP list or the pending question, then calls the tool or asks for the missing name. “list of mcps” prints the saved tool names so the next number maps to them. The chat model is not asked to guess the reference.
+- **Impacted Files:** mcpReference.js, mcpReference.test.js, mcpClient.js, chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-28 15:50] Call the MCP tool the user picked by number
 
 - **Prompt Provided:** After “list of mcps”, “1” and “call no.1” only asked what to do, and a later reply printed a gadget XML tag instead of calling GreetMe.

@@ -146,6 +146,33 @@ export async function loadMcpOpenAiTools(runtime) {
 }
 
 /**
+ * Required argument names for one mcp_* tool, from the live schema.
+ * @param {{ userId?: string, agentId?: string, agent?: object }} runtime
+ * @param {string} openaiName
+ * @returns {Promise<string[]>}
+ */
+export async function mcpToolRequiredFields(runtime, openaiName) {
+  const agent = runtime?.agent;
+  const userId = String(runtime?.userId || "");
+  const agentId = String(runtime?.agentId || agent?._id || "");
+  if (!agent?.mcp?.enabled || !userId || !agentId) return [];
+  for (const server of agent.mcp.servers || []) {
+    const plain = plainMcpServer(server);
+    try {
+      const session = await ensureMcpSession(poolKeyFor(userId, agentId, server), server);
+      const hit = resolveMcpTool([{ ...plain, tools: session.tools }], openaiName);
+      if (!hit) continue;
+      const tool = session.tools.find((row) => row?.name === hit.remoteName);
+      const required = tool?.inputSchema?.required;
+      return Array.isArray(required) ? required.map((name) => String(name)) : [];
+    } catch {
+      /* try the next server */
+    }
+  }
+  return [];
+}
+
+/**
  * Call one mcp_* tool on the warm session.
  * @param {{ userId?: string, agentId?: string, agent?: object }} runtime
  * @param {string} openaiName

@@ -33,7 +33,8 @@ import {
   runComposioMultiStep,
   COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
-import { callRegisteredMcpTool, loadMcpOpenAiTools } from "./mcpClient.js";
+import { callRegisteredMcpTool, loadMcpOpenAiTools, mcpToolRequiredFields } from "./mcpClient.js";
+import { formatCachedMcpCatalog, resolveMcpReference } from "./mcpReference.js";
 import {
   looksLikeHybridCombo,
   maybeAmbiguousCombo,
@@ -2940,6 +2941,27 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
+  // Why: "1" after a numbered MCP list is a reference. Resolve it here so Jev and the chat model never guess.
+  if (runtime?.mcpEnabled) {
+    const ref = resolveMcpReference(text, historyEarly);
+    if (ref) {
+      const content = await fulfillMcpReference(ref, runtime);
+      if (content) {
+        track.setPath("mcp_reference");
+        track.markDecision("reply");
+        await pushReply(content);
+        return finalize({
+          action: "reply",
+          content,
+          goal: "",
+          ack: "",
+          reason: "mcp_reference",
+          timing: track.finish(),
+        });
+      }
+    }
+  }
+
   // Why: day-history / vague "what" must never reach QUEUE_GOAL — models invent login goals from thread.
   if (looksLikeDayHistoryOrStatusRequest(text) || looksLikeVagueChatFollowup(text)) {
     track.setPath("day_history_forced_qa");
@@ -4075,6 +4097,38 @@ export function mcpToolsMentioned(text) {
     names.push(name);
   }
   return names;
+}
+
+/**
+ * Run a resolved MCP reference: list the catalog, ask for a missing name, or call the tool.
+ * Why: the model was reprinting the list and then asking what "1" meant.
+ * @param {{ kind: string, tool?: string, args?: Record<string, string>, question?: string }} ref
+ * @param {{ agent?: object, displayName?: string, userId?: string, agentId?: string }} runtime
+ * @returns {Promise<string>}
+ */
+async function fulfillMcpReference(ref, runtime) {
+  if (ref.kind === "ask") return String(ref.question || "");
+  if (ref.kind === "list") {
+    const cached = formatCachedMcpCatalog(runtime?.agent);
+    if (cached) return cached;
+    const tools = await loadMcpOpenAiTools(runtime);
+    if (!tools.length) return "No MCP tools are connected on this agent.";
+    return tools
+      .map((tool, index) => {
+        const name = String(tool?.function?.name || "");
+        const desc = String(tool?.function?.description || "").replace(/\s+/g, " ").slice(0, 140);
+        return `${index + 1}. ${name} — ${desc}`;
+      })
+      .join("\n");
+  }
+  const args = { ...(ref.args || {}) };
+  const required = await mcpToolRequiredFields(runtime, ref.tool);
+  if (required.includes("name") && !String(args.name || "").trim()) {
+    const known = String(runtime?.displayName || "").trim();
+    if (known) args.name = known;
+    else return `Whose name should I use for ${ref.tool}?`;
+  }
+  return formatMcpToolPayload(await callRegisteredMcpTool(runtime, ref.tool, args));
 }
 
 /**
