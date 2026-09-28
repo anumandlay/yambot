@@ -356,6 +356,30 @@ const agentSchema = new mongoose.Schema(
       toolkitToolCache: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     /**
+     * External MCP servers for this agent.
+     * Why: tools are discovered and registered as mcp_<server>_<tool> on a warm connection.
+     * Secrets (headers, env) stay in secretsEnc. The model never sees the raw catalog unfiltered.
+     */
+    mcp: {
+      enabled: { type: Boolean, default: false },
+      servers: {
+        type: [
+          {
+            name: { type: String, default: "" },
+            transport: { type: String, enum: ["stdio", "http", "sse"], default: "http" },
+            url: { type: String, default: "" },
+            command: { type: String, default: "" },
+            args: { type: [String], default: [] },
+            include: { type: [String], default: [] },
+            exclude: { type: [String], default: [] },
+            secretsEnc: { type: String, default: "" },
+            cachedTools: { type: [{ name: String, description: String }], default: [] },
+          },
+        ],
+        default: [],
+      },
+    },
+    /**
      * Optional Jev (official TypeSafe System One) Auto router for this agent.
      * When enabled + key set: confident reply / queue_goal / composio before the chat LLM.
      * `cases` = learned routing examples. `sitePlays` = browser steps replayed on a later visit.

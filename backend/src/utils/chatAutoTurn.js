@@ -33,6 +33,7 @@ import {
   runComposioMultiStep,
   COMPOSIO_INTENT_SPECS,
 } from "./composioAutoRuntime.js";
+import { callRegisteredMcpTool, loadMcpOpenAiTools } from "./mcpClient.js";
 import {
   looksLikeHybridCombo,
   maybeAmbiguousCombo,
@@ -1815,6 +1816,7 @@ export function classifyAutoToolName(tc) {
   if (name === "load_skill" || name === "loadskill" || name === "get_skill") return "load_skill";
   if (name === "skills_list" || name === "list_skills" || name === "skill_list") return "skills_list";
   if (name === "skill_view" || name === "view_skill" || name === "open_skill") return "skill_view";
+  if (name.startsWith("mcp_")) return "mcp";
   return "unknown";
 }
 
@@ -2389,6 +2391,9 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "- NEVER use QUEUE_GOAL for Gmail/Sheets/Slack/Drive via connected apps — that is mode 3 (unless a live site step comes first in a combo)",
     "- NEVER reply with only “On it / Starting…” for a live job — you MUST call queue_goal so a Task is created",
     "",
+    opts?.agent?.mcp?.enabled
+      ? "MCP tools are named mcp_<server>_<tool>. Call them like any other tool. They use a connection that stays open. Do not queue_goal for an MCP tool."
+      : "",
     "3) Composio tools — connected apps (Gmail, Google Sheets, Slack, Drive, Notion, …):",
     "- Prefer tool slugs from CONNECTED APP TOOLS (cached after Connect) with composio_execute",
     "- Else composio_search → composio_connect (if needed) → composio_wait → composio_execute",
@@ -3077,6 +3082,13 @@ export async function runChatAutoTurn(opts) {
       "tools_start"
     );
     const wallStartedAt = Date.now();
+    let autoTools = AUTO_CHAT_TOOLS;
+    try {
+      const mcpTools = await loadMcpOpenAiTools(runtime);
+      if (mcpTools.length) autoTools = [...AUTO_CHAT_TOOLS, ...mcpTools];
+    } catch (err) {
+      console.warn("[mcp] tool list failed:", err?.message || err);
+    }
     for (let round = 0; round < AUTO_CHAT_MAX_TOOL_ROUNDS; round++) {
       if (signal?.aborted) {
         const content = formatAutoBudgetStopReply("abort");
@@ -3119,7 +3131,7 @@ export async function runChatAutoTurn(opts) {
         maxTokens: 900,
         timeoutMs: 60_000,
         messages,
-        tools: AUTO_CHAT_TOOLS,
+        tools: autoTools,
         // Why: never force a named tool_choice — some providers return “Provider returned error” for that.
         toolChoice: "auto",
         signal: signal || null,
@@ -3415,7 +3427,8 @@ export async function runChatAutoTurn(opts) {
           kind === "composio_search" ||
           kind === "composio_connect" ||
           kind === "composio_wait" ||
-          kind === "composio_execute"
+          kind === "composio_execute" ||
+          kind === "mcp"
         );
       });
 
@@ -3512,7 +3525,10 @@ export async function runChatAutoTurn(opts) {
             });
             continue;
           }
-          const resultText = await executeAutoLookupTool(kind, runtime, toolArgs);
+          const resultText =
+            kind === "mcp"
+              ? await callRegisteredMcpTool(runtime, tc.name, toolArgs)
+              : await executeAutoLookupTool(kind, runtime, toolArgs);
           try {
             const parsed = JSON.parse(String(resultText || ""));
             const detailBits = [];
@@ -3921,6 +3937,11 @@ export function autoTurnNeedsTools(text, runtime = {}) {
     Boolean(runtime?.composioEnabled) &&
     /\b(composio|connected apps?|toolkits?|list (my )?apps)\b/i.test(q)
   ) {
+    return true;
+  }
+  if (runtime?.mcpEnabled && /\bmcp\b/i.test(q)) return true;
+  const mcpNames = Array.isArray(runtime?.mcpServerNames) ? runtime.mcpServerNames : [];
+  if (mcpNames.some((name) => name && q.toLowerCase().includes(String(name).toLowerCase()))) {
     return true;
   }
   return false;

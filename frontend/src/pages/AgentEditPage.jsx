@@ -20,6 +20,7 @@ import { LiveScreen } from "../components/LiveScreen.jsx";
 import { SiteProfilesPanel } from "../components/SiteProfilesPanel.jsx";
 import { groupJevSitePlays, JevSiteFlowDialog } from "../components/JevSiteFlowDialog.jsx";
 import { AgentAvatar } from "../components/AgentAvatar.jsx";
+import { AgentMcpPanel } from "../components/AgentMcpPanel.jsx";
 import { resizeImageFileToAvatar } from "../lib/agentAvatar.js";
 
 const EMPTY = {
@@ -119,6 +120,10 @@ const EMPTY = {
     toolkitSlugs: [],
     autoApproveRisky: false,
   },
+  mcp: {
+    enabled: false,
+    servers: [],
+  },
   /**
    * Optional Jev Auto router (TypeSafe API key) — reply / computer / Composio.
    */
@@ -156,6 +161,7 @@ const AGENT_EDIT_TABS = [
   { id: "llm", label: "LLM" },
   { id: "email", label: "Email" },
   { id: "composio", label: "Composio" },
+  { id: "mcp", label: "MCP" },
   { id: "jev", label: "Jev" },
   { id: "advanced", label: "Team & policy" },
   { id: "memory", label: "Memory", editOnly: true },
@@ -385,6 +391,10 @@ export function AgentEditPage() {
                 ? a.composio.toolkitSlugs
                 : [],
               autoApproveRisky: Boolean(a.composio?.autoApproveRisky),
+            },
+            mcp: {
+              enabled: Boolean(a.mcp?.enabled),
+              servers: Array.isArray(a.mcp?.servers) ? a.mcp.servers : [],
             },
             jev: {
               enabled: Boolean(a.jev?.enabled),
@@ -1062,6 +1072,10 @@ export function AgentEditPage() {
           ? form.composio.toolkitSlugs
           : [],
         autoApproveRisky: Boolean(form.composio?.autoApproveRisky),
+      },
+      mcp: {
+        enabled: Boolean(form.mcp?.enabled),
+        servers: Array.isArray(form.mcp?.servers) ? form.mcp.servers : [],
       },
       jev: {
         enabled: Boolean(form.jev?.enabled),
@@ -2148,6 +2162,10 @@ export function AgentEditPage() {
           ) : null}
         </fieldset>
         </div>
+        ) : null}
+
+        {editTab === "mcp" ? (
+          <AgentMcpPanel form={form} setForm={setForm} agentId={agentId} isNew={isNew} />
         ) : null}
 
         {editTab === "composio" ? (

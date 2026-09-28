@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 14:32] Add a warm MCP client for agent tools
+
+- **Prompt Provided:** Implement Hermes-style MCP: long-lived connections, discovery, mcp_server_tool names, and include/exclude filters.
+- **Architectural Flow:** Each agent can save HTTP, SSE, or stdio MCP servers. Secrets stay encrypted. Auto chat connects once, keeps the session, and shows only the filtered tools to the model. A call reuses that session.
+- **Impacted Files:** mcpRegistry.js, mcpClient.js, Agent.js, agents.js, chatAutoTurn.js, chats.js, AgentMcpPanel.jsx, AgentEditPage.jsx, mcpRegistry.test.js, backend/package.json, PROMPT_LOG
+
 ## [2026-09-28 14:02] Route live-run follow-ups onto the open screen
 
 - **Prompt Provided:** Identify the message first, then route it: steer the open page, reply in chat, or start a different job.

@@ -1346,6 +1346,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           scheduleManage ||
           !autoTurnNeedsTools(questionText, {
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
+            mcpEnabled: Boolean(agentDoc?.mcp?.enabled),
+            mcpServerNames: Array.isArray(agentDoc?.mcp?.servers)
+              ? agentDoc.mcp.servers.map((s) => String(s?.name || "")).filter(Boolean)
+              : [],
           });
         const autoTrack = createAutoTimingTracker({
           // Why: Composio/tool rounds stream a slim Working… bar on the chat bubble.
@@ -1462,6 +1466,10 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             // Why: Hermes Phase 3 load_skill — full agent.skill for progressive skill tool.
             agentSkill: String(prepared?.snapshot?.skill || agentDoc?.skill || ""),
             composioEnabled: Boolean(agentDoc?.composio?.enabled),
+            mcpEnabled: Boolean(agentDoc?.mcp?.enabled),
+            mcpServerNames: Array.isArray(agentDoc?.mcp?.servers)
+              ? agentDoc.mcp.servers.map((s) => String(s?.name || "")).filter(Boolean)
+              : [],
             composioApiKey: decryptAgentComposioApiKey(agentDoc),
             // Why: optional per-agent Jev router (reply / computer / Composio).
             jevEnabled: Boolean(agentDoc?.jev?.enabled),

@@ -14,7 +14,9 @@ import {
   issueWorkerToken,
   containerNameForAgent,
 } from "../utils/workerAuth.js";
-import { encryptSecret } from "../utils/crypto.js";
+import { decryptSecret, encryptSecret } from "../utils/crypto.js";
+import { mcpSlug, normalizeMcpConfig, publicMcpSummary } from "../utils/mcpRegistry.js";
+import { discoverMcpServerTools } from "../utils/mcpClient.js";
 import {
   publicEmailSummary,
   publicLlmSummary,
@@ -117,6 +119,7 @@ function publicAgent(agent, ctx = {}) {
   a.llm = publicLlmSummary(a);
   a.composio = publicComposioSummary(a);
   a.jev = publicJevSummary(a);
+  a.mcp = publicMcpSummary(a);
   // Why: passwords live only on the dedicated memory/credentials endpoints (plaintext there by design).
   if (Array.isArray(a.credentials)) {
     a.credentials = a.credentials.map((c) => ({
@@ -201,7 +204,7 @@ function normalizeDomains(raw) {
 
 /**
  * @param {object} body
- * @param {{ partial?: boolean }} [opts]
+ * @param {{ partial?: boolean, previous?: object|null }} [opts]
  */
 function pickAgentFields(body, opts = {}) {
   const out = {};
@@ -430,6 +433,12 @@ function pickAgentFields(body, opts = {}) {
       composio.apiKeyEnc = "";
     }
     set("composio", composio);
+  }
+  if (body.mcp != null && typeof body.mcp === "object") {
+    set(
+      "mcp",
+      normalizeMcpConfig(body.mcp, opts.previous?.mcp || null, encryptSecret, decryptSecret)
+    );
   }
   if (body.jev != null && typeof body.jev === "object") {
     const j = body.jev;
@@ -1397,7 +1406,7 @@ agentsRouter.put("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
       return;
     }
-    const fields = pickAgentFields(req.body || {}, { partial: true });
+    const fields = pickAgentFields(req.body || {}, { partial: true, previous: agent });
     if (fields.name !== undefined && !fields.name) {
       res.status(400).json({ ok: false, title: "Name required", detail: "Name cannot be empty." });
       return;
@@ -1530,6 +1539,7 @@ agentsRouter.put("/:id", async (req, res, next) => {
       delete fields.computerEngine;
     }
     Object.assign(agent, fields);
+    if (fields.mcp) agent.markModified("mcp");
     if (wantsCloudComputer(agent)) ensureWorkerCredentials(agent);
     syncComputerDesired(agent);
     await agent.save();
@@ -2244,6 +2254,46 @@ agentsRouter.get("/:id/composio/tools/:toolkit", async (req, res, next) => {
       tools,
       error: tools.length ? null : "No tools cached yet. Connect the app, then Refresh status.",
     });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/agents/:id/mcp/discover — connect one MCP server and cache its tool names.
+ * Body: { name: string }
+ * Why: the model only sees tools after a warm list, filtered by include/exclude.
+ */
+agentsRouter.post("/:id/mcp/discover", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent missing" });
+      return;
+    }
+    if (!agent.mcp?.enabled) {
+      res.status(400).json({
+        ok: false,
+        title: "MCP off",
+        detail: "Turn MCP on and save the server first.",
+      });
+      return;
+    }
+    const name = mcpSlug(req.body?.name);
+    const server = (agent.mcp.servers || []).find((s) => String(s.name) === name);
+    if (!server) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "That MCP server is not saved." });
+      return;
+    }
+    const found = await discoverMcpServerTools(String(req.userId), String(agent._id), server);
+    if (!found.ok) {
+      res.status(502).json({ ok: false, title: "MCP connect failed", detail: found.detail || "Connect failed" });
+      return;
+    }
+    server.cachedTools = found.tools || [];
+    agent.markModified("mcp");
+    await agent.save();
+    res.json({ ok: true, name, tools: found.tools || [] });
   } catch (err) {
     next(err);
   }
