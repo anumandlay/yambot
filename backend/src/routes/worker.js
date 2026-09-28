@@ -128,6 +128,7 @@ workerRouter.get("/runtime-config", async (req, res, next) => {
         visionModel: visionCreds.model || "",
         jevApiKey,
         jevConfigured: Boolean(jevApiKey),
+        jevSitePlays: Array.isArray(agentDoc?.jev?.sitePlays) ? agentDoc.jev.sitePlays : [],
         dbcUsername: s.dbcUsername || "",
         dbcPassword: decryptSecret(s.dbcPasswordEnc || ""),
         confirmBeforeSubmit: s.confirmBeforeSubmit === true,
@@ -1943,6 +1944,70 @@ workerRouter.post("/training/request", async (req, res, next) => {
       significance: "medium",
     });
     res.status(201).json({ ok: true, request });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * POST /api/worker/jev/site-plays — upsert one learned website path for this agent.
+ * Why: the worker records goto/click/fill after a successful run so the next similar goal can replay it.
+ */
+workerRouter.post("/jev/site-plays", async (req, res, next) => {
+  try {
+    const agentId = String(req.body?.agentId || req.headers["x-yambot-agent-id"] || "").trim();
+    const agent = await Agent.findOne({ _id: agentId, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, detail: "Agent missing" });
+      return;
+    }
+    const host = String(req.body?.host || "")
+      .trim()
+      .toLowerCase()
+      .replace(/^www\./, "")
+      .slice(0, 200);
+    const goalKey = String(req.body?.goalKey || "").trim().slice(0, 180);
+    const steps = (Array.isArray(req.body?.steps) ? req.body.steps : [])
+      .map((s) => {
+        const op = String(s?.op || "");
+        if (!["goto", "click", "fill"].includes(op)) return null;
+        const secret = s?.secret === "password" ? "password" : "";
+        return {
+          op,
+          url: op === "goto" ? String(s.url || "").slice(0, 500) : "",
+          name: String(s.name || "").slice(0, 120),
+          text: secret ? "" : String(s.text || "").slice(0, 200),
+          secret,
+        };
+      })
+      .filter(Boolean)
+      .slice(0, 16);
+    if (!host || !goalKey || !steps.some((s) => s.op === "click" || s.op === "fill")) {
+      res.status(400).json({ ok: false, detail: "host, goalKey, and a click or fill are required" });
+      return;
+    }
+    agent.jev = agent.jev || {};
+    const plays = Array.isArray(agent.jev.sitePlays) ? [...agent.jev.sitePlays] : [];
+    const idx = plays.findIndex((p) => p.host === host && p.goalKey === goalKey);
+    const row = {
+      host,
+      goalKey,
+      goalSample: String(req.body?.goalSample || "").slice(0, 400),
+      handoff: req.body?.handoff === "summarize" ? "summarize" : "none",
+      steps,
+      hits: (idx >= 0 ? Number(plays[idx].hits) || 0 : 0) + 1,
+      at: new Date(),
+    };
+    if (idx >= 0) {
+      const prevId = plays[idx]._id;
+      plays[idx] = { ...row, _id: prevId };
+    } else {
+      plays.push(row);
+    }
+    agent.jev.sitePlays = plays.slice(-24);
+    agent.markModified("jev");
+    await agent.save();
+    res.json({ ok: true, count: agent.jev.sitePlays.length });
   } catch (err) {
     next(err);
   }

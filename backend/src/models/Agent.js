@@ -368,12 +368,36 @@ const agentSchema = new mongoose.Schema(
     /**
      * Optional Jev (TypeSafe / Vercel AI Gateway) Auto router for this agent.
      * When enabled + key set: confident reply / queue_goal / composio before the chat LLM.
-     * `cases` = learned examples from final Auto outcomes (fed back into evaluate).
+     * `cases` = learned routing examples. `sitePlays` = browser steps replayed on a later visit.
      */
     jev: {
       enabled: { type: Boolean, default: false },
       /** Vercel AI Gateway API key (encrypted). Used as Bearer for evaluate. */
       apiKeyEnc: { type: String, default: "" },
+      /**
+       * Successful browser paths (open, login, clicks, fills) keyed by site + goal.
+       * Why: the next similar goal replays these steps, then the LLM summarizes the live page.
+       */
+      sitePlays: [
+        {
+          host: { type: String, default: "", trim: true },
+          goalKey: { type: String, default: "", trim: true },
+          goalSample: { type: String, default: "", trim: true },
+          handoff: { type: String, enum: ["none", "summarize"], default: "none" },
+          steps: [
+            {
+              op: { type: String, enum: ["goto", "click", "fill"], required: true },
+              url: { type: String, default: "" },
+              name: { type: String, default: "" },
+              text: { type: String, default: "" },
+              /** "password" means text is empty and replay must refill from the goal or vault. */
+              secret: { type: String, default: "" },
+            },
+          ],
+          hits: { type: Number, default: 1 },
+          at: { type: Date, default: Date.now },
+        },
+      ],
       cases: [
         {
           userMessage: { type: String, default: "", trim: true },

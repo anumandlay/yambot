@@ -37,6 +37,21 @@ export function publicJevSummary(agent) {
       at: c.at || null,
     }))
     .filter((c) => c.userMessage && JEV_CASE_OUTCOMES.includes(c.outcome));
+  const sitePlays = (Array.isArray(j.sitePlays) ? j.sitePlays : []).map((p) => ({
+    id: p._id ? String(p._id) : "",
+    host: String(p.host || ""),
+    goalSample: String(p.goalSample || "").slice(0, 400),
+    handoff: p.handoff === "summarize" ? "summarize" : "none",
+    hits: Number(p.hits) || 0,
+    at: p.at || null,
+    steps: (Array.isArray(p.steps) ? p.steps : []).map((s) => ({
+      op: String(s.op || ""),
+      url: String(s.url || "").slice(0, 500),
+      name: String(s.name || "").slice(0, 120),
+      // Why: password characters are never stored; the flag is enough for the editor.
+      secret: s.secret === "password" ? "password" : "",
+    })),
+  }));
   return {
     enabled: Boolean(j.enabled),
     hasApiKey,
@@ -44,6 +59,8 @@ export function publicJevSummary(agent) {
     configured: Boolean(j.enabled && hasApiKey),
     cases,
     caseCount: cases.length,
+    sitePlays,
+    sitePlayCount: sitePlays.length,
   };
 }
 

@@ -1548,8 +1548,9 @@ agentsRouter.put("/:id", async (req, res, next) => {
       if (!fields.jev.apiKeyEnc) {
         fields.jev.apiKeyEnc = agent.jev?.apiKeyEnc || "";
       }
-      // Why: learned cases are written by Auto turns / delete endpoint — never wipe from the edit form.
+      // Why: learned cases and site plays are written by runs / delete — never wipe from the edit form.
       fields.jev.cases = Array.isArray(agent.jev?.cases) ? agent.jev.cases : [];
+      fields.jev.sitePlays = Array.isArray(agent.jev?.sitePlays) ? agent.jev.sitePlays : [];
       agent.set("jev", fields.jev);
       agent.markModified("jev");
       delete fields.jev;
@@ -1588,6 +1589,36 @@ agentsRouter.delete("/:id/jev/cases/:caseId", async (req, res, next) => {
       });
       return;
     }
+    res.json({ ok: true, agent: publicAgent(agent) });
+  } catch (err) {
+    next(err);
+  }
+});
+
+/**
+ * DELETE /api/agents/:id/jev/site-plays/:playId — drop one learned website path.
+ */
+agentsRouter.delete("/:id/jev/site-plays/:playId", async (req, res, next) => {
+  try {
+    const agent = await Agent.findOne({ _id: req.params.id, user: req.userId });
+    if (!agent) {
+      res.status(404).json({ ok: false, title: "Not found", detail: "Agent not found." });
+      return;
+    }
+    const id = String(req.params.playId || "").trim();
+    const before = Array.isArray(agent.jev?.sitePlays) ? agent.jev.sitePlays.length : 0;
+    agent.jev = agent.jev || {};
+    agent.jev.sitePlays = (agent.jev.sitePlays || []).filter((p) => String(p._id || "") !== id);
+    if (agent.jev.sitePlays.length === before) {
+      res.status(404).json({
+        ok: false,
+        title: "Play not found",
+        detail: "That site path was already removed.",
+      });
+      return;
+    }
+    agent.markModified("jev");
+    await agent.save();
     res.json({ ok: true, agent: publicAgent(agent) });
   } catch (err) {
     next(err);
@@ -2627,6 +2658,17 @@ agentsRouter.post("/:id/copy", async (req, res, next) => {
               reason: c.reason || "",
               jevGuess: c.jevGuess || "",
               at: c.at || new Date(),
+            }))
+          : [],
+        sitePlays: Array.isArray(src.jev?.sitePlays)
+          ? src.jev.sitePlays.map((p) => ({
+              host: p.host || "",
+              goalKey: p.goalKey || "",
+              goalSample: p.goalSample || "",
+              handoff: p.handoff === "summarize" ? "summarize" : "none",
+              steps: Array.isArray(p.steps) ? p.steps : [],
+              hits: Number(p.hits) || 1,
+              at: p.at || new Date(),
             }))
           : [],
       },

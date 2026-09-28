@@ -128,6 +128,7 @@ const EMPTY = {
     apiKey: "",
     hasApiKey: false,
     cases: [],
+    sitePlays: [],
   },
   /**
    * Desktop engine is always Playwright Chromium (CUA removed from product UI).
@@ -384,6 +385,7 @@ export function AgentEditPage() {
               apiKey: "",
               hasApiKey: Boolean(a.jev?.hasApiKey),
               cases: Array.isArray(a.jev?.cases) ? a.jev.cases : [],
+              sitePlays: Array.isArray(a.jev?.sitePlays) ? a.jev.sitePlays : [],
             },
             computerEngine: "playwright",
           });
@@ -577,12 +579,42 @@ export function AgentEditPage() {
         jev: {
           ...prev.jev,
           cases: Array.isArray(data?.agent?.jev?.cases) ? data.agent.jev.cases : [],
+          sitePlays: Array.isArray(data?.agent?.jev?.sitePlays) ? data.agent.jev.sitePlays : [],
           enabled: Boolean(data?.agent?.jev?.enabled ?? prev.jev?.enabled),
           hasApiKey: Boolean(data?.agent?.jev?.hasApiKey ?? prev.jev?.hasApiKey),
           apiKey: "",
         },
       }));
       setOkMsg("Learned case removed");
+    } catch (err) {
+      setError(err);
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  /**
+   * Remove one learned website path (does not require Save).
+   * @param {string} playId
+   */
+  async function deleteJevSitePlay(playId) {
+    if (isNew || !agentId || !playId) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const data = await api(
+        `/api/agents/${agentId}/jev/site-plays/${encodeURIComponent(playId)}`,
+        { method: "DELETE" }
+      );
+      setForm((prev) => ({
+        ...prev,
+        jev: {
+          ...prev.jev,
+          sitePlays: Array.isArray(data?.agent?.jev?.sitePlays) ? data.agent.jev.sitePlays : [],
+          cases: Array.isArray(data?.agent?.jev?.cases) ? data.agent.jev.cases : prev.jev?.cases,
+        },
+      }));
+      setOkMsg("Site path removed");
     } catch (err) {
       setError(err);
     } finally {
@@ -1050,6 +1082,7 @@ export function AgentEditPage() {
                 apiKey: "",
                 hasApiKey: Boolean(data.agent.jev.hasApiKey),
                 cases: Array.isArray(data.agent.jev.cases) ? data.agent.jev.cases : [],
+                sitePlays: Array.isArray(data.agent.jev.sitePlays) ? data.agent.jev.sitePlays : [],
               }
             : prev.jev,
         }));
@@ -2506,6 +2539,61 @@ export function AgentEditPage() {
                     </li>
                   );
                 })}
+            </ul>
+          )}
+        </fieldset>
+
+        <fieldset className="flex flex-col gap-3 rounded-xl border border-violet-100 bg-white/70 p-3 sm:p-4">
+          <SectionTitle helpId="agent.jev.sitePlays" as="div" className="text-sm font-semibold text-violet-950">
+            Site paths ({Array.isArray(form.jev?.sitePlays) ? form.jev.sitePlays.length : 0})
+          </SectionTitle>
+          <p className="text-xs text-teal-900/70">
+            After a successful browser run, Jev stores the open / login / click steps for that site.
+            The next similar request replays them. If you asked for a list or a summary, the LLM reads
+            the page after those steps.
+          </p>
+          {isNew ? (
+            <p className="text-xs text-teal-900/60">Save the agent first — paths appear after a browser run.</p>
+          ) : !Array.isArray(form.jev?.sitePlays) || form.jev.sitePlays.length === 0 ? (
+            <p className="text-xs text-teal-900/60">No site paths yet.</p>
+          ) : (
+            <ul className="flex max-h-[28rem] flex-col gap-2 overflow-y-auto">
+              {[...form.jev.sitePlays]
+                .slice()
+                .reverse()
+                .map((p) => (
+                  <li
+                    key={p.id || `${p.host}-${p.goalSample}`}
+                    className="rounded-xl border border-violet-100 bg-white p-3"
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-xs font-semibold text-violet-950">{p.host || "site"}</p>
+                        <p className="mt-1 whitespace-pre-wrap break-words text-sm text-teal-950">
+                          {String(p.goalSample || "")}
+                        </p>
+                        <p className="mt-1 text-[0.65rem] text-teal-900/55">
+                          {(Array.isArray(p.steps) ? p.steps : [])
+                            .map((s) =>
+                              s.op === "goto" ? "open" : s.op === "fill" ? `fill ${s.name || ""}` : s.name || s.op
+                            )
+                            .filter(Boolean)
+                            .join(" → ")
+                            .slice(0, 180)}
+                          {p.handoff === "summarize" ? " → then summarize" : ""}
+                        </p>
+                      </div>
+                      <button
+                        type="button"
+                        disabled={busy || !p.id}
+                        onClick={() => void deleteJevSitePlay(String(p.id))}
+                        className="shrink-0 rounded-lg border border-red-200 bg-white px-2 py-1 text-[0.65rem] font-semibold text-red-700 hover:bg-red-50 disabled:opacity-50"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </li>
+                ))}
             </ul>
           )}
         </fieldset>

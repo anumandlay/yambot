@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 09:20] Jev site paths: replay steps, then LLM summarizes
+
+- **Prompt Provided:** Keep Jev context of actions on a website. First run uses the LLM (open, login, form). Later the same request replays those steps. When the result is on the page (e.g. support tickets), the LLM summarizes.
+- **Architectural Flow:** Successful browser runs POST goto/click/fill steps to `agent.jev.sitePlays` (passwords stored as a secret flag, refilled from the goal or vault). The next similar goal replays the play before the per-step model loop. List/summary goals then make one LLM call on the live page text. Agent → Jev shows Site paths with delete.
+- **Impacted Files:** jevSitePlay.js, agent.js, Agent.js, jevEvaluate.js, worker.js, agents.js, AgentEditPage.jsx, helpContent.js, jevSitePlay.test.js, PROMPT_LOG
+
 ## [2026-09-28 08:55] Memory summarize on 50% context, not a 30-minute timer
 
 - **Prompt Provided:** Remove the 30-minute memory summarizer. Memory or chat context must summarise when the context is above 50% of the LLM context window.

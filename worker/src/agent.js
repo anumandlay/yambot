@@ -39,6 +39,15 @@ import {
   normalizeComputerUseMode,
 } from "./computerUse.js";
 import { runJevUltrafast } from "./jevUltrafast/index.js";
+import {
+  goalWantsLiveSummary,
+  matchSitePlay,
+  persistSitePlay,
+  replaySitePlay,
+  stepFromAgentAction,
+  stepsFromUltrafast,
+  summarizePageForGoal,
+} from "./jevSitePlay.js";
 import { clickWithVisibleCursor, atspiFrameCenterToViewport } from "./xCursor.js";
 import { shouldContinueEconomically } from "./economicDecision.js";
 import { buildInvestigationGoal, aggregateEvidence } from "./investigation.js";
@@ -1214,6 +1223,7 @@ export function createCloudAgent({ api, config, log = console.log }) {
       /** Agent → Jev key for Ultrafast TypeSafe choose (and chat Auto when enabled). */
       jevApiKey: String(c.jevApiKey || "").trim(),
       jevConfigured: Boolean(c.jevConfigured) || Boolean(String(c.jevApiKey || "").trim()),
+      jevSitePlays: Array.isArray(c.jevSitePlays) ? c.jevSitePlays : [],
       dbcUsername: c.dbcUsername || "",
       dbcPassword: c.dbcPassword || "",
       confirmBeforeSubmit: c.confirmBeforeSubmit === true,
@@ -1782,6 +1792,8 @@ export function createCloudAgent({ api, config, log = console.log }) {
     const computerUse = createComputerUseController(task.computerUseMode || "auto");
     const notes = [];
     const history = [];
+    /** Steps from this LLM/Jev run, saved when the task succeeds. */
+    const sitePlaySteps = [];
     let siteDomain = "";
     /** Why: offer save-to-vault at most once per run after signup typed credentials. */
     let saveLoginOffered = false;
@@ -1966,6 +1978,84 @@ export function createCloudAgent({ api, config, log = console.log }) {
         });
       }
 
+      // Why: a saved path for this site+goal skips per-click LLM. Live lists still get one summary call.
+      const matchedPlay = matchSitePlay(settings.jevSitePlays, goal);
+      if (matchedPlay?.steps?.length) {
+        const hostLabel = matchedPlay.host || "saved site";
+        await mirror(taskId, "started", {
+          status: "running",
+          payload: { goal, path: "jev_site_play", host: matchedPlay.host || "" },
+          appendMessage: `Jev replaying saved steps for ${hostLabel}…`,
+        }).catch(() => {});
+        const replay = await replaySitePlay(page, matchedPlay, {
+          goal,
+          credentials: agentSnapshot?.credentials || [],
+        });
+        const wantsSummary =
+          replay.ok && (goalWantsLiveSummary(goal) || matchedPlay.handoff === "summarize");
+        if (replay.ok && !wantsSummary) {
+          const summary = `Replayed saved steps on ${hostLabel}.`;
+          await complete(taskId, {
+            success: true,
+            summary,
+            history,
+            siteDomain: matchedPlay.host || "",
+            llmUsage,
+          });
+          log(`[${config.workerName}] jev_site_play done — ${summary}`);
+          return;
+        }
+        if (wantsSummary) {
+          await mirror(taskId, "info", {
+            appendMessage: "Saved steps landed. Reading the page to summarize…",
+            payload: { kind: "jev_site_play_summarize", host: matchedPlay.host || "" },
+          }).catch(() => {});
+          try {
+            const summed = await summarizePageForGoal(page, goal, (opts) =>
+              chatCompletion({
+                apiKey: settings.llmApiKey,
+                baseUrl: settings.llmBaseUrl,
+                model: settings.llmModel,
+                openAiAccountId: settings.openAiAccountId,
+                ...opts,
+              })
+            );
+            addLlmUsage(llmUsage, summed.usage);
+            const summary =
+              summed.summary || `Opened ${hostLabel}. The page had no readable text to summarize.`;
+            let host = matchedPlay.host || "";
+            try {
+              host = new URL(String(summed.url || "")).hostname.replace(/^www\./i, "") || host;
+            } catch {
+              /* keep play host */
+            }
+            await complete(taskId, {
+              success: true,
+              summary,
+              history,
+              siteDomain: host,
+              llmUsage,
+            });
+            log(`[${config.workerName}] jev_site_play summarized — ${summary.slice(0, 160)}`);
+            return;
+          } catch (err) {
+            const miss = `Page summary failed (${err?.message || err}) — continuing with the model.`;
+            notes.push(miss);
+            await mirror(taskId, "info", {
+              appendMessage: miss,
+              payload: { kind: "jev_site_play_fallback", reason: "summarize_failed" },
+            }).catch(() => {});
+          }
+        } else {
+          const miss = `Saved site steps missed (${replay.error || "replay_failed"}) — continuing with the model.`;
+          notes.push(miss);
+          await mirror(taskId, "info", {
+            appendMessage: miss,
+            payload: { kind: "jev_site_play_fallback", reason: replay.error || "replay_failed" },
+          }).catch(() => {});
+        }
+      }
+
       // ── Jev Ultrafast opt-in (Phases 1–4): TypeSafe op+element on live Chrome ──
       const cuMode = normalizeComputerUseMode(task.computerUseMode || "auto");
       if (cuMode === "jev") {
@@ -2066,6 +2156,12 @@ export function createCloudAgent({ api, config, log = console.log }) {
             } catch {
               host = "";
             }
+            await persistSitePlay(
+              api,
+              config.agentId,
+              goal,
+              stepsFromUltrafast(jevResult.history, jevStartUrl)
+            ).catch(() => {});
             await complete(taskId, {
               success: true,
               summary: jevResult.summary,
@@ -3159,6 +3255,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
         }
       }
 
+        const learned = stepFromAgentAction(actionToRun, result);
+        if (learned) sitePlaySteps.push(learned);
+
         history.push({
           at: Date.now(),
           step,
@@ -3214,6 +3313,9 @@ export function createCloudAgent({ api, config, log = console.log }) {
           const summary = actionToRun.summary || result?.summary || "Done";
           const success = actionToRun.success !== false;
           // Why: post chat result FIRST — save-login can run after (was delaying the user bubble).
+          if (success) {
+            await persistSitePlay(api, config.agentId, goal, sitePlaySteps).catch(() => {});
+          }
           await complete(taskId, { success, summary, history, siteDomain, llmUsage });
           log(`[${config.workerName}] Task ${taskId} finished success=${success}`);
           if (success && !saveLoginOffered) {
