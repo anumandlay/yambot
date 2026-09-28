@@ -1,8 +1,7 @@
 /**
  * @fileoverview Single chat view — send goals, poll messages/tasks, watch live cloud screen.
  * Purpose: Thread + composer on the left; live screen on the right with snapshot/trajectory icon popovers below it.
- * While a run is active, new composer messages still hit POST /messages (Auto reply or queue behind the run) —
- * they are not mid-run OPERATOR MESSAGE injects into the live LLM turn.
+ * While a run is active, Auto classifies the line: steer the open page, reply in chat, or queue a new goal.
  * Hermes-style Auto: one streamed model turn chooses chat reply vs queue_goal (no separate classify LLM).
  * Also embedded under /grok/:chatId as the middle+right panes of the grok-style workspace.
  * Grok mobile: live screen + task queue collapse into floating bubbles that open bottom-sheet popups.

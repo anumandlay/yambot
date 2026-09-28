@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 14:02] Route live-run follow-ups onto the open screen
+
+- **Prompt Provided:** Identify the message first, then route it: steer the open page, reply in chat, or start a different job.
+- **Architectural Flow:** While a computer is running, Auto classifies the line before the model. “Apply” and similar follow-ups are injected into that task. “What are we doing now” stays a chat reply. “Open another site” or a connected-app request queues a new goal.
+- **Impacted Files:** messageIntent.js, chats.js, helpContent.js, ChatDetailPage.jsx, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 13:35] Stop model loops, hide memory passwords, finish lists only after extract
 
 - **Prompt Provided:** Add the five runtime gaps: stop repeated model errors, keep passwords out of the prompt, remember what this run already verified, finish list tasks only after the rows are read, and treat the newest dated count as current.

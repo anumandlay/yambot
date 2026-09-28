@@ -1391,14 +1391,14 @@ export const HELP = {
     title: "Message (question or goal)",
     body: helpBody(
       "YamBot classifies each message: questions answer in chat from agent memory (no computer); goals enqueue a browser Task.",
-      "While an agent is running, new messages still go through a separate /messages request (Auto can reply in chat or queue a goal behind the active run). They are not injected into the live LLM turn. Answer = memory Q&A. Computer = queue a new goal behind the active run.",
+      "While a computer is running, a follow-up that changes the open page is sent into that run. A status question stays in chat. Opening another site or a connected app queues a new goal.",
       "Composer toggle: Auto / Answer / Computer. /ask and /run remain optional aliases."
     ),
   },
   "chat.send": {
     title: "Send",
     body: helpBody(
-      "Posts your message via /messages. Press Enter to send; Shift+Enter for a new line. While the agent is running, Auto still uses a separate request (chat reply or queue behind the run) — not a mid-run inject into the live task. Answer mode replies from memory. Computer mode queues a new browser goal."
+      "Posts your message via /messages. Press Enter to send; Shift+Enter for a new line. While a computer is running, follow-ups such as “apply” or “scroll down” go into that live screen. Status questions stay in chat. A different website queues a new goal. Answer mode replies from memory. Computer mode queues a new browser goal."
     ),
   },
   "chat.context": {

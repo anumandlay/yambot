@@ -317,3 +317,17 @@ describe("confirm yes after computer offer", () => {
     assert.match(String(goal || ""), /open example\.com/i);
   });
 });
+
+describe("live run follow-up routing", () => {
+  it("steers the open page, replies to status, and queues a different job", async () => {
+    const { classifyLiveRunFollowup } = await import("../src/utils/messageIntent.js");
+    assert.equal(classifyLiveRunFollowup("apply"), "steer");
+    assert.equal(classifyLiveRunFollowup("apply the India filter"), "steer");
+    assert.equal(classifyLiveRunFollowup("scroll down and read the table"), "steer");
+    assert.equal(classifyLiveRunFollowup("what are we doing now"), "reply");
+    assert.equal(classifyLiveRunFollowup("how many so far"), "reply");
+    assert.equal(classifyLiveRunFollowup("what did we do yesterday"), "reply");
+    assert.equal(classifyLiveRunFollowup("open nseindia.com"), "new_job");
+    assert.equal(classifyLiveRunFollowup("check my gmail for unread mail"), "new_job");
+  });
+});

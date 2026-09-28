@@ -82,6 +82,58 @@ export function looksLikeDayHistoryOrStatusRequest(text) {
 }
 
 /**
+ * While a computer is already running, decide where this message goes.
+ * Why: “apply” must change the open page; “what are we doing now” stays chat; “open another site” queues a new goal.
+ * @param {string} text
+ * @returns {"steer"|"reply"|"new_job"}
+ */
+export function classifyLiveRunFollowup(text) {
+  const raw = String(text || "").trim();
+  const lower = raw.toLowerCase();
+  if (!raw) return "reply";
+
+  if (
+    looksLikeDayHistoryOrStatusRequest(raw) ||
+    looksLikeVagueChatFollowup(raw) ||
+    looksLikeMemoryStoreRequest(raw) ||
+    looksLikeMemoryForgetRequest(raw)
+  ) {
+    return "reply";
+  }
+
+  if (/^(stop|cancel|abort)( the (run|computer|agent|task))?[!?.\s]*$/i.test(raw)) {
+    return "reply";
+  }
+
+  if (
+    /^(what|where|how|why|who)\b/i.test(raw) &&
+    /\b(doing|happening|going on|status|progress|so far|now|page|stuck)\b/i.test(lower) &&
+    !/\b(open|go to|navigate|visit|click|apply|filter|select|scroll)\b/i.test(lower)
+  ) {
+    return "reply";
+  }
+
+  if (
+    /\b(separately|new (task|goal|job)|queue (this|a)|another (site|website|page))\b/i.test(lower)
+  ) {
+    return "new_job";
+  }
+  if (looksLikeComposioAppRequest(raw)) return "new_job";
+  if (looksLikeSiteTrialExpiryComputerRequest(raw) && /\b(open|go to|navigate|visit|login|log in)\b/i.test(lower)) {
+    return "new_job";
+  }
+  if (
+    /^(please\s+)?(go to|navigate to|open|visit|browse)\b/i.test(raw) ||
+    /\bhttps?:\/\//i.test(raw) ||
+    /\b(open|visit|go to)\s+[\w.-]+\.(com|io|net|org|in)\b/i.test(lower)
+  ) {
+    return "new_job";
+  }
+
+  return "steer";
+}
+
+/**
  * Ultra-short follow-ups that must stay chat (models invent browser goals from thread context).
  * @param {string} text
  * @returns {boolean}

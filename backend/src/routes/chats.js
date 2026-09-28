@@ -21,6 +21,7 @@ import { createLearnedSkillDraft } from "../utils/skillLearn.js";
 import { routeCommonChat } from "../utils/chatRouter.js";
 import {
   classifyMessageIntent,
+  classifyLiveRunFollowup,
   refineMessageIntentWithLlm,
   answerChatQuestion,
   shouldRefineIntentWithLlm,
@@ -1303,6 +1304,29 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             ack: "",
             reason: "cheap_greeting",
           };
+        } else if (
+          busyRun?.status === "running" &&
+          classifyLiveRunFollowup(questionText) === "steer"
+        ) {
+          // Why: a follow-up like “apply” changes the open page. A new site or a status question does not.
+          const { injectOperatorMessage } = await import("../utils/agentMessageBus.js");
+          const injected = await injectOperatorMessage({
+            taskId: String(busyRun._id),
+            userId: String(req.userId),
+            content: questionText,
+            messageId: String(message._id),
+          });
+          const ack = injected.ok
+            ? `Sent to the live screen: ${questionText.slice(0, 180)}`
+            : injected.note || "Could not reach the live screen.";
+          if (wantStream) writeNdjson({ type: "delta", text: ack });
+          turn = {
+            action: "reply",
+            content: ack,
+            goal: "",
+            ack: "",
+            reason: injected.ok ? "live_screen_steer" : "live_screen_steer_failed",
+          };
         } else {
         const userForLlm = await User.findById(req.userId);
         qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
@@ -1682,9 +1706,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           chat: chat._id,
         role: "system",
           content: [
-            busyRun
-              ? `Answered in chat (Auto — no computer). The current browser run continues.`
-              : `Answered in chat (Auto — no computer).`,
+            turn.reason === "live_screen_steer"
+              ? "Sent into the computer that is already open. It will do this on the next step."
+              : busyRun
+                ? `Answered in chat (Auto — no computer). The current browser run continues.`
+                : `Answered in chat (Auto — no computer).`,
             timingLine ? `Timing: ${timingLine}` : null,
           ]
             .filter(Boolean)
