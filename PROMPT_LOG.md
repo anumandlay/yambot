@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 16:05] Save the list and the pending question on the chat
+
+- **Prompt Provided:** Store the numbered selection and the waiting question on the chat, and use that record for “1” and “yes”, including skills and agents.
+- **Architectural Flow:** Each chat keeps interactionState: the last presented list and a pending name or yes/no. The next short message resolves from that record before the model. MCP catalogs, skill lists, and peer-agent lists write the record. A later long message clears a waiting question.
+- **Impacted Files:** referenceState.js, referenceState.test.js, Chat.js, chatAutoTurn.js, chats.js, PROMPT_LOG
+
 ## [2026-09-28 15:55] Resolve “1” onto an MCP tool before the model answers
 
 - **Prompt Provided:** A short “1” after a numbered MCP list should select that tool. A later “whose name?” question should win over the old list. “Yes” should confirm the pending tool.

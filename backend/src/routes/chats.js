@@ -1463,6 +1463,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             userId: String(req.userId),
             chatId: String(chat._id),
             displayName: resolveHumanDisplayName(owner),
+            interactionState: chat.interactionState || null,
             agent: agentDoc,
             // Why: Hermes Phase 3 load_skill — full agent.skill for progressive skill tool.
             agentSkill: String(prepared?.snapshot?.skill || agentDoc?.skill || ""),
@@ -1673,6 +1674,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           }) || null;
         if (llmPrompt) await stampUserMessageLlmPrompt(message, llmPrompt);
         if (jevMeta) await stampUserMessageJev(message, jevMeta);
+        if (turn.interactionState) {
+          chat.interactionState = turn.interactionState;
+          chat.markModified("interactionState");
+          await chat.save();
+        }
         const assistantMessage = await Message.create({
           chat: chat._id,
           role: "assistant",

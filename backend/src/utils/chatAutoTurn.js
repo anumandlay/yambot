@@ -36,6 +36,13 @@ import {
 import { callRegisteredMcpTool, loadMcpOpenAiTools, mcpToolRequiredFields } from "./mcpClient.js";
 import { formatCachedMcpCatalog, resolveMcpReference } from "./mcpReference.js";
 import {
+  listFromMcpCatalogText,
+  normalizeInteractionState,
+  pendingNameQuestion,
+  presentedListFromLookup,
+  resolveStoredReference,
+} from "./referenceState.js";
+import {
   looksLikeHybridCombo,
   maybeAmbiguousCombo,
   planComboFromText,
@@ -1914,7 +1921,7 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         .sort({ updatedAt: -1 })
         .limit(40)
         .lean();
-      return JSON.stringify({
+      const payload = JSON.stringify({
         ok: true,
         count: skills.length,
         skills: skills.map((s) => ({
@@ -1925,6 +1932,9 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         })),
         note: "Call skill_view with slug or id to load a full playbook. Prefer queue_goal for live browser runs that need a skill.",
       }).slice(0, 8000);
+      const presented = presentedListFromLookup("skills_list", payload);
+      if (presented) runtime.notePresentedList?.(presented);
+      return payload;
     }
     if (kind === "skill_view") {
       const { Skill } = await import("../models/Skill.js");
@@ -1986,7 +1996,10 @@ export async function executeAutoLookupTool(kind, runtime = {}, args = {}) {
         return JSON.stringify({ ok: false, detail: "list_peer_agents not available" });
       }
       const data = await runtime.listPeerAgents();
-      return typeof data === "string" ? data : JSON.stringify(data);
+      const payload = typeof data === "string" ? data : JSON.stringify(data);
+      const presented = presentedListFromLookup("list_peer_agents", payload);
+      if (presented) runtime.notePresentedList?.(presented);
+      return payload;
     }
     if (
       kind === "composio_list" ||
@@ -2674,6 +2687,20 @@ export async function runChatAutoTurn(opts) {
   };
   const threadEarly = String(chatContext || "").trim();
   const historyEarly = Array.isArray(historyMessages) ? historyMessages : [];
+  let interactionState = normalizeInteractionState(runtime?.interactionState);
+  let interactionTouched = false;
+  /**
+   * @param {object} next
+   */
+  function replaceInteraction(next) {
+    interactionState = normalizeInteractionState(next);
+    interactionTouched = true;
+  }
+  if (runtime) {
+    runtime.notePresentedList = (list) => {
+      replaceInteraction({ pending: null, lastPresentedList: list });
+    };
+  }
   const ensureCtx = {
     userText: text,
     agentName,
@@ -2703,6 +2730,7 @@ export async function runChatAutoTurn(opts) {
     if (partial?.comboFollowup && typeof partial.comboFollowup === "object") {
       out.comboFollowup = partial.comboFollowup;
     }
+    if (interactionTouched) out.interactionState = interactionState;
     // Why: chat UI Prompt bubble — exact messages sent to the LLM (or a no-LLM note).
     if (partial?.llmPrompt) {
       out.llmPrompt = partial.llmPrompt;
@@ -2941,12 +2969,65 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
+  // Why: a long next message leaves the waiting question behind so "1" cannot fire later by accident.
+  if (text.length > 80 && interactionState.pending) {
+    replaceInteraction({ ...interactionState, pending: null });
+  }
+  const stored = resolveStoredReference(text, interactionState);
+  if (stored) {
+    let content = "";
+    if (stored.kind === "cancel") {
+      replaceInteraction({ ...interactionState, pending: null });
+      content = "Okay, I won't call that.";
+    } else if (stored.kind === "ask") {
+      replaceInteraction({ ...interactionState, pending: stored.pending || interactionState.pending });
+      content = stored.question;
+    } else if (stored.kind === "call") {
+      content = await fulfillStoredTarget(stored, runtime);
+      if (/^Whose name should I use for /.test(content)) {
+        replaceInteraction({
+          ...interactionState,
+          pending: pendingNameQuestion(stored.target),
+        });
+      } else {
+        replaceInteraction({ ...interactionState, pending: null });
+      }
+    }
+    if (content) {
+      track.setPath("stored_reference");
+      track.markDecision("reply");
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "stored_reference",
+        timing: track.finish(),
+      });
+    }
+  }
+
   // Why: "1" after a numbered MCP list is a reference. Resolve it here so Jev and the chat model never guess.
   if (runtime?.mcpEnabled) {
     const ref = resolveMcpReference(text, historyEarly);
     if (ref) {
       const content = await fulfillMcpReference(ref, runtime);
       if (content) {
+        if (ref.kind === "list") {
+          const list = listFromMcpCatalogText(content);
+          if (list) replaceInteraction({ pending: null, lastPresentedList: list });
+        } else if (/^Whose name should I use for /.test(content)) {
+          const toolName = String(content.match(/for\s+(\S+?)\?/)?.[1] || ref.tool || "");
+          if (toolName) {
+            replaceInteraction({
+              ...interactionState,
+              pending: pendingNameQuestion({ type: "mcp_tool", name: toolName }),
+            });
+          }
+        } else if (ref.kind === "call") {
+          replaceInteraction({ ...interactionState, pending: null });
+        }
         track.setPath("mcp_reference");
         track.markDecision("reply");
         await pushReply(content);
@@ -4129,6 +4210,46 @@ async function fulfillMcpReference(ref, runtime) {
     else return `Whose name should I use for ${ref.tool}?`;
   }
   return formatMcpToolPayload(await callRegisteredMcpTool(runtime, ref.tool, args));
+}
+
+/**
+ * Carry out a pick that came from the saved list or pending question.
+ * @param {{ target?: { type?: string, name?: string, id?: string }, args?: Record<string, string> }} hit
+ * @param {object} runtime
+ * @returns {Promise<string>}
+ */
+async function fulfillStoredTarget(hit, runtime) {
+  const target = hit?.target || {};
+  if (target.type === "mcp_tool") {
+    return fulfillMcpReference(
+      { kind: "call", tool: target.name, args: hit.args || {} },
+      runtime
+    );
+  }
+  if (target.type === "skill") {
+    const { Skill } = await import("../models/Skill.js");
+    const userId = runtime?.userId;
+    let skill = null;
+    if (userId && target.id) {
+      skill = await Skill.findOne({ _id: target.id, user: userId, status: "production" }).lean();
+    }
+    if (!skill && userId && target.name) {
+      skill = await Skill.findOne({
+        user: userId,
+        status: "production",
+        slug: String(target.name).toLowerCase(),
+      }).lean();
+    }
+    if (!skill) return `Skill ${target.name} is no longer available.`;
+    const blurb = String(skill.description || "").replace(/\s+/g, " ").slice(0, 400);
+    return [`Skill: ${skill.name}`, skill.slug ? `Slug: ${skill.slug}` : "", blurb]
+      .filter(Boolean)
+      .join("\n");
+  }
+  if (target.type === "agent") {
+    return `You picked ${target.name}. Tell me what to send them.`;
+  }
+  return `You picked ${target.name}.`;
 }
 
 /**

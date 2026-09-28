@@ -103,6 +103,12 @@ const chatSchema = new mongoose.Schema(
      * Shape: { notes: [{ content, at, expiresAt, source }], updatedAt }
      */
     sessionScratch: { type: mongoose.Schema.Types.Mixed, default: null },
+    /**
+     * Last numbered list and any question waiting for "1", a name, or yes/no.
+     * Why: the next short reply is resolved from this record, not by asking the model to guess.
+     * Shape: { pending, lastPresentedList: { type, items: [{ index, label, target }] } }
+     */
+    interactionState: { type: mongoose.Schema.Types.Mixed, default: null },
   },
   { timestamps: true }
 );
