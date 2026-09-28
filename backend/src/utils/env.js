@@ -18,7 +18,6 @@
  * @property {string} DEFAULT_LLM_API_KEY
  * @property {string} DEFAULT_LLM_BASE_URL
  * @property {string} DEFAULT_LLM_MODEL
- * @property {string} AI_GATEWAY_API_KEY
  * @property {string} JEV_ENABLED
  * @property {string} JEV_MODEL
  * @property {string} COMPUTER_MANAGER_URL
@@ -55,13 +54,10 @@ export const env = {
   DEFAULT_LLM_API_KEY: process.env.DEFAULT_LLM_API_KEY || "",
   DEFAULT_LLM_BASE_URL: process.env.DEFAULT_LLM_BASE_URL || LLM_BASE,
   DEFAULT_LLM_MODEL: process.env.DEFAULT_LLM_MODEL || LLM_MODEL,
-  /**
-   * Optional fallback Gateway key for Jev evaluate. Prefer per-agent `agent.jev.apiKeyEnc`.
-   */
-  AI_GATEWAY_API_KEY: process.env.AI_GATEWAY_API_KEY || "",
   /** Legacy global toggle (unused — enable Jev per agent in settings). */
   JEV_ENABLED: process.env.JEV_ENABLED || "",
-  JEV_MODEL: process.env.JEV_MODEL || "typesafe-ai/jev",
+  /** TypeSafe model id. `jev-latest` is the hosted default. */
+  JEV_MODEL: process.env.JEV_MODEL || "jev-latest",
   /** Internal computer-manager HTTP (Compose network). */
   COMPUTER_MANAGER_URL: process.env.COMPUTER_MANAGER_URL || "http://computer-manager:4050",
   /**

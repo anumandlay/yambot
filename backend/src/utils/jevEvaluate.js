@@ -1,15 +1,17 @@
 /**
- * @fileoverview Jev (TypeSafe System One) via Vercel AI Gateway HTTP evaluate API.
+ * @fileoverview Jev (TypeSafe System One) via the official TypeSafe HTTP API.
  * Purpose: Optional per-agent Auto router — reply vs queue_goal (computer) vs composio.
- * When the agent has Jev enabled + API key, Auto calls evaluate before the chat LLM.
+ * When the agent has Jev enabled + API key, Auto calls System One before the chat LLM.
  * Inputs: agent.jev.apiKeyEnc (decrypted) or opts.apiKey; optional JEV_MODEL env.
  */
 
 import { env } from "./env.js";
 import { decryptSecret } from "./crypto.js";
 
-const GATEWAY_EVALUATE_URL = "https://ai-gateway.vercel.sh/v1/evaluate";
-const DEFAULT_MODEL = "typesafe-ai/jev";
+const TYPESAFE_SYSTEMONE_URL = "https://api.typesafe.ai/v1/systemone";
+/** Official hosted model. The old Vercel id `typesafe-ai/jev` is not valid here. */
+export const DEFAULT_JEV_MODEL = "jev-latest";
+const RETIRED_VERCEL_JEV_MODEL = "typesafe-ai/jev";
 /** Why: below this, let the Auto LLM own the decision (uncertain Jev). */
 export const JEV_CONFIDENT_MIN = 0.72;
 
@@ -230,7 +232,20 @@ export function isJevEnabled(opts = {}) {
 }
 
 /**
- * Raw Gateway evaluate call.
+ * TypeSafe model id for System One.
+ * Why: production env may still say `typesafe-ai/jev` from the retired Vercel gateway.
+ * That id is rejected by api.typesafe.ai, so map it to the official default.
+ * @param {string} [explicit]
+ * @returns {string}
+ */
+export function resolveJevModel(explicit) {
+  const raw = String(explicit || env.JEV_MODEL || DEFAULT_JEV_MODEL).trim();
+  if (!raw || raw === RETIRED_VERCEL_JEV_MODEL) return DEFAULT_JEV_MODEL;
+  return raw.slice(0, 120);
+}
+
+/**
+ * Official TypeSafe System One call.
  * @param {{
  *   state: string|object|unknown[],
  *   questions: Record<string, object>,
@@ -241,19 +256,18 @@ export function isJevEnabled(opts = {}) {
  * @returns {Promise<{ answers: Record<string, object>, usage?: object, model?: string }>}
  */
 export async function jevEvaluate(opts) {
-  const apiKey =
-    String(opts.apiKey || "").trim() || String(env.AI_GATEWAY_API_KEY || "").trim();
+  const apiKey = String(opts.apiKey || "").trim();
   if (!apiKey) {
     const err = new Error("Jev API key is not configured");
     err.code = "jev_no_key";
     throw err;
   }
-  const model = String(opts.model || env.JEV_MODEL || DEFAULT_MODEL).trim() || DEFAULT_MODEL;
+  const model = resolveJevModel(opts.model);
   const timeoutMs = Math.max(2000, Number(opts.timeoutMs) || 12_000);
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const res = await fetch(GATEWAY_EVALUATE_URL, {
+    const res = await fetch(TYPESAFE_SYSTEMONE_URL, {
       method: "POST",
       headers: {
         Authorization: `Bearer ${apiKey}`,
@@ -481,7 +495,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       Math.max(0, ...Object.values(probs).map((n) => Number(n) || 0));
 
     const evaluate = {
-      model: String(result.model || env.JEV_MODEL || "typesafe-ai/jev").slice(0, 120),
+      model: String(result.model || resolveJevModel()).slice(0, 120),
       state: payload.state,
       questions: payload.questions,
       answer: {
@@ -543,7 +557,7 @@ export async function classifyAutoActionWithJev(text, opts = {}) {
       error: String(err?.message || err).slice(0, 240),
       // Why: still show the question structure even when the Gateway call failed.
       evaluate: {
-        model: String(env.JEV_MODEL || "typesafe-ai/jev").slice(0, 120),
+        model: resolveJevModel().slice(0, 120),
         state: payload.state,
         questions: payload.questions,
         answer: { choice: "", probabilities: {} },

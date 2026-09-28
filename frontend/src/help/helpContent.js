@@ -744,15 +744,15 @@ export const HELP = {
   "agent.jev.enabled": {
     title: "Jev Auto router",
     body: helpBody(
-      "When on, Auto calls Jev (typesafe-ai/jev via Vercel AI Gateway) before the chat LLM to choose reply, live computer, or Composio.",
+      "When on, Auto calls Jev (official TypeSafe, model jev-latest) before the chat LLM to choose reply, live computer, or Composio.",
       "Day-history and safety short-circuits still win. If Jev is unsure or errors, the normal LLM router runs."
     ),
   },
   "agent.jev.apiKey": {
     title: "Jev API key",
     body: helpBody(
-      "Vercel AI Gateway API key for this agent, stored encrypted. Leave blank on save to keep the existing key.",
-      "Get a key from the Vercel AI Gateway dashboard. Not the same as your LLM provider key."
+      "TypeSafe API key for this agent, stored encrypted. Leave blank on save to keep the existing key.",
+      "Create the key at typesafe.ai. Not the same as your LLM provider key."
     ),
   },
   "agent.jev.sitePlays": {

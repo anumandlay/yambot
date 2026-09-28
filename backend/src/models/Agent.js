@@ -366,13 +366,13 @@ const agentSchema = new mongoose.Schema(
       toolkitToolCache: { type: mongoose.Schema.Types.Mixed, default: {} },
     },
     /**
-     * Optional Jev (TypeSafe / Vercel AI Gateway) Auto router for this agent.
+     * Optional Jev (official TypeSafe System One) Auto router for this agent.
      * When enabled + key set: confident reply / queue_goal / composio before the chat LLM.
      * `cases` = learned routing examples. `sitePlays` = browser steps replayed on a later visit.
      */
     jev: {
       enabled: { type: Boolean, default: false },
-      /** Vercel AI Gateway API key (encrypted). Used as Bearer for evaluate. */
+      /** TypeSafe API key (encrypted). Bearer for api.typesafe.ai/v1/systemone. */
       apiKeyEnc: { type: String, default: "" },
       /**
        * Successful browser paths (open, login, clicks, fills) keyed by site + goal.

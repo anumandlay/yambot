@@ -1,14 +1,25 @@
 /**
  * @fileoverview TypeSafe choose — operation + speculative target heads (Jev Ultrafast).
  * Purpose: One System One request picks CLICK/TYPE_TEXT/… and the element index.
- * Keys: agent.jev API key from runtime-config (TYPESAFE / AI Gateway).
+ * Keys: agent.jev API key from runtime-config (official TypeSafe only).
  * Downstream: run.js tick loop.
  */
 
 import { NEXT_ACTION, TARGET } from "./questions.js";
 
 const TYPESAFE_URL = "https://api.typesafe.ai/v1/systemone";
-const GATEWAY_URL = "https://ai-gateway.vercel.sh/v1/evaluate";
+
+/**
+ * Official TypeSafe model id.
+ * Why: a leftover Vercel model id (`typesafe-ai/jev`) is not accepted by System One.
+ * @param {string} [explicit]
+ * @returns {string}
+ */
+function officialJevModel(explicit) {
+  const raw = String(explicit || process.env.TYPESAFE_MODEL || process.env.JEV_MODEL || "jev-latest").trim();
+  if (!raw || raw === "typesafe-ai/jev") return "jev-latest";
+  return raw;
+}
 
 /**
  * @param {object[]} actions
@@ -178,7 +189,7 @@ export async function choose(state, goal, history, creds) {
   }
 
   const body = {
-    model: String(creds.model || process.env.TYPESAFE_MODEL || "jev-latest").trim() || "jev-latest",
+    model: officialJevModel(creds.model),
     state: {
       page: { url: state.url, title: state.title, text: state.text },
       elements,
@@ -193,18 +204,7 @@ export async function choose(state, goal, history, creds) {
   };
 
   const started = Date.now();
-  let result;
-  try {
-    result = await postJson(TYPESAFE_URL, apiKey, body);
-  } catch (err) {
-    // Why: agent settings often store a Vercel AI Gateway key — same evaluate shape.
-    result = await postJson(GATEWAY_URL, apiKey, {
-      ...body,
-      model: "typesafe-ai/jev",
-    }).catch(() => {
-      throw err;
-    });
-  }
+  const result = await postJson(TYPESAFE_URL, apiKey, body);
 
   const operationAnswer = validateChoice(result.answers?.operation || {}, operations);
   const operation = operationAnswer.choice;

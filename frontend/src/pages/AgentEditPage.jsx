@@ -121,7 +121,7 @@ const EMPTY = {
     autoApproveRisky: false,
   },
   /**
-   * Optional Jev Auto router (Vercel AI Gateway key) — reply / computer / Composio.
+   * Optional Jev Auto router (TypeSafe API key) — reply / computer / Composio.
    */
   jev: {
     enabled: false,
@@ -2431,7 +2431,7 @@ export function AgentEditPage() {
             Jev Auto router
           </SectionTitle>
           <p className="text-xs text-teal-900/70">
-            Optional. When enabled, Auto asks Jev (via Vercel AI Gateway) to pick reply, live computer,
+            Optional. When enabled, Auto asks Jev (official TypeSafe) to pick reply, live computer,
             or Composio before the chat LLM. Every Auto turn also stores a learned case from the final
             outcome so similar questions get better next time. The same API key powers{" "}
             <span className="font-semibold">Jev Ultrafast</span> — say{" "}
@@ -2458,7 +2458,7 @@ export function AgentEditPage() {
               placeholder={
                 form.jev?.hasApiKey
                   ? "Saved — leave blank to keep"
-                  : "Vercel AI Gateway API key"
+                  : "TypeSafe API key"
               }
               disabled={!form.jev?.enabled}
             />

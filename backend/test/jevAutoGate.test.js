@@ -9,6 +9,7 @@ import { formatAutoClassifierHint, buildAutoUserContent } from "../src/utils/cha
 import {
   JEV_CONFIDENT_MIN,
   isJevEnabled,
+  resolveJevModel,
   publicJevSummary,
   summarizeJevForChatMeta,
   outcomeFromAutoTurn,
@@ -50,6 +51,12 @@ describe("Auto classifier hint (optional Jev)", () => {
     assert.equal(isJevEnabled({ enabled: false, apiKey: "sk" }), false);
   });
 
+  it("maps the retired Vercel model id to official jev-latest", () => {
+    assert.equal(resolveJevModel("typesafe-ai/jev"), "jev-latest");
+    assert.equal(resolveJevModel(""), "jev-latest");
+    assert.equal(resolveJevModel("jev-1.13.0"), "jev-1.13.0");
+  });
+
   it("isJevEnabled is true for per-agent enabled + key", () => {
     assert.equal(isJevEnabled({ enabled: true, apiKey: "sk-test" }), true);
     assert.equal(isJevEnabled({ enabled: true, apiKey: "sk-test", jevMode: "off" }), false);
@@ -78,7 +85,7 @@ describe("Auto classifier hint (optional Jev)", () => {
         reason: "jev_confident",
         probabilities: { reply: 0.9, queue_goal: 0.05, composio: 0.05 },
         evaluate: {
-          model: "typesafe-ai/jev",
+          model: "jev-latest",
           state: { user_message: "hi" },
           questions: { action: { instructions: "pick", criteria: { reply: "x" } } },
           answer: { choice: "reply", probabilities: { reply: 0.9 } },

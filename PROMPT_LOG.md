@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 10:19] Jev calls official TypeSafe only
+
+- **Prompt Provided:** Remove Vercel and use only official TypeSafe AI.
+- **Architectural Flow:** Auto routing and Jev Ultrafast POST `https://api.typesafe.ai/v1/systemone` with model `jev-latest` and the per-agent Jev API key. The Vercel AI Gateway evaluate URL and its model id are no longer used. An old `JEV_MODEL=typesafe-ai/jev` env value is treated as `jev-latest`. The TypeSafe key stays encrypted on the agent, not in git.
+- **Impacted Files:** jevEvaluate.js, env.js, choose.js, Agent.js, AgentEditPage.jsx, helpContent.js, docker-compose.yml, remote-deploy.py, .env.example, .deploy.local.env.example, jevAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 09:20] Jev site paths: replay steps, then LLM summarizes
 
 - **Prompt Provided:** Keep Jev context of actions on a website. First run uses the LLM (open, login, form). Later the same request replays those steps. When the result is on the page (e.g. support tickets), the LLM summarizes.
