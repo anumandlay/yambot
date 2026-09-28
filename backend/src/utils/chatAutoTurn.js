@@ -2546,6 +2546,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
     onDelta,
     jev = null,
     signal = null,
+    runtime = null,
   } = opts;
   const text = String(question || "").trim();
   const agentName = String(snapshot?.name || "Agent").trim() || "Agent";
@@ -2588,6 +2589,8 @@ async function runChatAutoTurnTextFallback(opts, timing) {
       buf += chunk;
       const { visible, mode } = streamVisibleFromBuffer(buf);
       if (mode === "queue_goal") return;
+      // Why: MiniMax prints <gadget> XML as the reply. Hold it so the bubble never shows the tag.
+      if (/<tool_req\b|<gadget\b/i.test(buf) || /^\s*</.test(visible)) return;
       if (visible.length > emitted) {
         delta(visible.slice(emitted));
         emitted = visible.length;
@@ -2601,6 +2604,31 @@ async function runChatAutoTurnTextFallback(opts, timing) {
     }
   } else {
     raw = await llmChatCompletion(llmOpts);
+  }
+
+  const gadgets = runtime?.mcpEnabled ? parseFakeMcpGadgetText(raw) : [];
+  if (gadgets.length) {
+    const chunks = [];
+    for (const gadget of gadgets) {
+      chunks.push(await callRegisteredMcpTool(runtime, gadget.name, gadget.args));
+    }
+    const visible = chunks.map((chunk) => formatMcpToolPayload(chunk)).filter(Boolean).join("\n\n");
+    if (visible) {
+      track.markDecision("reply");
+      if (typeof delta === "function" && emitted === 0) {
+        await emitReplyDelta(visible, delta, { chunk: Boolean(stream) });
+      }
+      track.markFirstToken();
+      return {
+        action: "reply",
+        content: visible,
+        goal: "",
+        ack: "",
+        reason: "mcp_gadget_call",
+        timing: track.finish(),
+        llmPrompt,
+      };
+    }
   }
 
   let parsed = parseAutoTurnOutput(raw, text);
@@ -3162,6 +3190,7 @@ export async function runChatAutoTurn(opts) {
               stream: true,
               onDelta,
               signal,
+              runtime,
             },
             track
           )),
@@ -3201,6 +3230,7 @@ export async function runChatAutoTurn(opts) {
           stream: true,
           onDelta,
           signal,
+          runtime,
         },
         track
       )
@@ -3957,6 +3987,7 @@ export async function runChatAutoTurn(opts) {
       onDelta,
       jev: jevDecision,
       signal,
+      runtime,
     },
     track
   );

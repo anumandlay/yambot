@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 16:08] Hide fake MCP gadget tags on the text path
+
+- **Prompt Provided:** The 3:47 chat still showed a `<tool_req><gadget name="mcp_mockmcp_greetme">` block instead of calling GreetMe.
+- **Architectural Flow:** That reply was the text path, which streamed the tag. The text path now holds anything that looks like a gadget tag, calls the MCP tool, and saves the tool result as the reply.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-28 16:05] Save the list and the pending question on the chat
 
 - **Prompt Provided:** Store the numbered selection and the waiting question on the chat, and use that record for “1” and “yes”, including skills and agents.
