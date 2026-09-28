@@ -3747,6 +3747,24 @@ export async function runChatAutoTurn(opts) {
 }
 
 /**
+ * UTC day key the question is asking about. Empty when the question names no day.
+ * @param {string} question
+ * @param {Date} [now]
+ * @returns {string}
+ */
+export function resolveDayHistoryKey(question, now = new Date()) {
+  const q = String(question || "").toLowerCase();
+  const base = now instanceof Date && !Number.isNaN(now.getTime()) ? new Date(now.getTime()) : new Date();
+  let offset = null;
+  if (/\b(day before yesterday|the day before yesterday|two days ago)\b/.test(q)) offset = -2;
+  else if (/\byesterday\b/.test(q)) offset = -1;
+  else if (/\b(today|this (morning|afternoon|evening|day)|so far|earlier)\b/.test(q)) offset = 0;
+  if (offset == null) return "";
+  base.setUTCDate(base.getUTCDate() + offset);
+  return base.toISOString().slice(0, 10);
+}
+
+/**
  * Deterministic chat answer from agent dayLogs (no LLM).
  * Why: day-history Q&A was returning Mem0 pref fragments like “long scratchpads” instead of the log.
  * @param {object|null|undefined} snapshot
@@ -3756,6 +3774,7 @@ export async function runChatAutoTurn(opts) {
 export function formatDayHistoryChatAnswer(snapshot, question = "") {
   const today = new Date().toISOString().slice(0, 10);
   const q = String(question || "");
+  const wantedDay = resolveDayHistoryKey(q);
   const domainMatch = q.match(/\b([a-z0-9-]+(?:\.[a-z]{2,})(?:\.[a-z]{2,})?)\b/i);
   const needle = domainMatch ? domainMatch[1].toLowerCase() : "";
 
@@ -3773,8 +3792,15 @@ export function formatDayHistoryChatAnswer(snapshot, question = "") {
     pool.push(d);
   }
   const todayLogs = pool.filter((d) => String(d?.day || "") === today);
-  const logs = todayLogs.length ? todayLogs : pool.slice(0, 2);
+  const logs = wantedDay
+    ? pool.filter((d) => String(d?.day || "") === wantedDay)
+    : todayLogs.length
+      ? todayLogs
+      : pool.slice(0, 2);
   if (!logs.length) {
+    if (wantedDay) {
+      return `I don’t have day-history notes for ${wantedDay}.`;
+    }
     return needle
       ? `No — I don’t see ${needle} in day history yet (no notes recorded).`
       : "I don’t have day-history notes recorded yet. After a computer run finishes, a dated summary will show up here.";

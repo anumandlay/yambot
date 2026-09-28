@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 13:12] Hide date reasoning on “what did we do” questions
+
+- **Prompt Provided:** “what did we do day before yesterday” replied with the model’s date math, including “dont show this text”.
+- **Architectural Flow:** Yesterday and day-before-yesterday questions use the agent day log, same as “what did we do today”. Chat streams no longer append provider reasoning_content. A leaked “The user asks … dont show this text” block is stripped if a model still writes it into the answer.
+- **Impacted Files:** messageIntent.js, chatAutoTurn.js, llmChat.js, llmSanitize.js, hermesAutoGate.test.js, PROMPT_LOG
+
 ## [2026-09-28 13:05] Unlimited page text for the browser agent
 
 - **Prompt Provided:** Change the page text cutoff to unlimited.

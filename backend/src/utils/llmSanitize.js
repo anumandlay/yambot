@@ -19,5 +19,10 @@ export function stripModelThinking(text) {
   out = out.replace(/<\s*\/\s*think(?:ing)?\s*>/gi, "");
   // Redacted-style tags some providers use
   out = out.replace(/<\s*redacted_reasoning\s*>[\s\S]*?<\s*\/\s*redacted_reasoning\s*>/gi, "");
+  // Why: some models write the date calculation into the answer and end it with “dont show this text”.
+  out = out.replace(
+    /(?:^|\n+)\s*The user asks\b[\s\S]{0,1200}?\b(?:don'?t|do not|dont) show this text\b\.?\s*/i,
+    ""
+  );
   return out.replace(/\n{3,}/g, "\n\n").trim();
 }

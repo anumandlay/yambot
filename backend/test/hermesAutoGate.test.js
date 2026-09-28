@@ -207,6 +207,44 @@ describe("memory store mis-queue is forced back to reply", () => {
     assert.equal(/long scratchpads/i.test(out), false);
   });
 
+  it("day before yesterday is day history, not the model’s date math", async () => {
+    const { looksLikeDayHistoryOrStatusRequest } = await import("../src/utils/messageIntent.js");
+    const { formatDayHistoryChatAnswer, resolveDayHistoryKey } = await import(
+      "../src/utils/chatAutoTurn.js"
+    );
+    const { stripModelThinking } = await import("../src/utils/llmSanitize.js");
+    const q = "what did we do day before yesterday";
+    assert.equal(looksLikeDayHistoryOrStatusRequest(q), true);
+    assert.equal(resolveDayHistoryKey(q, new Date("2026-09-28T17:00:00.000Z")), "2026-09-26");
+    const liveDay = resolveDayHistoryKey(q);
+    const out = formatDayHistoryChatAnswer(
+      {
+        dayHistoryRecent: [
+          {
+            day: "2099-01-01",
+            summary: "Monday work",
+            detail: "• Monday only",
+          },
+          {
+            day: liveDay,
+            at: `${liveDay}T12:00:00.000Z`,
+            summary: "Opened the India trial list",
+            detail: "• Opened the India trial list",
+          },
+        ],
+      },
+      q
+    );
+    assert.match(out, /India trial list/);
+    assert.equal(/Monday only/.test(out), false);
+    assert.equal(/The user asks/.test(out), false);
+    const leaked = stripModelThinking(
+      'The user asks "what did we do day before yesterday". Today is Monday, September 28, 2026. Day before yesterday = Saturday, September 26, 2026. dont show this text\n\nOpened the trial list.'
+    );
+    assert.equal(/dont show this text/i.test(leaked), false);
+    assert.match(leaked, /Opened the trial list/);
+  });
+
   it("formatDayHistoryChatAnswer answers domain yes/no from logs", async () => {
     const { formatDayHistoryChatAnswer } = await import("../src/utils/chatAutoTurn.js");
     const snap = {

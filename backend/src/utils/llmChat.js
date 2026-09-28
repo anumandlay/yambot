@@ -192,9 +192,8 @@ export async function llmChatCompletionMessage(opts) {
     const content = flattenLlmContent(message.content);
     const reasoning = flattenLlmContent(message.reasoning_content);
     let resolved = content.trim();
+    // Why: reasoning_content is chain-of-thought. Use it only when the tool JSON landed there.
     if (!(resolved.includes("{") && resolved.includes("}")) && reasoning.includes("{") && reasoning.includes("}")) {
-      resolved = reasoning.trim();
-    } else if (!resolved) {
       resolved = reasoning.trim();
     }
 
@@ -332,7 +331,7 @@ export async function llmChatCompletionStream(opts, onDelta) {
           ? content
           : reasoning.includes("{") && reasoning.includes("}")
             ? reasoning
-            : content || reasoning
+            : content
       ).trim();
       if (typeof onDelta === "function" && full) onDelta(full);
       return full;
@@ -377,8 +376,8 @@ export async function llmChatCompletionStream(opts, onDelta) {
           continue;
         }
         const delta = obj.choices?.[0]?.delta || {};
-        const piece =
-          flattenLlmContent(delta.content) || flattenLlmContent(delta.reasoning_content) || "";
+        // Why: reasoning deltas are the model’s private date math — never the chat bubble.
+        const piece = flattenLlmContent(delta.content) || "";
         if (!piece) continue;
         full += piece;
         if (typeof onDelta === "function") onDelta(piece);

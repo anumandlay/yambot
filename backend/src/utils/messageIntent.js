@@ -56,7 +56,10 @@ export function looksLikeDayHistoryOrStatusRequest(text) {
   if (imperativeBrowse) return false;
 
   if (
-    /\b(what (did|have) (we|you|i) (do|done)|what we did|what you did|what happened)\b[\s\S]{0,40}\b(today|this (morning|afternoon|evening|day)|so far)\b/i.test(
+    /\b(what (did|have) (we|you|i) (do|done)|what we did|what you did|what happened)\b/i.test(
+      lower
+    ) &&
+    /\b(today|yesterday|day before yesterday|the day before yesterday|two days ago|last night|this (morning|afternoon|evening|day)|so far|earlier)\b/i.test(
       lower
     )
   ) {
