@@ -1505,6 +1505,47 @@ export function parseFakeComposioActionText(content) {
 }
 
 /**
+ * Fake tool tags some models print instead of a native tool call.
+ * Why: MiniMax-style replies emit gadget XML, which would otherwise show up as the chat answer.
+ * @param {string} content
+ * @returns {{ name: string, args: Record<string, string> }[]}
+ */
+export function parseFakeMcpGadgetText(content) {
+  const raw = String(content || "");
+  /** @type {{ name: string, args: Record<string, string> }[]} */
+  const out = [];
+  const re = /<gadget\b[^>]*\bname=["'](mcp_[a-z0-9_]+)["'][^>]*>([\s\S]*?)<\/gadget>/gi;
+  let match;
+  while ((match = re.exec(raw))) {
+    /** @type {Record<string, string>} */
+    const args = {};
+    const argRe = /<arg\b[^>]*\bname=["']([^"']+)["'][^>]*>([\s\S]*?)<\/arg>/gi;
+    let arg;
+    while ((arg = argRe.exec(match[2] || ""))) {
+      args[arg[1]] = String(arg[2] || "").trim();
+    }
+    out.push({ name: String(match[1] || "").toLowerCase(), args });
+  }
+  return out;
+}
+
+/**
+ * User-visible text from an MCP tool JSON payload.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function formatMcpToolPayload(raw) {
+  try {
+    const parsed = JSON.parse(String(raw || ""));
+    if (parsed?.text) return String(parsed.text).trim();
+    if (parsed?.detail) return String(parsed.detail).trim();
+  } catch {
+    /* plain text */
+  }
+  return String(raw || "").trim().slice(0, 2000);
+}
+
+/**
  * Strip leftover fake ACTION: composio_* lines from a user-visible reply.
  * Why: never show the old “send the same request once more” dead-end — empty means keep looping upstream.
  * @param {string} content
@@ -2930,6 +2971,9 @@ export async function runChatAutoTurn(opts) {
   let jevDecision = null;
   /** Why: when Jev picks composio but intent matcher misses, still force the tools loop. */
   let jevForceTools = false;
+  // Why: "1" / "call no.1" after a numbered MCP list does not contain the server name.
+  const mcpDirective = runtime?.mcpEnabled ? mcpFollowupDirective(text, historyEarly) : "";
+  if (mcpDirective) jevForceTools = true;
   const jevApiKey = String(runtime?.jevApiKey || "").trim();
   const jevAgentOn = Boolean(runtime?.jevEnabled) && Boolean(jevApiKey);
   if (
@@ -2943,7 +2987,7 @@ export async function runChatAutoTurn(opts) {
       // Why: learned final outcomes from prior turns bias similar asks.
       cases: Array.isArray(runtime?.jevCases) ? runtime.jevCases : [],
     });
-    if (jevDecision.action === "queue_goal") {
+    if (jevDecision.action === "queue_goal" && !mcpDirective) {
       track.setPath("jev_queue");
       track.markDecision("queue_goal");
       const ack = defaultQueueAck(text, agentName);
@@ -2997,7 +3041,8 @@ export async function runChatAutoTurn(opts) {
       // Why: Jev also picks chat for “use mockmcp” — that must enter the tools loop or the model never sees MCP.
       if (
         (composioReady && looksLikeComposioAppRequest(text)) ||
-        messageNeedsMcpTools(text, runtime)
+        messageNeedsMcpTools(text, runtime) ||
+        Boolean(mcpDirective)
       ) {
         jevForceTools = true;
       } else {
@@ -3068,7 +3113,9 @@ export async function runChatAutoTurn(opts) {
       userText: text,
     }),
     historyMessages: historyEarly,
-    userContent: buildAutoUserContent(text, { jev: jevDecision }),
+    userContent:
+      buildAutoUserContent(text, { jev: jevDecision }) +
+      (mcpDirective ? `\n\n[MCP]\n${mcpDirective}` : ""),
   });
   captureLlmPrompt({
     mode: "tools",
@@ -3360,6 +3407,29 @@ export async function runChatAutoTurn(opts) {
             );
           }
         }
+        if (terminal.action === "reply" && runtime?.mcpEnabled) {
+          const gadgets = parseFakeMcpGadgetText(terminal.content);
+          if (gadgets.length) {
+            const chunks = [];
+            for (const gadget of gadgets) {
+              track.addLookup("mcp");
+              chunks.push(await callRegisteredMcpTool(runtime, gadget.name, gadget.args));
+            }
+            const visible = chunks.map((chunk) => formatMcpToolPayload(chunk)).filter(Boolean).join("\n\n");
+            if (visible) {
+              await pushReply(visible);
+              track.markDecision("reply");
+              return finalize({
+                action: "reply",
+                content: visible,
+                goal: "",
+                ack: "",
+                reason: "mcp_gadget_call",
+                timing: track.finish(),
+              });
+            }
+          }
+        }
         if (
           terminal.action === "reply" &&
           looksLikeFakeComposioActionText(terminal.content)
@@ -3582,6 +3652,29 @@ export async function runChatAutoTurn(opts) {
           });
         }
         continue;
+      }
+
+      // Why: some models print <gadget name="mcp_..."> instead of a native tool call.
+      if (msg.content && runtime?.mcpEnabled && parseFakeMcpGadgetText(msg.content).length) {
+        const gadgets = parseFakeMcpGadgetText(msg.content);
+        const chunks = [];
+        for (const gadget of gadgets) {
+          track.addLookup("mcp");
+          chunks.push(await callRegisteredMcpTool(runtime, gadget.name, gadget.args));
+        }
+        const visible = chunks.map((chunk) => formatMcpToolPayload(chunk)).filter(Boolean).join("\n\n");
+        if (visible) {
+          await pushReply(visible);
+          track.markDecision("reply");
+          return finalize({
+            action: "reply",
+            content: visible,
+            goal: "",
+            ack: "",
+            reason: "mcp_gadget_call",
+            timing: track.finish(),
+          });
+        }
       }
 
       // Why: free-text "ACTION: composio_*()" / "ACTION: check_email()" with no tool_calls.
@@ -3958,9 +4051,81 @@ export function autoTurnNeedsTools(text, runtime = {}) {
 export function messageNeedsMcpTools(text, runtime = {}) {
   const q = String(text || "").trim();
   if (!runtime?.mcpEnabled || !q) return false;
-  if (/\bmcp\b/i.test(q)) return true;
+  if (/\bmcps?\b/i.test(q)) return true;
   const mcpNames = Array.isArray(runtime?.mcpServerNames) ? runtime.mcpServerNames : [];
   return mcpNames.some((name) => name && q.toLowerCase().includes(String(name).toLowerCase()));
+}
+
+/**
+ * Tool names the previous reply already showed, in listed order.
+ * @param {string} text
+ * @returns {string[]}
+ */
+export function mcpToolsMentioned(text) {
+  const seen = new Set();
+  /** @type {string[]} */
+  const names = [];
+  const re = /mcp_[a-z0-9_]+/gi;
+  let match;
+  const raw = String(text || "");
+  while ((match = re.exec(raw))) {
+    const name = String(match[0] || "").toLowerCase();
+    if (!name || seen.has(name)) continue;
+    seen.add(name);
+    names.push(name);
+  }
+  return names;
+}
+
+/**
+ * Instruction when the user picks a tool from the previous MCP list.
+ * Why: "1" and "call no.1" do not contain mcp or the server name, so the tools loop would not start.
+ * @param {string} text
+ * @param {{ role?: string, content?: string }[]} [historyMessages]
+ * @returns {string}
+ */
+export function mcpFollowupDirective(text, historyMessages = []) {
+  const q = String(text || "").trim();
+  if (!q || q.length > 80) return "";
+  const recent = (Array.isArray(historyMessages) ? historyMessages : [])
+    .filter((row) => row?.role === "assistant" && String(row?.content || "").trim())
+    .slice(-4);
+  const last = recent[recent.length - 1];
+  const catalog = mcpToolsMentioned(recent.map((row) => row.content).join("\n"));
+  if (!catalog.length || !last) return "";
+  const numbered = q.match(
+    /^(?:please\s+)?(?:call|run|use|do)?\s*(?:no\.?|number|#)?\s*(\d{1,2})\s*$/i
+  );
+  if (numbered) {
+    const index = Number(numbered[1]) - 1;
+    if (index >= 0 && index < catalog.length) {
+      return `Call ${catalog[index]} now. If it needs a name and the user did not give one, ask once. Do not print XML, gadget, or tool_req tags.`;
+    }
+  }
+  const folded = q.toLowerCase().replace(/[^a-z0-9]+/g, "");
+  for (const name of catalog) {
+    const toolSlug = name.split("_").slice(2).join("");
+    if (toolSlug.length >= 4 && folded.includes(toolSlug)) {
+      return `Call ${name} now with the details in the user message. Do not print XML, gadget, or tool_req tags.`;
+    }
+  }
+  const previous = String(last?.content || "");
+  const singledOut = /you mean|tool\s*#?\s*\d|call\s+`?mcp_/i.test(previous);
+  if (
+    singledOut &&
+    /^(yes|yeah|yep|ok|okay|sure|do it|go ahead)\b[.!?\s]*$/i.test(q)
+  ) {
+    return `The user confirmed. Call ${catalog[0]} now. If your previous message offered a name, use that name. Do not print XML, gadget, or tool_req tags.`;
+  }
+  if (
+    /whose name|what name|which name/i.test(previous) &&
+    q.length <= 40 &&
+    !/^(yes|yeah|yep|ok|okay|sure)\b/i.test(q)
+  ) {
+    const safeName = q.replace(/["\n]/g, "").slice(0, 40);
+    return `Call ${catalog[0]} now with name "${safeName}". Do not print XML, gadget, or tool_req tags.`;
+  }
+  return "";
 }
 
 /**

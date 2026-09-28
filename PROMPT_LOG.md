@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 15:50] Call the MCP tool the user picked by number
+
+- **Prompt Provided:** After “list of mcps”, “1” and “call no.1” only asked what to do, and a later reply printed a gadget XML tag instead of calling GreetMe.
+- **Architectural Flow:** “mcps” counts as an MCP mention. A short “1” or “call no.1” after a numbered MCP list enters the tools loop and names that tool. If the model prints a gadget tag, that call runs and the chat shows the tool result.
+- **Impacted Files:** chatAutoTurn.js, lightweightFastPath.test.js, PROMPT_LOG
+
 ## [2026-09-28 15:38] Resolve MCP tool names stored on the agent document
 
 - **Prompt Provided:** Chat listed mockmcp tools, then failed with “No MCP tool named mcp_mockmcp_greetme.”

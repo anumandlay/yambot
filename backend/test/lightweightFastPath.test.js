@@ -6,6 +6,8 @@ import {
   autoTurnNeedsTools,
   looksLikeLightweightChat,
   createAutoTimingTracker,
+  mcpFollowupDirective,
+  parseFakeMcpGadgetText,
 } from "../src/utils/chatAutoTurn.js";
 
 // Answer-direct (no tools) — Hermes under-2s path
@@ -43,6 +45,30 @@ assert.equal(
   false
 );
 assert.equal(autoTurnNeedsTools("Use the mcp server status.", { mcpEnabled: true }), true);
+assert.equal(autoTurnNeedsTools("list of mcps", { mcpEnabled: true }), true);
+
+const mcpList = [
+  {
+    role: "assistant",
+    content:
+      "1. mcp_mockmcp_greetme\n2. mcp_mockmcp_mockmcpstatus\n3. mcp_mockmcp_generatecar",
+  },
+];
+assert.match(mcpFollowupDirective("1", mcpList), /mcp_mockmcp_greetme/);
+assert.match(mcpFollowupDirective("call no.1", mcpList), /mcp_mockmcp_greetme/);
+assert.equal(mcpFollowupDirective("yes", mcpList), "");
+assert.match(
+  mcpFollowupDirective("Ayamu", [
+    ...mcpList,
+    { role: "assistant", content: "You mean tool #1. Whose name should I use?" },
+  ]),
+  /name "Ayamu"/
+);
+const gadgets = parseFakeMcpGadgetText(
+  '<tool_req><gadget name="mcp_mockmcp_greetme"><arg name="name">Ayamu</arg></gadget></tool_req>'
+);
+assert.equal(gadgets[0].name, "mcp_mockmcp_greetme");
+assert.equal(gadgets[0].args.name, "Ayamu");
 
 assert.equal(looksLikeLightweightChat("how are you"), true);
 assert.equal(looksLikeLightweightChat("check my gmail"), false);
