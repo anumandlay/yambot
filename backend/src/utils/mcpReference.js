@@ -54,23 +54,6 @@ export function formatCachedMcpCatalog(agent) {
 }
 
 /**
- * @param {string} text
- * @returns {boolean}
- */
-function isYes(text) {
-  return /^(yes|yeah|yep|ok|okay|sure|do it|go ahead)\b[.!?\s]*$/i.test(String(text || "").trim());
-}
-
-/**
- * @param {string} text
- * @returns {string}
- */
-function offeredName(text) {
-  const match = String(text || "").match(/\(([A-Za-z][A-Za-z .'-]{0,40})\)/);
-  return match ? match[1].trim() : "";
-}
-
-/**
  * @param {string} last
  * @param {string[]} catalog
  * @returns {string}
@@ -108,26 +91,10 @@ export function resolveMcpReference(text, historyMessages = []) {
   if (waitingForName) {
     const tool = toolFromQuestion(previous, catalog);
     if (!tool) return null;
-    if (isYes(q)) {
-      const name = offeredName(previous);
-      if (name) return { kind: "call", tool, args: { name }, source: "pending_question" };
-      return { kind: "ask", question: `Whose name should I use for ${tool}?` };
-    }
     if (/^[A-Za-z][A-Za-z .'-]{0,40}$/.test(q)) {
       return { kind: "call", tool, args: { name: q }, source: "pending_question" };
     }
     return null;
-  }
-  if (/should i call|yes or no/i.test(previous) && isYes(q)) {
-    const tool = toolFromQuestion(previous, catalog);
-    if (!tool) return null;
-    const name = offeredName(previous);
-    return {
-      kind: "call",
-      tool,
-      args: name ? { name } : {},
-      source: "pending_confirmation",
-    };
   }
   return null;
 }

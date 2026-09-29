@@ -38,7 +38,6 @@ test("a copied name selects the stored item, and a row word does not", () => {
   };
   assert.equal(resolveStoredReference("Ayamu", waiting)?.args.name, "Ayamu");
   assert.equal(resolveStoredReference("1", waiting), null);
-  assert.equal(resolveStoredReference("yes", waiting), null);
 });
 
 test("yes confirms the saved tool and no cancels it", () => {
@@ -50,10 +49,8 @@ test("yes confirms the saved tool and no cancels it", () => {
     },
     lastPresentedList: listFromMcpCatalogText(catalog),
   };
-  const yes = resolveStoredReference("yes", state);
-  assert.equal(yes?.source, "pending_confirmation");
-  assert.equal(yes?.args.name, "Ayamu");
-  assert.equal(resolveStoredReference("no", state)?.kind, "cancel");
+  assert.equal(resolveStoredReference("yes", state), null);
+  assert.equal(resolveStoredReference("no", state), null);
 });
 
 test("skill and agent lookups become stored lists", () => {

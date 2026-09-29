@@ -80,6 +80,15 @@ test("a copied list name is kept and an unknown name is dropped", () => {
   assert.equal(unknown.listPick, undefined);
 });
 
+test("the model marks yes or no, and another word is not stored as that answer", () => {
+  const agreed = normalizeChatRoute({ lane: "chat", reply: "yes" }, {});
+  assert.equal(agreed.reply, "yes");
+  const refused = normalizeChatRoute({ lane: "composio", action: "cancel", reply: "no" }, {});
+  assert.equal(refused.reply, "no");
+  const other = normalizeChatRoute({ lane: "chat", reply: "sure" }, {});
+  assert.equal(other.reply, undefined);
+});
+
 test("chat and computer do not become an app or a reminder", () => {
   assert.equal(normalizeChatRoute({ lane: "chat" }).lane, "chat");
   assert.equal(normalizeChatRoute({ lane: "reply" }).lane, "chat");

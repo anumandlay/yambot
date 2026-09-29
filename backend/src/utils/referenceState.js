@@ -135,22 +135,6 @@ export function presentedListFromLookup(kind, resultText) {
 }
 
 /**
- * @param {string} text
- * @returns {boolean}
- */
-function isYes(text) {
-  return /^(yes|yeah|yep|ok|okay|sure|do it|go ahead)\b[.!?\s]*$/i.test(String(text || "").trim());
-}
-
-/**
- * @param {string} text
- * @returns {boolean}
- */
-function isNo(text) {
-  return /^(no|nope|stop|cancel|don't|do not)\b[.!?\s]*$/i.test(String(text || "").trim());
-}
-
-/**
  * Resolve a short message from the saved list and pending question.
  * Priority: a name the tool is waiting for, then yes/no.
  * A row word or a bare number is left for the model, which copies the item name.
@@ -165,15 +149,7 @@ export function resolveStoredReference(text, rawState) {
   const pending = state.pending;
   const items = state.lastPresentedList?.items || [];
   if (pending?.expects === "name") {
-    if (isYes(q) && pending.offeredName) {
-      return {
-        kind: "call",
-        target: pending.target,
-        args: { name: pending.offeredName },
-        source: "pending_question",
-      };
-    }
-    if (/^[A-Za-z][A-Za-z .'-]{0,40}$/.test(q) && !isYes(q) && !isNo(q)) {
+    if (/^[A-Za-z][A-Za-z .'-]{0,40}$/.test(q)) {
       return {
         kind: "call",
         target: pending.target,
@@ -183,18 +159,7 @@ export function resolveStoredReference(text, rawState) {
     }
     return null;
   }
-  if (pending?.expects === "yes_no") {
-    if (isNo(q)) return { kind: "cancel" };
-    if (isYes(q)) {
-      return {
-        kind: "call",
-        target: pending.target,
-        args: pending.offeredName ? { name: pending.offeredName } : {},
-        source: "pending_confirmation",
-      };
-    }
-    return null;
-  }
+  if (pending?.expects === "yes_no") return null;
   const named = items.find((item) => {
     const name = String(item?.target?.name || "").trim().toLowerCase();
     const label = String(item?.label || "").trim().toLowerCase();

@@ -26,7 +26,7 @@ import {
   answerChatQuestion,
   shouldRefineIntentWithLlm,
 } from "../utils/messageIntent.js";
-import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, looksLikeAffirmativeConfirm, autoTurnNeedsTools, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker, buildAutoObservabilityMeta } from "../utils/chatAutoTurn.js";
+import { runChatAutoTurn, streamChatQuestion, formatAutoTimingSummary, defaultQueueAck, cheapChatReplyIfAny, autoTurnNeedsTools, resolveConfirmComputerGoalFromMessages, sanitizeFakeComposioActionReply, createAutoTimingTracker, buildAutoObservabilityMeta } from "../utils/chatAutoTurn.js";
 
 /**
  * Attach the exact LLM prompt snapshot onto the user message for the Prompt peek bubble.
@@ -97,12 +97,9 @@ import { withChatAutoLock } from "../utils/chatAutoLock.js";
 import { linkClientAbort, isAbortError } from "../utils/llmAbort.js";
 import {
   resolvePendingComposioApprovalFromMessages,
-  looksLikeComposioRiskyConfirm,
-  looksLikeComposioRiskyDeny,
   agentComposioAutoApprovesRisky,
 } from "../utils/composioApprovalGate.js";
 import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
-import { looksLikeComposioAppManageRequest } from "../utils/composioFromChat.js";
 import {
   planChatRoute,
   shouldPlanChatRoute,
@@ -1243,12 +1240,14 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
       let pendingComboFollowup = null;
       /** @type {{ role?: string, content?: string }[]} */
       let recentChatTurns = [];
+      let recentMessages = [];
       {
         const recent = await Message.find({ chat: chat._id })
           .sort({ _id: -1 })
           .limit(10)
           .select("role content meta _id")
           .lean();
+        recentMessages = recent;
         recentChatTurns = [...recent].reverse().map((row) => ({
           role: row.role,
           content: row.content,
@@ -1256,47 +1255,22 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         pendingComposioApproval = resolvePendingComposioApprovalFromMessages(recent, {
           excludeIds: [String(message._id)],
         });
-        // Why: after computer, hybrid tails ask confirm — resolve before computer-offer “yes”.
         if (!pendingComposioApproval) {
           pendingComboFollowup = resolvePendingComboFollowupFromMessages(recent, {
             excludeIds: [String(message._id)],
           });
         }
-        // Why: composio / combo confirm/deny must win over “yes, open the computer” offers.
-        if (
-          (looksLikeAffirmativeConfirm(questionText) ||
-            looksLikeComposioRiskyConfirm(questionText)) &&
-          !looksLikeComposioAppManageRequest(questionText, chat.interactionState, recentChatTurns)
-        ) {
-          if (!pendingComposioApproval && !pendingComboFollowup) {
-            confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
-              excludeIds: [String(message._id)],
-            });
-          }
-        }
       }
-      // Why: never cheap-ack a “yes” that confirms an offered computer job or pending follow-up.
-      const cheapReply =
-        confirmGoal || pendingComposioApproval || pendingComboFollowup
-          ? null
-          : cheapChatReplyIfAny(questionText);
-      // Why: one router call decides the lane before a live computer can swallow the sentence.
+      const cheapReply = cheapChatReplyIfAny(questionText);
       let routePlan = null;
       let routePlanReady = false;
-      const comboOwnsTurn =
-        pendingComboFollowup?.taskId &&
-        !pendingComposioApproval &&
-        (looksLikeComposioRiskyDeny(questionText) ||
-          looksLikeAffirmativeConfirm(questionText) ||
-          looksLikeComposioRiskyConfirm(questionText));
       const computerOpen = busyRun?.status === "running";
-      if (
-        !comboOwnsTurn &&
-        !confirmGoal &&
-        !cheapReply &&
-        !pendingComposioApproval &&
-        (shouldPlanChatRoute(questionText) || computerOpen)
-      ) {
+      const pendingQuestion = pendingComposioApproval
+        ? `Confirm this send before it runs: ${String(pendingComposioApproval.label || pendingComposioApproval.tool || "write action")}`
+        : pendingComboFollowup
+          ? "Confirm the connected-app follow-up."
+          : String(chat.interactionState?.pending?.prompt || "");
+      if (!cheapReply && (shouldPlanChatRoute(questionText) || computerOpen || pendingQuestion)) {
         const userForRoute = await User.findById(req.userId);
         qaCreds = await resolveLlmCredentialsForAgent(userForRoute, agentDoc);
         routePlanReady = true;
@@ -1311,12 +1285,20 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
                 state: chat.interactionState,
                 computerOpen,
                 userText: questionText,
+                pendingQuestion,
               })
             );
           } catch (err) {
             console.warn("[chatRoute] plan failed:", err?.message || err);
           }
         }
+      }
+      const modelYes = routePlan?.reply === "yes";
+      const modelNo = routePlan?.reply === "no";
+      if (modelYes && !pendingComposioApproval && !pendingComboFollowup) {
+        confirmGoal = resolveConfirmComputerGoalFromMessages(recentMessages, {
+          excludeIds: [String(message._id)],
+        });
       }
       const steerLiveScreen =
         computerOpen &&
@@ -1326,7 +1308,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         if (
           pendingComboFollowup?.taskId &&
           !pendingComposioApproval &&
-          looksLikeComposioRiskyDeny(questionText)
+          modelNo
         ) {
           const cancelled = await cancelPendingComboFollowup({
             userId: String(req.userId),
@@ -1343,8 +1325,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         } else if (
           pendingComboFollowup?.taskId &&
           !pendingComposioApproval &&
-          (looksLikeAffirmativeConfirm(questionText) ||
-            looksLikeComposioRiskyConfirm(questionText))
+          modelYes
         ) {
           const ran = await executeApprovedComboFollowup({
             userId: String(req.userId),
@@ -1565,8 +1546,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             pendingComposioApproval,
             composioExecuteApproved:
               agentComposioAutoApprovesRisky(agentDoc) ||
-              (Boolean(pendingComposioApproval) &&
-                looksLikeComposioRiskyConfirm(questionText)),
+              (Boolean(pendingComposioApproval) && modelYes),
             saveComposioSessionId: async (sessionId) => {
               const sid = String(sessionId || "").trim();
               if (!sid || !agentDoc) return;

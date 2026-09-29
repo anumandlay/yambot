@@ -13,7 +13,6 @@ import {
   acceptComposioKeywordPlan,
   applyComposioAppFromChat,
   composioYesNoStillApplies,
-  isBareYesNo,
   planComposioManageWithLlm,
 } from "./composioFromChat.js";
 import { applyMcpServerFromChat } from "./mcpFromChat.js";
@@ -297,30 +296,6 @@ export async function planRoomAgentManage(opts) {
       : [];
   const state = normalizeInteractionState(opts.state || opts.chat?.interactionState);
 
-  if (isBareYesNo(content)) {
-    const waiting = state.pending?.target?.type === "composio_app";
-    if (waiting && composioYesNoStillApplies(state, history)) {
-      const agent = agents.find((row) => String(row._id) === String(state.pending.target.id));
-      if (!agent) {
-        return { handled: true, kind: "ask", content: whichAgentReply(agents), pending: null };
-      }
-      try {
-        const result = await runComposio(agent, content, state, history, opts);
-        return { handled: true, agent, kind: "composio", content: result.content, pending: result.pending };
-      } catch (err) {
-        return {
-          handled: true,
-          agent,
-          kind: "composio",
-          content: `Could not update Composio: ${err?.message || err}`,
-          pending: state.pending,
-        };
-      }
-    }
-    if (waiting) return { handled: false, clearPending: true };
-    return null;
-  }
-
   const command = textWithoutMentions(content, agents);
   const namedFirst = agentsNamedInRoomText(content, agents);
   // Why: the model picks the lane. A manage lane with no single named member asks which agent.
@@ -335,6 +310,37 @@ export async function planRoomAgentManage(opts) {
     });
   } catch (err) {
     console.warn("[roomManage] route failed:", err?.message || err);
+  }
+  const pendingApp = state.pending?.target?.type === "composio_app" ? state.pending : null;
+  if (
+    pendingApp &&
+    composioYesNoStillApplies(state, history) &&
+    (route?.reply === "yes" || route?.reply === "no")
+  ) {
+    const agent =
+      agents.find((row) => String(row._id) === String(pendingApp.target.id)) || namedFirst[0];
+    if (!agent) {
+      return { handled: true, kind: "ask", content: whichAgentReply(agents), pending: null };
+    }
+    const composio =
+      route.reply === "no"
+        ? { action: "cancel" }
+        : {
+            action: "reconnect",
+            slug: String(pendingApp.target.name || ""),
+            label: String(pendingApp.target.name || ""),
+          };
+    return applyRoomRoute(
+      agent,
+      command,
+      { ...route, lane: "composio", composio },
+      history,
+      state,
+      opts
+    );
+  }
+  if (pendingApp && !composioYesNoStillApplies(state, history) && route?.lane !== "composio") {
+    return { handled: false, clearPending: true };
   }
   const manageLane =
     route?.lane === "reminder" || route?.lane === "mcp" || route?.lane === "composio";

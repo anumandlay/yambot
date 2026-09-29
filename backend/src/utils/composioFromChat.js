@@ -147,13 +147,6 @@ export function composioYesNoStillApplies(state, history = []) {
 export function looksLikeComposioAppManageRequest(text, state = null, history = []) {
   const raw = String(text || "").trim();
   if (!raw) return false;
-  if (
-    state?.pending?.target?.type === "composio_app" &&
-    /^(yes|yeah|yep|ok|okay|sure|no|nope|cancel)\b/i.test(raw) &&
-    composioYesNoStillApplies(state, history)
-  ) {
-    return true;
-  }
   if (/\bcomposio apps?\b/i.test(raw) && /\b(how many|list|show|added|connected|enabled|which)\b/i.test(raw)) {
     return true;
   }
@@ -178,24 +171,12 @@ export function looksLikeComposioAppManageRequest(text, state = null, history = 
 export function parseComposioAppChat(text, history = [], state = null) {
   const raw = String(text || "").trim();
   if (
-    state?.pending?.target?.type === "composio_app" &&
-    /^(no|nope|cancel)\b/i.test(raw) &&
-    composioYesNoStillApplies(state, history)
-  ) {
-    return { action: "cancel" };
-  }
-  if (
     (/\bcomposio apps?\b/i.test(raw) && /\b(how many|list|show|added|connected|enabled|which)\b/i.test(raw)) ||
     /^(list|show)\s+(my\s+)?composio\b/i.test(raw)
   ) {
     return { action: "list" };
   }
-  if (
-    isReauthPhrase(raw) ||
-    (state?.pending?.target?.type === "composio_app" &&
-      /^(yes|yeah|yep|ok|okay|sure)\b/i.test(raw) &&
-      composioYesNoStillApplies(state, history))
-  ) {
+  if (isReauthPhrase(raw)) {
     const app = extractComposioApp(raw) || appFromHistory(history) || {
       slug: normalizeToolkitSlug(state?.pending?.target?.name),
       label: String(state?.pending?.target?.name || ""),

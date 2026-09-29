@@ -136,8 +136,7 @@ test("a list of one expired app waits for yes", async () => {
   assert.match(applied.content, /Apollo/);
   assert.equal(applied.pending.target.name, "apollo");
   const yes = parseComposioAppChat("yes", [], { pending: applied.pending });
-  assert.equal(yes.action, "reconnect");
-  assert.equal(yes.slug, "apollo");
+  assert.equal(yes.action, "help");
 });
 
 test("no after a reminder does not cancel a leftover composio reconnect", () => {
@@ -154,6 +153,6 @@ test("no after a reminder does not cancel a leftover composio reconnect", () => 
   assert.equal(acceptComposioKeywordPlan("no", { pending }, ["apollo"], reminder), null);
   assert.equal(acceptComposioKeywordPlan("yes", { pending }, ["apollo"], reminder), null);
   const stillOpen = [{ role: "assistant", content: "Reply yes to reconnect Apollo." }];
-  assert.equal(looksLikeComposioAppManageRequest("no", { pending }, stillOpen), true);
-  assert.equal(parseComposioAppChat("no", stillOpen, { pending }).action, "cancel");
+  assert.equal(looksLikeComposioAppManageRequest("no", { pending }, stillOpen), false);
+  assert.equal(parseComposioAppChat("no", stillOpen, { pending }).action, "help");
 });

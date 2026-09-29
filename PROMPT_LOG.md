@@ -1,3 +1,9 @@
+## [2026-09-29 14:20] Yes and no are the model’s answer to the pending question
+
+- **Prompt Provided:** Yes and no must be decided by the LLM only. No more fixed words or row words.
+- **Architectural Flow:** The chat router reads the pending question and the new sentence, then sets reply to yes, no, or empty. A yes runs the waiting send, reconnect, tool call, or offered computer job. A no cancels it. The words in the sentence are not matched in code. If the message is not an answer to that question, reply stays empty and the lane stands.
+- **Impacted Files:** chatRoutePlan.js, chatAutoTurn.js, chats.js, roomManage.js, composioFromChat.js, mcpReference.js, referenceState.js, chatRoutePlan.test.js, roomManage.test.js, mcpReference.test.js, referenceState.test.js, PROMPT_LOG
+
 ## [2026-09-29 14:10] The model decides the lane, with no fixed word list
 
 - **Prompt Provided:** Do not keep row words or fixed words. The LLM decides.

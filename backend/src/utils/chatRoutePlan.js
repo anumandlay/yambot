@@ -101,6 +101,7 @@ export function chatRouteContextFromAgent(ctx = {}) {
     state: ctx.state || null,
     computerOpen: Boolean(ctx.computerOpen),
     userText: String(ctx.userText || ""),
+    pendingQuestion: String(ctx.pendingQuestion || "").slice(0, 400),
   };
 }
 
@@ -147,15 +148,21 @@ export function normalizeChatRoute(raw, ctx = {}) {
   let steered = lane === "steer";
   if (lane === "steer") lane = "computer";
   if (!["chat", "computer", "composio", "mcp", "reminder"].includes(lane)) return null;
+  const stamp = (route) => {
+    if (!route) return null;
+    const answer = String(raw.reply || "").trim().toLowerCase();
+    if (answer === "yes" || answer === "no") route.reply = answer;
+    return route;
+  };
   if (lane === "chat" || lane === "computer") {
     const listPick = matchPresentedListPick(raw.listName, ctx.listItems);
-    if (listPick) return { lane: "list", listPick };
+    if (listPick) return stamp({ lane: "list", listPick });
     if (lane === "computer") {
       const action = String(raw.action || "").trim().toLowerCase();
       const computerAction = steered || action === "steer" ? "steer" : "start";
-      return { lane, computerAction };
+      return stamp({ lane, computerAction });
     }
-    return { lane };
+    return stamp({ lane });
   }
 
   if (lane === "composio") {
@@ -165,8 +172,8 @@ export function normalizeChatRoute(raw, ctx = {}) {
       ctx.state || null,
       ctx.apps || []
     );
-    if (!plan) return { lane, composio: null, unmatchedApp: app };
-    return { lane, composio: plan };
+    if (!plan) return stamp({ lane, composio: null, unmatchedApp: app });
+    return stamp({ lane, composio: plan });
   }
 
   if (lane === "mcp") {
@@ -174,14 +181,14 @@ export function normalizeChatRoute(raw, ctx = {}) {
     if (action === "show") action = "list";
     if (["delete", "disconnect"].includes(action)) action = "remove";
     if (["connect", "save", "register"].includes(action)) action = "add";
-    if (!["list", "add", "remove"].includes(action)) return { lane, mcp: null };
-    return {
+    if (!["list", "add", "remove"].includes(action)) return stamp({ lane, mcp: null });
+    return stamp({
       lane,
       mcp: {
         action,
         server: String(raw.server || raw.name || "").trim().slice(0, 48),
       },
-    };
+    });
   }
 
   const reminder = normalizeLlmSchedulePlan(
@@ -198,7 +205,7 @@ export function normalizeChatRoute(raw, ctx = {}) {
     },
     ctx.userText || ""
   );
-  return { lane: "reminder", reminder };
+  return stamp({ lane: "reminder", reminder });
 }
 
 /**
@@ -237,9 +244,10 @@ export async function planChatRoute(text, creds, ctx = {}) {
       : "";
   const system = [
     "You route one YamBot chat message. Reply with JSON only, no markdown.",
-    '{"lane":"chat|computer|composio|mcp|reminder","action":"","app":"","server":"","interval":"","dailyAt":"","kind":"","goal":"","name":"","matchHint":"","listName":""}',
+    '{"lane":"chat|computer|composio|mcp|reminder","action":"","app":"","server":"","interval":"","dailyAt":"","kind":"","goal":"","name":"","matchHint":"","listName":"","reply":""}',
     "Pick exactly one lane.",
-    "chat = a normal question or conversation. yes and no follow the latest assistant message.",
+    "chat = a normal question or conversation.",
+    "reply is yes when the user is agreeing to the pending question, no when they are refusing it, and empty when this message is not that answer. Decide from the sentence and the pending question.",
     "computer = start or steer a browser job. action is start for a new job, or steer when a computer is already open and this message changes that page.",
     "composio = list, add, reconnect, remove, or cancel an app connection. action is list, add, reconnect, remove, or cancel. app is the slug.",
     "Copy an app slug already listed. If the user misspells an app that is already there, copy the saved slug. Do not invent a slug.",
@@ -260,6 +268,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     ctx.computerOpen ? "A computer is open on this agent." : "",
     ctx.apps?.length ? `Composio apps on this agent: ${ctx.apps.join(", ")}` : "Composio apps on this agent: none",
     waiting ? `Waiting app: ${waiting}` : "",
+    ctx.pendingQuestion ? `Pending question: ${ctx.pendingQuestion}` : "",
     ctx.servers?.length ? `MCP servers: ${ctx.servers.join(", ")}` : "MCP servers: none",
     ctx.reminders?.length ? `Reminders:\n${ctx.reminders.map((row) => `- ${row}`).join("\n")}` : "Reminders: none",
     ctx.listItems?.length

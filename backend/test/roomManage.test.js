@@ -132,6 +132,7 @@ test("no after a reminder does not cancel a leftover reconnect", async () => {
       { role: "agent", content: "Reply yes to reconnect Apollo." },
       { role: "agent", content: "Want me to re-create the greetme reminder?" },
     ],
+    planRoute: async () => ({ lane: "chat" }),
   });
   assert.equal(result.handled, false);
   assert.equal(result.clearPending, true);
@@ -151,6 +152,7 @@ test("no still cancels when the last reply is the reconnect", async () => {
       },
     },
     history: [{ role: "agent", content: "Reply yes to reconnect Apollo." }],
+    planRoute: async () => ({ lane: "chat", reply: "no" }),
     applyComposio: async (opts) => {
       seen = opts;
       return { ok: true, content: "Okay, I won't reconnect that app.", pending: null };

@@ -39,7 +39,7 @@ test("a pending name question wins over the old numbered list", () => {
   assert.equal(resolveMcpReference("1", history), null);
 });
 
-test("yes confirms a pending tool call and keeps an offered name", () => {
+test("a yes or no on a tool question is left for the model", () => {
   const history = [
     ...list,
     {
@@ -47,10 +47,7 @@ test("yes confirms a pending tool call and keeps an offered name", () => {
       content: "Should I call mcp_mockmcp_greetme for (Ayamu)? Yes or no?",
     },
   ];
-  const yes = resolveMcpReference("yes", history);
-  assert.equal(yes?.tool, "mcp_mockmcp_greetme");
-  assert.equal(yes?.args?.name, "Ayamu");
-  assert.equal(yes?.source, "pending_confirmation");
+  assert.equal(resolveMcpReference("yes", history), null);
 });
 
 test("catalog text uses the same names the resolver reads", () => {

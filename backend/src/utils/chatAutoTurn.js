@@ -56,7 +56,6 @@ import {
   applyComposioAppFromChat,
   planComposioManageWithLlm,
   composioYesNoStillApplies,
-  isBareYesNo,
 } from "./composioFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import {
@@ -2667,12 +2666,34 @@ export async function runChatAutoTurn(opts) {
     return out;
   };
 
-  // Why: Hermes Phase 2 — resume or cancel a pending SEND/write after the user replies.
+  // Why: one model call picks chat, computer, Composio, MCP, or a reminder.
+  // Word gates run only when that call was skipped or returned nothing.
+  let route = opts.routePlanReady ? opts.routePlan || null : null;
+  if (!opts.routePlanReady && shouldPlanChatRoute(text) && creds?.apiKey && runtime?.agent) {
+    try {
+      route = await planChatRoute(
+        text,
+        creds,
+        chatRouteContextFromAgent({
+          agent: runtime.agent,
+          history: historyEarly,
+          state: interactionState,
+          computerOpen: Boolean(runtime.computerOpen),
+          userText: text,
+        })
+      );
+    } catch (err) {
+      console.warn("[chatRoute] plan failed:", err?.message || err);
+      route = null;
+    }
+  }
+  const trustRoute = Boolean(route);
+
   const pendingApproval =
     runtime?.pendingComposioApproval && typeof runtime.pendingComposioApproval === "object"
       ? runtime.pendingComposioApproval
       : null;
-  if (pendingApproval && looksLikeComposioRiskyDeny(text)) {
+  if (pendingApproval && trustRoute && route.reply === "no") {
     track.setPath("composio_approval_denied");
     track.markDecision("reply");
     const content = "Cancelled — I will not run that send/write action.";
@@ -2687,7 +2708,7 @@ export async function runChatAutoTurn(opts) {
       timing: track.finish(),
     });
   }
-  if (pendingApproval && looksLikeComposioRiskyConfirm(text)) {
+  if (pendingApproval && trustRoute && route.reply === "yes") {
     const approvedRuntime = { ...runtime, composioExecuteApproved: true, pendingComposioApproval: null };
     track.setPath("composio_approval_resume");
     if (pendingApproval.mode === "execute" && pendingApproval.tool) {
@@ -2734,28 +2755,81 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: one model call picks chat, computer, Composio, MCP, or a reminder.
-  // Word gates run only when that call was skipped or returned nothing.
-  let route = opts.routePlanReady ? opts.routePlan || null : null;
-  if (!opts.routePlanReady && shouldPlanChatRoute(text) && creds?.apiKey && runtime?.agent) {
-    try {
-      route = await planChatRoute(
-        text,
-        creds,
-        chatRouteContextFromAgent({
-          agent: runtime.agent,
-          history: historyEarly,
-          state: interactionState,
-          computerOpen: Boolean(runtime.computerOpen),
-          userText: text,
-        })
-      );
-    } catch (err) {
-      console.warn("[chatRoute] plan failed:", err?.message || err);
-      route = null;
+  if (
+    trustRoute &&
+    (route.reply === "yes" || route.reply === "no") &&
+    interactionState?.pending?.expects === "yes_no" &&
+    interactionState.pending.target
+  ) {
+    if (route.reply === "no") {
+      replaceInteraction({ ...interactionState, pending: null });
+      const content = "Okay, I won't call that.";
+      track.setPath("stored_reference");
+      track.markDecision("reply");
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "model_reply_no",
+        timing: track.finish(),
+      });
+    }
+    const content = await fulfillStoredTarget(
+      {
+        kind: "call",
+        target: interactionState.pending.target,
+        args: interactionState.pending.offeredName ? { name: interactionState.pending.offeredName } : {},
+      },
+      runtime
+    );
+    replaceInteraction({ ...interactionState, pending: null });
+    if (content) {
+      track.setPath("stored_reference");
+      track.markDecision("reply");
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "model_reply_yes",
+        timing: track.finish(),
+      });
     }
   }
-  const trustRoute = Boolean(route);
+
+  if (
+    trustRoute &&
+    route.reply === "yes" &&
+    interactionState?.pending?.expects === "name" &&
+    interactionState.pending.offeredName &&
+    interactionState.pending.target
+  ) {
+    const content = await fulfillStoredTarget(
+      {
+        kind: "call",
+        target: interactionState.pending.target,
+        args: { name: interactionState.pending.offeredName },
+      },
+      runtime
+    );
+    replaceInteraction({ ...interactionState, pending: null });
+    if (content) {
+      track.setPath("stored_reference");
+      track.markDecision("reply");
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "model_reply_yes",
+        timing: track.finish(),
+      });
+    }
+  }
 
   // Why: the model copied a tool, skill, or agent name from the list just shown.
   // A row word is not turned into a position here.
@@ -2832,7 +2906,6 @@ export async function runChatAutoTurn(opts) {
   // Why: a saved app can be listed or confirmed immediately. A new spelling goes to the model with the apps already on the agent.
   // Why: “no” after a newer question must not answer an older reconnect prompt.
   if (
-    isBareYesNo(text) &&
     interactionState?.pending?.target?.type === "composio_app" &&
     !composioYesNoStillApplies(interactionState, historyEarly) &&
     route?.lane !== "composio"
@@ -4319,17 +4392,9 @@ export function mcpFollowupDirective(text, historyMessages = []) {
     }
   }
   const previous = String(last?.content || "");
-  const singledOut = /you mean|tool\s*#?\s*\d|call\s+`?mcp_/i.test(previous);
-  if (
-    singledOut &&
-    /^(yes|yeah|yep|ok|okay|sure|do it|go ahead)\b[.!?\s]*$/i.test(q)
-  ) {
-    return `The user confirmed. Call ${catalog[0]} now. If your previous message offered a name, use that name. Do not print XML, gadget, or tool_req tags.`;
-  }
   if (
     /whose name|what name|which name/i.test(previous) &&
-    q.length <= 40 &&
-    !/^(yes|yeah|yep|ok|okay|sure)\b/i.test(q)
+    q.length <= 40
   ) {
     const safeName = q.replace(/["\n]/g, "").slice(0, 40);
     return `Call ${catalog[0]} now with name "${safeName}". Do not print XML, gadget, or tool_req tags.`;
