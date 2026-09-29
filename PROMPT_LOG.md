@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-29 12:27] “No” answers the latest question, not an old Composio reconnect
+
+- **Prompt Provided:** Saying no to a reminder got “Okay, I won't reconnect that app.”
+- **Architectural Flow:** A reconnect yes/no stays only while that question is still the last reply. After the chat moves on, a bare yes or no is answered as normal chat and the old reconnect prompt is cleared.
+- **Impacted Files:** composioFromChat.js, chatAutoTurn.js, chats.js, composioFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-28 22:56] Add MCP tool reminder on the Schedulers tab
 
 - **Prompt Provided:** Add the reminder type on the agent Schedulers tab, the way it was described: a third type that calls an MCP tool.

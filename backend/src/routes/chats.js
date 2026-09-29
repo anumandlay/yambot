@@ -1238,7 +1238,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         if (
           (looksLikeAffirmativeConfirm(questionText) ||
             looksLikeComposioRiskyConfirm(questionText)) &&
-          !looksLikeComposioAppManageRequest(questionText, chat.interactionState)
+          !looksLikeComposioAppManageRequest(questionText, chat.interactionState, recentChatTurns)
         ) {
           if (!pendingComposioApproval && !pendingComboFollowup) {
             confirmGoal = resolveConfirmComputerGoalFromMessages(recent, {
@@ -1352,7 +1352,11 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         // Why: schedule list/create/stop needs no LLM context pack — skip prepare entirely.
         const scheduleManage = looksLikeScheduleManageRequest(questionText);
         const mcpServerManage = looksLikeMcpServerManageRequest(questionText);
-        const composioAppManage = looksLikeComposioAppManageRequest(questionText);
+        const composioAppManage = looksLikeComposioAppManageRequest(
+          questionText,
+          chat.interactionState,
+          recentChatTurns
+        );
         const light =
           scheduleManage ||
           mcpServerManage ||

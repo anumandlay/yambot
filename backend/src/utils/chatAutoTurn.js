@@ -61,6 +61,8 @@ import {
   acceptComposioKeywordPlan,
   applyComposioAppFromChat,
   planComposioManageWithLlm,
+  composioYesNoStillApplies,
+  isBareYesNo,
 } from "./composioFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
@@ -2890,14 +2892,23 @@ export async function runChatAutoTurn(opts) {
   }
 
   // Why: a saved app can be listed or confirmed immediately. A new spelling goes to the model with the apps already on the agent.
+  // Why: “no” after a newer question must not answer an older reconnect prompt.
+  if (
+    isBareYesNo(text) &&
+    interactionState?.pending?.target?.type === "composio_app" &&
+    !composioYesNoStillApplies(interactionState, historyEarly)
+  ) {
+    replaceInteraction({ ...interactionState, pending: null });
+  }
   const composioApps = Array.isArray(runtime?.composioToolkitSlugs) ? runtime.composioToolkitSlugs : [];
-  const composioKeyword = acceptComposioKeywordPlan(text, interactionState, composioApps);
-  const composioAsked = looksLikeComposioAppManageRequest(text, interactionState);
+  const composioKeyword = acceptComposioKeywordPlan(text, interactionState, composioApps, historyEarly);
+  const composioAsked = looksLikeComposioAppManageRequest(text, interactionState, historyEarly);
   const composioLlmCandidate =
     !composioKeyword &&
     Boolean(runtime?.composioEnabled) &&
     Boolean(creds?.apiKey) &&
     text.length <= 400 &&
+    !(isBareYesNo(text) && !composioYesNoStillApplies(interactionState, historyEarly)) &&
     !looksLikeSiteTrialExpiryComputerRequest(text) &&
     !looksLikeScheduleManageRequest(text) &&
     !looksLikeMcpServerManageRequest(text);

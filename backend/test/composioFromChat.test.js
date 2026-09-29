@@ -137,3 +137,21 @@ test("a list of one expired app waits for yes", async () => {
   assert.equal(yes.action, "reconnect");
   assert.equal(yes.slug, "apollo");
 });
+
+test("no after a reminder does not cancel a leftover composio reconnect", () => {
+  const pending = {
+    expects: "yes_no",
+    target: { type: "composio_app", name: "apollo" },
+    prompt: "Reconnect Apollo?",
+  };
+  const reminder = [
+    { role: "assistant", content: "Reply yes to reconnect Apollo." },
+    { role: "assistant", content: "Want me to re-create the every-1-minute greetme one now?" },
+  ];
+  assert.equal(looksLikeComposioAppManageRequest("no", { pending }, reminder), false);
+  assert.equal(acceptComposioKeywordPlan("no", { pending }, ["apollo"], reminder), null);
+  assert.equal(acceptComposioKeywordPlan("yes", { pending }, ["apollo"], reminder), null);
+  const stillOpen = [{ role: "assistant", content: "Reply yes to reconnect Apollo." }];
+  assert.equal(looksLikeComposioAppManageRequest("no", { pending }, stillOpen), true);
+  assert.equal(parseComposioAppChat("no", stillOpen, { pending }).action, "cancel");
+});

@@ -85,15 +85,66 @@ function appFromHistory(history) {
 }
 
 /**
+ * A one-word yes or no, with nothing else in the message.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function isBareYesNo(text) {
+  return /^(yes|yeah|yep|ok|okay|sure|no|nope|cancel)[.!?]?$/i.test(String(text || "").trim());
+}
+
+/**
+ * Latest assistant text, or null when this caller did not pass any chat.
+ * @param {{ role?: string, content?: string }[]} history
+ * @returns {string|null}
+ */
+function latestAssistantText(history) {
+  const rows = Array.isArray(history) ? history : [];
+  if (!rows.length) return null;
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const role = String(rows[i]?.role || "");
+    if (role === "assistant" || role === "agent") return String(rows[i]?.content || "");
+  }
+  return "";
+}
+
+/**
+ * A stored reconnect yes/no only counts while that question is still the last reply.
+ * Why: “no” after a reminder must not cancel an Apollo reconnect from earlier in the chat.
+ * @param {object|null} state
+ * @param {{ role?: string, content?: string }[]} [history]
+ * @returns {boolean}
+ */
+export function composioYesNoStillApplies(state, history = []) {
+  if (state?.pending?.target?.type !== "composio_app") return false;
+  const latest = latestAssistantText(history);
+  if (latest == null) return true;
+  const text = latest.toLowerCase();
+  const prompt = String(state.pending.prompt || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[?!.]+$/g, "");
+  if (prompt && text.includes(prompt)) return true;
+  const name = String(state.pending.target.name || "").trim().toLowerCase();
+  if (!name || !text.includes(name)) return false;
+  return /reconnect|re[\s-]*auth|sign in|expired|reply yes/.test(text);
+}
+
+/**
  * True when the message saves, lists, or reconnects an app — not when it uses one.
  * @param {string} text
  * @param {object|null} [state]
+ * @param {{ role?: string, content?: string }[]} [history]
  * @returns {boolean}
  */
-export function looksLikeComposioAppManageRequest(text, state = null) {
+export function looksLikeComposioAppManageRequest(text, state = null, history = []) {
   const raw = String(text || "").trim();
   if (!raw) return false;
-  if (state?.pending?.target?.type === "composio_app" && /^(yes|yeah|yep|ok|okay|sure|no|nope|cancel)\b/i.test(raw)) {
+  if (
+    state?.pending?.target?.type === "composio_app" &&
+    /^(yes|yeah|yep|ok|okay|sure|no|nope|cancel)\b/i.test(raw) &&
+    composioYesNoStillApplies(state, history)
+  ) {
     return true;
   }
   if (/\bcomposio apps?\b/i.test(raw) && /\b(how many|list|show|added|connected|enabled|which)\b/i.test(raw)) {
@@ -119,7 +170,11 @@ export function looksLikeComposioAppManageRequest(text, state = null) {
  */
 export function parseComposioAppChat(text, history = [], state = null) {
   const raw = String(text || "").trim();
-  if (state?.pending?.target?.type === "composio_app" && /^(no|nope|cancel)\b/i.test(raw)) {
+  if (
+    state?.pending?.target?.type === "composio_app" &&
+    /^(no|nope|cancel)\b/i.test(raw) &&
+    composioYesNoStillApplies(state, history)
+  ) {
     return { action: "cancel" };
   }
   if (
@@ -128,7 +183,12 @@ export function parseComposioAppChat(text, history = [], state = null) {
   ) {
     return { action: "list" };
   }
-  if (isReauthPhrase(raw) || (state?.pending?.target?.type === "composio_app" && /^(yes|yeah|yep|ok|okay|sure)\b/i.test(raw))) {
+  if (
+    isReauthPhrase(raw) ||
+    (state?.pending?.target?.type === "composio_app" &&
+      /^(yes|yeah|yep|ok|okay|sure)\b/i.test(raw) &&
+      composioYesNoStillApplies(state, history))
+  ) {
     const app = extractComposioApp(raw) || appFromHistory(history) || {
       slug: normalizeToolkitSlug(state?.pending?.target?.name),
       label: String(state?.pending?.target?.name || ""),
@@ -163,11 +223,12 @@ export function invalidToolkitSlugsFromError(error) {
  * @param {string} text
  * @param {object|null} [state]
  * @param {string[]} [apps]
+ * @param {{ role?: string, content?: string }[]} [history]
  * @returns {{ action: string, slug?: string, label?: string }|null}
  */
-export function acceptComposioKeywordPlan(text, state = null, apps = []) {
-  if (!looksLikeComposioAppManageRequest(text, state)) return null;
-  const parsed = parseComposioAppChat(text, [], state);
+export function acceptComposioKeywordPlan(text, state = null, apps = [], history = []) {
+  if (!looksLikeComposioAppManageRequest(text, state, history)) return null;
+  const parsed = parseComposioAppChat(text, history, state);
   if (parsed.action === "list" || parsed.action === "cancel" || parsed.action === "help") return parsed;
   const known = new Set((apps || []).map((slug) => normalizeToolkitSlug(slug)).filter(Boolean));
   const slug = normalizeToolkitSlug(parsed.slug);
@@ -235,6 +296,7 @@ export async function planComposioManageWithLlm(text, creds, ctx = {}) {
     "When the user is enabling, reconnecting, or roughly naming an app already listed, copy that slug exactly, including when they misspell it.",
     "Do not invent a new slug for an app that is already on the agent.",
     "“yes” continues the app named in the latest assistant message.",
+    "A bare no or cancel is cancel only when that latest message asked to reconnect an app. If it asked about a reminder or anything else, action is none.",
   ].join("\n");
   const user = [
     apps ? `Apps on this agent: ${apps}` : "",
