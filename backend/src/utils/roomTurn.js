@@ -1,7 +1,8 @@
 /**
  * @fileoverview Group-room turn engine (Hermes-style shared transcript + PASS).
- * Purpose: After a human posts in a room chat, ask each target member to reply or PASS
- * via a cheap LLM turn; optionally delegate browse/work via sendAgentMessage into the room.
+ * Purpose: After a human posts in a room chat, a named member can list or change Composio,
+ * MCP, or reminders. Otherwise each member replies or PASS via a cheap LLM turn, and
+ * browse/work can be delegated with sendAgentMessage.
  * Inputs: room Chat (kind=room), user message text, participant Agent docs.
  * Downstream: Message bubbles on the room chat; AgentMessage/Task when work is delegated.
  * Memory: same Mem0 + curated merge as 1:1 Auto (resolveCuratedMemoryForPrompt + ingest).
@@ -25,6 +26,8 @@ import {
 import { resolveCuratedMemoryForPrompt } from "./semanticMemory.js";
 import { maybeSummarizeAgentMemory } from "./memorySummarizeCron.js";
 import { mem0IngestChatTurn } from "./mem0Service.js";
+import { planRoomAgentManage } from "./roomManage.js";
+import { normalizeInteractionState } from "./referenceState.js";
 /**
  * @param {string} content
  * @returns {boolean}
@@ -199,6 +202,65 @@ export async function runRoomTurn(opts) {
   const ordered = participantIds.map((id) => byId.get(id)).filter(Boolean);
   if (ordered.length < 2) {
     return { ok: false, replies: [], delegated: [] };
+  }
+
+  // Why: Composio, MCP, and reminders run on the named member only. Other members pass.
+  const managed = await planRoomAgentManage({
+    content,
+    agents: ordered,
+    userId,
+    chat,
+  });
+  if (managed?.clearPending) {
+    chat.interactionState = normalizeInteractionState({ pending: null });
+    chat.markModified?.("interactionState");
+  }
+  if (managed?.handled) {
+    const replies = [];
+    if (managed.agent && managed.content) {
+      await Message.create({
+        chat: chat._id,
+        role: "agent",
+        content: managed.content,
+        meta: {
+          kind: "room_manage",
+          fromAgentId: String(managed.agent._id),
+          fromAgentName: managed.agent.name,
+          roomTurn: true,
+          manageKind: managed.kind || "",
+        },
+      });
+      replies.push({
+        agentId: String(managed.agent._id),
+        agentName: managed.agent.name,
+        passed: false,
+        text: managed.content,
+      });
+      const passed = ordered
+        .filter((agent) => String(agent._id) !== String(managed.agent._id))
+        .map((agent) => agent.name)
+        .filter(Boolean);
+      if (passed.length) {
+        await Message.create({
+          chat: chat._id,
+          role: "system",
+          content: `${passed.join(", ")} passed`,
+          meta: { kind: "room_pass", ui: "icon", passed },
+        }).catch(() => null);
+      }
+    } else if (managed.content) {
+      await Message.create({
+        chat: chat._id,
+        role: "system",
+        content: managed.content,
+        meta: { kind: "room_manage_ask" },
+      });
+    }
+    chat.interactionState = normalizeInteractionState({ pending: managed.pending || null });
+    chat.markModified?.("interactionState");
+    chat.updatedAt = new Date();
+    await chat.save().catch(() => null);
+    return { ok: true, replies, delegated: [] };
   }
 
   const agentRefs = ordered.map((a) => ({ _id: a._id, name: a.name }));
