@@ -28,6 +28,7 @@ import { maybeSummarizeAgentMemory } from "./memorySummarizeCron.js";
 import { mem0IngestChatTurn } from "./mem0Service.js";
 import { planRoomAgentManage } from "./roomManage.js";
 import { normalizeInteractionState } from "./referenceState.js";
+import { planChatRoute, chatRouteContextFromAgent } from "./chatRoutePlan.js";
 /**
  * @param {string} content
  * @returns {boolean}
@@ -210,6 +211,21 @@ export async function runRoomTurn(opts) {
     agents: ordered,
     userId,
     chat,
+    planRoute: async ({ command, agent, history, state }) => {
+      const owner = await User.findById(userId);
+      if (!owner) return null;
+      const creds = await resolveLlmCredentialsForAgent(owner, agent);
+      return planChatRoute(
+        command,
+        creds,
+        chatRouteContextFromAgent({
+          agent,
+          history,
+          state,
+          userText: command,
+        })
+      );
+    },
   });
   if (managed?.clearPending) {
     chat.interactionState = normalizeInteractionState({ pending: null });

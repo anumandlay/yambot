@@ -65,6 +65,12 @@ import {
   isBareYesNo,
 } from "./composioFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
+import {
+  planChatRoute,
+  shouldPlanChatRoute,
+  chatRouteContextFromAgent,
+  mcpCommandFromRoute,
+} from "./chatRoutePlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 import {
   AUTO_CHAT_MAX_WALL_MS,
@@ -2851,15 +2857,45 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: “add mcp https://… bearer …” saves the server the way a reminder does — before the model.
-  if (looksLikeMcpServerManageRequest(text) && runtime?.agent) {
+  // Why: one model call picks chat, computer, Composio, MCP, or a reminder.
+  // Word gates run only when that call was skipped or returned nothing.
+  let route = opts.routePlanReady ? opts.routePlan || null : null;
+  if (!opts.routePlanReady && shouldPlanChatRoute(text) && creds?.apiKey && runtime?.agent) {
+    try {
+      route = await planChatRoute(
+        text,
+        creds,
+        chatRouteContextFromAgent({
+          agent: runtime.agent,
+          history: historyEarly,
+          state: interactionState,
+          computerOpen: Boolean(runtime.computerOpen),
+          userText: text,
+        })
+      );
+    } catch (err) {
+      console.warn("[chatRoute] plan failed:", err?.message || err);
+      route = null;
+    }
+  }
+  const trustRoute = Boolean(route);
+
+  // Why: “add mcp https://… bearer …” saves the server the way a reminder does — before the main model.
+  const mcpIncoming = trustRoute
+    ? route.lane === "mcp"
+      ? mcpCommandFromRoute(text, route.mcp)
+      : ""
+    : looksLikeMcpServerManageRequest(text)
+      ? text
+      : "";
+  if (mcpIncoming && runtime?.agent) {
     track.setPath("mcp_server_manage");
     track.markDecision("reply");
     try {
       const applied = await applyMcpServerFromChat({
         agent: runtime.agent,
         userId: runtime.userId,
-        text,
+        text: mcpIncoming,
       });
       const content = String(applied.content || "MCP updated.").trim();
       if (content) await pushReply(content);
@@ -2874,7 +2910,7 @@ export async function runChatAutoTurn(opts) {
         content,
         goal: "",
         ack: "",
-        reason: applied.ok ? "mcp_server_saved" : "mcp_server_manage",
+        reason: applied.ok ? (trustRoute ? "mcp_server_routed" : "mcp_server_saved") : "mcp_server_manage",
         timing: track.finish(),
       });
     } catch (err) {
@@ -2896,14 +2932,38 @@ export async function runChatAutoTurn(opts) {
   if (
     isBareYesNo(text) &&
     interactionState?.pending?.target?.type === "composio_app" &&
-    !composioYesNoStillApplies(interactionState, historyEarly)
+    !composioYesNoStillApplies(interactionState, historyEarly) &&
+    route?.lane !== "composio"
   ) {
     replaceInteraction({ ...interactionState, pending: null });
   }
   const composioApps = Array.isArray(runtime?.composioToolkitSlugs) ? runtime.composioToolkitSlugs : [];
-  const composioKeyword = acceptComposioKeywordPlan(text, interactionState, composioApps, historyEarly);
-  const composioAsked = looksLikeComposioAppManageRequest(text, interactionState, historyEarly);
+  if (trustRoute && route.lane === "composio" && !route.composio && runtime?.agent) {
+    const names = composioApps.filter(Boolean).join(", ") || "none yet";
+    const asked = String(route.unmatchedApp || "").trim();
+    const content = asked
+      ? `Composio does not have an app named ${asked} on this agent. On this agent: ${names}.`
+      : `Which app should I connect? On this agent: ${names}.`;
+    await pushReply(content);
+    track.setPath("composio_app_manage");
+    track.markDecision("reply");
+    return finalize({
+      action: "reply",
+      content,
+      goal: "",
+      ack: "",
+      reason: "composio_app_unmatched",
+      timing: track.finish(),
+    });
+  }
+  const composioKeyword = trustRoute
+    ? null
+    : acceptComposioKeywordPlan(text, interactionState, composioApps, historyEarly);
+  const composioAsked = trustRoute
+    ? route.lane === "composio"
+    : looksLikeComposioAppManageRequest(text, interactionState, historyEarly);
   const composioLlmCandidate =
+    !trustRoute &&
     !composioKeyword &&
     Boolean(runtime?.composioEnabled) &&
     Boolean(creds?.apiKey) &&
@@ -2924,7 +2984,7 @@ export async function runChatAutoTurn(opts) {
       console.warn("[composioFromChat] plan failed:", err?.message || err);
     }
   }
-  if ((composioKeyword || composioParsed) && runtime?.agent) {
+  if ((composioKeyword || composioParsed || (trustRoute && route.composio)) && runtime?.agent) {
     track.setPath("composio_app_manage");
     track.markDecision("reply");
     try {
@@ -2935,7 +2995,7 @@ export async function runChatAutoTurn(opts) {
         history: historyEarly,
         apiKey: runtime.composioApiKey,
         state: interactionState,
-        parsed: composioParsed || composioKeyword || undefined,
+        parsed: (trustRoute ? route.composio : null) || composioParsed || composioKeyword || undefined,
       });
       const content = String(applied.content || "Composio updated.").trim();
       if (content) await pushReply(content);
@@ -2955,9 +3015,11 @@ export async function runChatAutoTurn(opts) {
         goal: "",
         ack: "",
         reason: applied.ok
-          ? composioParsed
-            ? "composio_app_llm"
-            : "composio_app_saved"
+          ? trustRoute
+            ? "composio_app_routed"
+            : composioParsed
+              ? "composio_app_llm"
+              : "composio_app_saved"
           : "composio_app_manage",
         timing: track.finish(),
       });
@@ -2991,11 +3053,16 @@ export async function runChatAutoTurn(opts) {
 
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
   // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
-  if (looksLikeScheduleManageRequest(text) && runtime?.agent) {
+  const scheduleIncoming =
+    (trustRoute && route.lane === "reminder") ||
+    (!trustRoute && looksLikeScheduleManageRequest(text));
+  if (scheduleIncoming && runtime?.agent) {
     track.setPath("schedule_manage");
     track.markDecision("reply");
     try {
-      const parsed = await resolveScheduleFromChat(text, creds, historyEarly);
+      const parsed =
+        (trustRoute ? route.reminder : null) ||
+        (await resolveScheduleFromChat(text, creds, historyEarly));
       if (!parsed) {
         // Why: never fall through to the chat LLM (it invents “which app hosts drink water?”).
         const content =

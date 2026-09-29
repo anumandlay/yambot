@@ -24,6 +24,10 @@ import {
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
+import {
+  mcpCommandFromRoute,
+  shouldPlanChatRoute,
+} from "./chatRoutePlan.js";
 import { resolveAllAgentMentions } from "./mentionAgent.js";
 import { normalizeInteractionState } from "./referenceState.js";
 
@@ -165,6 +169,110 @@ async function runComposio(agent, command, state, history, opts) {
 }
 
 /**
+ * Run the lane the router already chose for one named room member.
+ * @param {object} agent
+ * @param {string} command
+ * @param {{ lane: string, composio?: object|null, unmatchedApp?: string, mcp?: object|null, reminder?: object|null }} route
+ * @param {{ role?: string, content?: string }[]} history
+ * @param {object} state
+ * @param {object} opts
+ * @returns {Promise<{ handled: boolean, agent: object, kind: string, content: string, pending: object|null }>}
+ */
+async function applyRoomRoute(agent, command, route, history, state, opts) {
+  try {
+    if (route.lane === "reminder") {
+      let parsed = route.reminder || null;
+      if (!parsed) {
+        const creds = await credsFor(agent, opts.userId, opts.resolveCreds);
+        const resolve = opts.resolveSchedule || resolveScheduleFromChat;
+        parsed = await resolve(command, creds, history);
+      }
+      if (!parsed) {
+        return {
+          handled: true,
+          agent,
+          kind: "schedule",
+          content:
+            "I couldn’t map that to a schedule change. Try “list reminders” or “remind me to call greetme on mockmcp every 1 min”.",
+          pending: null,
+        };
+      }
+      const apply = opts.applySchedule || applyScheduleFromChat;
+      const applied = await apply({ agent, parsed, chatId: null });
+      return {
+        handled: true,
+        agent,
+        kind: "schedule",
+        content: String(applied.content || "Schedule updated."),
+        pending: null,
+      };
+    }
+    if (route.lane === "mcp") {
+      const apply = opts.applyMcp || applyMcpServerFromChat;
+      const applied = await apply({
+        agent,
+        userId: opts.userId,
+        text: mcpCommandFromRoute(command, route.mcp),
+      });
+      return {
+        handled: true,
+        agent,
+        kind: "mcp",
+        content: String(applied.content || "MCP updated."),
+        pending: null,
+      };
+    }
+    if (!route.composio) {
+      const slugs = Array.isArray(agent.composio?.toolkitSlugs) ? agent.composio.toolkitSlugs : [];
+      const names = slugs.filter(Boolean).join(", ") || "none yet";
+      const asked = String(route.unmatchedApp || "").trim();
+      return {
+        handled: true,
+        agent,
+        kind: "composio",
+        content: asked
+          ? `Composio does not have an app named ${asked} on this agent. On this agent: ${names}.`
+          : `Which app should I connect? On this agent: ${names}.`,
+        pending: null,
+      };
+    }
+    const apply = opts.applyComposio || applyComposioAppFromChat;
+    const agentState =
+      state?.pending?.target?.id && String(state.pending.target.id) === String(agent._id)
+        ? state
+        : { pending: null };
+    const applied = await apply({
+      agent,
+      userId: opts.userId,
+      text: command,
+      history,
+      apiKey: decryptAgentComposioApiKey(agent),
+      state: agentState,
+      parsed: route.composio,
+    });
+    const pending = applied.pending
+      ? { ...applied.pending, target: { ...applied.pending.target, id: String(agent._id) } }
+      : null;
+    return {
+      handled: true,
+      agent,
+      kind: "composio",
+      content: String(applied.content || "Composio updated."),
+      pending,
+    };
+  } catch (err) {
+    const kind = route.lane === "reminder" ? "schedule" : route.lane === "mcp" ? "mcp" : "composio";
+    return {
+      handled: true,
+      agent,
+      kind,
+      content: `Could not update ${agent.name}: ${err?.message || err}`,
+      pending: null,
+    };
+  }
+}
+
+/**
  * Decide whether this room message saves a Composio app, an MCP server, or a reminder.
  * @param {{
  *   content: string,
@@ -179,6 +287,7 @@ async function runComposio(agent, command, state, history, opts) {
  *   applyMcp?: Function,
  *   resolveSchedule?: Function,
  *   applySchedule?: Function,
+ *   planRoute?: Function,
  * }} opts
  * @returns {Promise<null|{ handled: boolean, clearPending?: boolean, agent?: object, kind?: string, content?: string, pending?: object|null }>}
  */
@@ -218,6 +327,25 @@ export async function planRoomAgentManage(opts) {
   }
 
   const command = textWithoutMentions(content, agents);
+  const namedFirst = agentsNamedInRoomText(content, agents);
+  // Why: a named member’s short message is routed by the model. Word gates remain if that call fails.
+  if (namedFirst.length === 1 && typeof opts.planRoute === "function" && shouldPlanChatRoute(command)) {
+    let route = null;
+    try {
+      route = await opts.planRoute({
+        command,
+        agent: namedFirst[0],
+        history,
+        state,
+      });
+    } catch (err) {
+      console.warn("[roomManage] route failed:", err?.message || err);
+    }
+    if (route?.lane === "chat" || route?.lane === "computer") return null;
+    if (route && (route.lane === "reminder" || route.lane === "mcp" || route.lane === "composio")) {
+      return applyRoomRoute(namedFirst[0], command, route, history, state, opts);
+    }
+  }
   const schedule = looksLikeScheduleManageRequest(command);
   const mcp = !schedule && looksLikeMcpServerManageRequest(command);
   const composio =

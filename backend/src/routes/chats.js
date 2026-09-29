@@ -106,6 +106,11 @@ import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
 import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
 import { looksLikeMcpServerManageRequest } from "../utils/mcpFromChat.js";
 import { looksLikeComposioAppManageRequest } from "../utils/composioFromChat.js";
+import {
+  planChatRoute,
+  shouldPlanChatRoute,
+  chatRouteContextFromAgent,
+} from "../utils/chatRoutePlan.js";
 import { ensureAgentChat } from "../utils/enqueueTask.js";
 import { resolveHumanDisplayName } from "../utils/userPublic.js";
 import { normalizeComputerUseMode, parseComputerUseFromText } from "../utils/computerUseMode.js";
@@ -1278,6 +1283,47 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         confirmGoal || pendingComposioApproval || pendingComboFollowup
           ? null
           : cheapChatReplyIfAny(questionText);
+      // Why: one router call decides the lane before a live computer can swallow the sentence.
+      let routePlan = null;
+      let routePlanReady = false;
+      const comboOwnsTurn =
+        pendingComboFollowup?.taskId &&
+        !pendingComposioApproval &&
+        (looksLikeComposioRiskyDeny(questionText) ||
+          looksLikeAffirmativeConfirm(questionText) ||
+          looksLikeComposioRiskyConfirm(questionText));
+      if (
+        !comboOwnsTurn &&
+        !confirmGoal &&
+        !cheapReply &&
+        !pendingComposioApproval &&
+        shouldPlanChatRoute(questionText)
+      ) {
+        const userForRoute = await User.findById(req.userId);
+        qaCreds = await resolveLlmCredentialsForAgent(userForRoute, agentDoc);
+        routePlanReady = true;
+        if (qaCreds?.apiKey) {
+          try {
+            routePlan = await planChatRoute(
+              questionText,
+              qaCreds,
+              chatRouteContextFromAgent({
+                agent: agentDoc,
+                history: recentChatTurns,
+                state: chat.interactionState,
+                computerOpen: busyRun?.status === "running",
+                userText: questionText,
+              })
+            );
+          } catch (err) {
+            console.warn("[chatRoute] plan failed:", err?.message || err);
+          }
+        }
+      }
+      const steerLiveScreen =
+        busyRun?.status === "running" &&
+        classifyLiveRunFollowup(questionText) === "steer" &&
+        (!routePlan || routePlan.lane === "computer");
       try {
         if (
           pendingComboFollowup?.taskId &&
@@ -1339,10 +1385,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             ack: "",
             reason: "cheap_greeting",
           };
-        } else if (
-          busyRun?.status === "running" &&
-          classifyLiveRunFollowup(questionText) === "steer"
-        ) {
+        } else if (steerLiveScreen) {
           // Why: a follow-up like “apply” changes the open page. A new site or a status question does not.
           const { injectOperatorMessage } = await import("../utils/agentMessageBus.js");
           const injected = await injectOperatorMessage({
@@ -1364,25 +1407,27 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           };
         } else {
         const userForLlm = await User.findById(req.userId);
-        qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
+        if (!qaCreds) qaCreds = await resolveLlmCredentialsForAgent(userForLlm, agentDoc);
         if (!qaCreds.apiKey) {
           throw Object.assign(new Error("No LLM credentials configured"), {
             title: "LLM not configured",
             hint: "Add an LLM key in Settings, or use Computer mode / /run …",
           });
         }
-        // Why: parallel context + memory (Hermes-style) — never block TTFT on sequential awaits.
-        // Why: abort LLM/tools when the client disconnects so abandoned Auto turns stop billing.
-        // Why: serialize Auto turns per chat so two fast messages cannot race transcript order.
-        // Why: Hermes tool-decision — light prep (skip Mem0) whenever tools are not needed.
-        // Why: schedule list/create/stop needs no LLM context pack — skip prepare entirely.
-        const scheduleManage = looksLikeScheduleManageRequest(questionText);
-        const mcpServerManage = looksLikeMcpServerManageRequest(questionText);
-        const composioAppManage = looksLikeComposioAppManageRequest(
-          questionText,
-          chat.interactionState,
-          recentChatTurns
-        );
+        // Why: the router already chose the lane. Word gates apply only when it did not answer.
+        const scheduleManage = routePlan
+          ? routePlan.lane === "reminder"
+          : looksLikeScheduleManageRequest(questionText);
+        const mcpServerManage = routePlan
+          ? routePlan.lane === "mcp"
+          : looksLikeMcpServerManageRequest(questionText);
+        const composioAppManage = routePlan
+          ? routePlan.lane === "composio"
+          : looksLikeComposioAppManageRequest(
+              questionText,
+              chat.interactionState,
+              recentChatTurns
+            );
         const light =
           scheduleManage ||
           mcpServerManage ||
@@ -1444,6 +1489,8 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             creds: qaCreds,
             chatContext: prepared.chatContextBlock,
             historyMessages: prepared.historyMessages || [],
+            routePlan,
+            routePlanReady,
             stream: wantStream,
             onDelta: wantStream
               ? (chunk) => writeNdjson({ type: "delta", text: chunk })
@@ -1505,6 +1552,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
             },
             userId: String(req.userId),
             chatId: String(chat._id),
+            computerOpen: busyRun?.status === "running",
             displayName: resolveHumanDisplayName(owner),
             interactionState: chat.interactionState || null,
             agent: agentDoc,

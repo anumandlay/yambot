@@ -1,4 +1,8 @@
-# PROMPT_LOG.md
+## [2026-09-29 13:05] One model call chooses chat, computer, Composio, MCP, or a reminder
+
+- **Prompt Provided:** Let the LLM understand each message and decide the task.
+- **Architectural Flow:** A short agent message is sent once with the last replies and the apps, MCP servers, and reminders already on that agent. The model picks one lane. YamBot then saves, connects, or stops using that decision. A connect or a reminder change cannot start the computer. Yes and no follow the latest reply. A long computer goal skips the extra call. If the call fails, the older word checks still run. A risky send still needs its own yes or no. In a room, the same call runs when one agent is named.
+- **Impacted Files:** chatRoutePlan.js, chatAutoTurn.js, chats.js, roomManage.js, roomTurn.js, chatRoutePlan.test.js, PROMPT_LOG
 
 ## [2026-09-29 12:52] “delete those” stops the reminders just listed
 

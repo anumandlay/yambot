@@ -10,6 +10,28 @@ const trial = { _id: "agent-trial", name: "Trial Expiry Checker" };
 const general = { _id: "agent-general", name: "General" };
 const agents = [trial, general];
 
+test("the router can stop reminders without the word reminder", async () => {
+  let seen = null;
+  const result = await planRoomAgentManage({
+    content: "@General delete those",
+    agents,
+    userId: "user1",
+    history: [{ role: "agent", content: "2 reminders are active." }],
+    planRoute: async () => ({
+      lane: "reminder",
+      reminder: { action: "disable", matchHint: "" },
+    }),
+    applySchedule: async (opts) => {
+      seen = opts;
+      return { ok: true, content: "Stopped every reminder." };
+    },
+  });
+  assert.equal(result.kind, "schedule");
+  assert.equal(seen.parsed.action, "disable");
+  assert.equal(seen.chatId, null);
+  assert.match(result.content, /Stopped every reminder/);
+});
+
 test("an @mention names one agent, two names do not", () => {
   assert.deepEqual(
     agentsNamedInRoomText("@Trial Expiry Checker list reminders", agents).map((a) => a._id),
