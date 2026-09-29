@@ -288,8 +288,9 @@ test("a copied reminder name deletes that job, and the word 1st does not", async
   assert.equal(pointed.schedules.length, 2);
 });
 
-test("delete those is a reminder follow-up, not an app name", () => {
-  assert.equal(looksLikeScheduleManageRequest("delete those"), true);
-  assert.equal(extractScheduleDisableHint("delete those"), "");
+test("delete those is not a word-gate schedule request, and the hint is not force-emptied", () => {
+  assert.equal(looksLikeScheduleManageRequest("delete those"), false);
+  assert.equal(extractScheduleDisableHint("delete those"), "those");
   assert.equal(wantsDisableAllSchedules("delete those", ""), true);
+  assert.equal(wantsDisableAllSchedules("delete those", "those"), false);
 });

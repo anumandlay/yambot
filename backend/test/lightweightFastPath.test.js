@@ -54,8 +54,9 @@ const mcpList = [
       "1. mcp_mockmcp_greetme\n2. mcp_mockmcp_mockmcpstatus\n3. mcp_mockmcp_generatecar",
   },
 ];
-assert.match(mcpFollowupDirective("1", mcpList), /mcp_mockmcp_greetme/);
-assert.match(mcpFollowupDirective("call no.1", mcpList), /mcp_mockmcp_greetme/);
+assert.equal(mcpFollowupDirective("1", mcpList), "");
+assert.equal(mcpFollowupDirective("call no.1", mcpList), "");
+assert.match(mcpFollowupDirective("greetme", mcpList), /mcp_mockmcp_greetme/);
 assert.equal(mcpFollowupDirective("yes", mcpList), "");
 assert.match(
   mcpFollowupDirective("Ayamu", [

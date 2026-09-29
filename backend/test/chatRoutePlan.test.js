@@ -6,6 +6,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   chatRouteContextFromAgent,
+  matchPresentedListPick,
   mcpCommandFromRoute,
   normalizeChatRoute,
   redactSecretsForRoute,
@@ -24,14 +25,19 @@ test("bearer tokens are not copied into the router prompt", () => {
   assert.match(hidden, /\[redacted\]/);
 });
 
-test("delete those is a reminder stop with an empty hint", () => {
-  const route = normalizeChatRoute(
+test("the model leaves matchHint empty for delete those, and the word is not cleared in code", () => {
+  const emptied = normalizeChatRoute(
+    { lane: "reminder", action: "disable", matchHint: "" },
+    { userText: "delete those" }
+  );
+  assert.equal(emptied.lane, "reminder");
+  assert.equal(emptied.reminder.action, "disable");
+  assert.equal(emptied.reminder.matchHint, "");
+  const kept = normalizeChatRoute(
     { lane: "reminder", action: "disable", matchHint: "those" },
     { userText: "delete those" }
   );
-  assert.equal(route.lane, "reminder");
-  assert.equal(route.reminder.action, "disable");
-  assert.equal(route.reminder.matchHint, "");
+  assert.equal(kept.reminder.matchHint, "those");
 });
 
 test("a misspelled app is not rewritten onto a saved slug", () => {
@@ -51,6 +57,27 @@ test("the model can copy a saved slug", () => {
   );
   assert.equal(route.composio.action, "reconnect");
   assert.equal(route.composio.slug, "apollo");
+});
+
+test("a copied list name is kept and an unknown name is dropped", () => {
+  const items = [
+    { type: "mcp_tool", name: "mcp_mockmcp_greetme", label: "Greet the user", id: "" },
+    { type: "mcp_tool", name: "mcp_mockmcp_mockmcpstatus", label: "Get the server status", id: "" },
+  ];
+  assert.equal(matchPresentedListPick("second", items), null);
+  assert.equal(matchPresentedListPick("2", items), null);
+  const copied = normalizeChatRoute(
+    { lane: "chat", listName: "mcp_mockmcp_mockmcpstatus" },
+    { listItems: items }
+  );
+  assert.equal(copied.lane, "list");
+  assert.equal(copied.listPick.name, "mcp_mockmcp_mockmcpstatus");
+  const unknown = normalizeChatRoute(
+    { lane: "chat", listName: "not-a-tool" },
+    { listItems: items }
+  );
+  assert.equal(unknown.lane, "chat");
+  assert.equal(unknown.listPick, undefined);
 });
 
 test("chat and computer do not become an app or a reminder", () => {

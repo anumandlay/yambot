@@ -22,11 +22,9 @@ test("lists MCP tools without a model call", () => {
   assert.equal(resolveMcpReference("list of mcps", [])?.kind, "list");
 });
 
-test("maps 1 and the second one onto the previous list", () => {
-  const first = resolveMcpReference("1", list);
-  assert.equal(first?.tool, "mcp_mockmcp_greetme");
-  assert.equal(first?.source, "previous_numbered_list");
-  assert.equal(resolveMcpReference("the second one", list)?.tool, "mcp_mockmcp_mockmcpstatus");
+test("a row word or a bare number is left for the model", () => {
+  assert.equal(resolveMcpReference("1", list), null);
+  assert.equal(resolveMcpReference("the second one", list), null);
   assert.equal(resolveMcpReference("yes", list), null);
 });
 
@@ -38,7 +36,7 @@ test("a pending name question wins over the old numbered list", () => {
   const named = resolveMcpReference("Ayamu", history);
   assert.equal(named?.tool, "mcp_mockmcp_greetme");
   assert.equal(named?.args?.name, "Ayamu");
-  assert.equal(resolveMcpReference("1", history)?.kind, "ask");
+  assert.equal(resolveMcpReference("1", history), null);
 });
 
 test("yes confirms a pending tool call and keeps an offered name", () => {
@@ -70,5 +68,5 @@ test("catalog text uses the same names the resolver reads", () => {
     },
   });
   assert.match(text, /1\. mcp_mockmcp_greetme/);
-  assert.equal(resolveMcpReference("1", [{ role: "assistant", content: text }])?.tool, "mcp_mockmcp_greetme");
+  assert.equal(resolveMcpReference("1", [{ role: "assistant", content: text }]), null);
 });

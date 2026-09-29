@@ -1,3 +1,9 @@
+## [2026-09-29 13:45] The model copies a listed tool, skill, or agent name
+
+- **Prompt Provided:** Remove the remaining row-word pickers the way reminder rows were removed. Let the LLM copy the item name.
+- **Architectural Flow:** “1”, “the second one”, and “those” no longer choose a row in code. The same chat router sees the list just shown. When the user points at one tool, skill, or agent, the model copies that row’s name. YamBot runs that item. A copied reminder name still stops that job. An empty reminder hint, which the model leaves empty for “delete those”, still stops every reminder. Yes and no on a waiting question stay as they are.
+- **Impacted Files:** mcpReference.js, referenceState.js, chatRoutePlan.js, chatAutoTurn.js, scheduleFromChat.js, scheduleLlmPlan.js, mcpReference.test.js, referenceState.test.js, chatRoutePlan.test.js, scheduleFromChat.test.js, lightweightFastPath.test.js, PROMPT_LOG
+
 ## [2026-09-29 13:36] The model picks which listed reminder to stop
 
 - **Prompt Provided:** Do not map 1st, first, 2nd, or second in code. Let the LLM choose the reminder.

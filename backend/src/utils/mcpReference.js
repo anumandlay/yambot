@@ -1,6 +1,7 @@
 /**
  * @fileoverview Resolve short chat replies onto an MCP tool before the model answers.
- * Purpose: "1", "the second one", and a name after "whose name?" are references, not new questions.
+ * Purpose: a name after "whose name?" and a yes or no are references, not new questions.
+ * A row word or a bare number is left for the model, which copies the tool name.
  * Downstream: chatAutoTurn.js calls the resolved tool or asks for the missing argument.
  */
 
@@ -54,27 +55,6 @@ export function formatCachedMcpCatalog(agent) {
 
 /**
  * @param {string} text
- * @returns {number} 1-based index, or 0
- */
-function listIndex(text) {
-  const q = String(text || "").trim();
-  const ordinals = [
-    [/^(?:the\s+)?first(?:\s+one)?$/i, 1],
-    [/^(?:the\s+)?second(?:\s+one)?$/i, 2],
-    [/^(?:the\s+)?third(?:\s+one)?$/i, 3],
-    [/^(?:the\s+)?fourth(?:\s+one)?$/i, 4],
-  ];
-  for (const [re, n] of ordinals) {
-    if (re.test(q)) return n;
-  }
-  const numbered = q.match(
-    /^(?:please\s+)?(?:call|run|use|do|pick|choose)?\s*(?:no\.?|number|#|item|tool)?\s*(\d{1,2})\s*$/i
-  );
-  return numbered ? Number(numbered[1]) : 0;
-}
-
-/**
- * @param {string} text
  * @returns {boolean}
  */
 function isYes(text) {
@@ -105,8 +85,8 @@ function toolFromQuestion(last, catalog) {
 
 /**
  * Resolve a short follow-up against the recent MCP list or a pending question.
- * Priority: a question waiting for a name, then a yes/no confirmation, then a numbered list.
- * Why: "1" after "whose name?" must not silently become tool #1.
+ * Priority: a question waiting for a name, then a yes/no confirmation.
+ * A row word or a bare number is left for the model, which copies the tool name.
  * @param {string} text
  * @param {{ role?: string, content?: string }[]} [historyMessages]
  * @returns {null | { kind: "list", source: string } | { kind: "ask", question: string } | { kind: "call", tool: string, args: Record<string, string>, source: string }}
@@ -133,22 +113,6 @@ export function resolveMcpReference(text, historyMessages = []) {
       if (name) return { kind: "call", tool, args: { name }, source: "pending_question" };
       return { kind: "ask", question: `Whose name should I use for ${tool}?` };
     }
-    const explicit = q.match(/^tool\s*#?\s*(\d{1,2})$/i);
-    if (explicit && catalog[Number(explicit[1]) - 1]) {
-      return {
-        kind: "call",
-        tool: catalog[Number(explicit[1]) - 1],
-        args: {},
-        source: "explicit_tool_number",
-      };
-    }
-    const asIndex = listIndex(q);
-    if (asIndex && catalog[asIndex - 1]) {
-      return {
-        kind: "ask",
-        question: `${q} could be a name, or tool ${asIndex} (${catalog[asIndex - 1]}). Reply with a name, or say "tool ${asIndex}".`,
-      };
-    }
     if (/^[A-Za-z][A-Za-z .'-]{0,40}$/.test(q)) {
       return { kind: "call", tool, args: { name: q }, source: "pending_question" };
     }
@@ -163,15 +127,6 @@ export function resolveMcpReference(text, historyMessages = []) {
       tool,
       args: name ? { name } : {},
       source: "pending_confirmation",
-    };
-  }
-  const index = listIndex(q);
-  if (index && catalog[index - 1]) {
-    return {
-      kind: "call",
-      tool: catalog[index - 1],
-      args: {},
-      source: "previous_numbered_list",
     };
   }
   return null;

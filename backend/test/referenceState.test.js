@@ -21,10 +21,14 @@ test("stores the MCP catalog as a numbered record", () => {
   assert.equal(list.items[1].index, 2);
 });
 
-test("1 selects the stored item and a pending name wins", () => {
+test("a copied name selects the stored item, and a row word does not", () => {
   const state = { pending: null, lastPresentedList: listFromMcpCatalogText(catalog) };
-  assert.equal(resolveStoredReference("1", state)?.target.name, "mcp_mockmcp_greetme");
-  assert.equal(resolveStoredReference("the second one", state)?.target.name, "mcp_mockmcp_mockmcpstatus");
+  assert.equal(resolveStoredReference("1", state), null);
+  assert.equal(resolveStoredReference("the second one", state), null);
+  assert.equal(
+    resolveStoredReference("mcp_mockmcp_greetme", state)?.target.name,
+    "mcp_mockmcp_greetme"
+  );
   const waiting = {
     pending: {
       expects: "name",
@@ -33,7 +37,7 @@ test("1 selects the stored item and a pending name wins", () => {
     lastPresentedList: state.lastPresentedList,
   };
   assert.equal(resolveStoredReference("Ayamu", waiting)?.args.name, "Ayamu");
-  assert.equal(resolveStoredReference("1", waiting)?.kind, "ask");
+  assert.equal(resolveStoredReference("1", waiting), null);
   assert.equal(resolveStoredReference("yes", waiting), null);
 });
 
@@ -58,10 +62,13 @@ test("skill and agent lookups become stored lists", () => {
     JSON.stringify({ skills: [{ id: "abc", name: "Trial list", slug: "trial-list" }] })
   );
   assert.equal(skills.items[0].target.type, "skill");
-  assert.equal(resolveStoredReference("1", { lastPresentedList: skills })?.target.name, "trial-list");
+  assert.equal(resolveStoredReference("1", { lastPresentedList: skills }), null);
+  assert.equal(resolveStoredReference("trial-list", { lastPresentedList: skills })?.target.name, "trial-list");
+  assert.equal(resolveStoredReference("Trial list", { lastPresentedList: skills })?.target.name, "trial-list");
   const agents = presentedListFromLookup(
     "list_peer_agents",
     JSON.stringify({ peers: ["General"] })
   );
-  assert.equal(resolveStoredReference("1", { lastPresentedList: agents })?.target.type, "agent");
+  assert.equal(resolveStoredReference("1", { lastPresentedList: agents }), null);
+  assert.equal(resolveStoredReference("General", { lastPresentedList: agents })?.target.type, "agent");
 });

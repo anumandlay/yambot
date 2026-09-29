@@ -50,12 +50,14 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action !== "create" && action !== "disable" && action !== "update") return null;
 
   if (action === "disable") {
-    let matchHint = String(
-      raw.matchHint || raw.hint || raw.topic || extractScheduleDisableHint(userText) || ""
+    // Why: an empty matchHint from the model means stop every reminder.
+    // Only a missing field falls back to words left in the sentence.
+    const provided = raw.matchHint ?? raw.hint ?? raw.topic;
+    const matchHint = String(
+      provided != null ? provided : extractScheduleDisableHint(userText) || ""
     )
       .trim()
       .slice(0, 80);
-    if (/^(those|them|these|both|it|that|this|all|everything)$/i.test(matchHint)) matchHint = "";
     return { action: "disable", matchHint };
   }
 

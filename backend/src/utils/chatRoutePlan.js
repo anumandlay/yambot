@@ -12,6 +12,7 @@ import { llmChatCompletion } from "./llmChat.js";
 import { expandComposioToolkitSlugs } from "./composioService.js";
 import { normalizeComposioManagePlan } from "./composioFromChat.js";
 import { normalizeLlmSchedulePlan } from "./scheduleLlmPlan.js";
+import { mcpToolsMentioned } from "./mcpReference.js";
 
 /** Short messages only. A long computer goal skips this call. */
 export const CHAT_ROUTE_MAX_CHARS = 500;
@@ -37,9 +38,39 @@ export function redactSecretsForRoute(text) {
 }
 
 /**
- * Facts the router needs: saved apps, MCP server names, and live reminders.
+ * Rows from the list just shown, so the model can copy one name.
+ * @param {object|null|undefined} state
+ * @param {object[]} history
+ * @returns {{ type: string, name: string, label: string, id: string }[]}
+ */
+function presentedListItems(state, history) {
+  const stored = state?.lastPresentedList?.items;
+  if (Array.isArray(stored) && stored.length) {
+    return stored
+      .slice(0, 40)
+      .map((item) => ({
+        type: String(item?.target?.type || ""),
+        name: String(item?.target?.name || "").trim(),
+        label: String(item?.label || item?.target?.name || "").trim(),
+        id: String(item?.target?.id || ""),
+      }))
+      .filter((item) => item.name);
+  }
+  const blob = (Array.isArray(history) ? history : [])
+    .map((row) => String(row?.content || ""))
+    .join("\n");
+  return mcpToolsMentioned(blob).map((name) => ({
+    type: "mcp_tool",
+    name,
+    label: name,
+    id: "",
+  }));
+}
+
+/**
+ * Facts the router needs: saved apps, MCP server names, live reminders, and the list just shown.
  * @param {{ agent?: object, history?: object[], state?: object|null, computerOpen?: boolean, userText?: string }} ctx
- * @returns {{ apps: string[], servers: string[], reminders: string[], history: object[], state: object|null, computerOpen: boolean, userText: string }}
+ * @returns {{ apps: string[], servers: string[], reminders: string[], listItems: object[], history: object[], state: object|null, computerOpen: boolean, userText: string }}
  */
 export function chatRouteContextFromAgent(ctx = {}) {
   const agent = ctx.agent || {};
@@ -60,11 +91,13 @@ export function chatRouteContextFromAgent(ctx = {}) {
     })
     .filter(Boolean)
     .slice(0, 8);
+  const history = Array.isArray(ctx.history) ? ctx.history : [];
   return {
     apps,
     servers,
     reminders,
-    history: Array.isArray(ctx.history) ? ctx.history : [],
+    listItems: presentedListItems(ctx.state, history),
+    history,
     state: ctx.state || null,
     computerOpen: Boolean(ctx.computerOpen),
     userText: String(ctx.userText || ""),
@@ -72,10 +105,32 @@ export function chatRouteContextFromAgent(ctx = {}) {
 }
 
 /**
+ * Keep a copied list name only when it is one of the rows just shown.
+ * @param {string} listName
+ * @param {{ type?: string, name?: string, label?: string, id?: string }[]} [items]
+ * @returns {{ type: string, name: string, id: string }|null}
+ */
+export function matchPresentedListPick(listName, items = []) {
+  const asked = String(listName || "").trim().toLowerCase();
+  if (!asked || !Array.isArray(items)) return null;
+  const hit = items.find((item) => {
+    const name = String(item?.name || "").trim().toLowerCase();
+    const label = String(item?.label || "").trim().toLowerCase();
+    return asked === name || (label && asked === label);
+  });
+  if (!hit?.name) return null;
+  return {
+    type: String(hit.type || ""),
+    name: String(hit.name || ""),
+    id: String(hit.id || ""),
+  };
+}
+
+/**
  * Turn the model JSON into one lane. A bad app slug is not rewritten.
  * @param {object|null|undefined} raw
- * @param {{ apps?: string[], state?: object|null, userText?: string }} [ctx]
- * @returns {{ lane: string, composio?: object|null, unmatchedApp?: string, mcp?: { action: string, server: string }|null, reminder?: object|null }|null}
+ * @param {{ apps?: string[], listItems?: object[], state?: object|null, userText?: string }} [ctx]
+ * @returns {{ lane: string, listPick?: object, composio?: object|null, unmatchedApp?: string, mcp?: { action: string, server: string }|null, reminder?: object|null }|null}
  */
 export function normalizeChatRoute(raw, ctx = {}) {
   if (!raw || typeof raw !== "object") return null;
@@ -85,10 +140,16 @@ export function normalizeChatRoute(raw, ctx = {}) {
   }
   if (lane === "app" || lane === "apps") lane = "composio";
   if (lane === "server" || lane === "servers") lane = "mcp";
-  if (lane === "reply" || lane === "none" || lane === "talk" || lane === "question") lane = "chat";
+  if (lane === "reply" || lane === "none" || lane === "talk" || lane === "question" || lane === "list") {
+    lane = "chat";
+  }
   if (lane === "job" || lane === "browser" || lane === "steer" || lane === "screen") lane = "computer";
   if (!["chat", "computer", "composio", "mcp", "reminder"].includes(lane)) return null;
-  if (lane === "chat" || lane === "computer") return { lane };
+  if (lane === "chat" || lane === "computer") {
+    const listPick = matchPresentedListPick(raw.listName, ctx.listItems);
+    if (listPick) return { lane: "list", listPick };
+    return { lane };
+  }
 
   if (lane === "composio") {
     const app = String(raw.app || raw.slug || raw.toolkit || "").trim();
@@ -168,7 +229,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
       : "";
   const system = [
     "You route one YamBot chat message. Reply with JSON only, no markdown.",
-    '{"lane":"chat|computer|composio|mcp|reminder","action":"","app":"","server":"","interval":"","dailyAt":"","kind":"","goal":"","name":"","matchHint":""}',
+    '{"lane":"chat|computer|composio|mcp|reminder","action":"","app":"","server":"","interval":"","dailyAt":"","kind":"","goal":"","name":"","matchHint":"","listName":""}',
     "Pick exactly one lane.",
     "chat = a normal question or conversation. yes and no follow the latest assistant message.",
     "computer = start or steer a browser job, or click, type, scroll, or apply on a page that is already open.",
@@ -181,6 +242,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
     "disable with empty matchHint stops every reminder. delete those, them, these, or both after a list is disable with empty matchHint.",
     "If the user points at one row in a numbered reminder list, lane is reminder, action is disable, and matchHint is that row's name or goal copied from the list. Do not put the pointing word or the row number in matchHint or app.",
+    "If the user points at one row of Listed items (a tool, skill, or agent), lane is chat and listName is that row's exact name copied from the list. Otherwise listName is empty. Do not put a row word or a number in listName.",
     "Do not put those, them, or these in matchHint or app.",
     "A connect, a server add, or a reminder change is never lane computer.",
     "If a computer is open, a screen action on that page is lane computer. Managing apps, servers, or reminders is still those lanes.",
@@ -191,6 +253,14 @@ export async function planChatRoute(text, creds, ctx = {}) {
     waiting ? `Waiting app: ${waiting}` : "",
     ctx.servers?.length ? `MCP servers: ${ctx.servers.join(", ")}` : "MCP servers: none",
     ctx.reminders?.length ? `Reminders:\n${ctx.reminders.map((row) => `- ${row}`).join("\n")}` : "Reminders: none",
+    ctx.listItems?.length
+      ? `Listed items:\n${ctx.listItems
+          .map((item, index) => {
+            const label = item.label && item.label !== item.name ? ` — ${item.label}` : "";
+            return `${index + 1}. ${item.name}${label}`;
+          })
+          .join("\n")}`
+      : "",
     recent ? `Recent chat:\n${recent}` : "",
     `User: ${redactSecretsForRoute(raw)}`,
   ]
@@ -218,6 +288,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
   try {
     return normalizeChatRoute(JSON.parse(jsonMatch[0]), {
       apps: ctx.apps || [],
+      listItems: ctx.listItems || [],
       state: ctx.state || null,
       userText: raw,
     });

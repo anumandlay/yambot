@@ -1,7 +1,7 @@
 /**
- * @fileoverview Chat interaction state for short replies such as "1" and "yes".
- * Purpose: Remember the last numbered list and any question waiting for an answer,
- * then resolve the next message from that record before the model sees it.
+ * @fileoverview Chat interaction state for a copied name and for yes or no.
+ * Purpose: Remember the last list and any question waiting for an answer.
+ * A copied item name or a yes/no is resolved here. A row word is left for the model.
  * Downstream: Chat.interactionState, chatAutoTurn.js.
  */
 
@@ -136,27 +136,6 @@ export function presentedListFromLookup(kind, resultText) {
 
 /**
  * @param {string} text
- * @returns {number}
- */
-function listIndex(text) {
-  const q = String(text || "").trim();
-  const ordinals = [
-    [/^(?:the\s+)?first(?:\s+one)?$/i, 1],
-    [/^(?:the\s+)?second(?:\s+one)?$/i, 2],
-    [/^(?:the\s+)?third(?:\s+one)?$/i, 3],
-    [/^(?:the\s+)?fourth(?:\s+one)?$/i, 4],
-  ];
-  for (const [re, n] of ordinals) {
-    if (re.test(q)) return n;
-  }
-  const numbered = q.match(
-    /^(?:please\s+)?(?:call|run|use|do|pick|choose)?\s*(?:no\.?|number|#|item|tool)?\s*(\d{1,2})\s*$/i
-  );
-  return numbered ? Number(numbered[1]) : 0;
-}
-
-/**
- * @param {string} text
  * @returns {boolean}
  */
 function isYes(text) {
@@ -173,7 +152,8 @@ function isNo(text) {
 
 /**
  * Resolve a short message from the saved list and pending question.
- * Priority: a name the tool is waiting for, then yes/no, then the numbered list.
+ * Priority: a name the tool is waiting for, then yes/no.
+ * A row word or a bare number is left for the model, which copies the item name.
  * @param {string} text
  * @param {object|null|undefined} rawState
  * @returns {null | { kind: "cancel" } | { kind: "ask", question: string, pending: object } | { kind: "call", target: object, args: Record<string, string>, source: string }}
@@ -191,23 +171,6 @@ export function resolveStoredReference(text, rawState) {
         target: pending.target,
         args: { name: pending.offeredName },
         source: "pending_question",
-      };
-    }
-    const explicit = q.match(/^tool\s*#?\s*(\d{1,2})$/i);
-    if (explicit && items[Number(explicit[1]) - 1]) {
-      return {
-        kind: "call",
-        target: items[Number(explicit[1]) - 1].target,
-        args: {},
-        source: "explicit_tool_number",
-      };
-    }
-    const asIndex = listIndex(q);
-    if (asIndex && items[asIndex - 1]) {
-      return {
-        kind: "ask",
-        question: `${q} could be a name, or item ${asIndex} (${items[asIndex - 1].label}). Reply with a name, or say "tool ${asIndex}".`,
-        pending,
       };
     }
     if (/^[A-Za-z][A-Za-z .'-]{0,40}$/.test(q) && !isYes(q) && !isNo(q)) {
@@ -232,14 +195,14 @@ export function resolveStoredReference(text, rawState) {
     }
     return null;
   }
-  const index = listIndex(q);
-  if (index && items[index - 1]) {
-    return {
-      kind: "call",
-      target: items[index - 1].target,
-      args: {},
-      source: "stored_list",
-    };
+  const named = items.find((item) => {
+    const name = String(item?.target?.name || "").trim().toLowerCase();
+    const label = String(item?.label || "").trim().toLowerCase();
+    const asked = q.toLowerCase();
+    return asked && (asked === name || asked === label);
+  });
+  if (named) {
+    return { kind: "call", target: named.target, args: {}, source: "copied_name" };
   }
   return null;
 }

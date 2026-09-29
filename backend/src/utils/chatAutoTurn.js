@@ -2880,6 +2880,36 @@ export async function runChatAutoTurn(opts) {
   }
   const trustRoute = Boolean(route);
 
+  // Why: the model copied a tool, skill, or agent name from the list just shown.
+  // A row word is not turned into a position here.
+  if (trustRoute && route.lane === "list" && route.listPick) {
+    track.setPath("model_list");
+    track.markDecision("reply");
+    const content = await fulfillStoredTarget(
+      { kind: "call", target: route.listPick, args: {}, source: "model_list" },
+      runtime
+    );
+    if (content) {
+      if (/^Whose name should I use for /.test(content)) {
+        replaceInteraction({
+          ...interactionState,
+          pending: pendingNameQuestion(route.listPick),
+        });
+      } else {
+        replaceInteraction({ ...interactionState, pending: null });
+      }
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "model_list",
+        timing: track.finish(),
+      });
+    }
+  }
+
   // Why: “add mcp https://… bearer …” saves the server the way a reminder does — before the main model.
   const mcpIncoming = trustRoute
     ? route.lane === "mcp"
@@ -3258,7 +3288,7 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  // Why: "1" after a numbered MCP list is a reference. Resolve it here so Jev and the chat model never guess.
+  // Why: "list mcps" and a yes or a name still resolve here. A bare number is left for the model.
   if (runtime?.mcpEnabled) {
     const ref = resolveMcpReference(text, historyEarly);
     if (ref) {
@@ -3324,7 +3354,7 @@ export async function runChatAutoTurn(opts) {
   let jevDecision = null;
   /** Why: when Jev picks composio but intent matcher misses, still force the tools loop. */
   let jevForceTools = false;
-  // Why: "1" / "call no.1" after a numbered MCP list does not contain the server name.
+  // Why: a copied tool name, or a name while a question is waiting, starts the tools loop.
   const mcpDirective = runtime?.mcpEnabled ? mcpFollowupDirective(text, historyEarly) : "";
   if (mcpDirective) jevForceTools = true;
   const jevApiKey = String(runtime?.jevApiKey || "").trim();
@@ -4515,8 +4545,8 @@ async function fulfillStoredTarget(hit, runtime) {
 }
 
 /**
- * Instruction when the user picks a tool from the previous MCP list.
- * Why: "1" and "call no.1" do not contain mcp or the server name, so the tools loop would not start.
+ * Instruction when the user names a tool from the previous MCP list, or answers a waiting question.
+ * A bare number is not mapped onto a row. The model copies the tool name.
  * @param {string} text
  * @param {{ role?: string, content?: string }[]} [historyMessages]
  * @returns {string}
@@ -4530,15 +4560,6 @@ export function mcpFollowupDirective(text, historyMessages = []) {
   const last = recent[recent.length - 1];
   const catalog = mcpToolsMentioned(recent.map((row) => row.content).join("\n"));
   if (!catalog.length || !last) return "";
-  const numbered = q.match(
-    /^(?:please\s+)?(?:call|run|use|do)?\s*(?:no\.?|number|#)?\s*(\d{1,2})\s*$/i
-  );
-  if (numbered) {
-    const index = Number(numbered[1]) - 1;
-    if (index >= 0 && index < catalog.length) {
-      return `Call ${catalog[index]} now. If it needs a name and the user did not give one, ask once. Do not print XML, gadget, or tool_req tags.`;
-    }
-  }
   const folded = q.toLowerCase().replace(/[^a-z0-9]+/g, "");
   for (const name of catalog) {
     const toolSlug = name.split("_").slice(2).join("");
