@@ -361,7 +361,7 @@ export function extractScheduleDisableHint(text) {
     .trim();
 
   // Why: bare “stop reminders” / “delete all schedules” → empty tip (caller may stop all).
-  if (!hint || /^(all|them|everything)$/i.test(hint)) {
+  if (!hint || /^(all|them|those|these|both|it|that|this|everything)$/i.test(hint)) {
     if (/\bemail\b/i.test(raw) && !/\b(drink|water|hydrat)\b/i.test(raw)) return "email";
     return "";
   }
@@ -580,6 +580,14 @@ export function looksLikeScheduleManageRequest(text) {
   if (looksLikeScheduleUpdateRequest(raw)) return true;
 
   if (looksLikeReminderCreateRequest(raw)) return true;
+
+  // Why: “delete those” means the reminders named in the previous reply.
+  if (
+    /\b(stop|disable|pause|cancel|remove|delete)\b/i.test(raw) &&
+    /\b(those|them|these|both)\b/i.test(raw)
+  ) {
+    return true;
+  }
 
   // Create: cadence ("every 5 minutes") + schedule verbs.
   const cadence = parseScheduleIntervalFromText(raw);

@@ -253,3 +253,9 @@ test("send email summary frames as inbox check", () => {
 test("plain check email is not schedule manage", () => {
   assert.equal(looksLikeScheduleManageRequest("check email"), false);
 });
+
+test("delete those is a reminder follow-up, not an app name", () => {
+  assert.equal(looksLikeScheduleManageRequest("delete those"), true);
+  assert.equal(extractScheduleDisableHint("delete those"), "");
+  assert.equal(wantsDisableAllSchedules("delete those", ""), true);
+});

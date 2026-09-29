@@ -2995,7 +2995,7 @@ export async function runChatAutoTurn(opts) {
     track.setPath("schedule_manage");
     track.markDecision("reply");
     try {
-      const parsed = await resolveScheduleFromChat(text, creds);
+      const parsed = await resolveScheduleFromChat(text, creds, historyEarly);
       if (!parsed) {
         // Why: never fall through to the chat LLM (it invents “which app hosts drink water?”).
         const content =

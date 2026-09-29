@@ -50,11 +50,12 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action !== "create" && action !== "disable" && action !== "update") return null;
 
   if (action === "disable") {
-    const matchHint = String(
+    let matchHint = String(
       raw.matchHint || raw.hint || raw.topic || extractScheduleDisableHint(userText) || ""
     )
       .trim()
       .slice(0, 80);
+    if (/^(those|them|these|both|it|that|this|all|everything)$/i.test(matchHint)) matchHint = "";
     return { action: "disable", matchHint };
   }
 
@@ -159,11 +160,17 @@ export function normalizeLlmSchedulePlan(raw, userText) {
  * Ask the chat LLM for a schedule create/update/disable plan (JSON only).
  * @param {string} userText
  * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }} creds
+ * @param {{ role?: string, content?: string }[]} [history]
  * @returns {Promise<ParsedScheduleChat|null>}
  */
-export async function planScheduleWithLlm(userText, creds) {
+export async function planScheduleWithLlm(userText, creds, history = []) {
   const text = String(userText || "").trim();
   if (!text || !creds?.apiKey) return null;
+  const recent = (Array.isArray(history) ? history : [])
+    .filter((row) => row?.role === "assistant" || row?.role === "user" || row?.role === "agent")
+    .slice(-4)
+    .map((row) => `${row.role}: ${String(row.content || "").slice(0, 700)}`)
+    .join("\n");
 
   const system = [
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
@@ -183,6 +190,7 @@ export async function planScheduleWithLlm(userText, creds) {
     "- goal for chat_reminder is the prompt body (without every/minute/tomorrow/at cadence).",
     "- dailyAt is 24h UTC when interval is daily; else 09:00.",
     "- If this is not a reminder/schedule manage ask, return {\"action\":\"none\"}.",
+    "- “delete those/them/these” after a reply that listed reminders means disable. Leave matchHint empty so every reminder just listed is stopped. Do not put the word those in matchHint.",
   ].join("\n");
 
   const raw = await llmChatCompletion({
@@ -195,7 +203,10 @@ export async function planScheduleWithLlm(userText, creds) {
     timeoutMs: 20_000,
     messages: [
       { role: "system", content: system },
-      { role: "user", content: text },
+      {
+        role: "user",
+        content: recent ? `Recent chat:\n${recent}\n\nUser: ${text}` : text,
+      },
     ],
   });
 
@@ -222,7 +233,7 @@ export async function planScheduleWithLlm(userText, creds) {
  * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} [creds]
  * @returns {Promise<ParsedScheduleChat|null>}
  */
-export async function resolveScheduleFromChat(userText, creds = null) {
+export async function resolveScheduleFromChat(userText, creds = null, history = []) {
   const text = String(userText || "").trim();
   const heuristic = parseScheduleFromChat(text);
 
@@ -243,7 +254,7 @@ export async function resolveScheduleFromChat(userText, creds = null) {
     /\b(stop|delete|cancel|remove|disable)\b/i.test(text)
   ) {
     try {
-      const llmPlan = await planScheduleWithLlm(text, creds);
+      const llmPlan = await planScheduleWithLlm(text, creds, history);
       if (llmPlan && llmPlan.action !== "list") return llmPlan;
       if (llmPlan?.action === "list") return llmPlan;
     } catch (err) {

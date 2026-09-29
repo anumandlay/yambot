@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-29 12:52] “delete those” stops the reminders just listed
+
+- **Prompt Provided:** “delete those” after a reminder list answered “Which app should I connect?” Let the model understand and do the task.
+- **Architectural Flow:** “those” is not an app name, so Composio does not take the message. It is a reminder follow-up. The schedule model sees the last reply and can stop those reminders. An empty hint stops every reminder on the agent.
+- **Impacted Files:** composioFromChat.js, scheduleFromChat.js, scheduleLlmPlan.js, chatAutoTurn.js, chats.js, composioFromChat.test.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-29 12:45] Unread reply count on the Grok agent list
 
 - **Prompt Provided:** On the Grok left menu, show a message count when another agent sends a reply while you are in a different chat.

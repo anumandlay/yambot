@@ -62,7 +62,10 @@ export function extractComposioApp(text) {
   const slug = normalizeToolkitSlug(
     named[1].replace(/\b(app|apps|composio|to|this|agent|please|from|chat)\b/gi, " ")
   );
-  if (!slug || /^(app|apps|composio|the|my)$/.test(slug)) return null;
+  // Why: “delete those” points at the last reply, not an app named those.
+  if (!slug || /^(app|apps|composio|the|my|those|them|these|both|it|that|this|all|ones|one)$/.test(slug)) {
+    return null;
+  }
   return { slug, label: slug };
 }
 

@@ -1417,7 +1417,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           if (scheduleManage || mcpServerManage || composioAppManage) {
             prepared = {
               chatContextBlock: "",
-              historyMessages: composioAppManage ? recentChatTurns : [],
+              historyMessages: scheduleManage || composioAppManage ? recentChatTurns : [],
               curated: {
                 userCuratedEntries: [],
                 agentCuratedEntries: [],
