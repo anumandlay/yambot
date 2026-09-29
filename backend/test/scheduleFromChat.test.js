@@ -16,7 +16,6 @@ import {
   extractScheduleDisableHint,
   wantsDisableAllSchedules,
   jobMatchesScheduleHint,
-  reminderPickIndex,
   applyScheduleFromChat,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
@@ -256,26 +255,37 @@ test("plain check email is not schedule manage", () => {
   assert.equal(looksLikeScheduleManageRequest("check email"), false);
 });
 
-test("delete 1st reminder removes the first listed job", async () => {
-  assert.equal(reminderPickIndex("1st", "delete 1st reminder"), 0);
-  assert.equal(reminderPickIndex("", "delete the second reminder"), 1);
-  const jobs = [
+test("a copied reminder name deletes that job, and the word 1st does not", async () => {
+  const jobs = () => [
     { name: "open nseindia.com", goal: "open nseindia.com", enabled: true, interval: "5m", kind: "computer" },
     { name: "CRM check", goal: "opening vughy.com", enabled: true, interval: "3m", kind: "computer" },
   ];
-  const agent = {
-    schedules: jobs,
+  const named = {
+    schedules: jobs(),
     markModified() {},
     async save() {},
   };
-  const applied = await applyScheduleFromChat({
-    agent,
+  const byName = await applyScheduleFromChat({
+    agent: named,
+    parsed: { action: "disable", matchHint: "nseindia" },
+    userText: "delete 1st reminder",
+  });
+  assert.match(byName.content, /nseindia/);
+  assert.equal(named.schedules.length, 1);
+  assert.equal(named.schedules[0].name, "CRM check");
+
+  const pointed = {
+    schedules: jobs(),
+    markModified() {},
+    async save() {},
+  };
+  const byWord = await applyScheduleFromChat({
+    agent: pointed,
     parsed: { action: "disable", matchHint: "1st" },
     userText: "delete 1st reminder",
   });
-  assert.match(applied.content, /open nseindia.com/);
-  assert.equal(agent.schedules.length, 1);
-  assert.equal(agent.schedules[0].name, "CRM check");
+  assert.match(byWord.content, /No reminder matched/);
+  assert.equal(pointed.schedules.length, 2);
 });
 
 test("delete those is a reminder follow-up, not an app name", () => {

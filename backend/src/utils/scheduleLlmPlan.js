@@ -191,6 +191,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "- dailyAt is 24h UTC when interval is daily; else 09:00.",
     "- If this is not a reminder/schedule manage ask, return {\"action\":\"none\"}.",
     "- “delete those/them/these” after a reply that listed reminders means disable. Leave matchHint empty so every reminder just listed is stopped. Do not put the word those in matchHint.",
+    "- If the user points at one row in a numbered reminder list, action is disable and matchHint is that row's name or goal copied from the list. Do not put the pointing word or the row number in matchHint.",
   ].join("\n");
 
   const raw = await llmChatCompletion({

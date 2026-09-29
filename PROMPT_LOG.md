@@ -1,3 +1,9 @@
+## [2026-09-29 13:36] The model picks which listed reminder to stop
+
+- **Prompt Provided:** Do not map 1st, first, 2nd, or second in code. Let the LLM choose the reminder.
+- **Architectural Flow:** The router sees the numbered reminder list. When the user points at one row, the model copies that job’s name into the stop request. The word for the row is not turned into a position in code.
+- **Impacted Files:** scheduleFromChat.js, scheduleLlmPlan.js, chatRoutePlan.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-29 13:30] “delete 1st reminder” stops the first job in the list
 
 - **Prompt Provided:** After a reminder list, “delete 1st reminder” answered with a note about Google Calendar instead of deleting the first job.

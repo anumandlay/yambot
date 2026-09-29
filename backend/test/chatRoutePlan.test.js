@@ -80,5 +80,6 @@ test("context lists saved apps, servers, and reminders", () => {
   assert.deepEqual(ctx.apps, ["apollo"]);
   assert.deepEqual(ctx.servers, ["mockmcp"]);
   assert.equal(ctx.reminders.length, 1);
+  assert.match(ctx.reminders[0], /^1\. NSE/);
   assert.equal(ctx.computerOpen, true);
 });

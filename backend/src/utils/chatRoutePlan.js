@@ -51,11 +51,12 @@ export function chatRouteContextFromAgent(ctx = {}) {
     .filter(Boolean);
   const reminders = (Array.isArray(agent.schedules) ? agent.schedules : [])
     .filter((job) => job && job.enabled !== false)
-    .map((job) => {
+    .map((job, index) => {
       const name = String(job.name || "").trim();
       const goal = String(job.goal || "").trim().slice(0, 80);
       const every = String(job.interval || "").trim();
-      return [name, goal, every ? `every ${every}` : ""].filter(Boolean).join(" — ");
+      const label = [name, goal, every ? `every ${every}` : ""].filter(Boolean).join(" — ");
+      return label ? `${index + 1}. ${label}` : "";
     })
     .filter(Boolean)
     .slice(0, 8);
@@ -179,7 +180,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "reminder action is create, list, update, or disable. interval examples: 5m, 1h, daily, once.",
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
     "disable with empty matchHint stops every reminder. delete those, them, these, or both after a list is disable with empty matchHint.",
-    "delete the 1st, first, 2nd, or second reminder after a numbered list is lane reminder, action disable. Copy that item's name or goal into matchHint. Do not put 1st or first in matchHint or app.",
+    "If the user points at one row in a numbered reminder list, lane is reminder, action is disable, and matchHint is that row's name or goal copied from the list. Do not put the pointing word or the row number in matchHint or app.",
     "Do not put those, them, or these in matchHint or app.",
     "A connect, a server add, or a reminder change is never lane computer.",
     "If a computer is open, a screen action on that page is lane computer. Managing apps, servers, or reminders is still those lanes.",

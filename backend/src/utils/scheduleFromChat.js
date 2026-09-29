@@ -341,51 +341,6 @@ export function resolveScheduleKind(userText, llmKind = "") {
  * @param {string} text
  * @returns {string}
  */
-/**
- * Position in the reminder list. 0 is the first job. -1 is the last job.
- * “1st” and “first” are list positions, not a topic name.
- * @param {string} hint
- * @param {string} [userText]
- * @returns {number|null}
- */
-export function reminderPickIndex(hint, userText = "") {
-  const fromHint = ordinalTokenIndex(hint);
-  if (fromHint != null) return fromHint;
-  const raw = String(userText || "");
-  if (!/\b(delete|remove|stop|cancel|disable)\b/i.test(raw)) return null;
-  if (!/\b(reminders?|schedules?)\b/i.test(raw)) return null;
-  const phrase = raw.match(/\b(1st|2nd|3rd|4th|5th|first|second|third|fourth|fifth|last)\b/i);
-  if (phrase) return ordinalTokenIndex(phrase[1]);
-  const num = raw.match(/\b(?:number|#|no\.?)\s*(\d+)\b/i);
-  if (!num) return null;
-  const n = Number(num[1]);
-  if (n >= 1 && n <= 20) return n - 1;
-  return null;
-}
-
-/**
- * @param {string} value
- * @returns {number|null}
- */
-function ordinalTokenIndex(value) {
-  let raw = String(value || "")
-    .trim()
-    .toLowerCase()
-    .replace(/[.!?]+$/g, "");
-  raw = raw.replace(/^(the|a|an)\s+/, "").replace(/\s+(one|reminder|schedule|job|item)$/i, "");
-  if (/^(1st|first|#1|no\.?\s*1|number\s*1)$/.test(raw)) return 0;
-  if (/^(2nd|second|#2|no\.?\s*2|number\s*2)$/.test(raw)) return 1;
-  if (/^(3rd|third|#3|no\.?\s*3|number\s*3)$/.test(raw)) return 2;
-  if (/^(4th|fourth|#4|number\s*4)$/.test(raw)) return 3;
-  if (/^(5th|fifth|#5|number\s*5)$/.test(raw)) return 4;
-  if (raw === "last") return -1;
-  const num = raw.match(/^(?:#|no\.?|number)?\s*(\d+)(?:st|nd|rd|th)?$/);
-  if (!num) return null;
-  const n = Number(num[1]);
-  if (n >= 1 && n <= 20) return n - 1;
-  return null;
-}
-
 export function extractScheduleDisableHint(text) {
   const raw = String(text || "").trim();
   if (!raw) return "";
@@ -826,31 +781,13 @@ export async function applyScheduleFromChat(opts) {
   }
 
   if (parsed.action === "disable") {
-    let hint = String(parsed.matchHint || "").toLowerCase().trim();
+    const hint = String(parsed.matchHint || "").toLowerCase().trim();
     /** @type {string[]} */
     const removedLabels = [];
     /** @type {object[]} */
     let nextJobs = jobs.slice();
-    // Why: “delete 1st reminder” means that row in the list, not a topic named 1st.
-    const pick = reminderPickIndex(hint, opts.userText || "");
-    if (pick != null) {
-      const meaningful = jobs.filter(isMeaningfulScheduleJob);
-      const idx = pick < 0 ? meaningful.length - 1 : pick;
-      const job = meaningful[idx];
-      if (!job) {
-        return {
-          ok: true,
-          content: `There is no reminder ${idx + 1}. This agent has ${meaningful.length}.`,
-        };
-      }
-      nextJobs = jobs.filter((row) => row !== job);
-      removedLabels.push(String(job.name || job.goal || "job").trim().slice(0, 48) || "job");
-      hint = "";
-    }
 
-    if (removedLabels.length) {
-      /* row already chosen */
-    } else if (hint) {
+    if (hint) {
       const matched = nextJobs.filter((j) => jobMatchesScheduleHint(j, hint));
       if (!matched.length) {
         const available = nextJobs
