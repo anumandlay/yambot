@@ -2938,7 +2938,8 @@ export async function runChatAutoTurn(opts) {
     replaceInteraction({ ...interactionState, pending: null });
   }
   const composioApps = Array.isArray(runtime?.composioToolkitSlugs) ? runtime.composioToolkitSlugs : [];
-  if (trustRoute && route.lane === "composio" && !route.composio && runtime?.agent) {
+  const reminderSentence = looksLikeScheduleManageRequest(text);
+  if (trustRoute && route.lane === "composio" && !route.composio && runtime?.agent && !reminderSentence) {
     const names = composioApps.filter(Boolean).join(", ") || "none yet";
     const asked = String(route.unmatchedApp || "").trim();
     const content = asked
@@ -2956,13 +2957,17 @@ export async function runChatAutoTurn(opts) {
       timing: track.finish(),
     });
   }
-  const composioKeyword = trustRoute
-    ? null
-    : acceptComposioKeywordPlan(text, interactionState, composioApps, historyEarly);
-  const composioAsked = trustRoute
-    ? route.lane === "composio"
-    : looksLikeComposioAppManageRequest(text, interactionState, historyEarly);
+  const composioKeyword =
+    reminderSentence || trustRoute
+      ? null
+      : acceptComposioKeywordPlan(text, interactionState, composioApps, historyEarly);
+  const composioAsked = reminderSentence
+    ? false
+    : trustRoute
+      ? route.lane === "composio"
+      : looksLikeComposioAppManageRequest(text, interactionState, historyEarly);
   const composioLlmCandidate =
+    !reminderSentence &&
     !trustRoute &&
     !composioKeyword &&
     Boolean(runtime?.composioEnabled) &&
@@ -2984,7 +2989,11 @@ export async function runChatAutoTurn(opts) {
       console.warn("[composioFromChat] plan failed:", err?.message || err);
     }
   }
-  if ((composioKeyword || composioParsed || (trustRoute && route.composio)) && runtime?.agent) {
+  if (
+    !reminderSentence &&
+    (composioKeyword || composioParsed || (trustRoute && route.composio)) &&
+    runtime?.agent
+  ) {
     track.setPath("composio_app_manage");
     track.markDecision("reply");
     try {
@@ -3053,9 +3062,7 @@ export async function runChatAutoTurn(opts) {
 
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
   // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
-  const scheduleIncoming =
-    (trustRoute && route.lane === "reminder") ||
-    (!trustRoute && looksLikeScheduleManageRequest(text));
+  const scheduleIncoming = (trustRoute && route.lane === "reminder") || reminderSentence;
   if (scheduleIncoming && runtime?.agent) {
     track.setPath("schedule_manage");
     track.markDecision("reply");
@@ -3081,6 +3088,7 @@ export async function runChatAutoTurn(opts) {
         agent: runtime.agent,
         parsed,
         chatId: runtime.chatId || null,
+        userText: text,
       });
       const content = String(applied.content || "Schedule updated.").trim();
       if (content) await pushReply(content);

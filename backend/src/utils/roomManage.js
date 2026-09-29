@@ -198,7 +198,7 @@ async function applyRoomRoute(agent, command, route, history, state, opts) {
         };
       }
       const apply = opts.applySchedule || applyScheduleFromChat;
-      const applied = await apply({ agent, parsed, chatId: null });
+      const applied = await apply({ agent, parsed, chatId: null, userText: command });
       return {
         handled: true,
         agent,
@@ -380,7 +380,7 @@ export async function planRoomAgentManage(opts) {
         };
       }
       const apply = opts.applySchedule || applyScheduleFromChat;
-      const applied = await apply({ agent, parsed, chatId: null });
+      const applied = await apply({ agent, parsed, chatId: null, userText: command });
       return {
         handled: true,
         agent,

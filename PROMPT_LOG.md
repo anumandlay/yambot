@@ -1,3 +1,9 @@
+## [2026-09-29 13:30] “delete 1st reminder” stops the first job in the list
+
+- **Prompt Provided:** After a reminder list, “delete 1st reminder” answered with a note about Google Calendar instead of deleting the first job.
+- **Architectural Flow:** That sentence is a reminder change, so it does not ask which app to connect. “1st”, “first”, “2nd”, and “second” pick that row in the list just shown. The first row is removed and the rest stay.
+- **Impacted Files:** scheduleFromChat.js, chatAutoTurn.js, composioFromChat.js, chatRoutePlan.js, roomManage.js, scheduleFromChat.test.js, composioFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-29 13:05] One model call chooses chat, computer, Composio, MCP, or a reminder
 
 - **Prompt Provided:** Let the LLM understand each message and decide the task.

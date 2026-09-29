@@ -66,6 +66,10 @@ export function extractComposioApp(text) {
   if (!slug || /^(app|apps|composio|the|my|those|them|these|both|it|that|this|all|ones|one)$/.test(slug)) {
     return null;
   }
+  // Why: “delete 1st reminder” is a list position, not an app slug.
+  if (/^(?:\d+(?:st|nd|rd|th)?|first|second|third|fourth|fifth|last)(?:reminder|schedule|job)?$/.test(slug)) {
+    return null;
+  }
   return { slug, label: slug };
 }
 

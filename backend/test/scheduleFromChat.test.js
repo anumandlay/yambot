@@ -16,6 +16,8 @@ import {
   extractScheduleDisableHint,
   wantsDisableAllSchedules,
   jobMatchesScheduleHint,
+  reminderPickIndex,
+  applyScheduleFromChat,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
@@ -252,6 +254,28 @@ test("send email summary frames as inbox check", () => {
 
 test("plain check email is not schedule manage", () => {
   assert.equal(looksLikeScheduleManageRequest("check email"), false);
+});
+
+test("delete 1st reminder removes the first listed job", async () => {
+  assert.equal(reminderPickIndex("1st", "delete 1st reminder"), 0);
+  assert.equal(reminderPickIndex("", "delete the second reminder"), 1);
+  const jobs = [
+    { name: "open nseindia.com", goal: "open nseindia.com", enabled: true, interval: "5m", kind: "computer" },
+    { name: "CRM check", goal: "opening vughy.com", enabled: true, interval: "3m", kind: "computer" },
+  ];
+  const agent = {
+    schedules: jobs,
+    markModified() {},
+    async save() {},
+  };
+  const applied = await applyScheduleFromChat({
+    agent,
+    parsed: { action: "disable", matchHint: "1st" },
+    userText: "delete 1st reminder",
+  });
+  assert.match(applied.content, /open nseindia.com/);
+  assert.equal(agent.schedules.length, 1);
+  assert.equal(agent.schedules[0].name, "CRM check");
 });
 
 test("delete those is a reminder follow-up, not an app name", () => {

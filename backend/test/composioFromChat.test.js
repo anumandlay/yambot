@@ -20,6 +20,7 @@ test("app management is not an inbox request", () => {
   assert.equal(looksLikeComposioAppManageRequest("check my gmail"), false);
   assert.equal(looksLikeComposioAppManageRequest("Use mockmcp. Greet me."), false);
   assert.equal(looksLikeComposioAppManageRequest("delete those"), false);
+  assert.equal(looksLikeComposioAppManageRequest("delete 1st reminder"), false);
 });
 
 test("re authenticate with a space still reconnects the waiting app", () => {
