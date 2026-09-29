@@ -718,7 +718,8 @@ export function formatScheduleListReply(jobs) {
           ? "pending"
           : "—";
     const label = String(j.name || "").trim() || `Job ${i + 1}`;
-    const kindLabel = j.kind === "chat_reminder" ? "chat reminder" : "computer job";
+    const kindLabel =
+      j.kind === "mcp" ? "MCP tool reminder" : j.kind === "chat_reminder" ? "chat reminder" : "computer job";
     return `${i + 1}. **${label}** (${on}, ${kindLabel}${
       j.kind === "chat_reminder"
         ? j.agentRun === false

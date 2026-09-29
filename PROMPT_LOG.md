@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 22:56] Add MCP tool reminder on the Schedulers tab
+
+- **Prompt Provided:** Add the reminder type on the agent Schedulers tab, the way it was described: a third type that calls an MCP tool.
+- **Architectural Flow:** The Type menu has Computer / Composio goal, Chat reminder, and MCP tool reminder. Choosing MCP tool reminder saves kind mcp. Each tick calls the tool named in the box and posts the result. The page no longer turns that job into a computer job when it loads or saves.
+- **Impacted Files:** AgentEditPage.jsx, Agent.js, scheduler.js, scheduleFromChat.js, PROMPT_LOG
+
 ## [2026-09-28 22:34] Call an MCP tool from a reminder
 
 - **Prompt Provided:** A reminder to call GreetMe on mockmcp every minute only posted a chat nudge. Reminders need to call MCP tools.

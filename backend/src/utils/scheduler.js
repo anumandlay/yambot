@@ -428,7 +428,8 @@ export async function runScheduledAgent(agent, job = null) {
     return { ok: false, skipped: "disabled_or_empty" };
   }
 
-  const kind = String(sched.kind || "computer") === "chat_reminder" ? "chat_reminder" : "computer";
+  const kindRaw = String(sched.kind || "computer");
+  const kind = kindRaw === "chat_reminder" || kindRaw === "mcp" ? kindRaw : "computer";
   const chat = await ensureScheduleChat(agent, job ? sched : null);
   const now = new Date();
   const jobLabel = String(sched.name || "").trim();

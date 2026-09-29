@@ -111,8 +111,8 @@ export function normalizeScheduleIntervalCode(raw) {
   return null;
 }
 
-/** Schedule job kinds — computer runs a goal; chat_reminder posts/runs a reminder. */
-export const SCHEDULE_KINDS = ["computer", "chat_reminder"];
+/** Schedule job kinds — computer runs a goal; chat_reminder posts a nudge; mcp calls a tool. */
+export const SCHEDULE_KINDS = ["computer", "chat_reminder", "mcp"];
 
 /**
  * @typedef {object} AgentAutonomy

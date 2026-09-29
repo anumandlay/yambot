@@ -6,6 +6,30 @@
  */
 
 import { useEffect, useRef, useState } from "react";
+
+/**
+ * A chat nudge whose text names an MCP tool call is an MCP tool reminder.
+ * @param {string} goal
+ * @returns {boolean}
+ */
+function looksLikeMcpToolGoal(goal) {
+  const text = String(goal || "");
+  return /mcp/i.test(text) && /\b(call|run|use|invoke)\b/i.test(text);
+}
+
+/**
+ * Keep computer, chat nudge, and MCP tool reminder distinct in the editor.
+ * @param {string} kind
+ * @param {string} [goal]
+ * @returns {"computer"|"chat_reminder"|"mcp"}
+ */
+function scheduleKind(kind, goal = "") {
+  if (kind === "mcp") return "mcp";
+  if (kind === "chat_reminder") {
+    return looksLikeMcpToolGoal(goal) ? "mcp" : "chat_reminder";
+  }
+  return "computer";
+}
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
 import { api } from "../lib/api.js";
 import { ErrorAlert } from "../components/ErrorAlert.jsx";
@@ -331,7 +355,7 @@ export function AgentEditPage() {
             schedule: {
               enabled: Boolean(a.schedule?.enabled),
               name: a.schedule?.name || "",
-              kind: a.schedule?.kind === "chat_reminder" ? "chat_reminder" : "computer",
+              kind: scheduleKind(a.schedule?.kind, a.schedule?.goal),
               goal: a.schedule?.goal || "",
               interval: a.schedule?.interval || "1h",
               dailyAt: a.schedule?.dailyAt || "09:00",
@@ -353,7 +377,7 @@ export function AgentEditPage() {
               _id: j._id || undefined,
               name: j.name || "",
               enabled: Boolean(j.enabled),
-              kind: j.kind === "chat_reminder" ? "chat_reminder" : "computer",
+              kind: scheduleKind(j.kind, j.goal),
               goal: j.goal || "",
               interval: j.interval || "1h",
               dailyAt: j.dailyAt || "09:00",
@@ -1662,7 +1686,8 @@ export function AgentEditPage() {
           </legend>
           <p className="text-xs text-teal-900/70">
             Computer jobs enqueue a goal when due. Chat reminders post a message in this agent’s
-            chat (no browser). A computer tick is skipped if the agent is already busy.
+            chat. MCP tool reminders call a saved tool, such as GreetMe on mockmcp, and post the
+            result. A computer tick is skipped if the agent is already busy.
           </p>
           {(form.schedules || []).map((job, index) => (
             <div
@@ -1678,7 +1703,7 @@ export function AgentEditPage() {
                   />
                   <FieldLabel helpId="agent.schedule.enabled">
                     Job {index + 1} enabled
-                    {job.kind === "chat_reminder" ? " · reminder" : ""}
+                    {job.kind === "chat_reminder" ? " · reminder" : job.kind === "mcp" ? " · MCP tool" : ""}
                   </FieldLabel>
                 </label>
                 <button
@@ -1693,12 +1718,13 @@ export function AgentEditPage() {
                 <span className="font-semibold text-teal-900">Type</span>
                 <select
                   className="min-h-11 rounded-xl border border-teal-100 bg-white px-3"
-                  value={job.kind === "chat_reminder" ? "chat_reminder" : "computer"}
+                  value={job.kind === "chat_reminder" || job.kind === "mcp" ? job.kind : "computer"}
                   onChange={(e) => updateScheduleJob(index, "kind", e.target.value)}
                   disabled={!job.enabled}
                 >
                   <option value="computer">Computer / Composio goal</option>
                   <option value="chat_reminder">Chat reminder (message only)</option>
+                  <option value="mcp">MCP tool reminder</option>
                 </select>
               </label>
               <label className="flex flex-col gap-1 text-sm">
@@ -1713,16 +1739,22 @@ export function AgentEditPage() {
               </label>
               <label className="flex flex-col gap-1 text-sm">
                 <FieldLabel helpId="agent.schedule.goal">
-                  {job.kind === "chat_reminder" ? "Reminder message" : "Scheduled goal"}
+                  {job.kind === "mcp"
+                    ? "Tool to call"
+                    : job.kind === "chat_reminder"
+                      ? "Reminder message"
+                      : "Scheduled goal"}
                 </FieldLabel>
                 <textarea
                   className="min-h-24 rounded-xl border border-teal-100 bg-white px-3 py-2"
                   value={job.goal || ""}
                   onChange={(e) => updateScheduleJob(index, "goal", e.target.value)}
                   placeholder={
-                    job.kind === "chat_reminder"
-                      ? "Hermes prompt for the tick LLM (e.g. remind me to drink water)…"
-                      : "Goal to enqueue automatically…"
+                    job.kind === "mcp"
+                      ? "Call GreetMe on mockmcp"
+                      : job.kind === "chat_reminder"
+                        ? "Hermes prompt for the tick LLM (e.g. remind me to drink water)…"
+                        : "Goal to enqueue automatically…"
                   }
                   disabled={!job.enabled}
                 />
