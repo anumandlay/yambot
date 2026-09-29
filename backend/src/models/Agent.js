@@ -144,10 +144,11 @@ const scheduleJobSchema = new mongoose.Schema(
     /**
      * computer — enqueue a browser/Composio goal on each tick.
      * chat_reminder — Hermes-style: run a short LLM turn (or post static text if agentRun=false).
+     * mcp — call a saved MCP tool on each tick and post the result.
      */
     kind: {
       type: String,
-      enum: ["computer", "chat_reminder"],
+      enum: ["computer", "chat_reminder", "mcp"],
       default: "computer",
     },
     /** Goal text / reminder prompt (Hermes job prompt). */
@@ -1341,8 +1342,8 @@ export function normalizeScheduleJob(raw = {}) {
   if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
   const goal = String(raw.goal || "").trim().slice(0, 8000);
   const name = String(raw.name || "").trim().slice(0, 80);
-  const kind =
-    String(raw.kind || "").trim() === "chat_reminder" ? "chat_reminder" : "computer";
+  const kindRaw = String(raw.kind || "").trim();
+  const kind = kindRaw === "chat_reminder" || kindRaw === "mcp" ? kindRaw : "computer";
   const oneShotAt = raw.oneShotAt ? new Date(raw.oneShotAt) : null;
   const repeatLimitRaw = raw.repeatLimit;
   const repeatLimit =
@@ -1437,7 +1438,7 @@ export function syncLegacyScheduleMirror(agent, jobs) {
     agent.schedule = {
       name: first.name || "",
       enabled: Boolean(first.enabled),
-      kind: first.kind === "chat_reminder" ? "chat_reminder" : "computer",
+      kind: first.kind === "chat_reminder" || first.kind === "mcp" ? first.kind : "computer",
       goal: first.goal || "",
       interval: first.interval || "1h",
       dailyAt: first.dailyAt || "09:00",

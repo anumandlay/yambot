@@ -303,11 +303,35 @@ export function defaultScheduleJobName(goal, kind = "computer") {
 export function looksLikeChatReminderRequest(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
+  if (looksLikeMcpToolSchedule(raw)) return false;
   if (/\b(remind\s+me|nudge\s+me|ping\s+me|send\s+me\s+a\s+reminder)\b/i.test(raw)) {
     return true;
   }
   if (/\b(create|set|add|make)\b[\s\S]{0,40}\breminder\b/i.test(raw)) return true;
   return false;
+}
+
+/**
+ * True when a reminder should call an MCP tool on each tick.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function looksLikeMcpToolSchedule(text) {
+  const raw = String(text || "");
+  return /mcp/i.test(raw) && /\b(call|run|use|invoke)\b/i.test(raw);
+}
+
+/**
+ * Schedule kind after the model answers. An MCP tool call stays mcp.
+ * @param {string} userText
+ * @param {string} [llmKind]
+ * @returns {"mcp"|"chat_reminder"|"computer"}
+ */
+export function resolveScheduleKind(userText, llmKind = "") {
+  const kind = String(llmKind || "").trim();
+  if (kind === "mcp" || looksLikeMcpToolSchedule(userText)) return "mcp";
+  if (looksLikeChatReminderRequest(userText) || kind === "chat_reminder") return "chat_reminder";
+  return "computer";
 }
 
 /**
@@ -608,7 +632,7 @@ export function parseScheduleFromChat(text) {
   const cadence = parseScheduleIntervalFromText(raw);
   if (!cadence || !isValidScheduleInterval(cadence.interval)) return null;
 
-  const kind = looksLikeChatReminderRequest(raw) ? "chat_reminder" : "computer";
+  const kind = resolveScheduleKind(raw);
   let goal = stripScheduleCadenceFromGoal(raw, cadence.matchedSpan);
   if (!goal || goal.length < 3) {
     return null;
@@ -616,7 +640,9 @@ export function parseScheduleFromChat(text) {
   goal =
     kind === "chat_reminder"
       ? frameChatReminderMessage(goal)
-      : frameComputerScheduleGoal(goal);
+      : kind === "mcp"
+        ? goal.replace(/^to\s+/i, "").trim()
+        : frameComputerScheduleGoal(goal);
 
   return {
     action: "create",
@@ -892,7 +918,7 @@ export async function applyScheduleFromChat(opts) {
   }
 
   // create / upsert by similar goal/name
-  const kind = parsed.kind === "chat_reminder" ? "chat_reminder" : "computer";
+  const kind = parsed.kind === "chat_reminder" || parsed.kind === "mcp" ? parsed.kind : "computer";
   const goal = String(parsed.goal || "").trim();
   const interval = isValidScheduleInterval(parsed.interval)
     ? String(parsed.interval)
@@ -965,11 +991,13 @@ export async function applyScheduleFromChat(opts) {
     : "soon";
   const verb = existingIdx >= 0 ? "Updated" : "Created";
   const kindLabel =
-    kind === "chat_reminder"
-      ? agentRun
-        ? "Hermes-style reminder (LLM on tick)"
-        : "static chat reminder"
-      : "computer schedule";
+    kind === "mcp"
+      ? "MCP tool reminder"
+      : kind === "chat_reminder"
+        ? agentRun
+          ? "Hermes-style reminder (LLM on tick)"
+          : "static chat reminder"
+        : "computer schedule";
   const when =
     interval === "once"
       ? `one-shot at ${nextIso}`
@@ -981,7 +1009,7 @@ export async function applyScheduleFromChat(opts) {
     job: saved,
     content:
       `${verb} ${kindLabel} **${name}** — ${when}.\n` +
-      `${kind === "chat_reminder" ? "Prompt" : "Goal"}: ${goal.slice(0, 400)}\n` +
+      `${kind === "chat_reminder" ? "Prompt" : kind === "mcp" ? "Calls" : "Goal"}: ${goal.slice(0, 400)}\n` +
       `Next run: ${nextIso}\n` +
       `Stored on this agent (Agents → Schedulers). Say “list reminders” / “stop the reminder”.`,
   };

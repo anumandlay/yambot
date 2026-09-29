@@ -77,6 +77,38 @@ export function mcpToolName(serverName, toolName) {
 }
 
 /**
+ * Pick a saved MCP tool named in a reminder goal.
+ * @param {object|null|undefined} agent
+ * @param {string} goal
+ * @returns {{ openaiName: string, tool: string, server: string }|null}
+ */
+export function matchScheduledMcpCall(agent, goal) {
+  const hay = String(goal || "").toLowerCase();
+  if (!hay) return null;
+  let best = null;
+  for (const server of agent?.mcp?.servers || []) {
+    const serverName = String(server?.name || "");
+    const tools = Array.isArray(server?.cachedTools) ? server.cachedTools : [];
+    for (const tool of tools) {
+      const toolName = String(tool?.name || "").trim();
+      if (!toolName) continue;
+      const folded = toolName.toLowerCase();
+      if (!hay.includes(folded)) continue;
+      const score = folded.length + (hay.includes(serverName.toLowerCase()) ? 20 : 0);
+      if (!best || score > best.score) {
+        best = {
+          score,
+          openaiName: mcpToolName(serverName, toolName),
+          tool: toolName,
+          server: serverName,
+        };
+      }
+    }
+  }
+  return best ? { openaiName: best.openaiName, tool: best.tool, server: best.server } : null;
+}
+
+/**
  * Glob or exact match. `*` is the only wildcard.
  * @param {string} name
  * @param {string} pattern

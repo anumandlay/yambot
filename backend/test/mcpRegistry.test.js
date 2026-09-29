@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   filterMcpTools,
+  matchScheduledMcpCall,
   mcpToolName,
   normalizeAuthHeader,
   normalizeMcpConfig,
@@ -117,4 +118,22 @@ test("a URL and a pasted token are enough when the name box is empty", () => {
   const stored = JSON.parse(dec(next.servers[0].secretsEnc));
   assert.equal(stored.headers.Authorization, "Bearer mcp_test_token");
   assert.equal(normalizeAuthHeader("mcp_plain_token"), "Bearer mcp_plain_token");
+});
+
+test("a reminder goal matches the saved MCP tool by name", () => {
+  const hit = matchScheduledMcpCall(
+    {
+      mcp: {
+        servers: [
+          {
+            name: "mockmcp",
+            cachedTools: [{ name: "GreetMe" }, { name: "mockmcpStatus" }],
+          },
+        ],
+      },
+    },
+    "⏰ Reminder: Leave it and lets call greetme in mockmcp server."
+  );
+  assert.equal(hit?.openaiName, "mcp_mockmcp_greetme");
+  assert.equal(hit?.tool, "GreetMe");
 });

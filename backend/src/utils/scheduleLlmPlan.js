@@ -16,7 +16,7 @@ import {
   extractScheduleUpdateHint,
   frameComputerScheduleGoal,
   defaultScheduleJobName,
-  looksLikeChatReminderRequest,
+  resolveScheduleKind,
   looksLikeScheduleUpdateRequest,
   stripScheduleCadenceFromGoal,
   parseScheduleIntervalFromText,
@@ -113,10 +113,7 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   }
 
   // create
-  let kind =
-    String(raw.kind || "").trim() === "computer" ? "computer" : "chat_reminder";
-  // Why: remind-me phrasing always chat nudge even if the model says computer.
-  if (looksLikeChatReminderRequest(userText)) kind = "chat_reminder";
+  let kind = resolveScheduleKind(userText, raw.kind);
   if (
     kind === "chat_reminder" &&
     /\b(check\s+email|unread|composio|notion|slack|sheet|email\s+summary)\b/i.test(userText) &&
@@ -132,7 +129,9 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (!goal || goal.length < 2) return null;
 
   goal =
-    kind === "computer" ? frameComputerScheduleGoal(goal) : goal.replace(/^to\s+/i, "").trim();
+    kind === "computer"
+      ? frameComputerScheduleGoal(goal)
+      : goal.replace(/^to\s+/i, "").trim();
 
   const name = String(raw.name || defaultScheduleJobName(goal, kind))
     .trim()
@@ -168,7 +167,7 @@ export async function planScheduleWithLlm(userText, creds) {
 
   const system = [
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
-    'Schema: {"action":"create"|"update"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer","goal":"…","name":"…","matchHint":"…"}',
+    'Schema: {"action":"create"|"update"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer"|"mcp","goal":"…","name":"…","matchHint":"…"}',
     "Rules:",
     "- list = show reminders/schedules.",
     "- disable = stop/delete/cancel one or all reminders. Put the topic in matchHint (e.g. \"drink water\"). Empty matchHint means stop all.",
@@ -177,7 +176,8 @@ export async function planScheduleWithLlm(userText, creds) {
     "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",
     "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
     "- \"every day at 9 am\" = daily + dailyAt.",
-    "- chat_reminder = Hermes-style prompt (LLM on tick). computer = check email / email summary / Composio / browser goal.",
+    "- chat_reminder = a nudge in chat. computer = check email / browser goal.",
+    "- mcp = call a tool on an MCP server every tick (for example call GreetMe on mockmcp). Put the server and tool in the goal. Do not use chat_reminder for that.",
     "- \"send email summary\" / \"email summary\" = computer kind, goal about checking unread and summarizing (never blank send).",
     "- Optional repeatLimit (integer) for finite repeats; omit for forever.",
     "- goal for chat_reminder is the prompt body (without every/minute/tomorrow/at cadence).",

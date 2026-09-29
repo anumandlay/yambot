@@ -28,7 +28,11 @@ import { tickModelRouting } from "./modelRouter.js";
 import { tickContinuousOptimize } from "./continuousOptimize.js";
 import { tickWorkflowWaits } from "./apiWorkflowRunner.js";
 import { tickApiAgents } from "./apiAgentRunner.js";
-import { frameComputerScheduleGoal } from "./scheduleFromChat.js";import { tickEventDelivery } from "./eventDelivery.js";
+import { frameComputerScheduleGoal } from "./scheduleFromChat.js";
+import { tickEventDelivery } from "./eventDelivery.js";
+import { matchScheduledMcpCall } from "./mcpRegistry.js";
+import { callRegisteredMcpTool, mcpToolRequiredFields } from "./mcpClient.js";
+import { resolveHumanDisplayName } from "./userPublic.js";
 import { tickEmailInboxWatcher } from "./emailInboxWatcher.js";
 import { tickCampaigns } from "./campaignEngine.js";
 import { tickTicketSla } from "./ticketSla.js";
@@ -213,6 +217,78 @@ async function runHermesStyleReminderTurn(opts) {
 }
 
 /**
+ * Call one saved MCP tool and post the result. A required name uses the account display name.
+ * @param {{
+ *   agent: import('mongoose').Document,
+ *   chat: import('mongoose').Document,
+ *   goal: string,
+ *   jobLabel: string,
+ *   scheduleJobId: string|null,
+ *   hit: { openaiName: string, tool: string, server: string }|null,
+ * }} opts
+ */
+async function runScheduledMcpCall(opts) {
+  const { agent, chat, goal, jobLabel, scheduleJobId, hit } = opts;
+  const userId = String(agent.user || "");
+  await Message.create({
+    chat: chat._id,
+    role: "user",
+    content: goal,
+    meta: {
+      kind: "scheduled",
+      scheduleJobId,
+      scheduleName: jobLabel || null,
+      route: "mcp",
+    },
+  });
+  if (!hit?.openaiName) {
+    await Message.create({
+      chat: chat._id,
+      role: "assistant",
+      content: "This reminder names an MCP tool, but that tool is not on this agent.",
+      meta: { kind: "scheduled_result", scheduled: true, success: false, route: "mcp" },
+    });
+    return;
+  }
+  const runtime = { userId, agentId: String(agent._id || ""), agent };
+  const args = {};
+  try {
+    const required = await mcpToolRequiredFields(runtime, hit.openaiName);
+    if (required.includes("name")) {
+      const owner = await User.findById(userId).select("name email");
+      const displayName = resolveHumanDisplayName(owner);
+      if (displayName) args.name = displayName;
+    }
+  } catch {
+    /* call with whatever args we have */
+  }
+  let content = "";
+  let ok = false;
+  try {
+    const raw = await callRegisteredMcpTool(runtime, hit.openaiName, args);
+    const parsed = JSON.parse(raw);
+    ok = Boolean(parsed?.ok);
+    content = String(parsed?.text || parsed?.detail || raw || "").trim();
+  } catch (err) {
+    content = String(err?.message || err);
+  }
+  await Message.create({
+    chat: chat._id,
+    role: "assistant",
+    content: content || (ok ? `${hit.tool} finished.` : `Could not call ${hit.tool}.`),
+    meta: {
+      kind: "scheduled_result",
+      scheduled: true,
+      success: ok,
+      route: "mcp",
+      mcpTool: hit.openaiName,
+      scheduleJobId,
+      scheduleName: jobLabel || null,
+    },
+  });
+}
+
+/**
  * Run a Composio-only scheduled goal (no browser Task).
  * @param {{
  *   agent: import('mongoose').Document,
@@ -377,6 +453,34 @@ export async function runScheduledAgent(agent, job = null) {
     agent.schedule.nextRunAt = sched.nextRunAt;
   }
   await agent.save();
+
+  const mcpHit = matchScheduledMcpCall(agent, String(sched.goal || goal || ""));
+  // Why: a reminder that names a saved MCP tool must call it. A chat nudge does not.
+  if (kind === "mcp" || mcpHit) {
+    await runScheduledMcpCall({
+      agent,
+      chat,
+      goal,
+      jobLabel,
+      scheduleJobId,
+      hit: mcpHit,
+    });
+    await Message.create({
+      chat: chat._id,
+      role: "system",
+      content: `MCP reminder${jobLabel ? ` (“${jobLabel}”)` : ""} ran for “${agent.name}”.`,
+      meta: {
+        kind: "mcp_reminder",
+        ui: "icon",
+        scheduled: true,
+        scheduleJobId,
+      },
+    });
+    chat.updatedAt = now;
+    await chat.save();
+    await markScheduleJobFired(agent, sched, job, chat, now);
+    return { ok: true, mcp: true };
+  }
 
   // --- Chat reminder: Hermes agent turn (default) or static message ---
   if (kind === "chat_reminder") {

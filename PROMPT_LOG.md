@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 22:34] Call an MCP tool from a reminder
+
+- **Prompt Provided:** A reminder to call GreetMe on mockmcp every minute only posted a chat nudge. Reminders need to call MCP tools.
+- **Architectural Flow:** A reminder that asks to call a tool on an MCP server is stored as an MCP schedule. On each tick the saved tool is called and the result is posted in chat. A required name uses the account display name. A reminder already saved with that tool name in the prompt also calls the tool instead of nudging.
+- **Impacted Files:** Agent.js, scheduleFromChat.js, scheduleLlmPlan.js, scheduler.js, mcpRegistry.js, scheduleFromChat.test.js, mcpRegistry.test.js, PROMPT_LOG
+
 ## [2026-09-28 22:00] Let the model pick the Composio app from context
 
 - **Prompt Provided:** “lets enable appollo” saved the misspelling, Composio rejected it, and “yes” then failed with the same invalid slug. Do not map the spelling in code. Let the model use the chat context.

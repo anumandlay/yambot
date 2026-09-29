@@ -67,6 +67,14 @@ test("list reminders is schedule list (no LLM)", () => {
   assert.equal(parseScheduleFromChat("show my reminders")?.action, "list");
 });
 
+test("a reminder to call an MCP tool is an MCP schedule", () => {
+  const t = "create a reminder to call greetme in mockmcp server every 1 min";
+  const p = parseScheduleFromChat(t);
+  assert.equal(p?.kind, "mcp");
+  assert.match(String(p?.goal || ""), /greetme/i);
+  assert.equal(p?.interval, "1m");
+});
+
 test("remind me to drink water 1 minutes creates chat_reminder", () => {
   const t = "remind me to drink water 1 minutes";
   assert.equal(looksLikeScheduleManageRequest(t), true);
