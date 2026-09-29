@@ -95,8 +95,9 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   }
 
   if (action === "update") {
+    const provided = raw.matchHint ?? raw.hint ?? raw.topic;
     const matchHint = String(
-      raw.matchHint || raw.hint || raw.topic || extractScheduleUpdateHint(userText) || ""
+      provided != null ? provided : extractScheduleUpdateHint(userText) || ""
     )
       .trim()
       .slice(0, 80);
@@ -116,14 +117,7 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   }
 
   // create
-  let kind = resolveScheduleKind(userText, raw.kind);
-  if (
-    kind === "chat_reminder" &&
-    /\b(check\s+email|unread|composio|notion|slack|sheet|email\s+summary)\b/i.test(userText) &&
-    !/\bremind\b/i.test(userText)
-  ) {
-    kind = "computer";
-  }
+  const kind = resolveScheduleKind(userText, raw.kind);
 
   let goal = String(raw.goal || raw.message || raw.topic || "").trim().slice(0, 8000);
   if (!goal || goal.length < 2) {

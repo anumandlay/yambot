@@ -48,7 +48,7 @@ test("a named agent lists reminders and the room id is not stored on the job", a
     agents,
     userId: "user1",
     history: [],
-    resolveSchedule: async () => ({ action: "list" }),
+    planRoute: async () => ({ lane: "reminder", reminder: { action: "list" } }),
     applySchedule: async (opts) => {
       seen = opts;
       return { ok: true, content: "Reminders / schedules on this agent:" };
@@ -67,6 +67,7 @@ test("no agent name asks which member should do it", async () => {
     agents,
     userId: "user1",
     history: [],
+    planRoute: async () => ({ lane: "reminder", reminder: { action: "list" } }),
   });
   assert.equal(result.handled, true);
   assert.equal(result.agent, undefined);
@@ -81,6 +82,7 @@ test("mcp add runs on the named agent", async () => {
     agents,
     userId: "user1",
     history: [],
+    planRoute: async () => ({ lane: "mcp", mcp: { action: "add" } }),
     applyMcp: async (opts) => {
       seen = opts;
       return { ok: true, content: "Added example." };
@@ -98,6 +100,7 @@ test("composio list stores the agent on the waiting reconnect", async () => {
     agents,
     userId: "user1",
     history: [],
+    planRoute: async () => ({ lane: "composio", composio: { action: "list" } }),
     applyComposio: async () => ({
       ok: true,
       content: "Reply yes to reconnect Apollo.",

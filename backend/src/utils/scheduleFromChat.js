@@ -329,8 +329,9 @@ export function looksLikeMcpToolSchedule(text) {
  */
 export function resolveScheduleKind(userText, llmKind = "") {
   const kind = String(llmKind || "").trim();
-  if (kind === "mcp" || looksLikeMcpToolSchedule(userText)) return "mcp";
-  if (looksLikeChatReminderRequest(userText) || kind === "chat_reminder") return "chat_reminder";
+  if (kind === "mcp" || kind === "chat_reminder" || kind === "computer") return kind;
+  if (looksLikeMcpToolSchedule(userText)) return "mcp";
+  if (looksLikeChatReminderRequest(userText)) return "chat_reminder";
   return "computer";
 }
 
@@ -462,13 +463,6 @@ export function extractScheduleUpdateHint(text) {
     .replace(/\b(to|into|as|for|about|named|called)\b/gi, " ")
     .replace(/\s{2,}/g, " ")
     .trim();
-  if (!hint || /^(it|this|that|them)$/i.test(hint)) {
-    if (/\bemail\b/i.test(raw)) return "email";
-    if (/\b(drink|water|hydrat)\b/i.test(raw)) return "drink water";
-    return "";
-  }
-  // Why: leftover “the water” → normalize to drink water for matching.
-  if (/^the\s+water$/i.test(hint) || /^water$/i.test(hint)) return "drink water";
   return hint.slice(0, 80);
 }
 

@@ -143,11 +143,18 @@ export function normalizeChatRoute(raw, ctx = {}) {
   if (lane === "reply" || lane === "none" || lane === "talk" || lane === "question" || lane === "list") {
     lane = "chat";
   }
-  if (lane === "job" || lane === "browser" || lane === "steer" || lane === "screen") lane = "computer";
+  if (lane === "job" || lane === "browser" || lane === "screen") lane = "computer";
+  let steered = lane === "steer";
+  if (lane === "steer") lane = "computer";
   if (!["chat", "computer", "composio", "mcp", "reminder"].includes(lane)) return null;
   if (lane === "chat" || lane === "computer") {
     const listPick = matchPresentedListPick(raw.listName, ctx.listItems);
     if (listPick) return { lane: "list", listPick };
+    if (lane === "computer") {
+      const action = String(raw.action || "").trim().toLowerCase();
+      const computerAction = steered || action === "steer" ? "steer" : "start";
+      return { lane, computerAction };
+    }
     return { lane };
   }
 
@@ -217,7 +224,8 @@ export function mcpCommandFromRoute(originalText, mcp) {
  */
 export async function planChatRoute(text, creds, ctx = {}) {
   const raw = String(text || "").trim();
-  if (!shouldPlanChatRoute(raw) || !creds?.apiKey) return null;
+  const maxChars = ctx.computerOpen ? 4000 : CHAT_ROUTE_MAX_CHARS;
+  if (!raw || raw.length > maxChars || !creds?.apiKey) return null;
   const recent = (Array.isArray(ctx.history) ? ctx.history : [])
     .filter((row) => row?.role === "assistant" || row?.role === "user" || row?.role === "agent")
     .slice(-4)
@@ -232,7 +240,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     '{"lane":"chat|computer|composio|mcp|reminder","action":"","app":"","server":"","interval":"","dailyAt":"","kind":"","goal":"","name":"","matchHint":"","listName":""}',
     "Pick exactly one lane.",
     "chat = a normal question or conversation. yes and no follow the latest assistant message.",
-    "computer = start or steer a browser job, or click, type, scroll, or apply on a page that is already open.",
+    "computer = start or steer a browser job. action is start for a new job, or steer when a computer is already open and this message changes that page.",
     "composio = list, add, reconnect, remove, or cancel an app connection. action is list, add, reconnect, remove, or cancel. app is the slug.",
     "Copy an app slug already listed. If the user misspells an app that is already there, copy the saved slug. Do not invent a slug.",
     "Using an app (read mail, send a message, post to slack) is computer or chat, not composio.",
@@ -242,6 +250,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
     "disable with empty matchHint stops every reminder. delete those, them, these, or both after a list is disable with empty matchHint.",
     "If the user points at one row in a numbered reminder list, lane is reminder, action is disable, and matchHint is that row's name or goal copied from the list. Do not put the pointing word or the row number in matchHint or app.",
+    "When changing one reminder, matchHint is that job's name or goal copied from the list. Leave matchHint empty only when every reminder should change or stop.",
     "If the user points at one row of Listed items (a tool, skill, or agent), lane is chat and listName is that row's exact name copied from the list. Otherwise listName is empty. Do not put a row word or a number in listName.",
     "Do not put those, them, or these in matchHint or app.",
     "A connect, a server add, or a reminder change is never lane computer.",

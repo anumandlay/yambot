@@ -44,21 +44,15 @@ import {
 } from "./referenceState.js";
 import {
   looksLikeHybridCombo,
-  maybeAmbiguousCombo,
-  planComboFromText,
-  classifyComboIntent,
 } from "./comboRunner.js";
 import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 import {
   looksLikeScheduleManageRequest,
-  looksLikeScheduleUpdateRequest,
   looksLikeReminderCreateRequest,
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
-import { looksLikeMcpServerManageRequest, applyMcpServerFromChat } from "./mcpFromChat.js";
+import { applyMcpServerFromChat } from "./mcpFromChat.js";
 import {
-  looksLikeComposioAppManageRequest,
-  acceptComposioKeywordPlan,
   applyComposioAppFromChat,
   planComposioManageWithLlm,
   composioYesNoStillApplies,
@@ -1073,9 +1067,6 @@ export function defaultQueueAck(goal, agentName = "Agent") {
 export function ensureAutoTurnResult(result, ctx = {}) {
   const userText = String(ctx.userText || "").trim();
   const agentName = String(ctx.agentName || "Agent").trim() || "Agent";
-  const chatContext = String(ctx.chatContext || "").trim();
-  const emailConfigured = Boolean(ctx.emailConfigured);
-  const fromAddress = String(ctx.fromAddress || "").trim();
   const reason = String(result?.reason || "normalized").trim() || "normalized";
   let action =
     result?.action === "queue_goal" || result?.action === "goal" || result?.action === "run"
@@ -1104,120 +1095,6 @@ export function ensureAutoTurnResult(result, ctx = {}) {
       goal: "",
       ack: "",
       reason: `${reason}_fake_reminder_ack_blocked`,
-      timing: result?.timing,
-    };
-  }
-
-  // Why: wrong-agent “change water…” must not become “which app hosts drink water?”.
-  if (
-    (looksLikeScheduleManageRequest(userText) || looksLikeScheduleUpdateRequest(userText)) &&
-    action === "reply" &&
-    !/^schedule_/i.test(reason) &&
-    /\b(which\s+(application|app|website|calendar)|google\s+calendar|health\/water|tracking\s+app)\b/i.test(
-      content
-    )
-  ) {
-    return {
-      action: "reply",
-      content:
-        "Reminders live on each YamBot agent (not Google Calendar). Open the agent where you created it and say “list reminders”, or here: “change the water reminder to every 2 minutes”.",
-      goal: "",
-      ack: "",
-      reason: `${reason}_fake_schedule_app_clarify_blocked`,
-      timing: result?.timing,
-    };
-  }
-
-  // Why: "send them the emails" must become a concrete send_email goal — never browse mangled addresses.
-  // Skip when the user asked for Composio/Gmail API (SMTP harden must not hijack that path).
-  if (looksLikeSendEmailRequest(userText) && !looksLikeComposioAppRequest(userText)) {
-    if (!emailConfigured) {
-      return {
-        action: "reply",
-        content:
-          "Agent SMTP is off or incomplete. Open Agents → Edit → Email (SMTP), turn on “Enable agent SMTP”, fill host/from/password, and Save — or say “send using composio” if Gmail is connected.",
-        goal: "",
-        ack: "",
-        reason: `${reason}_send_email_smtp_missing`,
-        timing: result?.timing,
-      };
-    }
-    const built = buildSendEmailGoalFromContext({ userText, chatContext, fromAddress });
-    if (!built.ok) {
-      return {
-        action: "reply",
-        content:
-          "I don’t see recipient email addresses in this chat yet. Paste the addresses (or run the list again), then ask me to send.",
-        goal: "",
-        ack: "",
-        reason: `${reason}_send_email_no_recipients`,
-        timing: result?.timing,
-      };
-    }
-    return {
-      action: "queue_goal",
-      content: built.ack,
-      goal: built.goal,
-      ack: built.ack,
-      reason: `${reason}_send_email_hardened`,
-      timing: result?.timing,
-    };
-  }
-
-  // Why: teach-prefs / forget with URLs must never become a Chromium goal — even if the model mis-queues.
-  if (
-    action === "queue_goal" &&
-    (looksLikeMemoryStoreRequest(userText) ||
-      looksLikeMemoryForgetRequest(userText) ||
-      looksLikeSessionScratchRequest(userText))
-  ) {
-    return {
-      action: "reply",
-      content:
-        content ||
-        (looksLikeMemoryForgetRequest(userText)
-          ? "Got it — I’ll forget that. No computer run started."
-          : looksLikeSessionScratchRequest(userText)
-            ? "Got it — noted for this chat only. No computer run started."
-            : "Got it — I’ll remember those preferences for this agent. No computer run started."),
-      goal: "",
-      ack: "",
-      reason: `${reason}_memory_store_forced_reply`,
-      timing: result?.timing,
-    };
-  }
-
-  // Why: Gmail/Slack/… via Composio must never start Playwright — unless this is clearly a CRM/register live job.
-  if (
-    action === "queue_goal" &&
-    looksLikeComposioAppRequest(userText) &&
-    !looksLikeLiveComputerJobRequest(userText)
-  ) {
-    return {
-      action: "reply",
-      content:
-        content ||
-        "That uses your connected Composio apps (not the cloud browser). Ask again in Auto — I’ll search/execute the app tools instead of starting the computer.",
-      goal: "",
-      ack: "",
-      reason: `${reason}_composio_forced_reply`,
-      timing: result?.timing,
-    };
-  }
-
-  // Why: "what we did today" / vague "what" must never become a browser goal from chat context.
-  if (
-    action === "queue_goal" &&
-    (looksLikeDayHistoryOrStatusRequest(userText) || looksLikeVagueChatFollowup(userText))
-  ) {
-    return {
-      action: "reply",
-      content:
-        content ||
-        "I can summarize from day history in chat — no computer run. Ask again if the answer was empty.",
-      goal: "",
-      ack: "",
-      reason: `${reason}_day_history_forced_reply`,
       timing: result?.timing,
     };
   }
@@ -2911,13 +2788,8 @@ export async function runChatAutoTurn(opts) {
   }
 
   // Why: “add mcp https://… bearer …” saves the server the way a reminder does — before the main model.
-  const mcpIncoming = trustRoute
-    ? route.lane === "mcp"
-      ? mcpCommandFromRoute(text, route.mcp)
-      : ""
-    : looksLikeMcpServerManageRequest(text)
-      ? text
-      : "";
+  const mcpIncoming =
+    trustRoute && route.lane === "mcp" ? mcpCommandFromRoute(text, route.mcp) : "";
   if (mcpIncoming && runtime?.agent) {
     track.setPath("mcp_server_manage");
     track.markDecision("reply");
@@ -2968,8 +2840,7 @@ export async function runChatAutoTurn(opts) {
     replaceInteraction({ ...interactionState, pending: null });
   }
   const composioApps = Array.isArray(runtime?.composioToolkitSlugs) ? runtime.composioToolkitSlugs : [];
-  const reminderSentence = looksLikeScheduleManageRequest(text);
-  if (trustRoute && route.lane === "composio" && !route.composio && runtime?.agent && !reminderSentence) {
+  if (trustRoute && route.lane === "composio" && !route.composio && runtime?.agent) {
     const names = composioApps.filter(Boolean).join(", ") || "none yet";
     const asked = String(route.unmatchedApp || "").trim();
     const content = asked
@@ -2987,26 +2858,9 @@ export async function runChatAutoTurn(opts) {
       timing: track.finish(),
     });
   }
-  const composioKeyword =
-    reminderSentence || trustRoute
-      ? null
-      : acceptComposioKeywordPlan(text, interactionState, composioApps, historyEarly);
-  const composioAsked = reminderSentence
-    ? false
-    : trustRoute
-      ? route.lane === "composio"
-      : looksLikeComposioAppManageRequest(text, interactionState, historyEarly);
-  const composioLlmCandidate =
-    !reminderSentence &&
-    !trustRoute &&
-    !composioKeyword &&
-    Boolean(runtime?.composioEnabled) &&
-    Boolean(creds?.apiKey) &&
-    text.length <= 400 &&
-    !(isBareYesNo(text) && !composioYesNoStillApplies(interactionState, historyEarly)) &&
-    !looksLikeSiteTrialExpiryComputerRequest(text) &&
-    !looksLikeScheduleManageRequest(text) &&
-    !looksLikeMcpServerManageRequest(text);
+  const composioKeyword = null;
+  const composioAsked = trustRoute && route.lane === "composio";
+  const composioLlmCandidate = false;
   let composioParsed = null;
   if (composioLlmCandidate && runtime?.agent) {
     try {
@@ -3019,11 +2873,7 @@ export async function runChatAutoTurn(opts) {
       console.warn("[composioFromChat] plan failed:", err?.message || err);
     }
   }
-  if (
-    !reminderSentence &&
-    (composioKeyword || composioParsed || (trustRoute && route.composio)) &&
-    runtime?.agent
-  ) {
+  if ((composioKeyword || composioParsed || (trustRoute && route.composio)) && runtime?.agent) {
     track.setPath("composio_app_manage");
     track.markDecision("reply");
     try {
@@ -3092,7 +2942,7 @@ export async function runChatAutoTurn(opts) {
 
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
   // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
-  const scheduleIncoming = (trustRoute && route.lane === "reminder") || reminderSentence;
+  const scheduleIncoming = trustRoute && route.lane === "reminder";
   if (scheduleIncoming && runtime?.agent) {
     track.setPath("schedule_manage");
     track.markDecision("reply");
@@ -3144,31 +2994,8 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  // Why: send-mail follow-ups skip the model and build a hardened send_email goal from chat.
-  // Never steal “send … using composio” into the SMTP path.
-  // Why: SMTP checkbox Off + Composio available → fall through so Gmail API can send.
-  const smtpConfigured = Boolean(snapshot?.email?.configured);
-  const composioReady =
-    Boolean(runtime?.composioEnabled) && Boolean(String(runtime?.composioApiKey || "").trim());
-  if (
-    looksLikeSendEmailRequest(text) &&
-    !looksLikeComposioAppRequest(text) &&
-    (smtpConfigured || !composioReady)
-  ) {
-    track.setPath("send_email_harden");
-    track.markDecision("queue_goal");
-    return finalize({
-      action: "queue_goal",
-      content: "",
-      goal: text,
-      ack: "",
-      reason: "send_email_request",
-      timing: track.finish(),
-    });
-  }
-
-  // Why: Hermes-depth multi-step (site → email) with clarify + stateful plan.
-  if (runtime?.agent && runtime?.chatId) {
+  // Why: a long multi-step ask can still open a task plan when the router did not choose a lane.
+  if (!trustRoute && runtime?.agent && runtime?.chatId) {
     try {
       const tp = await startOrResumeTaskPlan({
         userId: String(runtime.userId || ""),
@@ -3199,57 +3026,7 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  // Why: hybrid browser→Notion/Slack/email — classify from the ORIGINAL user ask.
-  // Clear phrases use heuristics; ambiguous create+@email uses a small LLM decide.
-  if (looksLikeHybridCombo(text) || maybeAmbiguousCombo(text)) {
-    try {
-      const classified = await classifyComboIntent(text, {
-        apiKey: creds?.apiKey || creds?.llmApiKey,
-        llmApiKey: creds?.apiKey || creds?.llmApiKey,
-        llmBaseUrl: creds?.llmBaseUrl,
-        llmModel: creds?.llmModel,
-        signal,
-      });
-      if (classified.mode === "hybrid" && classified.followup?.steps?.length) {
-        track.setPath(
-          classified.source === "llm" ? "combo_hybrid_llm" : "combo_hybrid_queue"
-        );
-        track.markDecision("queue_goal");
-        return finalize({
-          action: "queue_goal",
-          content: "",
-          goal: classified.computerGoal || planComboFromText(text).computerGoal || text,
-          ack: "",
-          reason: `combo_hybrid:${classified.recipe || "browse_then_composio_tail"}:${classified.source}`,
-          comboFollowup: classified.followup,
-          timing: track.finish(),
-        });
-      }
-    } catch (err) {
-      console.warn("[auto] combo classify failed:", err?.message || err);
-      // Why: fall through to normal Auto if classify errors; never invent a combo.
-    }
-  }
-
-  // Why: “check email” / known Composio intents must run the deterministic app path.
-  // Do not require looksLikeComposioAppRequest alone — matchComposioIntent covers inbox phrases.
-  // Why: trial-expiry admin lists queue the computer before any Sheets match.
-  if (looksLikeSiteTrialExpiryComputerRequest(text)) {
-    track.setPath("site_trial_expiry_queue");
-    track.markDecision("queue_goal");
-    const ack = defaultQueueAck(text, agentName);
-    await pushReply(ack);
-    return finalize({
-      action: "queue_goal",
-      content: ack,
-      goal: text,
-      ack,
-      reason: "site_trial_expiry_computer",
-      timing: track.finish(),
-    });
-  }
-
-  // Why: a long next message leaves the waiting question behind so "1" cannot fire later by accident.
+  // Why: a long next message leaves the waiting question behind so a later reply cannot fire it by accident.
   if (text.length > 80 && interactionState.pending) {
     replaceInteraction({ ...interactionState, pending: null });
   }
@@ -3321,32 +3098,6 @@ export async function runChatAutoTurn(opts) {
         });
       }
     }
-  }
-
-  // Why: day-history / vague "what" must never reach QUEUE_GOAL — models invent login goals from thread.
-  if (looksLikeDayHistoryOrStatusRequest(text) || looksLikeVagueChatFollowup(text)) {
-    track.setPath("day_history_forced_qa");
-    track.markDecision("reply");
-    let content = "";
-    if (looksLikeVagueChatFollowup(text)) {
-      content = "Could you clarify what you mean?";
-    } else {
-      // Why: build from dayLogs directly — LLM was echoing Mem0 prefs (“long scratchpads”) instead.
-      content = formatDayHistoryChatAnswer(snapshot, text);
-      if (stream && content) {
-        await pushReply(content);
-      }
-    }
-    return finalize({
-      action: "reply",
-      content: content || "No day-history summary available yet.",
-      goal: "",
-      ack: "",
-      reason: looksLikeVagueChatFollowup(text)
-        ? "vague_chat_followup_forced_qa"
-        : "day_history_forced_qa",
-      timing: track.finish(),
-    });
   }
 
   // Why: optional per-agent Jev — confident reply / computer / Composio before the chat LLM.

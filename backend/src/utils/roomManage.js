@@ -14,15 +14,10 @@ import {
   applyComposioAppFromChat,
   composioYesNoStillApplies,
   isBareYesNo,
-  looksLikeComposioAppManageRequest,
   planComposioManageWithLlm,
 } from "./composioFromChat.js";
-import { applyMcpServerFromChat, looksLikeMcpServerManageRequest } from "./mcpFromChat.js";
-import {
-  looksLikeScheduleManageRequest,
-  parseScheduleFromChat,
-  applyScheduleFromChat,
-} from "./scheduleFromChat.js";
+import { applyMcpServerFromChat } from "./mcpFromChat.js";
+import { applyScheduleFromChat } from "./scheduleFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import {
   mcpCommandFromRoute,
@@ -328,87 +323,24 @@ export async function planRoomAgentManage(opts) {
 
   const command = textWithoutMentions(content, agents);
   const namedFirst = agentsNamedInRoomText(content, agents);
-  // Why: a named member’s short message is routed by the model. Word gates remain if that call fails.
-  if (namedFirst.length === 1 && typeof opts.planRoute === "function" && shouldPlanChatRoute(command)) {
-    let route = null;
-    try {
-      route = await opts.planRoute({
-        command,
-        agent: namedFirst[0],
-        history,
-        state,
-      });
-    } catch (err) {
-      console.warn("[roomManage] route failed:", err?.message || err);
-    }
-    if (route?.lane === "chat" || route?.lane === "computer") return null;
-    if (route && (route.lane === "reminder" || route.lane === "mcp" || route.lane === "composio")) {
-      return applyRoomRoute(namedFirst[0], command, route, history, state, opts);
-    }
+  // Why: the model picks the lane. A manage lane with no single named member asks which agent.
+  if (typeof opts.planRoute !== "function" || !shouldPlanChatRoute(command)) return null;
+  let route = null;
+  try {
+    route = await opts.planRoute({
+      command,
+      agent: namedFirst.length === 1 ? namedFirst[0] : null,
+      history,
+      state,
+    });
+  } catch (err) {
+    console.warn("[roomManage] route failed:", err?.message || err);
   }
-  const schedule = looksLikeScheduleManageRequest(command);
-  const mcp = !schedule && looksLikeMcpServerManageRequest(command);
-  const composio =
-    !schedule &&
-    !mcp &&
-    (looksLikeComposioAppManageRequest(command, null, history) || /\bcomposio\b/i.test(command));
-  if (!schedule && !mcp && !composio) return null;
-
-  const named = agentsNamedInRoomText(content, agents);
-  if (named.length !== 1) {
+  const manageLane =
+    route?.lane === "reminder" || route?.lane === "mcp" || route?.lane === "composio";
+  if (!manageLane) return null;
+  if (namedFirst.length !== 1) {
     return { handled: true, kind: "ask", content: whichAgentReply(agents), pending: null };
   }
-  const agent = named[0];
-
-  try {
-    if (schedule) {
-      const listed = parseScheduleFromChat(command);
-      let parsed = listed?.action === "list" ? listed : null;
-      if (!parsed) {
-        const creds = await credsFor(agent, opts.userId, opts.resolveCreds);
-        const resolve = opts.resolveSchedule || resolveScheduleFromChat;
-        parsed = await resolve(command, creds);
-      }
-      if (!parsed) {
-        return {
-          handled: true,
-          agent,
-          kind: "schedule",
-          content:
-            "I couldn’t map that to a schedule change. Try “list reminders” or “remind me to call greetme on mockmcp every 1 min”.",
-          pending: null,
-        };
-      }
-      const apply = opts.applySchedule || applyScheduleFromChat;
-      const applied = await apply({ agent, parsed, chatId: null, userText: command });
-      return {
-        handled: true,
-        agent,
-        kind: "schedule",
-        content: String(applied.content || "Schedule updated."),
-        pending: null,
-      };
-    }
-    if (mcp) {
-      const apply = opts.applyMcp || applyMcpServerFromChat;
-      const applied = await apply({ agent, userId: opts.userId, text: command });
-      return {
-        handled: true,
-        agent,
-        kind: "mcp",
-        content: String(applied.content || "MCP updated."),
-        pending: null,
-      };
-    }
-    const result = await runComposio(agent, command, { pending: null }, history, opts);
-    return { handled: true, agent, kind: "composio", content: result.content, pending: result.pending };
-  } catch (err) {
-    return {
-      handled: true,
-      agent,
-      kind: schedule ? "schedule" : mcp ? "mcp" : "composio",
-      content: `Could not update ${agent.name}: ${err?.message || err}`,
-      pending: null,
-    };
-  }
+  return applyRoomRoute(namedFirst[0], command, route, history, state, opts);
 }

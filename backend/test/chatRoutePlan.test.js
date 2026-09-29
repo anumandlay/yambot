@@ -83,7 +83,8 @@ test("a copied list name is kept and an unknown name is dropped", () => {
 test("chat and computer do not become an app or a reminder", () => {
   assert.equal(normalizeChatRoute({ lane: "chat" }).lane, "chat");
   assert.equal(normalizeChatRoute({ lane: "reply" }).lane, "chat");
-  assert.equal(normalizeChatRoute({ lane: "computer" }).lane, "computer");
+  assert.equal(normalizeChatRoute({ lane: "computer" }).computerAction, "start");
+  assert.equal(normalizeChatRoute({ lane: "computer", action: "steer" }).computerAction, "steer");
   assert.equal(normalizeChatRoute({ lane: "steer" }).lane, "computer");
 });
 

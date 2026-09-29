@@ -22,7 +22,6 @@ import { createLearnedSkillDraft } from "../utils/skillLearn.js";
 import { routeCommonChat } from "../utils/chatRouter.js";
 import {
   classifyMessageIntent,
-  classifyLiveRunFollowup,
   refineMessageIntentWithLlm,
   answerChatQuestion,
   shouldRefineIntentWithLlm,
@@ -103,8 +102,6 @@ import {
   agentComposioAutoApprovesRisky,
 } from "../utils/composioApprovalGate.js";
 import { redactCredentialLeaks } from "../utils/hermesUntrusted.js";
-import { looksLikeScheduleManageRequest } from "../utils/scheduleFromChat.js";
-import { looksLikeMcpServerManageRequest } from "../utils/mcpFromChat.js";
 import { looksLikeComposioAppManageRequest } from "../utils/composioFromChat.js";
 import {
   planChatRoute,
@@ -1292,12 +1289,13 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         (looksLikeComposioRiskyDeny(questionText) ||
           looksLikeAffirmativeConfirm(questionText) ||
           looksLikeComposioRiskyConfirm(questionText));
+      const computerOpen = busyRun?.status === "running";
       if (
         !comboOwnsTurn &&
         !confirmGoal &&
         !cheapReply &&
         !pendingComposioApproval &&
-        shouldPlanChatRoute(questionText)
+        (shouldPlanChatRoute(questionText) || computerOpen)
       ) {
         const userForRoute = await User.findById(req.userId);
         qaCreds = await resolveLlmCredentialsForAgent(userForRoute, agentDoc);
@@ -1311,7 +1309,7 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
                 agent: agentDoc,
                 history: recentChatTurns,
                 state: chat.interactionState,
-                computerOpen: busyRun?.status === "running",
+                computerOpen,
                 userText: questionText,
               })
             );
@@ -1321,9 +1319,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
         }
       }
       const steerLiveScreen =
-        busyRun?.status === "running" &&
-        classifyLiveRunFollowup(questionText) === "steer" &&
-        (!routePlan || routePlan.lane === "computer");
+        computerOpen &&
+        routePlan?.lane === "computer" &&
+        routePlan?.computerAction === "steer";
       try {
         if (
           pendingComboFollowup?.taskId &&
@@ -1415,19 +1413,9 @@ chatsRouter.post("/:id/messages", async (req, res, next) => {
           });
         }
         // Why: the router already chose the lane. Word gates apply only when it did not answer.
-        const scheduleManage = routePlan
-          ? routePlan.lane === "reminder"
-          : looksLikeScheduleManageRequest(questionText);
-        const mcpServerManage = routePlan
-          ? routePlan.lane === "mcp"
-          : looksLikeMcpServerManageRequest(questionText);
-        const composioAppManage = routePlan
-          ? routePlan.lane === "composio"
-          : looksLikeComposioAppManageRequest(
-              questionText,
-              chat.interactionState,
-              recentChatTurns
-            );
+        const scheduleManage = routePlan?.lane === "reminder";
+        const mcpServerManage = routePlan?.lane === "mcp";
+        const composioAppManage = routePlan?.lane === "composio";
         const light =
           scheduleManage ||
           mcpServerManage ||

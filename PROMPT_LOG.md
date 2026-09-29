@@ -1,3 +1,9 @@
+## [2026-09-29 14:10] The model decides the lane, with no fixed word list
+
+- **Prompt Provided:** Do not keep row words or fixed words. The LLM decides.
+- **Architectural Flow:** A short message is routed by the model. That choice is what saves a reminder, connects an app, adds an MCP server, steers an open computer, or starts a new job. Word lists no longer override that choice, and they no longer fill in a lane when the model already answered. A reminder change keeps the job name the model copied. Yes or no on a question that is already waiting still answers that question. A risky send still needs its own yes or no.
+- **Impacted Files:** chatAutoTurn.js, chatRoutePlan.js, chats.js, roomManage.js, scheduleFromChat.js, scheduleLlmPlan.js, roomManage.test.js, chatRoutePlan.test.js, PROMPT_LOG
+
 ## [2026-09-29 13:45] The model copies a listed tool, skill, or agent name
 
 - **Prompt Provided:** Remove the remaining row-word pickers the way reminder rows were removed. Let the LLM copy the item name.
