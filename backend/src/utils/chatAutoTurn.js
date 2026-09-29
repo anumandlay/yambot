@@ -3173,6 +3173,10 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
+  // Why: Jev and the tools loop check whether this agent can call Composio. The flag is the saved key, not a word in the message.
+  const composioReady =
+    Boolean(runtime?.composioEnabled) && Boolean(String(runtime?.composioApiKey || "").trim());
+
   // Why: optional per-agent Jev — confident reply / computer / Composio before the chat LLM.
   /** @type {Awaited<ReturnType<typeof classifyAutoActionWithJev>>|null} */
   let jevDecision = null;

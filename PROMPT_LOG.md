@@ -1,3 +1,9 @@
+## [2026-09-29 14:35] “delete it” no longer crashes on a missing Composio flag
+
+- **Prompt Provided:** After “list reminders”, “delete it” answered “composioReady is not defined”.
+- **Architectural Flow:** The Composio-ready flag is whether this agent has a saved Composio key. It was dropped with the old word checks, then the tools path still read it and threw. The flag is set again before Jev and the tools loop. The router still decides whether “delete it” is a reminder stop.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-29 14:20] Yes and no are the model’s answer to the pending question
 
 - **Prompt Provided:** Yes and no must be decided by the LLM only. No more fixed words or row words.
