@@ -2,7 +2,8 @@
  * @fileoverview Grok-style full-bleed workspace — agents | chat/rooms | live rail.
  * Purpose: Open in a new tab from the main nav; pick an agent on the left (one chat each),
  * open group rooms from the same rail, chat in the middle, and reuse ChatDetailPage’s right rail.
- * Downstream: GET /api/agents, GET /api/groups, GET /api/rooms, GET/POST/DELETE /api/chats;
+ * Downstream: GET /api/agents, GET /api/groups, GET /api/rooms, GET/POST/DELETE /api/chats.
+ * The agent rail shows how many replies arrived since that chat was last open.
  * ChatDetailPage at /grok/:chatId; RoomsPage/RoomDetailPage at /grok/rooms(/:roomId).
  */
 
@@ -34,6 +35,27 @@ function agentActivity(chats, agentId, agent) {
     if (s === "running" || s === "pending") working = true;
   }
   return { working, needsYou };
+}
+
+/**
+ * Replies on this agent's chats that the user has not opened.
+ * The chat on screen counts as zero.
+ * @param {object[]} chats
+ * @param {string} agentId
+ * @param {string} [openChatId]
+ * @returns {number}
+ */
+function unreadRepliesForAgent(chats, agentId, openChatId) {
+  const id = String(agentId);
+  let total = 0;
+  for (const chat of chats || []) {
+    if (chat?.kind === "common" || chat?.kind === "room") continue;
+    const aid = chat?.agent?._id || chat?.agent;
+    if (!aid || String(aid) !== id) continue;
+    if (openChatId && String(chat._id) === String(openChatId)) continue;
+    total += Number(chat.unreadCount) || 0;
+  }
+  return total;
 }
 
 /**
@@ -205,8 +227,16 @@ export function GrokStylePage() {
         method: "POST",
         body: JSON.stringify({ agentId: id, kind: "agent" }),
       });
-      const chat = data.chat;
-      setChats((prev) => [chat, ...prev.filter((c) => String(c._id) !== String(chat._id))]);
+      const chat = { ...data.chat, unreadCount: 0 };
+      setChats((prev) => [
+        chat,
+        ...prev
+          .filter((c) => String(c._id) !== String(chat._id))
+          .map((c) => {
+            const aid = c?.agent?._id || c?.agent;
+            return String(aid) === id ? { ...c, unreadCount: 0 } : c;
+          }),
+      ]);
       navigate(`/grok/${chat._id}`);
     } catch (err) {
       setError(err);
@@ -223,6 +253,7 @@ export function GrokStylePage() {
     const id = String(a._id);
     const agentActive = selectedAgentId === id;
     const { working, needsYou } = agentActivity(chats, id, a);
+    const unread = agentActive ? 0 : unreadRepliesForAgent(chats, id, chatId);
     const title = needsYou
       ? working
         ? "Needs you (also working) — open chat"
@@ -256,6 +287,17 @@ export function GrokStylePage() {
             ) : null}
           </span>
           <span className="min-w-0 flex-1 truncate">{a.name || "Agent"}</span>
+          {unread > 0 ? (
+            <span
+              className={`inline-flex h-5 min-w-5 shrink-0 items-center justify-center rounded-full px-1.5 text-[11px] font-bold ${
+                agentActive ? "bg-white text-teal-800" : "bg-teal-600 text-white"
+              }`}
+              title={`${unread > 99 ? "99+" : unread} new ${unread === 1 ? "reply" : "replies"}`}
+            >
+              {unread > 99 ? "99+" : unread}
+              <span className="sr-only">{unread === 1 ? "new reply" : "new replies"}</span>
+            </span>
+          ) : null}
           {needsYou ? <span className="sr-only">Needs attention</span> : null}
           {working ? <span className="sr-only">Working</span> : null}
         </button>

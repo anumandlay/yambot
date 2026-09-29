@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-29 12:45] Unread reply count on the Grok agent list
+
+- **Prompt Provided:** On the Grok left menu, show a message count when another agent sends a reply while you are in a different chat.
+- **Architectural Flow:** Each agent chat remembers when it was last opened. The list counts assistant replies after that time. The agent on screen stays at zero. Opening a chat clears its number. Older history is not counted.
+- **Impacted Files:** Chat.js, chatUnread.js, chats.js, GrokStylePage.jsx, chatUnread.test.js, PROMPT_LOG
+
 ## [2026-09-29 12:37] Composio, MCP, and reminders in a group room
 
 - **Prompt Provided:** Add the 1:1 chat actions that fit a group: Composio, MCP servers, and reminders, only for the agent that is named.

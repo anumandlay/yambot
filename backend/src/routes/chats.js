@@ -7,6 +7,7 @@
 import { Router } from "express";
 import mongoose from "mongoose";
 import { Chat, Message, CHAT_KINDS } from "../models/Chat.js";
+import { withUnreadCounts } from "../utils/chatUnread.js";
 import { Task } from "../models/Task.js";
 import { Skill } from "../models/Skill.js";
 import { User } from "../models/User.js";
@@ -383,7 +384,7 @@ chatsRouter.get("/", async (req, res, next) => {
 
     let query = Chat.find(filter)
       .sort({ updatedAt: -1, _id: -1 })
-      .select("title agent kind createdAt updatedAt")
+      .select("title agent kind createdAt updatedAt lastReadAt")
       .populate("agent", "name skill avatarMime avatarBase64");
     if (limit > 0) query = query.limit(limit + 1);
     const found = await query.lean();
@@ -415,7 +416,28 @@ chatsRouter.get("/", async (req, res, next) => {
       }
     }
 
-    const enriched = chats.map((c) => ({
+    const now = new Date();
+    const unstamped = chats.filter((c) => !c.lastReadAt);
+    if (unstamped.length) {
+      await Chat.updateMany({ _id: { $in: unstamped.map((c) => c._id) } }, { $set: { lastReadAt: now } });
+      for (const c of unstamped) c.lastReadAt = now;
+    }
+    const readable = chats.filter((c) => c.kind !== "common" && c.lastReadAt);
+    const countRows = readable.length
+      ? await Message.aggregate([
+          {
+            $match: {
+              $or: readable.map((c) => ({
+                chat: c._id,
+                role: { $in: ["assistant", "agent"] },
+                createdAt: { $gt: c.lastReadAt },
+              })),
+            },
+          },
+          { $group: { _id: "$chat", n: { $sum: 1 } } },
+        ])
+      : [];
+    const enriched = withUnreadCounts(chats, countRows).map((c) => ({
       ...c,
       live: liveByChat.get(String(c._id)) || null,
     }));
@@ -470,7 +492,9 @@ chatsRouter.post("/", async (req, res, next) => {
       agentName: agent.name,
       title: preferredTitle,
     });
-    res.status(201).json({ ok: true, chat });
+    chat.lastReadAt = new Date();
+    await chat.save();
+    res.status(201).json({ ok: true, chat, unreadCount: 0 });
   } catch (err) {
     next(err);
   }
@@ -491,6 +515,8 @@ chatsRouter.get("/:id", async (req, res, next) => {
       res.status(404).json({ ok: false, title: "Not found", detail: "Chat missing" });
       return;
     }
+    // Why: the open chat stays caught up while it polls, so its agent badge stays at zero.
+    await Chat.updateOne({ _id: chat._id, user: req.userId }, { $set: { lastReadAt: new Date() } });
     const common = isCommonChat(chat);
     const limit = parseChatPageLimit(req.query.limit);
     const before = String(req.query.before || "").trim();

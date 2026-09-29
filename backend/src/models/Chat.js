@@ -109,9 +109,16 @@ const chatSchema = new mongoose.Schema(
      * Shape: { pending, lastPresentedList: { type, items: [{ index, label, target }] } }
      */
     interactionState: { type: mongoose.Schema.Types.Mixed, default: null },
+    /**
+     * When the user last had this chat open.
+     * Why: the Grok agent list counts assistant replies newer than this.
+     */
+    lastReadAt: { type: Date, default: null },
   },
   { timestamps: true }
 );
+
+messageSchema.index({ chat: 1, role: 1, createdAt: 1 });
 
 export const Message = mongoose.model("Message", messageSchema);
 export const Chat = mongoose.model("Chat", chatSchema);
