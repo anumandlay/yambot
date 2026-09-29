@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-29 12:37] Composio, MCP, and reminders in a group room
+
+- **Prompt Provided:** Add the 1:1 chat actions that fit a group: Composio, MCP servers, and reminders, only for the agent that is named.
+- **Architectural Flow:** A room message that lists or changes those things runs on the one named member. The others pass. If no single agent is named, the room asks which one. A bare yes or no still follows the last reply. Reminder ticks stay on that agent’s own chat.
+- **Impacted Files:** roomManage.js, roomTurn.js, roomManage.test.js, PROMPT_LOG
+
 ## [2026-09-29 12:27] “No” answers the latest question, not an old Composio reconnect
 
 - **Prompt Provided:** Saying no to a reminder got “Okay, I won't reconnect that app.”
