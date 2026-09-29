@@ -4,6 +4,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  acceptComposioKeywordPlan,
   applyComposioAppFromChat,
   looksLikeComposioAppManageRequest,
   normalizeComposioManagePlan,
@@ -30,6 +31,43 @@ test("re authenticate with a space still reconnects the waiting app", () => {
   const parsed = parseComposioAppChat("re authenticate", [], { pending });
   assert.equal(parsed.action, "reconnect");
   assert.equal(parsed.slug, "apollo");
+});
+
+test("a misspelling is not saved and is not rewritten in code", async () => {
+  const apps = ["gmail", "apollo"];
+  assert.equal(acceptComposioKeywordPlan("lets enable appollo", null, apps), null);
+  assert.equal(normalizeComposioManagePlan({ action: "reconnect", app: "appollo" }, null, apps), null);
+  const chosen = normalizeComposioManagePlan({ action: "reconnect", app: "apollo" }, null, apps);
+  assert.equal(chosen.slug, "apollo");
+  let saved = false;
+  const agent = {
+    composio: { enabled: true, toolkitSlugs: ["gmail", "apollo", "appollo"], sessionId: "" },
+    markModified() {},
+    async save() {
+      saved = true;
+    },
+  };
+  let calls = 0;
+  const applied = await applyComposioAppFromChat({
+    agent,
+    userId: "user1",
+    text: "reconnect apollo",
+    apiKey: "test-key",
+    parsed: chosen,
+    authorize: async (opts) => {
+      calls += 1;
+      if (opts.toolkitSlugs.includes("appollo")) {
+        return { ok: false, error: '400 {"error":{"message":"Invalid toolkit slugs: appollo. Please provide valid toolkit slugs."}}' };
+      }
+      return { ok: true, redirectUrl: "https://connect.example/apollo", sessionId: "sess1" };
+    },
+  });
+  assert.equal(applied.ok, true);
+  assert.match(applied.content, /Reconnect Apollo/);
+  assert.equal(calls, 2);
+  assert.equal(saved, true);
+  assert.equal(agent.composio.toolkitSlugs.includes("appollo"), false);
+  assert.equal(agent.composio.toolkitSlugs.includes("apollo"), true);
 });
 
 test("the model can activate the waiting app without those words", () => {

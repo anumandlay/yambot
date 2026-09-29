@@ -58,6 +58,7 @@ import {
 import { looksLikeMcpServerManageRequest, applyMcpServerFromChat } from "./mcpFromChat.js";
 import {
   looksLikeComposioAppManageRequest,
+  acceptComposioKeywordPlan,
   applyComposioAppFromChat,
   planComposioManageWithLlm,
 } from "./composioFromChat.js";
@@ -2888,8 +2889,10 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  // Why: obvious “list composio apps” stays instant. Other wording (“activate the app”) is decided by the model, then applied here so Jev cannot start a computer.
-  const composioKeyword = looksLikeComposioAppManageRequest(text, interactionState);
+  // Why: a saved app can be listed or confirmed immediately. A new spelling goes to the model with the apps already on the agent.
+  const composioApps = Array.isArray(runtime?.composioToolkitSlugs) ? runtime.composioToolkitSlugs : [];
+  const composioKeyword = acceptComposioKeywordPlan(text, interactionState, composioApps);
+  const composioAsked = looksLikeComposioAppManageRequest(text, interactionState);
   const composioLlmCandidate =
     !composioKeyword &&
     Boolean(runtime?.composioEnabled) &&
@@ -2921,7 +2924,7 @@ export async function runChatAutoTurn(opts) {
         history: historyEarly,
         apiKey: runtime.composioApiKey,
         state: interactionState,
-        parsed: composioParsed || undefined,
+        parsed: composioParsed || composioKeyword || undefined,
       });
       const content = String(applied.content || "Composio updated.").trim();
       if (content) await pushReply(content);
@@ -2959,6 +2962,20 @@ export async function runChatAutoTurn(opts) {
         timing: track.finish(),
       });
     }
+  }
+
+  if (composioAsked && !composioKeyword && !composioParsed && runtime?.agent) {
+    const names = composioApps.filter(Boolean).join(", ") || "none yet";
+    const content = `Which app should I connect? On this agent: ${names}.`;
+    await pushReply(content);
+    return finalize({
+      action: "reply",
+      content,
+      goal: "",
+      ack: "",
+      reason: "composio_app_unmatched",
+      timing: track.finish(),
+    });
   }
 
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.

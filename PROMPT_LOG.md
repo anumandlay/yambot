@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 22:00] Let the model pick the Composio app from context
+
+- **Prompt Provided:** “lets enable appollo” saved the misspelling, Composio rejected it, and “yes” then failed with the same invalid slug. Do not map the spelling in code. Let the model use the chat context.
+- **Architectural Flow:** A word match can list apps or confirm an app already saved. A name that is not already on the agent goes to the model with those saved slugs and the recent reply. The model must copy an existing slug when the user is reconnecting one of them. A slug Composio rejects is removed and is not kept on the agent. If that rejected name was blocking a real app, the connect is tried again without it.
+- **Impacted Files:** composioFromChat.js, chatAutoTurn.js, composioFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-28 21:51] Let the model decide a Composio connect
 
 - **Prompt Provided:** Stop matching fixed words. Send the sentence to the model, because “i want to activate the app” should reconnect the waiting app.

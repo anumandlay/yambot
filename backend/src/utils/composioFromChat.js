@@ -145,12 +145,45 @@ export function parseComposioAppChat(text, history = [], state = null) {
 }
 
 /**
- * Turn a model JSON decision into an app action. Empty app uses the one the chat is waiting on.
- * @param {object|null|undefined} raw
+ * Slugs Composio rejected, pulled out of the error text.
+ * @param {string} error
+ * @returns {string[]}
+ */
+export function invalidToolkitSlugsFromError(error) {
+  const match = String(error || "").match(/Invalid toolkit slugs:\s*([^."}]+)/i);
+  if (!match) return [];
+  return match[1]
+    .split(/[,\s]+/)
+    .map((slug) => normalizeToolkitSlug(slug))
+    .filter(Boolean);
+}
+
+/**
+ * A word match may list or confirm a saved app. A new spelling is left for the model.
+ * @param {string} text
  * @param {object|null} [state]
+ * @param {string[]} [apps]
  * @returns {{ action: string, slug?: string, label?: string }|null}
  */
-export function normalizeComposioManagePlan(raw, state = null) {
+export function acceptComposioKeywordPlan(text, state = null, apps = []) {
+  if (!looksLikeComposioAppManageRequest(text, state)) return null;
+  const parsed = parseComposioAppChat(text, [], state);
+  if (parsed.action === "list" || parsed.action === "cancel" || parsed.action === "help") return parsed;
+  const known = new Set((apps || []).map((slug) => normalizeToolkitSlug(slug)).filter(Boolean));
+  const slug = normalizeToolkitSlug(parsed.slug);
+  if (slug && known.has(slug)) return parsed;
+  return null;
+}
+
+/**
+ * Turn a model JSON decision into an app action. Empty app uses the one the chat is waiting on.
+ * Reconnect must name an app already on the agent. A misspelling is not rewritten here.
+ * @param {object|null|undefined} raw
+ * @param {object|null} [state]
+ * @param {string[]} [apps]
+ * @returns {{ action: string, slug?: string, label?: string }|null}
+ */
+export function normalizeComposioManagePlan(raw, state = null, apps = []) {
   if (!raw || typeof raw !== "object") return null;
   let action = String(raw.action || "").trim().toLowerCase();
   if (["activate", "enable", "connect", "reauth", "reauthenticate", "signin", "sign-in"].includes(action)) {
@@ -158,15 +191,17 @@ export function normalizeComposioManagePlan(raw, state = null) {
   }
   if (action === "none" || action === "use" || action === "chat" || action === "computer") return null;
   if (!["list", "add", "reconnect", "remove", "cancel"].includes(action)) return null;
+  const known = (apps || []).map((slug) => normalizeToolkitSlug(slug)).filter(Boolean);
   const waiting =
     state?.pending?.target?.type === "composio_app"
       ? normalizeToolkitSlug(state.pending.target.name)
       : "";
   let slug = normalizeToolkitSlug(raw.app || raw.slug || raw.toolkit || "");
   if (!slug || slug === "app" || slug === "theapp") slug = waiting;
+  if ((action === "reconnect" || action === "remove") && known.length && !known.includes(slug)) return null;
   if ((action === "add" || action === "reconnect" || action === "remove") && !slug) return null;
-  const known = KNOWN_APPS.find((row) => row[1] === slug);
-  return { action, slug, label: known ? known[2] : String(raw.label || slug || "") };
+  const labelHit = KNOWN_APPS.find((row) => row[1] === slug);
+  return { action, slug, label: labelHit ? labelHit[2] : String(raw.label || slug || "") };
 }
 
 /**
@@ -197,7 +232,9 @@ export async function planComposioManageWithLlm(text, creds, ctx = {}) {
     "remove = take an app off the agent.",
     "none = they want to use an app (read mail, send a message), start the computer, set a reminder, or just chat.",
     "If a waiting app is set, “the app”, “it”, “yes”, and “activate the app” mean that waiting app.",
-    "Do not invent an app that is not named and not waiting.",
+    "When the user is enabling, reconnecting, or roughly naming an app already listed, copy that slug exactly, including when they misspell it.",
+    "Do not invent a new slug for an app that is already on the agent.",
+    "“yes” continues the app named in the latest assistant message.",
   ].join("\n");
   const user = [
     apps ? `Apps on this agent: ${apps}` : "",
@@ -227,7 +264,7 @@ export async function planComposioManageWithLlm(text, creds, ctx = {}) {
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
   if (!jsonMatch) return null;
   try {
-    return normalizeComposioManagePlan(JSON.parse(jsonMatch[0]), ctx.state || null);
+    return normalizeComposioManagePlan(JSON.parse(jsonMatch[0]), ctx.state || null, ctx.apps || []);
   } catch {
     return null;
   }
@@ -360,30 +397,61 @@ export async function applyComposioAppFromChat(opts) {
       content: "This agent has no Composio API key. Save the key on the agent, then say add composio gmail.",
     };
   }
-  const next = current.includes(slug) ? current : [...current, slug].slice(0, 24);
-  agent.composio = { ...previous, enabled: true, toolkitSlugs: next };
-  agent.markModified?.("composio");
-  await agent.save?.();
-  // Why: authorize refuses a toolkit that is not on the agent, so the slug is saved first.
+  let slugsForConnect = current.includes(slug) ? current : [...current, slug].slice(0, 24);
   const authorize = opts.authorize || composioAuthorizeToolkit;
-  const result = await authorize({
+  let result = await authorize({
     userId: String(opts.userId || ""),
     apiKey,
     toolkit: slug,
     sessionId: previous.sessionId || null,
-    toolkitSlugs: next,
+    toolkitSlugs: slugsForConnect,
   });
-  if (result?.sessionId) {
-    agent.composio.sessionId = result.sessionId;
-    agent.markModified?.("composio");
-    await agent.save?.();
+  const rejected = invalidToolkitSlugsFromError(result?.error);
+  if ((!result?.ok || !result.redirectUrl) && rejected.length) {
+    const cleaned = current.filter((row) => !rejected.includes(row));
+    if (cleaned.length !== current.length) {
+      agent.composio = { ...previous, toolkitSlugs: cleaned };
+      agent.markModified?.("composio");
+      await agent.save?.();
+    }
+    // Why: a rejected name left on the agent makes every later connect fail, including a different app.
+    if (!rejected.includes(slug)) {
+      slugsForConnect = cleaned.includes(slug) ? cleaned : [...cleaned, slug].slice(0, 24);
+      result = await authorize({
+        userId: String(opts.userId || ""),
+        apiKey,
+        toolkit: slug,
+        sessionId: previous.sessionId || null,
+        toolkitSlugs: slugsForConnect,
+      });
+    }
   }
   if (!result?.ok || !result.redirectUrl) {
+    const pending =
+      current.includes(slug) || !rejected.includes(slug)
+        ? {
+            kind: "confirm",
+            expects: "yes_no",
+            target: { type: "composio_app", name: slug },
+            prompt: `Reconnect ${label}?`,
+          }
+        : null;
     return {
       ok: false,
-      content: `${label} is saved on this agent, but the connect link failed: ${result?.error || "Composio did not return a link."}`,
+      content: rejected.includes(slug)
+        ? `Composio does not have an app named ${label}.`
+        : `Could not connect ${label}: ${result?.error || "Composio did not return a link."}`,
+      pending,
     };
   }
+  agent.composio = {
+    ...previous,
+    enabled: true,
+    toolkitSlugs: slugsForConnect,
+    sessionId: result.sessionId || previous.sessionId || "",
+  };
+  agent.markModified?.("composio");
+  await agent.save?.();
   return {
     ok: true,
     content: `${parsed.action === "reconnect" ? "Reconnect" : "Added"} ${label}. Open this link to sign in, then come back to this chat:\n${result.redirectUrl}`,
