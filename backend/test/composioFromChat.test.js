@@ -6,6 +6,7 @@ import assert from "node:assert/strict";
 import {
   applyComposioAppFromChat,
   looksLikeComposioAppManageRequest,
+  normalizeComposioManagePlan,
   parseComposioAppChat,
 } from "../src/utils/composioFromChat.js";
 
@@ -29,6 +30,15 @@ test("re authenticate with a space still reconnects the waiting app", () => {
   const parsed = parseComposioAppChat("re authenticate", [], { pending });
   assert.equal(parsed.action, "reconnect");
   assert.equal(parsed.slug, "apollo");
+});
+
+test("the model can activate the waiting app without those words", () => {
+  const state = { pending: { target: { type: "composio_app", name: "apollo" } } };
+  assert.equal(looksLikeComposioAppManageRequest("i want to activate the app"), false);
+  const plan = normalizeComposioManagePlan({ action: "activate", app: "" }, state);
+  assert.equal(plan.action, "reconnect");
+  assert.equal(plan.slug, "apollo");
+  assert.equal(normalizeComposioManagePlan({ action: "none" }, state), null);
 });
 
 test("yes reauthenticate uses the app named in the previous reply", () => {

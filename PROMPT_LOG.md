@@ -1,5 +1,11 @@
 # PROMPT_LOG.md
 
+## [2026-09-28 21:51] Let the model decide a Composio connect
+
+- **Prompt Provided:** Stop matching fixed words. Send the sentence to the model, because “i want to activate the app” should reconnect the waiting app.
+- **Architectural Flow:** A clear list request still answers immediately. Any other short message on an agent that has Composio is shown to the model with the waiting app and the recent reply. If the model says connect, add, list, or remove, that action is saved. If it says the user wants something else, the normal chat path continues.
+- **Impacted Files:** composioFromChat.js, chatAutoTurn.js, composioFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-28 16:37] Treat “re authenticate” as a reconnect
 
 - **Prompt Provided:** After the app list, “re authenticate” started the computer instead of reconnecting Apollo.

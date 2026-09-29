@@ -4,6 +4,7 @@
  * Downstream: chatAutoTurn.js before the model. A reconnect reply must not start the computer.
  */
 
+import { llmChatCompletion } from "./llmChat.js";
 import {
   composioAuthorizeToolkit,
   composioDisconnectAccount,
@@ -144,6 +145,95 @@ export function parseComposioAppChat(text, history = [], state = null) {
 }
 
 /**
+ * Turn a model JSON decision into an app action. Empty app uses the one the chat is waiting on.
+ * @param {object|null|undefined} raw
+ * @param {object|null} [state]
+ * @returns {{ action: string, slug?: string, label?: string }|null}
+ */
+export function normalizeComposioManagePlan(raw, state = null) {
+  if (!raw || typeof raw !== "object") return null;
+  let action = String(raw.action || "").trim().toLowerCase();
+  if (["activate", "enable", "connect", "reauth", "reauthenticate", "signin", "sign-in"].includes(action)) {
+    action = "reconnect";
+  }
+  if (action === "none" || action === "use" || action === "chat" || action === "computer") return null;
+  if (!["list", "add", "reconnect", "remove", "cancel"].includes(action)) return null;
+  const waiting =
+    state?.pending?.target?.type === "composio_app"
+      ? normalizeToolkitSlug(state.pending.target.name)
+      : "";
+  let slug = normalizeToolkitSlug(raw.app || raw.slug || raw.toolkit || "");
+  if (!slug || slug === "app" || slug === "theapp") slug = waiting;
+  if ((action === "add" || action === "reconnect" || action === "remove") && !slug) return null;
+  const known = KNOWN_APPS.find((row) => row[1] === slug);
+  return { action, slug, label: known ? known[2] : String(raw.label || slug || "") };
+}
+
+/**
+ * Ask the chat model whether this sentence is about connecting an app.
+ * Why: “activate the app” does not share words with “reauthenticate”, but it means the waiting app.
+ * @param {string} text
+ * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} creds
+ * @param {{ history?: object[], state?: object|null, apps?: string[] }} [ctx]
+ * @returns {Promise<{ action: string, slug?: string, label?: string }|null>}
+ */
+export async function planComposioManageWithLlm(text, creds, ctx = {}) {
+  const raw = String(text || "").trim();
+  if (!raw || !creds?.apiKey) return null;
+  const waiting =
+    ctx.state?.pending?.target?.type === "composio_app" ? String(ctx.state.pending.target.name || "") : "";
+  const recent = (Array.isArray(ctx.history) ? ctx.history : [])
+    .filter((row) => row?.role === "assistant" || row?.role === "user")
+    .slice(-4)
+    .map((row) => `${row.role}: ${String(row.content || "").slice(0, 500)}`)
+    .join("\n");
+  const apps = (Array.isArray(ctx.apps) ? ctx.apps : []).filter(Boolean).slice(0, 24).join(", ");
+  const system = [
+    "You decide if the user is managing Composio app connections on this agent.",
+    "Reply with JSON only: {\"action\":\"list|add|reconnect|remove|cancel|none\",\"app\":\"slug or empty\"}",
+    "reconnect = sign in, activate, enable, turn on, or re-authenticate an app connection.",
+    "add = put a new app on the agent and sign in.",
+    "list = how many apps are connected.",
+    "remove = take an app off the agent.",
+    "none = they want to use an app (read mail, send a message), start the computer, set a reminder, or just chat.",
+    "If a waiting app is set, “the app”, “it”, “yes”, and “activate the app” mean that waiting app.",
+    "Do not invent an app that is not named and not waiting.",
+  ].join("\n");
+  const user = [
+    apps ? `Apps on this agent: ${apps}` : "",
+    waiting ? `Waiting app: ${waiting}` : "",
+    recent ? `Recent chat:\n${recent}` : "",
+    `User: ${raw}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+  const reply = await llmChatCompletion({
+    apiKey: creds.apiKey,
+    baseUrl: creds.llmBaseUrl || "",
+    model: creds.llmModel || "",
+    openAiAccountId: creds.openAiAccountId,
+    temperature: 0,
+    maxTokens: 120,
+    timeoutMs: 20_000,
+    messages: [
+      { role: "system", content: system },
+      { role: "user", content: user },
+    ],
+  });
+  const cleaned = String(reply || "")
+    .replace(/^```(?:json)?\s*/i, "")
+    .replace(/\s*```$/i, "")
+    .trim();
+  const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
+  if (!jsonMatch) return null;
+  try {
+    return normalizeComposioManagePlan(JSON.parse(jsonMatch[0]), ctx.state || null);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * @param {string} slug
  * @param {string} [fallback]
  * @returns {string}
@@ -183,7 +273,7 @@ function splitConnections(slugs, connections) {
 export async function applyComposioAppFromChat(opts) {
   const agent = opts?.agent;
   if (!agent) return { ok: false, content: "This chat has no agent to attach the Composio app to." };
-  const parsed = parseComposioAppChat(opts.text, opts.history || [], opts.state || null);
+  const parsed = opts.parsed || parseComposioAppChat(opts.text, opts.history || [], opts.state || null);
   const previous = typeof agent.composio?.toObject === "function" ? agent.composio.toObject() : agent.composio || {};
   const current = (Array.isArray(previous.toolkitSlugs) ? previous.toolkitSlugs : [])
     .map((slug) => normalizeToolkitSlug(slug))

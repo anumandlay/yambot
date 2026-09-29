@@ -56,7 +56,11 @@ import {
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { looksLikeMcpServerManageRequest, applyMcpServerFromChat } from "./mcpFromChat.js";
-import { looksLikeComposioAppManageRequest, applyComposioAppFromChat } from "./composioFromChat.js";
+import {
+  looksLikeComposioAppManageRequest,
+  applyComposioAppFromChat,
+  planComposioManageWithLlm,
+} from "./composioFromChat.js";
 import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import { startOrResumeTaskPlan } from "./taskPlanRunner.js";
 import {
@@ -2884,8 +2888,29 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  // Why: “add composio gmail” and “yes reauthenticate” save or reconnect the app — before Jev can start a computer.
-  if (looksLikeComposioAppManageRequest(text, interactionState) && runtime?.agent) {
+  // Why: obvious “list composio apps” stays instant. Other wording (“activate the app”) is decided by the model, then applied here so Jev cannot start a computer.
+  const composioKeyword = looksLikeComposioAppManageRequest(text, interactionState);
+  const composioLlmCandidate =
+    !composioKeyword &&
+    Boolean(runtime?.composioEnabled) &&
+    Boolean(creds?.apiKey) &&
+    text.length <= 400 &&
+    !looksLikeSiteTrialExpiryComputerRequest(text) &&
+    !looksLikeScheduleManageRequest(text) &&
+    !looksLikeMcpServerManageRequest(text);
+  let composioParsed = null;
+  if (composioLlmCandidate && runtime?.agent) {
+    try {
+      composioParsed = await planComposioManageWithLlm(text, creds, {
+        history: historyEarly,
+        state: interactionState,
+        apps: runtime.composioToolkitSlugs,
+      });
+    } catch (err) {
+      console.warn("[composioFromChat] plan failed:", err?.message || err);
+    }
+  }
+  if ((composioKeyword || composioParsed) && runtime?.agent) {
     track.setPath("composio_app_manage");
     track.markDecision("reply");
     try {
@@ -2896,6 +2921,7 @@ export async function runChatAutoTurn(opts) {
         history: historyEarly,
         apiKey: runtime.composioApiKey,
         state: interactionState,
+        parsed: composioParsed || undefined,
       });
       const content = String(applied.content || "Composio updated.").trim();
       if (content) await pushReply(content);
@@ -2914,7 +2940,11 @@ export async function runChatAutoTurn(opts) {
         content,
         goal: "",
         ack: "",
-        reason: applied.ok ? "composio_app_saved" : "composio_app_manage",
+        reason: applied.ok
+          ? composioParsed
+            ? "composio_app_llm"
+            : "composio_app_saved"
+          : "composio_app_manage",
         timing: track.finish(),
       });
     } catch (err) {
