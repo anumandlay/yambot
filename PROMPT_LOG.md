@@ -1,3 +1,9 @@
+## [2026-09-30 09:55] “create a reminder, drink water every 1 min” is saved
+
+- **Prompt Provided:** The agent said the drink-water reminder was scheduled every 1 minute, but it was not in Schedulers.
+- **Architectural Flow:** That sentence is a reminder create. It is written on the agent even when the router picks chat or computer. The schedule model supplies the plan, and the sentence parser supplies one when the model plan is missing. The chat model cannot say the reminder was scheduled unless that write happened.
+- **Impacted Files:** chatAutoTurn.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-30 08:50] “delete it” after a reminder list removes that job
 
 - **Prompt Provided:** After “list schedules”, “delete it” answered “Removed the” and Drink water kept firing every 3 minutes.

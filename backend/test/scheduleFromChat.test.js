@@ -234,6 +234,15 @@ test("change drink water to every 2 minutes is update not create", () => {
   assert.match(String(p?.matchHint || ""), /water/i);
 });
 
+test("create a reminder, drink water every 1 min is a 1 minute chat reminder", () => {
+  const t = "create a reminder, drink water every 1 min";
+  assert.equal(looksLikeScheduleManageRequest(t), true);
+  const p = parseScheduleFromChat(t);
+  assert.equal(p?.action, "create");
+  assert.equal(p?.interval, "1m");
+  assert.equal(p?.kind, "chat_reminder");
+});
+
 test("remind me to drink water every 2 minutes stays create", () => {
   const t = "remind me to drink water every 2 minutes";
   assert.equal(looksLikeScheduleUpdateRequest(t), false);

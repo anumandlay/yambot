@@ -51,6 +51,7 @@ import {
   looksLikeScheduleManageRequest,
   looksLikeReminderCreateRequest,
   applyScheduleFromChat,
+  parseScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { applyMcpServerFromChat } from "./mcpFromChat.js";
 import {
@@ -58,7 +59,7 @@ import {
   planComposioManageWithLlm,
   composioYesNoStillApplies,
 } from "./composioFromChat.js";
-import { planScheduleWithLlm, resolveScheduleFromChat } from "./scheduleLlmPlan.js";
+import { planScheduleWithLlm } from "./scheduleLlmPlan.js";
 import {
   planChatRoute,
   shouldPlanChatRoute,
@@ -1103,7 +1104,7 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     action === "reply" &&
     !/^schedule_/i.test(reason) &&
     /\b(reminder|schedule)\b/i.test(content) &&
-    /\b(i('ve| have)?\s+set|updated|changed|created|saved|switched|reminder\s+(is\s+)?set|will remind|scheduled a reminder)\b/i.test(
+    /\b(i('ve| have)?\s+set|updated|changed|created|saved|switched|scheduled|reminder\s+(is\s+)?set|will remind)\b/i.test(
       content
     )
   ) {
@@ -2341,7 +2342,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
-    "- You cannot create, change, stop, or delete a reminder. Never say a reminder was updated, created, removed, or deleted. The runtime writes schedules before this reply.",
+    "- You cannot create, change, stop, or delete a reminder in this reply. Never say a reminder was scheduled, updated, created, removed, or deleted.",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",
@@ -3033,33 +3034,35 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: the router writes a reminder when it picks that lane. If it leaves the message as chat, the schedule model still decides the plan. Words do not choose the job or the interval.
+  // Why: a create/change/stop must be written here. A computer or chat lane must not skip that and let the chat model claim the runtime already saved it.
+  const scheduleAsked =
+    (trustRoute && route.lane === "reminder") ||
+    looksLikeScheduleManageRequest(text) ||
+    assistantReplyListedSchedules(historyEarly);
+  const routerAlreadyPlanned = Boolean(trustRoute && route.lane === "reminder" && route.reminder);
   let scheduleFromPlanner = null;
-  const routerLeftChat = !trustRoute || route.lane === "chat";
-  if (
-    routerLeftChat &&
-    runtime?.agent &&
-    creds?.apiKey &&
-    (looksLikeScheduleManageRequest(text) || assistantReplyListedSchedules(historyEarly))
-  ) {
+  if (scheduleAsked && !routerAlreadyPlanned && runtime?.agent && creds?.apiKey) {
     try {
       scheduleFromPlanner = await planScheduleWithLlm(text, creds, historyEarly);
     } catch (err) {
       console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
     }
   }
+  const parsedSchedule =
+    scheduleFromPlanner ||
+    (routerAlreadyPlanned ? route.reminder : null) ||
+    (looksLikeScheduleManageRequest(text) || (trustRoute && route.lane === "reminder")
+      ? parseScheduleFromChat(text)
+      : null);
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
-  // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
-  const scheduleIncoming =
-    (trustRoute && route.lane === "reminder") || Boolean(scheduleFromPlanner?.action);
-  if (scheduleIncoming && runtime?.agent) {
+  if ((scheduleAsked && parsedSchedule) || (trustRoute && route.lane === "reminder")) {
+    if (!runtime?.agent) {
+      // fall through
+    } else {
     track.setPath("schedule_manage");
     track.markDecision("reply");
     try {
-      const parsed =
-        scheduleFromPlanner ||
-        (trustRoute && route.lane === "reminder" ? route.reminder : null) ||
-        (await resolveScheduleFromChat(text, creds, historyEarly));
+      const parsed = parsedSchedule;
       if (!parsed) {
         // Why: never fall through to the chat LLM (it invents “which app hosts drink water?”).
         const content =
@@ -3101,6 +3104,7 @@ export async function runChatAutoTurn(opts) {
         reason: "schedule_manage_error",
         timing: track.finish(),
       });
+    }
     }
   }
 
