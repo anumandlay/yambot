@@ -3090,7 +3090,9 @@ export async function runChatAutoTurn(opts) {
         content,
         goal: "",
         ack: "",
-        reason: `schedule_${parsed.action}${parsed.action !== "list" && creds?.apiKey ? "_llm" : ""}`,
+        reason: applied.ok === false
+        ? "schedule_manage_not_saved"
+        : `schedule_${parsed.action}${parsed.action !== "list" && creds?.apiKey ? "_llm" : ""}`,
         timing: track.finish(),
       });
     } catch (err) {

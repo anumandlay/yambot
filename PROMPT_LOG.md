@@ -1,3 +1,9 @@
+## [2026-09-30 10:05] A reminder is confirmed only after the saved job is read back
+
+- **Prompt Provided:** Hermes creates a reminder by persisting a cron job, registering it, and confirming only from the stored job. YamBot must do the same.
+- **Architectural Flow:** The model turns the sentence into a schedule plan. YamBot writes `agent.schedules[]`, then reads that row back from Mongo. The chat line names the job, its id, and the next run from that row. If the row is missing, the reply says it was not saved. When the time arrives, the scheduler runs the prompt in a fresh turn and posts the result in the agent chat.
+- **Impacted Files:** scheduleFromChat.js, chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-09-30 09:55] “create a reminder, drink water every 1 min” is saved
 
 - **Prompt Provided:** The agent said the drink-water reminder was scheduled every 1 minute, but it was not in Schedulers.

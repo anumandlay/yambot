@@ -5,6 +5,7 @@
  */
 
 import {
+  Agent,
   computeNextRunAt,
   listAgentScheduleJobs,
   syncLegacyScheduleMirror,
@@ -755,7 +756,48 @@ export function formatScheduleListReply(jobs) {
 }
 
 /**
+ * Read the job back from Mongo after save.
+ * Why: a reminder is confirmed only from the stored row, not from the plan the model described.
+ * @param {object} agent
+ * @param {string} jobId
+ * @returns {Promise<object|null|undefined>} the row, null if missing, undefined when this agent is not in Mongo
+ */
+async function readBackScheduleJob(agent, jobId) {
+  const agentId = agent?._id;
+  const id = String(jobId || "").trim();
+  if (!agentId || !id) return undefined;
+  const fresh = await Agent.findById(agentId).select("schedules").lean();
+  if (!fresh) return null;
+  const row = (Array.isArray(fresh.schedules) ? fresh.schedules : []).find(
+    (job) => String(job?._id || "") === id
+  );
+  return row || null;
+}
+
+/**
+ * User-facing line built from the stored job.
+ * @param {string} verb
+ * @param {object} job
+ * @returns {string}
+ */
+function replyFromStoredJob(verb, job) {
+  const name = String(job?.name || job?.goal || "reminder").trim().slice(0, 80) || "reminder";
+  const id = job?._id ? String(job._id) : "";
+  const next = job?.nextRunAt ? new Date(job.nextRunAt).toISOString() : "not set";
+  const on = job?.enabled === false ? "off" : "on";
+  return [
+    `${verb} **${name}** (${on}).`,
+    id ? `Job ${id}.` : "",
+    `${formatScheduleIntervalLabel(job?.interval, job?.dailyAt)}. Next run: ${next}.`,
+    "This is the job stored on the agent, under Schedulers.",
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/**
  * Apply parse result to the agent document (saves).
+ * Why: the chat reply is produced only after the row is written. A model sentence is not a save.
  * @param {{
  *   agent: import('mongoose').Document,
  *   parsed: ParsedScheduleChat,
@@ -787,6 +829,8 @@ export async function applyScheduleFromChat(opts) {
     const hint = String(parsed.matchHint || "").toLowerCase().trim();
     /** @type {string[]} */
     const removedLabels = [];
+    /** @type {string[]} */
+    const removedIds = [];
     /** @type {object[]} */
     let nextJobs = jobs.slice();
 
@@ -815,11 +859,13 @@ export async function applyScheduleFromChat(opts) {
       nextJobs = nextJobs.filter((j) => !matched.includes(j));
       for (const j of matched) {
         removedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
+        if (j._id) removedIds.push(String(j._id));
       }
     } else if (wantsDisableAllSchedules("stop reminders", hint)) {
       const doomed = nextJobs.filter((j) => isMeaningfulScheduleJob(j));
       for (const j of doomed) {
         removedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
+        if (j._id) removedIds.push(String(j._id));
       }
       nextJobs = nextJobs.filter((j) => !isMeaningfulScheduleJob(j));
     }
@@ -830,6 +876,16 @@ export async function applyScheduleFromChat(opts) {
     await agent.save();
     if (!removedLabels.length) {
       return { ok: true, content: "No schedules to stop." };
+    }
+    // Why: confirm the row is gone in Mongo before telling the user it was removed.
+    for (const id of removedIds) {
+      const still = await readBackScheduleJob(agent, id);
+      if (still && still.enabled !== false) {
+        return {
+          ok: false,
+          content: "That reminder is still on the agent. It was not removed.",
+        };
+      }
     }
     const labelBit =
       removedLabels.length === 1
@@ -918,20 +974,15 @@ export async function applyScheduleFromChat(opts) {
     agent.markModified?.("schedules");
     agent.markModified?.("schedule");
     await agent.save();
-    const label = String(patched.name || patched.goal || "job").trim().slice(0, 48);
-    const when =
-      interval === "once"
-        ? `one-shot at ${new Date(patched.nextRunAt).toISOString()}`
-        : interval === "daily"
-          ? `daily at ${formatDailyAtLabel(dailyAt)}`
-          : formatScheduleIntervalLabel(interval, dailyAt);
+    const stored = await readBackScheduleJob(agent, patched._id);
+    if (stored === null) {
+      return { ok: false, content: "The reminder was not saved. It is not on this agent." };
+    }
+    const job = stored || patched;
     return {
       ok: true,
-      job: patched,
-      content:
-        `Updated schedule **${label}** → ${when}.\n` +
-        `Next run: ${patched.nextRunAt ? new Date(patched.nextRunAt).toISOString() : "soon"}\n` +
-        `Say “list reminders” to confirm.`,
+      job,
+      content: replyFromStoredJob("Updated", job),
     };
   }
 
@@ -1004,10 +1055,16 @@ export async function applyScheduleFromChat(opts) {
 
   const saved =
     existingIdx >= 0 ? jobs[existingIdx] : jobs[jobs.length - 1];
-  const nextIso = saved.nextRunAt
-    ? new Date(saved.nextRunAt).toISOString()
-    : "soon";
+  const stored = await readBackScheduleJob(agent, saved?._id);
+  if (stored === null) {
+    return { ok: false, content: "The reminder was not saved. It is not on this agent." };
+  }
+  const job = stored || saved;
+  const nextIso = job.nextRunAt ? new Date(job.nextRunAt).toISOString() : "soon";
   const verb = existingIdx >= 0 ? "Updated" : "Created";
+  if (stored) {
+    return { ok: true, job: stored, content: replyFromStoredJob(verb, stored) };
+  }
   const kindLabel =
     kind === "mcp"
       ? "MCP tool reminder"
