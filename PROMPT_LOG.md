@@ -1,3 +1,9 @@
+## [2026-09-30 11:55] “trial expiring list” creates an hourly email reminder
+
+- **Prompt Provided:** “create a reminder to send email to fastagconsultant@gmail.com with trial expiring list every 1 hour” only listed Drink water.
+- **Architectural Flow:** The word list inside that task was read as “show reminders”. A new reminder that names a list, with an hour cadence and a recipient, is created as a computer job. The goal keeps the address and the trial expiring list. Showing saved reminders stays a separate list action.
+- **Impacted Files:** scheduleFromChat.js, scheduleLlmPlan.js, chatRoutePlan.js, scheduleFromChat.test.js, scheduleLlmPlan.test.js, PROMPT_LOG
+
 ## [2026-09-30 11:50] “delete it” after a schedule update removes that job
 
 - **Prompt Provided:** After Drink water was updated to every 4 minutes, “delete it” answered that schedules cannot be changed from chat, and the job stayed.

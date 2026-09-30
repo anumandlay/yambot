@@ -42,7 +42,12 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action === "edit" || action === "modify" || action === "change") {
     action = "update";
   }
-  if (action === "list" || action === "show") return { action: "list" };
+  if (action === "list" || action === "show") {
+    // Why: the model often labels a new reminder as list when the goal itself contains the word list.
+    const written = parseScheduleFromChat(userText);
+    if (written?.action === "create" || written?.action === "update") return written;
+    return { action: "list" };
+  }
   if (action === "pause" || action === "resume" || action === "run") {
     const provided = raw.matchHint ?? raw.hint ?? raw.topic;
     const matchHint = String(
@@ -182,7 +187,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
     'Schema: {"action":"create"|"update"|"pause"|"resume"|"run"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer"|"mcp","goal":"…","name":"…","matchHint":"…"}',
     "Rules:",
-    "- list = show reminders/schedules.",
+    "- list = the user wants to see reminders already saved. A new reminder whose text contains the word list, such as a trial expiring list, is create, not list.",
     "- disable = delete one or all reminders. Put the topic in matchHint. Empty matchHint means delete all.",
     "- pause = keep the job and turn it off. resume = turn that job back on. run = fire that job once now. matchHint is the job name.",
     "- update = change cadence (or goal) on an EXISTING reminder. Always set interval. Put which job in matchHint (e.g. \"email\", \"water\"). Example: \"change the schedule to every 4 minutes\" → action update, interval 4m.",
@@ -190,7 +195,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",
     "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
     "- \"every day at 9 am\" = daily + dailyAt.",
-    "- chat_reminder = a nudge in chat. computer = check email / browser goal.",
+    "- chat_reminder = a nudge in chat. computer = do the work each time, including sending an email to an address. Keep the recipient and the message in the goal.",
     "- mcp = call a tool on an MCP server every tick (for example call GreetMe on mockmcp). Put the server and tool in the goal. Do not use chat_reminder for that.",
     "- \"send email summary\" / \"email summary\" = computer kind, goal about checking unread and summarizing (never blank send).",
     "- Optional repeatLimit (integer) for finite repeats; omit for forever.",

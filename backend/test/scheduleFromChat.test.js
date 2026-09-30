@@ -392,3 +392,17 @@ test("pause keeps the reminder and delete still removes it", async () => {
   assert.match(listed, /paused/);
   assert.match(listed, /last ok/);
 });
+
+test("a reminder to email the trial expiring list is a create, not a list", () => {
+  const text =
+    "create a reminder to send email to fastagconsultant@gmail.com with trial expiring list every 1 hour";
+  assert.equal(looksLikeScheduleManageRequest(text), true);
+  const p = parseScheduleFromChat(text);
+  assert.equal(p?.action, "create");
+  assert.equal(p?.interval, "1h");
+  assert.equal(p?.kind, "computer");
+  assert.match(String(p?.goal || ""), /fastagconsultant@gmail\.com/i);
+  assert.match(String(p?.goal || ""), /trial expiring list/i);
+  assert.equal(p?.name, "Trial expiring list");
+  assert.equal(parseScheduleFromChat("list reminders")?.action, "list");
+});

@@ -287,6 +287,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "mcp = add, list, or remove an MCP server. action is add, list, or remove. server is the saved server name. Do not repeat tokens.",
     "reminder = create, list, change, pause, resume, run, or stop a reminder or schedule.",
     "reminder action is create, list, update, pause, resume, run, or disable. interval examples: 5m, 1h, daily, once.",
+    "list means show reminders already saved. A new reminder that mentions a list inside the task, such as a trial expiring list, is create. matchHint stays empty and the list words stay in the goal.",
     "disable deletes the job. pause keeps the job and turns it off. resume turns it on. run fires it once now.",
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
     "disable with empty matchHint stops every reminder. delete those, them, these, or both after a list is disable with empty matchHint.",

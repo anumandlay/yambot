@@ -52,6 +52,16 @@ test("normalizeLlmSchedulePlan list", () => {
   assert.equal(normalizeLlmSchedulePlan({ action: "list" }, "list reminders")?.action, "list");
 });
 
+test("normalizeLlmSchedulePlan does not treat a trial expiring list as show reminders", () => {
+  const p = normalizeLlmSchedulePlan(
+    { action: "list" },
+    "create a reminder to send email to fastagconsultant@gmail.com with trial expiring list every 1 hour"
+  );
+  assert.equal(p?.action, "create");
+  assert.equal(p?.interval, "1h");
+  assert.match(String(p?.goal || ""), /fastagconsultant@gmail\.com/i);
+});
+
 test("normalizeLlmSchedulePlan pause resume and run need no interval", () => {
   const pause = normalizeLlmSchedulePlan(
     { action: "pause", matchHint: "Drink water" },

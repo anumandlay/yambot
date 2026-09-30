@@ -289,6 +289,7 @@ export function stripScheduleCadenceFromGoal(text, matchedSpan = "") {
 export function defaultScheduleJobName(goal, kind = "computer") {
   const g = String(goal || "").trim();
   if (!g) return kind === "chat_reminder" ? "Reminder" : "Scheduled job";
+  if (/\btrial\b/i.test(g) && /\b(expir|list)\b/i.test(g)) return "Trial expiring list";
   if (/\b(email|unread|inbox|gmail)\b/i.test(g)) return "Check email";
   if (/\b(drink\s+water|hydrat)\b/i.test(g)) return "Drink water";
   if (/\bnotion\b/i.test(g)) return "Notion sync";
@@ -306,6 +307,13 @@ export function looksLikeChatReminderRequest(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
   if (looksLikeMcpToolSchedule(raw)) return false;
+  // Why: “create a reminder to send email to someone@… every hour” is a scheduled send, not a chat nudge.
+  if (
+    /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/i.test(raw) &&
+    /\b(send|e-?mail|mail)\b/i.test(raw)
+  ) {
+    return false;
+  }
   if (/\b(remind\s+me|nudge\s+me|ping\s+me|send\s+me\s+a\s+reminder)\b/i.test(raw)) {
     return true;
   }
@@ -524,6 +532,23 @@ const SCHEDULE_NOUN =
   "(?:schedules?|schedulers?|reminders?|recurring\\s+(?:jobs?|tasks?)|cron\\s*jobs?)";
 
 /**
+ * True when the user is asking to see saved reminders.
+ * Why: “trial expiring list” is the body of a new reminder. The word list there is not “show my schedules”.
+ * @param {string} text
+ * @returns {boolean}
+ */
+function isScheduleListRequest(text) {
+  const raw = String(text || "").trim();
+  if (!raw) return false;
+  if (looksLikeReminderCreateRequest(raw) && parseScheduleIntervalFromText(raw)) return false;
+  return (
+    new RegExp(`\\b(list|show|what are|what'?s)\\b.+\\b${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
+    new RegExp(`^(list|show)\\s+(my\\s+)?${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
+    /^(list|show)\s+reminders?\b/i.test(raw)
+  );
+}
+
+/**
  * True when the user is creating a reminder (even without “every N minutes”).
  * Why: “create reminder … tomorrow at 9 am” must not fall through to a fake LLM ack.
  * @param {string} text
@@ -587,14 +612,7 @@ export function looksLikeScheduleManageRequest(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
 
-  if (
-    new RegExp(`\\b(list|show|what are|what'?s)\\b.+\\b${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
-    new RegExp(`\\b${SCHEDULE_NOUN}\\b.+\\b(list|show)\\b`, "i").test(raw) ||
-    new RegExp(`^(list|show)\\s+(my\\s+)?${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
-    /^(list|show)\s+reminders?\b/i.test(raw)
-  ) {
-    return true;
-  }
+  if (isScheduleListRequest(raw)) return true;
 
   if (
     new RegExp(
@@ -639,12 +657,7 @@ export function parseScheduleFromChat(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
 
-  if (
-    new RegExp(`\\b(list|show|what are|what'?s)\\b.+\\b${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
-    new RegExp(`\\b${SCHEDULE_NOUN}\\b.+\\b(list|show)\\b`, "i").test(raw) ||
-    new RegExp(`^(list|show)\\s+(my\\s+)?${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
-    /^(list|show)\s+reminders?\b/i.test(raw)
-  ) {
+  if (isScheduleListRequest(raw)) {
     return { action: "list" };
   }
 
