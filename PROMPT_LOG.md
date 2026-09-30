@@ -1,3 +1,9 @@
+## [2026-09-30 14:45] A pause stays off after the scheduler tick
+
+- **Prompt Provided:** The chat said Drink water was paused, and the job was still on.
+- **Architectural Flow:** The pause was stored, then a schedule tick saved an older copy of the agent and turned the job back on. Tick bookkeeping now updates that job only while it is still on, and pause writes enabled off again after the save.
+- **Impacted Files:** scheduler.js, scheduleFromChat.js, PROMPT_LOG
+
 ## [2026-09-30 14:35] Pause, resume, time change, start, stop, and delete write the job
 
 - **Prompt Provided:** “pause the reminder” printed pause_schedule(job_id=…) and the job stayed on.

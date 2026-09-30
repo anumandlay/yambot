@@ -146,7 +146,53 @@ async function markScheduleJobFired(agent, sched, job, chat, now) {
     agent.schedule.chatId = chat._id;
   }
 
-  await agent.save();
+  // Why: a full document save from a tick that loaded the job before pause turns it back on.
+  await persistScheduleJobPatch(agent, job, {
+    lastRunAt: sched.lastRunAt,
+    chatId: sched.chatId,
+    nextRunAt: sched.nextRunAt,
+    lastStatus: sched.lastStatus,
+    lastError: sched.lastError,
+    state: sched.state,
+    enabled: sched.enabled,
+    repeatRemaining: sched.repeatRemaining,
+  });
+}
+
+/**
+ * Write one job's bookkeeping only while that stored row is still on.
+ * Why: pause sets enabled false. A tick that already loaded the agent must not save enabled true back over it.
+ * @param {object} agent
+ * @param {object|null} job
+ * @param {Record<string, unknown>} fields
+ * @returns {Promise<boolean>}
+ */
+async function persistScheduleJobPatch(agent, job, fields) {
+  const agentId = agent?._id;
+  const jobId = job?._id;
+  if (!agentId || !jobId) {
+    await agent.save();
+    return true;
+  }
+  /** @type {Record<string, unknown>} */
+  const $set = {};
+  for (const [key, value] of Object.entries(fields)) {
+    if (value === undefined) continue;
+    $set[`schedules.$.${key}`] = value;
+  }
+  const first = Array.isArray(agent.schedules) ? agent.schedules[0] : null;
+  if (first && String(first._id || "") === String(jobId)) {
+    if ("enabled" in fields) $set["schedule.enabled"] = fields.enabled;
+    if ("nextRunAt" in fields) $set["schedule.nextRunAt"] = fields.nextRunAt ?? null;
+    if ("lastRunAt" in fields) $set["schedule.lastRunAt"] = fields.lastRunAt ?? null;
+    if ("chatId" in fields) $set["schedule.chatId"] = fields.chatId ?? null;
+    if ("repeatRemaining" in fields) $set["schedule.repeatRemaining"] = fields.repeatRemaining ?? null;
+  }
+  const res = await Agent.updateOne(
+    { _id: agentId, schedules: { $elemMatch: { _id: jobId, enabled: true } } },
+    { $set }
+  );
+  return res.matchedCount > 0;
 }
 
 /**
@@ -456,7 +502,13 @@ export async function runScheduledAgent(agent, job = null) {
   } else if (!job) {
     agent.schedule.nextRunAt = sched.nextRunAt;
   }
-  await agent.save();
+  const claimed = await persistScheduleJobPatch(agent, job, {
+    nextRunAt: sched.nextRunAt,
+    chatId: sched.chatId,
+  });
+  if (job?._id && !claimed) {
+    return { ok: false, skipped: "paused" };
+  }
 
   const mcpHit = matchScheduledMcpCall(agent, String(sched.goal || goal || ""));
   // Why: a reminder that names a saved MCP tool must call it. A chat nudge does not.
@@ -538,7 +590,7 @@ export async function runScheduledAgent(agent, job = null) {
   if (busy) {
     // Why: push nextRunAt so we retry later instead of spamming the queue.
     sched.nextRunAt = computeNextRunAt(sched, new Date());
-    await agent.save();
+    await persistScheduleJobPatch(agent, job, { nextRunAt: sched.nextRunAt });
     return { ok: false, skipped: "busy" };
   }
 
@@ -750,7 +802,11 @@ export async function tickAgentSchedules() {
           job.lastStatus = "error";
           job.lastError = String(err?.message || err).slice(0, 300);
           job.nextRunAt = computeNextRunAt(job, new Date());
-          await agent.save();
+          await persistScheduleJobPatch(agent, job, {
+            lastStatus: job.lastStatus,
+            lastError: job.lastError,
+            nextRunAt: job.nextRunAt,
+          });
         } catch {
           /* ignore */
         }

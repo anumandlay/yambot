@@ -972,6 +972,30 @@ export async function applyScheduleFromChat(opts) {
     agent.markModified?.("schedules");
     agent.markModified?.("schedule");
     await agent.save();
+    // Why: a scheduler tick may already be holding an older copy. This write lands after that copy's bookkeeping.
+    if (agent._id) {
+      for (const job of picked) {
+        if (!job?._id) continue;
+        if (parsed.action === "pause") {
+          await Agent.updateOne(
+            { _id: agent._id, "schedules._id": job._id },
+            { $set: { "schedules.$.enabled": false, "schedules.$.state": "paused", "schedules.$.nextRunAt": null } }
+          );
+        } else {
+          await Agent.updateOne(
+            { _id: agent._id, "schedules._id": job._id },
+            {
+              $set: {
+                "schedules.$.enabled": true,
+                "schedules.$.state": "scheduled",
+                "schedules.$.pausedByEmergency": false,
+                "schedules.$.nextRunAt": job.nextRunAt,
+              },
+            }
+          );
+        }
+      }
+    }
     const lines = [];
     for (const job of picked) {
       const stored = await readBackScheduleJob(agent, job._id);
