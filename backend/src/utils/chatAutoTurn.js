@@ -47,6 +47,7 @@ import {
 } from "./comboRunner.js";
 import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 import {
+  assistantReplyListedSchedules,
   looksLikeScheduleManageRequest,
   looksLikeReminderCreateRequest,
   applyScheduleFromChat,
@@ -1077,6 +1078,24 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   let ack = sanitizeAutoReplyContent(result?.ack || "");
   // Why: never queue literal template text like "<exact instructions for the worker>" or "...".
   if (isPromptPlaceholder(goal) || goal.length < 8) goal = "";
+
+  // Why: never accept a fake “I removed it” when the turn never wrote schedules[].
+  if (
+    action === "reply" &&
+    !/^schedule_/i.test(reason) &&
+    /\b(removed|deleted|stopped|disabled)\b/i.test(content) &&
+    /\b(delete|remove|stop|disable|cancel)\b/i.test(userText)
+  ) {
+    return {
+      action: "reply",
+      content:
+        "I didn’t remove that reminder. Say “delete it” again after the list, or “list reminders” to see what is still on.",
+      goal: "",
+      ack: "",
+      reason: `${reason}_fake_reminder_ack_blocked`,
+      timing: result?.timing,
+    };
+  }
 
   // Why: never accept a fake “I’ve set / updated a reminder” when the turn never wrote schedules[].
   if (
@@ -2322,7 +2341,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
-    "- You cannot create, change, or stop a reminder. Never say a reminder was updated, created, or deleted. The runtime writes schedules before this reply.",
+    "- You cannot create, change, stop, or delete a reminder. Never say a reminder was updated, created, removed, or deleted. The runtime writes schedules before this reply.",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",
@@ -3017,7 +3036,12 @@ export async function runChatAutoTurn(opts) {
   // Why: the router writes a reminder when it picks that lane. If it leaves the message as chat, the schedule model still decides the plan. Words do not choose the job or the interval.
   let scheduleFromPlanner = null;
   const routerLeftChat = !trustRoute || route.lane === "chat";
-  if (routerLeftChat && runtime?.agent && creds?.apiKey && looksLikeScheduleManageRequest(text)) {
+  if (
+    routerLeftChat &&
+    runtime?.agent &&
+    creds?.apiKey &&
+    (looksLikeScheduleManageRequest(text) || assistantReplyListedSchedules(historyEarly))
+  ) {
     try {
       scheduleFromPlanner = await planScheduleWithLlm(text, creds, historyEarly);
     } catch (err) {

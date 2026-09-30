@@ -1,3 +1,9 @@
+## [2026-09-30 08:50] “delete it” after a reminder list removes that job
+
+- **Prompt Provided:** After “list schedules”, “delete it” answered “Removed the” and Drink water kept firing every 3 minutes.
+- **Architectural Flow:** That reply never wrote `schedules[]`. A follow-up to the reminder list is sent to the schedule model, which copies the job name and the row is removed. If the hint names nothing and only one real reminder is on the agent, that reminder is removed. A chat reply cannot claim the reminder was removed unless the save happened.
+- **Impacted Files:** scheduleFromChat.js, chatAutoTurn.js, scheduleLlmPlan.js, chatRoutePlan.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-30 08:20] A reminder cadence change is written on the agent
 
 - **Prompt Provided:** “change the reminder schedule to 3 minutes” said the drink-water reminder was updated, but agent settings still showed 1 minute.

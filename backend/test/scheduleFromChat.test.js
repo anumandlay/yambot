@@ -17,6 +17,7 @@ import {
   wantsDisableAllSchedules,
   jobMatchesScheduleHint,
   applyScheduleFromChat,
+  assistantReplyListedSchedules,
 } from "../src/utils/scheduleFromChat.js";
 import { SCHEDULE_INTERVALS, scheduleIntervalMs } from "../src/models/Agent.js";
 
@@ -286,6 +287,29 @@ test("a copied reminder name deletes that job, and the word 1st does not", async
   });
   assert.match(byWord.content, /No reminder matched/);
   assert.equal(pointed.schedules.length, 2);
+});
+
+test("one listed reminder is removed when the hint does not name it", async () => {
+  const agent = {
+    schedules: [
+      { name: "", goal: "", enabled: false, interval: "1h" },
+      { name: "Drink water", goal: "drink water", enabled: true, interval: "3m", kind: "chat_reminder" },
+    ],
+    markModified() {},
+    async save() {},
+  };
+  const out = await applyScheduleFromChat({
+    agent,
+    parsed: { action: "disable", matchHint: "it" },
+    userText: "delete it",
+  });
+  assert.match(out.content, /Drink water/);
+  assert.equal(agent.schedules.some((job) => job.name === "Drink water"), false);
+  assert.equal(assistantReplyListedSchedules([
+    { role: "user", content: "list schedules" },
+    { role: "assistant", content: "Reminders / schedules on this agent:\n\n1. **Drink water**" },
+  ]), true);
+  assert.equal(assistantReplyListedSchedules([{ role: "assistant", content: "hello" }]), false);
 });
 
 test("delete those is not a word-gate schedule request, and the hint is not force-emptied", () => {

@@ -541,6 +541,22 @@ export function looksLikeReminderCreateRequest(text) {
 }
 
 /**
+ * True when the latest assistant reply is the reminder list.
+ * Why: “delete it” has no schedule noun, but it follows that list. The schedule model then copies the job name.
+ * @param {object[]|null|undefined} history
+ * @returns {boolean}
+ */
+export function assistantReplyListedSchedules(history) {
+  const rows = Array.isArray(history) ? history : [];
+  for (let i = rows.length - 1; i >= 0; i -= 1) {
+    const role = String(rows[i]?.role || "");
+    if (role !== "assistant" && role !== "agent") continue;
+    return /^Reminders \/ schedules/i.test(String(rows[i]?.content || "").trim());
+  }
+  return false;
+}
+
+/**
  * True when the user is managing schedules (create/list/stop), not running now.
  * @param {string} text
  * @returns {boolean}
@@ -775,7 +791,12 @@ export async function applyScheduleFromChat(opts) {
     let nextJobs = jobs.slice();
 
     if (hint) {
-      const matched = nextJobs.filter((j) => jobMatchesScheduleHint(j, hint));
+      let matched = nextJobs.filter((j) => jobMatchesScheduleHint(j, hint));
+      if (!matched.length) {
+        const meaningful = nextJobs.filter(isMeaningfulScheduleJob);
+        // Why: one real reminder and a hint that names nothing still removes that reminder.
+        if (meaningful.length === 1) matched = meaningful;
+      }
       if (!matched.length) {
         const available = nextJobs
           .filter(isMeaningfulScheduleJob)
@@ -790,7 +811,8 @@ export async function applyScheduleFromChat(opts) {
         };
       }
       // Why: “delete …” removes the row (even if already off) so list stays clean.
-      nextJobs = nextJobs.filter((j) => !jobMatchesScheduleHint(j, hint));
+      // Match by the chosen rows. A hint that did not match the name still drops the only reminder.
+      nextJobs = nextJobs.filter((j) => !matched.includes(j));
       for (const j of matched) {
         removedLabels.push(String(j.name || j.goal || "job").trim().slice(0, 48) || "job");
       }
