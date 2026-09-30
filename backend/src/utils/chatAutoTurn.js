@@ -1102,7 +1102,7 @@ export function ensureAutoTurnResult(result, ctx = {}) {
     action === "reply" &&
     !/^schedule_/i.test(reason) &&
     /\b(reminder|schedule)\b/i.test(content) &&
-    /\b(i('ve| have)?\s+set|updated|changed|created|saved|switched|scheduled|paused|resumed|reminder\s+(is\s+)?set|will remind)\b/i.test(
+    /\b(i('ve| have)?\s+set|updated|changed|created|saved|switched|scheduled|paused|resumed|now set|set to run|reminder\s+(is\s+)?(now\s+)?set|will remind)\b/i.test(
       content
     )
   ) {
@@ -3032,14 +3032,22 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: the schedule model decides create, list, pause, and delete. Another lane the router already chose is left alone.
+  // Why: the schedule model decides a cadence change even when the router picked another lane.
   const routerSaidReminder = trustRoute && route.lane === "reminder";
-  const routerSaidOther =
-    trustRoute && ["computer", "composio", "mcp", "list"].includes(route.lane);
   let parsedSchedule = routerSaidReminder ? route.reminder || null : null;
-  if (!parsedSchedule && !routerSaidOther && runtime?.agent && creds?.apiKey) {
+  if (!parsedSchedule && runtime?.agent && creds?.apiKey) {
+    const savedReminders = (Array.isArray(runtime.agent.schedules) ? runtime.agent.schedules : [])
+      .filter((job) => String(job?.goal || "").trim().length >= 2 || String(job?.name || "").trim())
+      .map((job) => {
+        const name = String(job.name || "").trim();
+        const every = String(job.interval || "").trim();
+        return [name || String(job.goal || "").trim().slice(0, 60), every ? `every ${every}` : ""]
+          .filter(Boolean)
+          .join(" — ");
+      })
+      .filter(Boolean);
     try {
-      parsedSchedule = await planScheduleWithLlm(text, creds, historyEarly);
+      parsedSchedule = await planScheduleWithLlm(text, creds, historyEarly, savedReminders);
     } catch (err) {
       console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
     }

@@ -120,7 +120,7 @@ export function normalizeLlmSchedulePlan(raw, userText) {
  * @param {{ role?: string, content?: string }[]} [history]
  * @returns {Promise<ParsedScheduleChat|null>}
  */
-export async function planScheduleWithLlm(userText, creds, history = []) {
+export async function planScheduleWithLlm(userText, creds, history = [], reminders = []) {
   const text = String(userText || "").trim();
   if (!text || !creds?.apiKey) return null;
   const recent = (Array.isArray(history) ? history : [])
@@ -128,6 +128,10 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     .slice(-4)
     .map((row) => `${row.role}: ${String(row.content || "").slice(0, 700)}`)
     .join("\n");
+  const saved = (Array.isArray(reminders) ? reminders : [])
+    .map((row) => String(row || "").trim())
+    .filter(Boolean)
+    .slice(0, 8);
 
   const system = [
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
@@ -136,7 +140,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "- list = show the reminders already saved on this agent.",
     "- disable = delete one or all reminders. Put the topic in matchHint. Empty matchHint means delete all.",
     "- pause = keep the job and turn it off. resume = turn that job back on. run = fire that job once now. matchHint is the job name.",
-    "- update = change cadence (or goal) on an EXISTING reminder. Always set interval. Put which job in matchHint (e.g. \"email\", \"water\"). Example: \"change the schedule to every 4 minutes\" → action update, interval 4m.",
+    "- update = change the time or cadence of a reminder already saved. Always set interval, such as 5m. matchHint is that job's name copied from Saved reminders. If the sentence does not name a job and only one reminder is saved, leave matchHint empty.",
     "- create = new recurring or one-shot reminder/job. Always set interval from the cadence in the sentence, such as 2m for two minutes.",
     "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",
     "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
@@ -165,7 +169,13 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
       { role: "system", content: system },
       {
         role: "user",
-        content: recent ? `Recent chat:\n${recent}\n\nUser: ${text}` : text,
+        content: [
+          saved.length ? `Saved reminders:\n${saved.map((row) => `- ${row}`).join("\n")}` : "Saved reminders: none",
+          recent ? `Recent chat:\n${recent}` : "",
+          `User: ${text}`,
+        ]
+          .filter(Boolean)
+          .join("\n\n"),
       },
     ],
   });

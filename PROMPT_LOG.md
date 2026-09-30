@@ -1,3 +1,9 @@
+## [2026-09-30 14:15] “change time to every 5 minutes” writes the saved job
+
+- **Prompt Provided:** The agent said Drink water was now every 5 minutes, but the job did not change.
+- **Architectural Flow:** That reply was not the stored-job confirmation. The schedule model is asked even when the router picked another lane, and it sees the reminders already saved. A cadence change it returns is written on that job. A chat reply cannot say the reminder was set when nothing was written.
+- **Impacted Files:** chatAutoTurn.js, scheduleLlmPlan.js, PROMPT_LOG
+
 ## [2026-09-30 12:15] “remind me every 2 min to drink water” is saved by the schedule model
 
 - **Prompt Provided:** That sentence answered that the reminder was not saved.
