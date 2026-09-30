@@ -3,7 +3,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeLlmSchedulePlan, schedulePlanFromToolCall } from "../src/utils/scheduleLlmPlan.js";
+import { normalizeLlmSchedulePlan, schedulePlanFromToolArgs, schedulePlanFromToolCall } from "../src/utils/scheduleLlmPlan.js";
 
 test("normalizeLlmSchedulePlan create chat reminder", () => {
   const p = normalizeLlmSchedulePlan(
@@ -101,4 +101,40 @@ test("schedulePlanFromToolCall runs the printed pause, resume, time change, star
   assert.equal(updated?.action, "update");
   assert.equal(updated?.interval, "5m");
   assert.equal(updated?.matchHint, id);
+});
+
+test("schedulePlanFromToolArgs runs a native schedule_manage call", () => {
+  const id = "6abd4feee0eb1021a501a0f9";
+  assert.deepEqual(
+    schedulePlanFromToolArgs("schedule_manage", { action: "pause", matchHint: id }),
+    { action: "pause", matchHint: id }
+  );
+  assert.equal(
+    schedulePlanFromToolArgs("schedule_manage", { action: "stop", job_id: id })?.action,
+    "pause"
+  );
+  assert.equal(
+    schedulePlanFromToolArgs("schedule_manage", { action: "start", matchHint: "Drink water" })?.action,
+    "resume"
+  );
+  assert.equal(schedulePlanFromToolArgs("pause_schedule", { job_id: id })?.action, "pause");
+  assert.equal(schedulePlanFromToolArgs("delete_schedule", { job_id: id })?.action, "disable");
+  const updated = schedulePlanFromToolArgs("schedule_manage", {
+    action: "update",
+    interval: "5m",
+    matchHint: id,
+  });
+  assert.equal(updated?.action, "update");
+  assert.equal(updated?.interval, "5m");
+  assert.equal(updated?.matchHint, id);
+  const created = schedulePlanFromToolArgs("schedule_manage", {
+    action: "create",
+    interval: "5m",
+    goal: "drink water",
+    name: "Drink water",
+    kind: "chat_reminder",
+  });
+  assert.equal(created?.action, "create");
+  assert.equal(created?.interval, "5m");
+  assert.equal(created?.kind, "chat_reminder");
 });

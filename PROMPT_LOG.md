@@ -1,3 +1,9 @@
+## [2026-09-30 15:10] A reminder change is a real tool call
+
+- **Prompt Provided:** Put reminder create, pause, resume, start, stop, time change, run, and delete on the same turn as a tool. The stored job is the reply.
+- **Architectural Flow:** The chat model can call schedule_manage. That call writes the job and the user sees the job read back from Mongo. A later model sentence does not replace that text. A printed pause_schedule line still writes the same way.
+- **Impacted Files:** chatAutoTurn.js, scheduleLlmPlan.js, scheduleLlmPlan.test.js, PROMPT_LOG
+
 ## [2026-09-30 14:50] Follow-up models see the last 10 messages
 
 - **Prompt Provided:** Make the recent messages sent to the LLM for a follow-up the last 10.

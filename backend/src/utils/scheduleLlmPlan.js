@@ -246,6 +246,50 @@ export function schedulePlanFromToolCall(text) {
 }
 
 /**
+ * A native tool call is the action. The arguments are the model's fields.
+ * @param {string} name
+ * @param {Record<string, unknown>|null|undefined} args
+ * @returns {ParsedScheduleChat|null}
+ */
+export function schedulePlanFromToolArgs(name, args) {
+  const tool = String(name || "").trim().toLowerCase();
+  const raw = args && typeof args === "object" ? args : {};
+  const hinted = raw.matchHint ?? raw.match_hint ?? raw.job_id ?? raw.jobId ?? raw.hint ?? "";
+  /** @type {Record<string, string>} */
+  const named = {
+    pause_schedule: "pause",
+    stop_schedule: "pause",
+    resume_schedule: "resume",
+    start_schedule: "resume",
+    run_schedule: "run",
+    update_schedule: "update",
+    delete_schedule: "disable",
+    remove_schedule: "disable",
+    disable_schedule: "disable",
+    create_schedule: "create",
+  };
+  const action =
+    tool === "schedule_manage" || tool === "cronjob_manage"
+      ? raw.action
+      : named[tool];
+  if (!action) return null;
+  return normalizeLlmSchedulePlan(
+    {
+      action,
+      interval: raw.interval,
+      dailyAt: raw.dailyAt || raw.daily_at,
+      oneShotAt: raw.oneShotAt || raw.one_shot_at,
+      kind: raw.kind,
+      goal: raw.goal || raw.message,
+      name: raw.name,
+      matchHint: hinted || raw.name || "",
+      repeatLimit: raw.repeatLimit ?? raw.repeat_limit,
+    },
+    ""
+  );
+}
+
+/**
  * Prefer the schedule model's plan. The sentence parser is only the fallback when that plan is missing.
  * @param {string} userText
  * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} [creds]
