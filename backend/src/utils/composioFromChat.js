@@ -268,7 +268,8 @@ export async function planComposioManageWithLlm(text, creds, ctx = {}) {
     ctx.state?.pending?.target?.type === "composio_app" ? String(ctx.state.pending.target.name || "") : "";
   const recent = (Array.isArray(ctx.history) ? ctx.history : [])
     .filter((row) => row?.role === "assistant" || row?.role === "user")
-    .slice(-4)
+    // Why: connecting or reconnecting an app is a follow-up on the last 10 turns.
+    .slice(-10)
     .map((row) => `${row.role}: ${String(row.content || "").slice(0, 500)}`)
     .join("\n");
   const apps = (Array.isArray(ctx.apps) ? ctx.apps : []).filter(Boolean).slice(0, 24).join(", ");

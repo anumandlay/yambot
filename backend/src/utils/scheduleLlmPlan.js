@@ -127,7 +127,8 @@ export async function planScheduleWithLlm(userText, creds, history = [], reminde
   if (!text || !creds?.apiKey) return null;
   const recent = (Array.isArray(history) ? history : [])
     .filter((row) => row?.role === "assistant" || row?.role === "user" || row?.role === "agent")
-    .slice(-4)
+    // Why: pause, resume, and a time change are follow-ups on the last 10 turns.
+    .slice(-10)
     .map((row) => `${row.role}: ${String(row.content || "").slice(0, 700)}`)
     .join("\n");
   const saved = (Array.isArray(reminders) ? reminders : [])

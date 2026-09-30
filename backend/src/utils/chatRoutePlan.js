@@ -272,7 +272,8 @@ export async function planChatRoute(text, creds, ctx = {}) {
   if (!raw || raw.length > maxChars || !creds?.apiKey) return null;
   const recent = (Array.isArray(ctx.history) ? ctx.history : [])
     .filter((row) => row?.role === "assistant" || row?.role === "user" || row?.role === "agent")
-    .slice(-4)
+    // Why: a short follow-up needs the last 10 turns, not only the last 4.
+    .slice(-10)
     .map((row) => `${row.role}: ${redactSecretsForRoute(String(row.content || "")).slice(0, 700)}`)
     .join("\n");
   const waiting =

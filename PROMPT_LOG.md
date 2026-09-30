@@ -1,3 +1,9 @@
+## [2026-09-30 14:50] Follow-up models see the last 10 messages
+
+- **Prompt Provided:** Make the recent messages sent to the LLM for a follow-up the last 10.
+- **Architectural Flow:** The router, the schedule model, and the app-connection model were shown the last 4 user, assistant, or agent lines. Each of those calls now sends the last 10 lines. The main reply still uses the larger chat window.
+- **Impacted Files:** chatRoutePlan.js, scheduleLlmPlan.js, composioFromChat.js, PROMPT_LOG
+
 ## [2026-09-30 14:45] A pause stays off after the scheduler tick
 
 - **Prompt Provided:** The chat said Drink water was paused, and the job was still on.
