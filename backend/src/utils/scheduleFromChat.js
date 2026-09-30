@@ -731,6 +731,8 @@ export function jobMatchesScheduleHint(job, hint) {
     .trim()
     .replace(/[“”"']/g, "");
   if (!h) return false;
+  const id = String(job?._id || "").toLowerCase();
+  if (id && (h === id || h.includes(id))) return true;
   const hay = `${job?.name || ""} ${job?.goal || ""}`.toLowerCase();
   if (!hay.trim()) return false;
   if (hay.includes(h)) return true;

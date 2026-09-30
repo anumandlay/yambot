@@ -1,3 +1,9 @@
+## [2026-09-30 14:35] Pause, resume, time change, start, stop, and delete write the job
+
+- **Prompt Provided:** “pause the reminder” printed pause_schedule(job_id=…) and the job stayed on.
+- **Architectural Flow:** That line was the chat model’s function call, shown as the reply, so nothing was saved. Pause and stop turn the job off and keep it. Resume and start turn it on. A time change stores the new interval. Run fires it once. Delete removes it. A printed schedule call with a job id is run the same way, and the reply is the stored job.
+- **Impacted Files:** chatAutoTurn.js, chatRoutePlan.js, scheduleFromChat.js, scheduleLlmPlan.js, scheduleLlmPlan.test.js, PROMPT_LOG
+
 ## [2026-09-30 14:15] “change time to every 5 minutes” writes the saved job
 
 - **Prompt Provided:** The agent said Drink water was now every 5 minutes, but the job did not change.

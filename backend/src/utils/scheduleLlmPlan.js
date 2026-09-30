@@ -23,7 +23,9 @@ import {
 export function normalizeLlmSchedulePlan(raw, userText) {
   if (!raw || typeof raw !== "object") return null;
   let action = String(raw.action || "").trim().toLowerCase();
-  if (action === "stop" || action === "delete" || action === "cancel" || action === "remove") {
+  if (action === "start" || action === "unpause") action = "resume";
+  if (action === "stop" || action === "halt") action = "pause";
+  if (action === "delete" || action === "cancel" || action === "remove") {
     action = "disable";
   }
   if (action === "edit" || action === "modify" || action === "change") {
@@ -138,9 +140,13 @@ export async function planScheduleWithLlm(userText, creds, history = [], reminde
     'Schema: {"action":"create"|"update"|"pause"|"resume"|"run"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer"|"mcp","goal":"…","name":"…","matchHint":"…"}',
     "Rules:",
     "- list = show the reminders already saved on this agent.",
-    "- disable = delete one or all reminders. Put the topic in matchHint. Empty matchHint means delete all.",
-    "- pause = keep the job and turn it off. resume = turn that job back on. run = fire that job once now. matchHint is the job name.",
-    "- update = change the time or cadence of a reminder already saved. Always set interval, such as 5m. matchHint is that job's name copied from Saved reminders. If the sentence does not name a job and only one reminder is saved, leave matchHint empty.",
+    "- pause = keep the job and turn it off. stop means pause.",
+    "- resume = turn that job back on. start means resume.",
+    "- run = fire that job once now.",
+    "- disable = delete the job. delete and remove mean disable. Empty matchHint means delete all.",
+    "- pause, resume, run, and disable set matchHint to the job name or id copied from Saved reminders. If the sentence does not name a job and only one reminder is saved, leave matchHint empty.",
+    "- update = change the time or cadence of a reminder already saved. Always set interval, such as 5m. matchHint is that job's name or id. If the sentence does not name a job and only one reminder is saved, leave matchHint empty.",
+    "- pause, resume, start, stop, delete, and a time change are reminder manages. Do not return action none for them. Reply with this JSON only. Do not print a function call.",
     "- create = new recurring or one-shot reminder/job. Always set interval from the cadence in the sentence, such as 2m for two minutes.",
     "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",
     "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
@@ -185,16 +191,57 @@ export async function planScheduleWithLlm(userText, creds, history = [], reminde
     .replace(/\s*```$/i, "")
     .trim();
   const jsonMatch = cleaned.match(/\{[\s\S]*\}/);
-  if (!jsonMatch) return null;
+  const toolPlan = schedulePlanFromToolCall(raw);
+  if (!jsonMatch) return toolPlan;
   /** @type {any} */
   let parsed;
   try {
     parsed = JSON.parse(jsonMatch[0]);
   } catch {
-    return null;
+    return toolPlan;
   }
-  if (String(parsed?.action || "").toLowerCase() === "none") return null;
-  return normalizeLlmSchedulePlan(parsed, text);
+  if (String(parsed?.action || "").toLowerCase() === "none") return toolPlan;
+  return normalizeLlmSchedulePlan(parsed, text) || toolPlan;
+}
+
+/**
+ * A model sometimes prints pause_schedule(job_id="…") instead of JSON.
+ * That text is the action. Running it writes the job.
+ * @param {string} text
+ * @returns {ParsedScheduleChat|null}
+ */
+export function schedulePlanFromToolCall(text) {
+  const raw = String(text || "");
+  const call = raw.match(/\b([a-z_]+)\s*\(\s*([^)]*)\)/i);
+  if (!call) return null;
+  const name = call[1].toLowerCase();
+  const args = call[2] || "";
+  /** @type {Record<string, string>} */
+  const actions = {
+    pause_schedule: "pause",
+    stop_schedule: "pause",
+    resume_schedule: "resume",
+    start_schedule: "resume",
+    run_schedule: "run",
+    update_schedule: "update",
+    delete_schedule: "disable",
+    remove_schedule: "disable",
+    disable_schedule: "disable",
+  };
+  const action = actions[name];
+  if (!action) return null;
+  const jobId = (args.match(/job_id\s*=\s*["']([a-f0-9]{24})["']/i) || [])[1] || "";
+  const named = (args.match(/(?:match_?hint|name)\s*=\s*["']([^"']+)["']/i) || [])[1] || "";
+  const matchHint = String(named || jobId).trim().slice(0, 80);
+  if (action === "update") {
+    const stated = (args.match(/interval\s*=\s*["']([^"']+)["']/i) || [])[1] || "";
+    const interval = isValidScheduleInterval(String(stated).trim().toLowerCase())
+      ? String(stated).trim().toLowerCase()
+      : normalizeScheduleIntervalCode(stated);
+    if (!interval) return null;
+    return { action: "update", interval, dailyAt: "09:00", matchHint };
+  }
+  return { action, matchHint };
 }
 
 /**

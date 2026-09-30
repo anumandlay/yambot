@@ -56,7 +56,7 @@ import {
   planComposioManageWithLlm,
   composioYesNoStillApplies,
 } from "./composioFromChat.js";
-import { planScheduleWithLlm } from "./scheduleLlmPlan.js";
+import { planScheduleWithLlm, schedulePlanFromToolCall } from "./scheduleLlmPlan.js";
 import {
   planChatRoute,
   shouldPlanChatRoute,
@@ -2340,7 +2340,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
-    "- Reminder create, change, pause, resume, run, and delete are already done before you speak. Do not say one was scheduled, updated, paused, resumed, run, removed, or deleted. Do not say you cannot change a reminder, and do not send the user to the Schedulers tab.",
+    "- Reminder create, change, pause, resume, start, stop, run, and delete are already done before you speak. Do not print a function call such as pause_schedule. Do not say one was scheduled, updated, paused, resumed, run, removed, or deleted. Do not say you cannot change a reminder, and do not send the user to the Schedulers tab.",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",
@@ -2541,6 +2541,31 @@ async function runChatAutoTurnTextFallback(opts, timing) {
     }
   }
 
+  const toolPlan = runtime?.agent ? schedulePlanFromToolCall(raw) : null;
+  if (toolPlan) {
+    const applied = await applyScheduleFromChat({
+      agent: runtime.agent,
+      parsed: toolPlan,
+      chatId: runtime.chatId || null,
+      userText: text,
+    });
+    const body = String(applied.content || "Schedule updated.").trim();
+    track.markDecision("reply");
+    if (body && typeof delta === "function") {
+      await emitReplyDelta(body, delta, { chunk: Boolean(stream) });
+    }
+    track.markFirstToken();
+    return {
+      action: "reply",
+      content: body,
+      goal: "",
+      ack: "",
+      reason: applied.ok === false ? "schedule_manage_not_saved" : `schedule_${toolPlan.action}_llm`,
+      timing: track.finish(),
+      llmPrompt,
+    };
+  }
+
   let parsed = parseAutoTurnOutput(raw, text);
   if (!parsed.content && !parsed.goal) {
     parsed = recoverMalformedAutoOutput(raw, text);
@@ -2684,6 +2709,46 @@ export async function runChatAutoTurn(opts) {
     }
     return out;
   };
+
+  /**
+   * The chat model sometimes prints pause_schedule(job_id="…") as the reply.
+   * That call is the action. Write it and show the stored job.
+   * @param {string} content
+   * @returns {Promise<object|null>}
+   */
+  async function executeScheduleToolReply(content) {
+    const plan = schedulePlanFromToolCall(content);
+    if (!plan || !runtime?.agent) return null;
+    try {
+      const applied = await applyScheduleFromChat({
+        agent: runtime.agent,
+        parsed: plan,
+        chatId: runtime.chatId || null,
+        userText: text,
+      });
+      const body = String(applied.content || "Schedule updated.").trim();
+      if (body) await pushReply(body);
+      return finalize({
+        action: "reply",
+        content: body,
+        goal: "",
+        ack: "",
+        reason: applied.ok === false ? "schedule_manage_not_saved" : `schedule_${plan.action}_llm`,
+        timing: track.finish(),
+      });
+    } catch (err) {
+      const body = `Could not update schedule: ${String(err?.message || err)}`;
+      await pushReply(body);
+      return finalize({
+        action: "reply",
+        content: body,
+        goal: "",
+        ack: "",
+        reason: "schedule_manage_error",
+        timing: track.finish(),
+      });
+    }
+  }
 
   // Why: one model call picks chat, computer, Composio, MCP, or a reminder.
   // Word gates run only when that call was skipped or returned nothing.
@@ -3041,7 +3106,7 @@ export async function runChatAutoTurn(opts) {
       .map((job) => {
         const name = String(job.name || "").trim();
         const every = String(job.interval || "").trim();
-        return [name || String(job.goal || "").trim().slice(0, 60), every ? `every ${every}` : ""]
+        return [name || String(job.goal || "").trim().slice(0, 60), every ? `every ${every}` : "", job._id ? `id ${job._id}` : ""]
           .filter(Boolean)
           .join(" — ");
       })
@@ -3966,6 +4031,8 @@ export async function runChatAutoTurn(opts) {
       }
 
       if (msg.content) {
+        const fromTool = await executeScheduleToolReply(msg.content);
+        if (fromTool) return fromTool;
         if (await rejectPrematureComposioReply(msg.content)) {
           continue;
         }
@@ -4035,6 +4102,8 @@ export async function runChatAutoTurn(opts) {
       return out;
     }
     if (forced.content) {
+      const fromTool = await executeScheduleToolReply(forced.content);
+      if (fromTool) return fromTool;
       let parsed = parseAutoTurnOutput(forced.content, text);
       if (!parsed.content && !parsed.goal) {
         parsed = recoverMalformedAutoOutput(forced.content, text);

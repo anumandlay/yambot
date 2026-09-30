@@ -144,10 +144,10 @@ test("jobMatchesScheduleHint drink water including disabled", () => {
   );
   assert.equal(
     jobMatchesScheduleHint(
-      { name: "Check email", goal: "Check unread email", enabled: true },
-      "drink water"
+      { _id: "6abd4feee0eb1021a501a0f9", name: "Drink water", goal: "drink water" },
+      "6abd4feee0eb1021a501a0f9"
     ),
-    false
+    true
   );
 });
 

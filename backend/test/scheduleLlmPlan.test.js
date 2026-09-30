@@ -3,7 +3,7 @@
  */
 import test from "node:test";
 import assert from "node:assert/strict";
-import { normalizeLlmSchedulePlan } from "../src/utils/scheduleLlmPlan.js";
+import { normalizeLlmSchedulePlan, schedulePlanFromToolCall } from "../src/utils/scheduleLlmPlan.js";
 
 test("normalizeLlmSchedulePlan create chat reminder", () => {
   const p = normalizeLlmSchedulePlan(
@@ -81,4 +81,24 @@ test("normalizeLlmSchedulePlan pause resume and run need no interval", () => {
   assert.equal(resume?.action, "resume");
   const run = normalizeLlmSchedulePlan({ action: "run", matchHint: "Drink water" }, "run it now");
   assert.equal(run?.action, "run");
+  assert.equal(normalizeLlmSchedulePlan({ action: "stop", matchHint: "Drink water" }, "stop the reminder")?.action, "pause");
+  assert.equal(normalizeLlmSchedulePlan({ action: "start", matchHint: "Drink water" }, "start the reminder")?.action, "resume");
+  assert.equal(normalizeLlmSchedulePlan({ action: "delete", matchHint: "Drink water" }, "delete the reminder")?.action, "disable");
+});
+
+test("schedulePlanFromToolCall runs the printed pause, resume, time change, start, stop, and delete", () => {
+  const id = "6abd4feee0eb1021a501a0f9";
+  assert.deepEqual(schedulePlanFromToolCall(`pause_schedule(job_id="${id}")`), {
+    action: "pause",
+    matchHint: id,
+  });
+  assert.equal(schedulePlanFromToolCall(`resume_schedule(job_id="${id}")`)?.action, "resume");
+  assert.equal(schedulePlanFromToolCall(`start_schedule(job_id="${id}")`)?.action, "resume");
+  assert.equal(schedulePlanFromToolCall(`stop_schedule(job_id="${id}")`)?.action, "pause");
+  assert.equal(schedulePlanFromToolCall(`run_schedule(job_id="${id}")`)?.action, "run");
+  assert.equal(schedulePlanFromToolCall(`delete_schedule(job_id="${id}")`)?.action, "disable");
+  const updated = schedulePlanFromToolCall(`update_schedule(job_id="${id}", interval="5m")`);
+  assert.equal(updated?.action, "update");
+  assert.equal(updated?.interval, "5m");
+  assert.equal(updated?.matchHint, id);
 });

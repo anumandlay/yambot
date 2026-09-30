@@ -158,25 +158,30 @@ export function normalizeChatRoute(raw, ctx = {}) {
     resume: "resume",
     run: "run",
     disable: "disable",
-    stop: "disable",
     delete: "disable",
     remove: "disable",
     unpause: "resume",
     list: "list",
     show: "list",
   };
+  const keptScheduleAlias = {
+    stop: "pause",
+    halt: "pause",
+    start: "resume",
+  };
   let reminderAction = "";
-  if (scheduleActionAlias[lane]) {
-    reminderAction = scheduleActionAlias[lane];
+  if (scheduleActionAlias[lane] || keptScheduleAlias[lane]) {
+    reminderAction = scheduleActionAlias[lane] || keptScheduleAlias[lane];
     lane = "reminder";
   }
   const statedAction = String(raw.action || "").trim().toLowerCase();
   const statedInterval = String(raw.interval || "").trim();
-  if (
-    (lane === "chat" && (scheduleActionAlias[statedAction] || statedInterval)) ||
-    (lane === "computer" && scheduleActionAlias[statedAction])
-  ) {
-    reminderAction = scheduleActionAlias[statedAction] || statedAction;
+  if (lane === "chat" && (keptScheduleAlias[statedAction] || scheduleActionAlias[statedAction] || statedInterval)) {
+    reminderAction = keptScheduleAlias[statedAction] || scheduleActionAlias[statedAction] || statedAction;
+    lane = "reminder";
+  }
+  if (lane === "computer" && scheduleActionAlias[statedAction]) {
+    reminderAction = scheduleActionAlias[statedAction];
     lane = "reminder";
   }
   if (!["chat", "computer", "composio", "mcp", "reminder"].includes(lane)) return null;
@@ -288,7 +293,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "reminder = create, list, change, pause, resume, run, or stop a reminder or schedule.",
     "A new nudge on a cadence is lane reminder, action create, with interval, goal, and kind chat_reminder.",
     "reminder action is create, list, update, pause, resume, run, or disable. interval examples: 5m, 1h, daily, once.",
-    "disable deletes the job. pause keeps the job and turns it off. resume turns it on. run fires it once now.",
+    "pause and stop keep the job and turn it off. resume and start turn it on. run fires it once now. disable and delete remove the job.",
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
     "disable with empty matchHint stops every reminder. delete those, them, these, or both after a list is disable with empty matchHint.",
     "If the latest reply listed reminders and this message stops one of them, lane is reminder, action is disable, and matchHint is that row's name or goal copied from the list. Do not put a pointer word in matchHint.",
