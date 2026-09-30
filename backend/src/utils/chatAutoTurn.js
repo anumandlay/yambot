@@ -1084,7 +1084,9 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   if (
     action === "reply" &&
     !/^schedule_/i.test(reason) &&
-    /\b(removed|deleted|stopped|disabled)\b/i.test(content) &&
+    (/\b(removed|deleted|stopped|disabled)\b/i.test(content) ||
+      /\b(can(?:not|'t)|unable to)\b[\s\S]{0,40}\b(modif|chang|delet|remov|schedul)/i.test(content) ||
+      /Schedulers tab/i.test(content)) &&
     /\b(delete|remove|stop|disable|cancel)\b/i.test(userText)
   ) {
     return {
@@ -2342,7 +2344,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
-    "- You cannot create, change, pause, resume, run, stop, or delete a reminder in this reply. Never say a reminder was scheduled, updated, created, paused, resumed, run, removed, or deleted.",
+    "- Reminder create, change, pause, resume, run, and delete are already done before you speak. Do not say one was scheduled, updated, paused, resumed, run, removed, or deleted. Do not say you cannot change a reminder, and do not send the user to the Schedulers tab.",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",

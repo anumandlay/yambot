@@ -318,6 +318,18 @@ test("one listed reminder is removed when the hint does not name it", async () =
     { role: "user", content: "list schedules" },
     { role: "assistant", content: "Reminders / schedules on this agent:\n\n1. **Drink water**" },
   ]), true);
+  assert.equal(assistantReplyListedSchedules([
+    { role: "user", content: "change schedule to every 4 min" },
+    { role: "assistant", content: "Updated **Drink water** (on).\nJob 6abd150b89fc0e254f878675.\nThis is the job stored on the agent, under Schedulers." },
+    { role: "assistant", content: "drink water" },
+  ]), true);
+  assert.equal(assistantReplyListedSchedules([
+    { role: "user", content: "change schedule to every 4 min" },
+    { role: "assistant", content: "Updated **Drink water** (on).\nThis is the job stored on the agent, under Schedulers." },
+    { role: "user", content: "delete it" },
+    { role: "assistant", content: "drink water" },
+    { role: "assistant", content: "Noted. I can't modify schedules directly from chat right now." },
+  ]), true);
   assert.equal(assistantReplyListedSchedules([{ role: "assistant", content: "hello" }]), false);
 });
 

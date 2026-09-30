@@ -543,17 +543,37 @@ export function looksLikeReminderCreateRequest(text) {
 }
 
 /**
- * True when the latest assistant reply is the reminder list.
- * Why: “delete it” has no schedule noun, but it follows that list. The schedule model then copies the job name.
+ * True when an assistant line is a schedule list or a saved-job confirmation.
+ * @param {string} content
+ * @returns {boolean}
+ */
+function assistantContentIsScheduleReply(content) {
+  const text = String(content || "").trim();
+  if (/^Reminders \/ schedules/i.test(text)) return true;
+  if (/^(Updated|Created|Paused|Resumed|Ran|Deleted)\b/i.test(text)) return true;
+  if (/This is the job stored on the agent/i.test(text)) return true;
+  return false;
+}
+
+/**
+ * True when a recent assistant reply listed or confirmed a reminder.
+ * Why: “delete it” has no schedule noun. It still follows that reply, so the schedule model copies the job name.
+ * A reminder tick (“drink water”) between the confirmation and this message is skipped.
  * @param {object[]|null|undefined} history
  * @returns {boolean}
  */
 export function assistantReplyListedSchedules(history) {
   const rows = Array.isArray(history) ? history : [];
+  let userTurns = 0;
   for (let i = rows.length - 1; i >= 0; i -= 1) {
     const role = String(rows[i]?.role || "");
+    if (role === "user") {
+      userTurns += 1;
+      if (userTurns >= 2) return false;
+      continue;
+    }
     if (role !== "assistant" && role !== "agent") continue;
-    return /^Reminders \/ schedules/i.test(String(rows[i]?.content || "").trim());
+    if (assistantContentIsScheduleReply(rows[i]?.content)) return true;
   }
   return false;
 }

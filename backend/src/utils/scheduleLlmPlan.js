@@ -199,6 +199,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "- If this is not a reminder/schedule manage ask, return {\"action\":\"none\"}.",
     "- “delete those/them/these” after a reply that listed reminders means disable. Leave matchHint empty so every reminder just listed is stopped. Do not put the word those in matchHint.",
     "- If the latest reply listed reminders and the user is stopping one of them, action is disable and matchHint is that row's name or goal copied from the list. Do not put a pointer word in matchHint.",
+    "- If a recent reply confirmed one job (Updated, Created, Paused, Resumed, or Ran) and the user is stopping that job, action is disable and matchHint is the name copied from that reply, such as Drink water. Do not put a pointer word in matchHint.",
   ].join("\n");
 
   const raw = await llmChatCompletion({

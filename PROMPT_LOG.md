@@ -1,3 +1,9 @@
+## [2026-09-30 11:50] “delete it” after a schedule update removes that job
+
+- **Prompt Provided:** After Drink water was updated to every 4 minutes, “delete it” answered that schedules cannot be changed from chat, and the job stayed.
+- **Architectural Flow:** That sentence has no schedule noun, and the previous reply was the saved-job confirmation, not the reminder list. The schedule model is asked anyway and copies the job name from that confirmation. The row is then removed. A chat reply cannot say schedules cannot be changed from chat.
+- **Impacted Files:** scheduleFromChat.js, scheduleLlmPlan.js, chatRoutePlan.js, chatAutoTurn.js, scheduleFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-30 10:20] A reminder can be paused, resumed, or run, and the last result is stored
 
 - **Prompt Provided:** Manage reminders the way Hermes does: pause, resume, run now, and remove, and keep the outcome on the job.

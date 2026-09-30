@@ -291,6 +291,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
     "disable with empty matchHint stops every reminder. delete those, them, these, or both after a list is disable with empty matchHint.",
     "If the latest reply listed reminders and this message stops one of them, lane is reminder, action is disable, and matchHint is that row's name or goal copied from the list. Do not put a pointer word in matchHint.",
+    "If a recent reply confirmed one job (Updated, Created, Paused, Resumed, or Ran) and this message stops that job, lane is reminder, action is disable, and matchHint is the name copied from that reply. Do not put a pointer word in matchHint.",
     "When changing one reminder, matchHint is that job's name or goal copied from the list. Leave matchHint empty only when every reminder should change or stop.",
     "If the user points at one row of Listed items (a tool, skill, or agent), lane is chat and listName is that row's exact name copied from the list. Otherwise listName is empty. Do not put a row word or a number in listName.",
     "Do not put those, them, or these in matchHint or app.",
