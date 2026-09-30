@@ -122,6 +122,9 @@ async function markScheduleJobFired(agent, sched, job, chat, now) {
   } else {
     sched.nextRunAt = computeNextRunAt(sched, now);
   }
+  sched.lastStatus = "ok";
+  sched.lastError = "";
+  sched.state = sched.enabled === false ? "completed" : "scheduled";
 
   if (
     job &&
@@ -744,6 +747,8 @@ export async function tickAgentSchedules() {
       } catch (err) {
         console.error(`[scheduler] agent ${agent._id} job ${job?._id || "legacy"}:`, err?.message || err);
         try {
+          job.lastStatus = "error";
+          job.lastError = String(err?.message || err).slice(0, 300);
           job.nextRunAt = computeNextRunAt(job, new Date());
           await agent.save();
         } catch {

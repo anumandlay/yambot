@@ -42,11 +42,21 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action === "edit" || action === "modify" || action === "change") {
     action = "update";
   }
-  // Why: bare “update” without cadence still may be update if user said change/every.
-  if (action === "update" || looksLikeScheduleUpdateRequest(userText)) {
+  if (action === "list" || action === "show") return { action: "list" };
+  if (action === "pause" || action === "resume" || action === "run") {
+    const provided = raw.matchHint ?? raw.hint ?? raw.topic;
+    const matchHint = String(
+      provided != null ? provided : extractScheduleDisableHint(userText) || ""
+    )
+      .trim()
+      .slice(0, 80);
+    return { action, matchHint };
+  }
+  // Why: bare “update” without cadence still may be update if the user asked to change the time.
+  // Pause, resume, and run are already returned above so they are not rewritten into an update.
+  if (action === "update" || (!action && looksLikeScheduleUpdateRequest(userText))) {
     action = "update";
   }
-  if (action === "list" || action === "show") return { action: "list" };
   if (action !== "create" && action !== "disable" && action !== "update") return null;
 
   if (action === "disable") {
@@ -170,10 +180,11 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
 
   const system = [
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
-    'Schema: {"action":"create"|"update"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer"|"mcp","goal":"…","name":"…","matchHint":"…"}',
+    'Schema: {"action":"create"|"update"|"pause"|"resume"|"run"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer"|"mcp","goal":"…","name":"…","matchHint":"…"}',
     "Rules:",
     "- list = show reminders/schedules.",
-    "- disable = stop/delete/cancel one or all reminders. Put the topic in matchHint (e.g. \"drink water\"). Empty matchHint means stop all.",
+    "- disable = delete one or all reminders. Put the topic in matchHint. Empty matchHint means delete all.",
+    "- pause = keep the job and turn it off. resume = turn that job back on. run = fire that job once now. matchHint is the job name.",
     "- update = change cadence (or goal) on an EXISTING reminder. Always set interval. Put which job in matchHint (e.g. \"email\", \"water\"). Example: \"change the schedule to every 4 minutes\" → action update, interval 4m.",
     "- create = new recurring or one-shot reminder/job. Always set interval from the user cadence.",
     "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",

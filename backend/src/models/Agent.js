@@ -179,6 +179,17 @@ const scheduleJobSchema = new mongoose.Schema(
     lastRunAt: { type: Date, default: null },
     nextRunAt: { type: Date, default: null },
     /**
+     * Hermes job state. scheduled = will fire. paused = kept but not firing. completed = one-shot finished.
+     */
+    state: {
+      type: String,
+      enum: ["scheduled", "paused", "completed"],
+      default: "scheduled",
+    },
+    /** ok or error from the last tick. Empty until the job has run. */
+    lastStatus: { type: String, default: "", trim: true, maxlength: 32 },
+    lastError: { type: String, default: "", trim: true, maxlength: 300 },
+    /**
      * Emergency stop: schedule was paused; resume restores enabled from enabledBeforeEmergency.
      */
     pausedByEmergency: { type: Boolean, default: false },
@@ -1382,6 +1393,13 @@ export function normalizeScheduleJob(raw = {}) {
     lastRunAt: raw.lastRunAt ? new Date(raw.lastRunAt) : null,
     nextRunAt: null,
     chatId: raw.chatId || null,
+    state: ["scheduled", "paused", "completed"].includes(String(raw.state || ""))
+      ? String(raw.state)
+      : enabled
+        ? "scheduled"
+        : "paused",
+    lastStatus: String(raw.lastStatus || "").slice(0, 32),
+    lastError: String(raw.lastError || "").slice(0, 300),
   };
   if (raw._id) job._id = raw._id;
   if (enabled && goal) {

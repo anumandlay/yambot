@@ -327,3 +327,56 @@ test("delete those is not a word-gate schedule request, and the hint is not forc
   assert.equal(wantsDisableAllSchedules("delete those", ""), true);
   assert.equal(wantsDisableAllSchedules("delete those", "those"), false);
 });
+
+test("pause keeps the reminder and delete still removes it", async () => {
+  const pause = parseScheduleFromChat("pause the drink water reminder");
+  assert.equal(pause?.action, "pause");
+  assert.match(String(pause?.matchHint || ""), /drink water/i);
+  assert.equal(parseScheduleFromChat("delete the drink water reminder")?.action, "disable");
+  assert.equal(parseScheduleFromChat("resume the drink water reminder")?.action, "resume");
+  assert.equal(parseScheduleFromChat("run the drink water reminder now")?.action, "run");
+
+  const agent = {
+    schedules: [
+      { name: "", goal: "", enabled: false, interval: "1h" },
+      {
+        name: "Drink water",
+        goal: "drink water",
+        enabled: true,
+        interval: "1m",
+        kind: "chat_reminder",
+        state: "scheduled",
+      },
+    ],
+    markModified() {},
+    async save() {},
+  };
+  const paused = await applyScheduleFromChat({
+    agent,
+    parsed: { action: "pause", matchHint: "it" },
+    userText: "pause it",
+  });
+  const water = agent.schedules.find((job) => job.name === "Drink water");
+  assert.match(paused.content, /Paused/);
+  assert.equal(water.enabled, false);
+  assert.equal(water.state, "paused");
+  assert.equal(water.nextRunAt, null);
+  assert.equal(agent.schedules.length, 2);
+
+  const resumed = await applyScheduleFromChat({
+    agent,
+    parsed: { action: "resume", matchHint: "Drink water" },
+    userText: "resume Drink water",
+  });
+  assert.match(resumed.content, /Resumed/);
+  const resumedWater = agent.schedules.find((job) => job.name === "Drink water");
+  assert.equal(resumedWater.enabled, true);
+  assert.equal(resumedWater.state, "scheduled");
+  assert.ok(resumedWater.nextRunAt);
+
+  const listed = formatScheduleListReply([
+    { ...water, enabled: false, state: "paused", lastStatus: "ok" },
+  ]);
+  assert.match(listed, /paused/);
+  assert.match(listed, /last ok/);
+});

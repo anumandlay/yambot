@@ -1,6 +1,7 @@
 /**
- * @fileoverview Create/list/stop agent schedules from natural-language chat.
+ * @fileoverview Create, list, pause, resume, run, and remove agent schedules from chat.
  * Purpose: “check email every 5 minutes” saves agent.schedules[] without the editor.
+ * Pause keeps the row and turns it off. Remove deletes the row. Run fires the stored job once.
  * Downstream: chatAutoTurn.js (manage path); Agent.schedules + scheduler.js ticks.
  */
 
@@ -15,7 +16,7 @@ import {
 } from "../models/Agent.js";
 /**
  * @typedef {{
- *   action: "create"|"update"|"list"|"disable",
+ *   action: "create"|"update"|"list"|"disable"|"pause"|"resume"|"run",
  *   interval?: string,
  *   dailyAt?: string,
  *   goal?: string,
@@ -351,7 +352,7 @@ export function extractScheduleDisableHint(text) {
 
   let hint = raw
     .replace(
-      /\b(stop|disable|pause|cancel|remove|delete|turn\s+off|clear)\b/gi,
+      /\b(stop|disable|pause|resume|unpause|cancel|remove|delete|turn\s+off|turn\s+on|clear|run|now)\b/gi,
       " "
     )
     .replace(
@@ -589,6 +590,15 @@ export function looksLikeScheduleManageRequest(text) {
     return true;
   }
 
+  if (/\b(resume|unpause)\b/i.test(raw)) return true;
+  if (/\bpause\b/i.test(raw)) return true;
+  if (
+    /\brun\b.+\b(now|reminder|schedule)\b/i.test(raw) ||
+    /\brun\s+(it|this|that)\s+now\b/i.test(raw)
+  ) {
+    return true;
+  }
+
   if (looksLikeScheduleUpdateRequest(raw)) return true;
 
   if (looksLikeReminderCreateRequest(raw)) return true;
@@ -616,6 +626,20 @@ export function parseScheduleFromChat(text) {
     /^(list|show)\s+reminders?\b/i.test(raw)
   ) {
     return { action: "list" };
+  }
+
+  if (/\b(resume|unpause)\b/i.test(raw)) {
+    return { action: "resume", matchHint: extractScheduleDisableHint(raw) };
+  }
+  // Why: pause keeps the job. The disable pattern below deletes, so pause must win first.
+  if (/\bpause\b/i.test(raw) && !/\b(delete|remove|stop|disable|cancel)\b/i.test(raw)) {
+    return { action: "pause", matchHint: extractScheduleDisableHint(raw) };
+  }
+  if (
+    /\brun\b.+\b(now|reminder|schedule)\b/i.test(raw) ||
+    /\brun\s+(it|this|that)\s+now\b/i.test(raw)
+  ) {
+    return { action: "run", matchHint: extractScheduleDisableHint(raw) };
   }
 
   if (
@@ -721,7 +745,10 @@ export function formatScheduleListReply(jobs) {
   const list = (Array.isArray(jobs) ? jobs : []).filter(isMeaningfulScheduleJob);
   if (!list.length) return "No reminders/schedules on this agent yet.";
   const lines = list.map((j, i) => {
-    const on = j.enabled ? "on" : "off — not running";
+    const on = j.state === "paused" || j.enabled === false
+      ? `${j.state || "paused"} — not running`
+      : `${j.state || "scheduled"}`;
+    const lastBit = j.lastStatus ? `, last ${j.lastStatus}` : "";
     const last = j.lastRunAt ? new Date(j.lastRunAt).toISOString() : "never";
     const next =
       j.enabled && j.nextRunAt
@@ -732,7 +759,7 @@ export function formatScheduleListReply(jobs) {
     const label = String(j.name || "").trim() || `Job ${i + 1}`;
     const kindLabel =
       j.kind === "mcp" ? "MCP tool reminder" : j.kind === "chat_reminder" ? "chat reminder" : "computer job";
-    return `${i + 1}. **${label}** (${on}, ${kindLabel}${
+    return `${i + 1}. **${label}** (${on}${lastBit}, ${kindLabel}${
       j.kind === "chat_reminder"
         ? j.agentRun === false
           ? ", static"
@@ -805,6 +832,44 @@ function replyFromStoredJob(verb, job) {
  * }} opts
  * @returns {Promise<{ ok: boolean, content: string, job?: object }>}
  */
+/**
+ * Jobs a pause, resume, or run should touch.
+ * Why: an empty hint pauses the only reminder, and “all” pauses every one. It does not pause every job just because the hint was blank.
+ * @param {object[]} jobs
+ * @param {string} hint
+ * @param {string} userText
+ * @returns {object[]|null} null means ask which job
+ */
+function pickJobsForManage(jobs, hint, userText) {
+  const meaningful = jobs.filter(isMeaningfulScheduleJob);
+  const h = String(hint || "").trim();
+  const all = /\b(all|every)\b/i.test(String(userText || ""));
+  if (!h && all) return meaningful;
+  if (h) {
+    const matched = meaningful.filter((j) => jobMatchesScheduleHint(j, h));
+    if (matched.length) return matched;
+    if (meaningful.length === 1) return meaningful;
+    return [];
+  }
+  if (meaningful.length === 1) return meaningful;
+  return null;
+}
+
+/**
+ * Names to show when the user has to pick a reminder.
+ * @param {object[]} jobs
+ * @returns {string}
+ */
+function scheduleChoiceLine(jobs) {
+  const available = jobs
+    .filter(isMeaningfulScheduleJob)
+    .map((j) => String(j.name || j.goal || "job").trim().slice(0, 40))
+    .filter(Boolean);
+  return available.length
+    ? ` On this agent: ${available.map((l) => `“${l}”`).join(", ")}.`
+    : " No reminders on this agent.";
+}
+
 export async function applyScheduleFromChat(opts) {
   const agent = opts.agent;
   const parsed = opts.parsed;
@@ -823,6 +888,96 @@ export async function applyScheduleFromChat(opts) {
 
   if (parsed.action === "list") {
     return { ok: true, content: formatScheduleListReply(jobs) };
+  }
+
+  if (parsed.action === "pause" || parsed.action === "resume" || parsed.action === "run") {
+    const hint = String(parsed.matchHint || "").trim();
+    const picked = pickJobsForManage(jobs, hint, opts.userText || "");
+    const verb =
+      parsed.action === "pause" ? "pause" : parsed.action === "resume" ? "resume" : "run";
+    if (picked == null) {
+      return {
+        ok: true,
+        content: `Which reminder should I ${verb}?${scheduleChoiceLine(jobs)}`,
+      };
+    }
+    if (!picked.length) {
+      return {
+        ok: true,
+        content: `No reminder matched “${hint}”.${scheduleChoiceLine(jobs)}`,
+      };
+    }
+    if (parsed.action === "run") {
+      const { runScheduledAgent } = await import("./scheduler.js");
+      const lines = [];
+      for (const job of picked) {
+        const wasPaused = job.enabled === false || job.state === "paused";
+        if (wasPaused) {
+          job.enabled = true;
+          job.state = "scheduled";
+          if (!job.nextRunAt) job.nextRunAt = new Date();
+        }
+        syncLegacyScheduleMirror(agent, jobs);
+        agent.markModified?.("schedules");
+        let result = { ok: false };
+        try {
+          result = await runScheduledAgent(agent, job);
+        } catch (err) {
+          job.lastStatus = "error";
+          job.lastError = String(err?.message || err).slice(0, 300);
+          result = { ok: false };
+        }
+        if (wasPaused) {
+          job.enabled = false;
+          job.state = "paused";
+          job.nextRunAt = null;
+        }
+        agent.markModified?.("schedules");
+        await agent.save();
+        const stored = await readBackScheduleJob(agent, job._id);
+        const shown = stored || job;
+        lines.push(
+          result?.ok
+            ? replyFromStoredJob("Ran", shown)
+            : `**${String(job.name || job.goal || "reminder").slice(0, 80)}** did not run.`
+        );
+      }
+      return { ok: lines.every((line) => !line.endsWith("did not run.")), content: lines.join("\n\n") };
+    }
+
+    const now = new Date();
+    for (const job of picked) {
+      if (parsed.action === "pause") {
+        job.enabled = false;
+        job.state = "paused";
+        job.nextRunAt = null;
+      } else {
+        job.enabled = true;
+        job.state = "scheduled";
+        job.pausedByEmergency = false;
+        job.nextRunAt = computeNextRunAt(job, now) || now;
+      }
+    }
+    syncLegacyScheduleMirror(agent, jobs);
+    agent.markModified?.("schedules");
+    agent.markModified?.("schedule");
+    await agent.save();
+    const lines = [];
+    for (const job of picked) {
+      const stored = await readBackScheduleJob(agent, job._id);
+      if (stored === null) {
+        return { ok: false, content: "The reminder was not saved. It is not on this agent." };
+      }
+      const shown = stored || job;
+      if (parsed.action === "pause" && shown.enabled !== false) {
+        return { ok: false, content: "That reminder is still on. It was not paused." };
+      }
+      if (parsed.action === "resume" && shown.enabled === false) {
+        return { ok: false, content: "That reminder is still off. It was not resumed." };
+      }
+      lines.push(replyFromStoredJob(parsed.action === "pause" ? "Paused" : "Resumed", shown));
+    }
+    return { ok: true, job: picked[0], content: lines.join("\n\n") };
   }
 
   if (parsed.action === "disable") {

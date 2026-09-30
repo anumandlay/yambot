@@ -1,3 +1,9 @@
+## [2026-09-30 10:20] A reminder can be paused, resumed, or run, and the last result is stored
+
+- **Prompt Provided:** Manage reminders the way Hermes does: pause, resume, run now, and remove, and keep the outcome on the job.
+- **Architectural Flow:** The schedule model picks pause, resume, run, or disable. Pause keeps the row, turns it off, and clears the next run. Resume turns it back on and sets the next run. Run fires that stored job once. Disable still deletes the row. After each tick the job stores last status and, on failure, the error. The list shows that state.
+- **Impacted Files:** scheduleFromChat.js, scheduleLlmPlan.js, chatRoutePlan.js, chatAutoTurn.js, scheduler.js, Agent.js, scheduleFromChat.test.js, scheduleLlmPlan.test.js, PROMPT_LOG
+
 ## [2026-09-30 10:05] A reminder is confirmed only after the saved job is read back
 
 - **Prompt Provided:** Hermes creates a reminder by persisting a cron job, registering it, and confirming only from the stored job. YamBot must do the same.

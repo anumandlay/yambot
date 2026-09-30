@@ -51,3 +51,16 @@ test("normalizeLlmSchedulePlan rejects when no valid interval anywhere", () => {
 test("normalizeLlmSchedulePlan list", () => {
   assert.equal(normalizeLlmSchedulePlan({ action: "list" }, "list reminders")?.action, "list");
 });
+
+test("normalizeLlmSchedulePlan pause resume and run need no interval", () => {
+  const pause = normalizeLlmSchedulePlan(
+    { action: "pause", matchHint: "Drink water" },
+    "pause the drink water reminder"
+  );
+  assert.equal(pause?.action, "pause");
+  assert.equal(pause?.interval, undefined);
+  const resume = normalizeLlmSchedulePlan({ action: "resume", matchHint: "Drink water" }, "resume it");
+  assert.equal(resume?.action, "resume");
+  const run = normalizeLlmSchedulePlan({ action: "run", matchHint: "Drink water" }, "run it now");
+  assert.equal(run?.action, "run");
+});
