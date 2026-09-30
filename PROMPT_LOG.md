@@ -1,3 +1,9 @@
+## [2026-09-30 08:20] A reminder cadence change is written on the agent
+
+- **Prompt Provided:** “change the reminder schedule to 3 minutes” said the drink-water reminder was updated, but agent settings still showed 1 minute.
+- **Architectural Flow:** The chat reply never wrote `schedules[]`. A schedule action from the router (`update`, or chat plus an interval) is a reminder change and is saved. If the router leaves the message as chat, the schedule model decides the plan and that plan is saved. The chat model is not allowed to say a reminder was updated when nothing was written.
+- **Impacted Files:** chatRoutePlan.js, chatAutoTurn.js, chatRoutePlan.test.js, PROMPT_LOG
+
 ## [2026-09-29 14:35] “delete it” no longer crashes on a missing Composio flag
 
 - **Prompt Provided:** After “list reminders”, “delete it” answered “composioReady is not defined”.

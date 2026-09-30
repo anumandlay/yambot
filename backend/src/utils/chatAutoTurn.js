@@ -57,7 +57,7 @@ import {
   planComposioManageWithLlm,
   composioYesNoStillApplies,
 } from "./composioFromChat.js";
-import { resolveScheduleFromChat } from "./scheduleLlmPlan.js";
+import { planScheduleWithLlm, resolveScheduleFromChat } from "./scheduleLlmPlan.js";
 import {
   planChatRoute,
   shouldPlanChatRoute,
@@ -1078,12 +1078,13 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   // Why: never queue literal template text like "<exact instructions for the worker>" or "...".
   if (isPromptPlaceholder(goal) || goal.length < 8) goal = "";
 
-  // Why: never accept a fake “I’ve set a reminder” when create never hit schedule_manage.
+  // Why: never accept a fake “I’ve set / updated a reminder” when the turn never wrote schedules[].
   if (
-    looksLikeReminderCreateRequest(userText) &&
+    (looksLikeReminderCreateRequest(userText) || looksLikeScheduleManageRequest(userText)) &&
     action === "reply" &&
     !/^schedule_/i.test(reason) &&
-    /\b(i('ve| have)?\s+set|reminder\s+(is\s+)?set|will remind|scheduled a reminder|created a reminder)\b/i.test(
+    /\b(reminder|schedule)\b/i.test(content) &&
+    /\b(i('ve| have)?\s+set|updated|changed|created|saved|switched|reminder\s+(is\s+)?set|will remind|scheduled a reminder)\b/i.test(
       content
     )
   ) {
@@ -2321,7 +2322,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "1) REPLY / reply — normal chat (no Chromium, no Composio unless you already finished tools):",
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
-    "- Schedule manage: “check email every 5 minutes”, “change the schedule to every 4 minutes”, “list schedules”, “stop the schedule” — REPLY after saving (runtime handles it); do not QUEUE_GOAL for the manage message itself",
+    "- You cannot create, change, or stop a reminder. Never say a reminder was updated, created, or deleted. The runtime writes schedules before this reply.",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",
@@ -3013,15 +3014,27 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
+  // Why: the router writes a reminder when it picks that lane. If it leaves the message as chat, the schedule model still decides the plan. Words do not choose the job or the interval.
+  let scheduleFromPlanner = null;
+  const routerLeftChat = !trustRoute || route.lane === "chat";
+  if (routerLeftChat && runtime?.agent && creds?.apiKey && looksLikeScheduleManageRequest(text)) {
+    try {
+      scheduleFromPlanner = await planScheduleWithLlm(text, creds, historyEarly);
+    } catch (err) {
+      console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
+    }
+  }
   // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
   // List = heuristic only (ms). Create/delete = LLM parse → deterministic applyScheduleFromChat.
-  const scheduleIncoming = trustRoute && route.lane === "reminder";
+  const scheduleIncoming =
+    (trustRoute && route.lane === "reminder") || Boolean(scheduleFromPlanner?.action);
   if (scheduleIncoming && runtime?.agent) {
     track.setPath("schedule_manage");
     track.markDecision("reply");
     try {
       const parsed =
-        (trustRoute ? route.reminder : null) ||
+        scheduleFromPlanner ||
+        (trustRoute && route.lane === "reminder" ? route.reminder : null) ||
         (await resolveScheduleFromChat(text, creds, historyEarly));
       if (!parsed) {
         // Why: never fall through to the chat LLM (it invents “which app hosts drink water?”).

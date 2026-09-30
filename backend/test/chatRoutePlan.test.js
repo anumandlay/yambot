@@ -89,6 +89,23 @@ test("the model marks yes or no, and another word is not stored as that answer",
   assert.equal(other.reply, undefined);
 });
 
+test("a schedule action in the lane still updates that reminder", () => {
+  const route = normalizeChatRoute(
+    { lane: "update", interval: "3m", matchHint: "Drink water" },
+    { userText: "change the reminder schedule to 3 minutes" }
+  );
+  assert.equal(route.lane, "reminder");
+  assert.equal(route.reminder.action, "update");
+  assert.equal(route.reminder.interval, "3m");
+  assert.equal(route.reminder.matchHint, "Drink water");
+  const fromChat = normalizeChatRoute(
+    { lane: "chat", action: "update", interval: "3 minutes" },
+    { userText: "change the reminder schedule to 3 minutes" }
+  );
+  assert.equal(fromChat.lane, "reminder");
+  assert.equal(fromChat.reminder.interval, "3m");
+});
+
 test("chat and computer do not become an app or a reminder", () => {
   assert.equal(normalizeChatRoute({ lane: "chat" }).lane, "chat");
   assert.equal(normalizeChatRoute({ lane: "reply" }).lane, "chat");

@@ -147,6 +147,33 @@ export function normalizeChatRoute(raw, ctx = {}) {
   if (lane === "job" || lane === "browser" || lane === "screen") lane = "computer";
   let steered = lane === "steer";
   if (lane === "steer") lane = "computer";
+  // Why: the model often puts the schedule action in lane ("update") or fills interval while lane stays chat. That is still a reminder decision.
+  const scheduleActionAlias = {
+    update: "update",
+    change: "update",
+    edit: "update",
+    modify: "update",
+    create: "create",
+    disable: "disable",
+    stop: "disable",
+    delete: "disable",
+    list: "list",
+    show: "list",
+  };
+  let reminderAction = "";
+  if (scheduleActionAlias[lane]) {
+    reminderAction = scheduleActionAlias[lane];
+    lane = "reminder";
+  }
+  const statedAction = String(raw.action || "").trim().toLowerCase();
+  const statedInterval = String(raw.interval || "").trim();
+  if (
+    (lane === "chat" && (scheduleActionAlias[statedAction] || statedInterval)) ||
+    (lane === "computer" && scheduleActionAlias[statedAction])
+  ) {
+    reminderAction = scheduleActionAlias[statedAction] || statedAction;
+    lane = "reminder";
+  }
   if (!["chat", "computer", "composio", "mcp", "reminder"].includes(lane)) return null;
   const stamp = (route) => {
     if (!route) return null;
@@ -193,7 +220,7 @@ export function normalizeChatRoute(raw, ctx = {}) {
 
   const reminder = normalizeLlmSchedulePlan(
     {
-      action: raw.action,
+      action: raw.action || reminderAction,
       interval: raw.interval,
       dailyAt: raw.dailyAt,
       kind: raw.kind,
