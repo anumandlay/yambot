@@ -47,11 +47,8 @@ import {
 } from "./comboRunner.js";
 import { classifyAutoActionWithJev, isJevEnabled } from "./jevEvaluate.js";
 import {
-  assistantReplyListedSchedules,
   looksLikeScheduleManageRequest,
-  looksLikeReminderCreateRequest,
   applyScheduleFromChat,
-  parseScheduleFromChat,
 } from "./scheduleFromChat.js";
 import { applyMcpServerFromChat } from "./mcpFromChat.js";
 import {
@@ -1084,10 +1081,10 @@ export function ensureAutoTurnResult(result, ctx = {}) {
   if (
     action === "reply" &&
     !/^schedule_/i.test(reason) &&
+    /\b(reminder|schedule)\b/i.test(content) &&
     (/\b(removed|deleted|stopped|disabled)\b/i.test(content) ||
       /\b(can(?:not|'t)|unable to)\b[\s\S]{0,40}\b(modif|chang|delet|remov|schedul)/i.test(content) ||
-      /Schedulers tab/i.test(content)) &&
-    /\b(delete|remove|stop|disable|cancel)\b/i.test(userText)
+      /Schedulers tab/i.test(content))
   ) {
     return {
       action: "reply",
@@ -1102,7 +1099,6 @@ export function ensureAutoTurnResult(result, ctx = {}) {
 
   // Why: never accept a fake “I’ve set / updated a reminder” when the turn never wrote schedules[].
   if (
-    (looksLikeReminderCreateRequest(userText) || looksLikeScheduleManageRequest(userText)) &&
     action === "reply" &&
     !/^schedule_/i.test(reason) &&
     /\b(reminder|schedule)\b/i.test(content) &&
@@ -3036,12 +3032,9 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: a create/change/stop must be written here. A computer or chat lane must not skip that and let the chat model claim the runtime already saved it.
-  const scheduleAsked =
-    (trustRoute && route.lane === "reminder") ||
-    looksLikeScheduleManageRequest(text) ||
-    assistantReplyListedSchedules(historyEarly);
-  const routerAlreadyPlanned = Boolean(trustRoute && route.lane === "reminder" && route.reminder);
+  // Why: only the router's reminder decision is written. A word in the sentence does not open this path.
+  const scheduleAsked = trustRoute && route.lane === "reminder";
+  const routerAlreadyPlanned = Boolean(scheduleAsked && route.reminder);
   let scheduleFromPlanner = null;
   if (scheduleAsked && !routerAlreadyPlanned && runtime?.agent && creds?.apiKey) {
     try {
@@ -3050,14 +3043,8 @@ export async function runChatAutoTurn(opts) {
       console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
     }
   }
-  const parsedSchedule =
-    scheduleFromPlanner ||
-    (routerAlreadyPlanned ? route.reminder : null) ||
-    (looksLikeScheduleManageRequest(text) || (trustRoute && route.lane === "reminder")
-      ? parseScheduleFromChat(text)
-      : null);
-  // Why: “check email every 5 minutes” / reminders save on the agent — do not run or queue now.
-  if ((scheduleAsked && parsedSchedule) || (trustRoute && route.lane === "reminder")) {
+  const parsedSchedule = scheduleFromPlanner || (routerAlreadyPlanned ? route.reminder : null);
+  if (scheduleAsked) {
     if (!runtime?.agent) {
       // fall through
     } else {

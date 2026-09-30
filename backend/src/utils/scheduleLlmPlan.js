@@ -1,7 +1,6 @@
 /**
  * @fileoverview LLM planner for reminder/schedule create, update & delete phrasing.
- * Purpose: Understand natural “change schedule to every 4 minutes” / “cancel the water nudge”
- * as structured ParsedScheduleChat. List stays heuristic-only (instant).
+ * Purpose: The schedule model returns the action. This module checks that JSON and does not read words out of the sentence.
  * Downstream: chatAutoTurn schedule_manage; applyScheduleFromChat still writes schedules[].
  */
 
@@ -10,18 +9,6 @@ import {
   isValidScheduleInterval,
   normalizeScheduleIntervalCode,
 } from "../models/Agent.js";
-import {
-  parseScheduleFromChat,
-  extractScheduleDisableHint,
-  extractScheduleUpdateHint,
-  frameComputerScheduleGoal,
-  defaultScheduleJobName,
-  resolveScheduleKind,
-  looksLikeScheduleUpdateRequest,
-  stripScheduleCadenceFromGoal,
-  parseScheduleIntervalFromText,
-  parseClockTimeFromText,
-} from "./scheduleFromChat.js";
 
 /**
  * @typedef {import("./scheduleFromChat.js").ParsedScheduleChat} ParsedScheduleChat
@@ -45,27 +32,16 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action === "list" || action === "show") return { action: "list" };
   if (action === "pause" || action === "resume" || action === "run") {
     const provided = raw.matchHint ?? raw.hint ?? raw.topic;
-    const matchHint = String(
-      provided != null ? provided : extractScheduleDisableHint(userText) || ""
-    )
+    const matchHint = String(provided != null ? provided : "")
       .trim()
       .slice(0, 80);
     return { action, matchHint };
   }
-  // Why: bare “update” without cadence still may be update if the user asked to change the time.
-  // Pause, resume, and run are already returned above so they are not rewritten into an update.
-  if (action === "update" || (!action && looksLikeScheduleUpdateRequest(userText))) {
-    action = "update";
-  }
   if (action !== "create" && action !== "disable" && action !== "update") return null;
 
   if (action === "disable") {
-    // Why: an empty matchHint from the model means stop every reminder.
-    // Only a missing field falls back to words left in the sentence.
     const provided = raw.matchHint ?? raw.hint ?? raw.topic;
-    const matchHint = String(
-      provided != null ? provided : extractScheduleDisableHint(userText) || ""
-    )
+    const matchHint = String(provided != null ? provided : "")
       .trim()
       .slice(0, 80);
     return { action: "disable", matchHint };
@@ -78,37 +54,20 @@ export function normalizeLlmSchedulePlan(raw, userText) {
       normalizeScheduleIntervalCode(raw.cadenceText || raw.intervalText || "") ||
       "";
   }
-  if (!isValidScheduleInterval(interval)) {
-    const cadence = parseScheduleIntervalFromText(
-      String(raw.cadenceText || raw.intervalText || userText || "")
-    );
-    interval = cadence?.interval || "";
-  }
   if (!isValidScheduleInterval(interval)) return null;
 
   let dailyAt = String(raw.dailyAt || raw.daily_at || "09:00").trim();
-  if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) {
-    const clock = parseClockTimeFromText(String(raw.timeText || userText || ""));
-    dailyAt = clock?.dailyAt || "09:00";
-  }
+  if (!/^\d{1,2}:\d{2}$/.test(dailyAt)) dailyAt = "09:00";
 
   let oneShotAt = null;
-  if (interval === "once") {
-    if (raw.oneShotAt || raw.one_shot_at) {
-      const d = new Date(raw.oneShotAt || raw.one_shot_at);
-      if (!Number.isNaN(d.getTime())) oneShotAt = d;
-    }
-    if (!oneShotAt) {
-      const cadence = parseScheduleIntervalFromText(userText);
-      if (cadence?.oneShotAt) oneShotAt = new Date(cadence.oneShotAt);
-    }
+  if (interval === "once" && (raw.oneShotAt || raw.one_shot_at)) {
+    const d = new Date(raw.oneShotAt || raw.one_shot_at);
+    if (!Number.isNaN(d.getTime())) oneShotAt = d;
   }
 
   if (action === "update") {
     const provided = raw.matchHint ?? raw.hint ?? raw.topic;
-    const matchHint = String(
-      provided != null ? provided : extractScheduleUpdateHint(userText) || ""
-    )
+    const matchHint = String(provided != null ? provided : "")
       .trim()
       .slice(0, 80);
     /** @type {ParsedScheduleChat} */
@@ -121,28 +80,20 @@ export function normalizeLlmSchedulePlan(raw, userText) {
     };
     const goalRaw = String(raw.goal || raw.message || "").trim();
     if (goalRaw.length >= 3) {
-      plan.goal = frameComputerScheduleGoal(goalRaw.slice(0, 8000));
+      plan.goal = goalRaw.slice(0, 8000);
     }
     return plan;
   }
 
   // create
-  const kind = resolveScheduleKind(userText, raw.kind);
+  const kind = ["mcp", "chat_reminder", "computer"].includes(String(raw.kind || "").trim())
+    ? String(raw.kind).trim()
+    : "computer";
 
-  let goal = String(raw.goal || raw.message || raw.topic || "").trim().slice(0, 8000);
-  if (!goal || goal.length < 2) {
-    goal = stripScheduleCadenceFromGoal(userText);
-  }
+  const goal = String(raw.goal || raw.message || raw.topic || "").trim().slice(0, 8000);
   if (!goal || goal.length < 2) return null;
 
-  goal =
-    kind === "computer"
-      ? frameComputerScheduleGoal(goal)
-      : goal.replace(/^to\s+/i, "").trim();
-
-  const name = String(raw.name || defaultScheduleJobName(goal, kind))
-    .trim()
-    .slice(0, 80);
+  const name = String(raw.name || goal).trim().slice(0, 80);
 
   const repeatLimit =
     raw.repeatLimit == null && raw.repeat_limit == null
@@ -244,27 +195,11 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
  */
 export async function resolveScheduleFromChat(userText, creds = null, history = []) {
   const text = String(userText || "").trim();
-  const heuristic = parseScheduleFromChat(text);
-
-  if (!creds?.apiKey) return heuristic;
-
-  // Why: the model chooses create, list, update, or disable. A word in the task does not replace that choice.
-  if (
-    heuristic?.action === "create" ||
-    heuristic?.action === "update" ||
-    heuristic?.action === "disable" ||
-    /\b(remind|reminder|schedule|nudge|every\s+\d|every\s+minute|daily|change|update)\b/i.test(
-      text
-    ) ||
-    /\b(stop|delete|cancel|remove|disable)\b/i.test(text)
-  ) {
-    try {
-      const llmPlan = await planScheduleWithLlm(text, creds, history);
-      if (llmPlan) return llmPlan;
-    } catch (err) {
-      console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
-    }
+  if (!text || !creds?.apiKey) return null;
+  try {
+    return await planScheduleWithLlm(text, creds, history);
+  } catch (err) {
+    console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
+    return null;
   }
-
-  return heuristic;
 }

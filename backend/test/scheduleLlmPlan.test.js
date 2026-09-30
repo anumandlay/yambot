@@ -31,13 +31,13 @@ test("normalizeLlmSchedulePlan disable maps delete + matchHint", () => {
   assert.match(String(p?.matchHint || ""), /drink\s+water/i);
 });
 
-test("normalizeLlmSchedulePlan recovers interval from user text when LLM invents bad code", () => {
+test("normalizeLlmSchedulePlan keeps the interval the model sent", () => {
   const p = normalizeLlmSchedulePlan(
     { action: "create", interval: "3m", goal: "hi", kind: "chat_reminder" },
     "remind me every 3 minutes to hi"
   );
   assert.equal(p?.action, "create");
-  assert.equal(p?.interval, "5m"); // nearest allowed bucket from user text
+  assert.equal(p?.interval, "3m");
 });
 
 test("normalizeLlmSchedulePlan rejects when no valid interval anywhere", () => {

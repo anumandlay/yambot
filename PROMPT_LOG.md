@@ -1,3 +1,9 @@
+## [2026-09-30 12:10] The model decides the reminder action
+
+- **Prompt Provided:** Remove the word lists. The model decides.
+- **Architectural Flow:** A reminder change runs only when the router chooses the reminder lane. The schedule model’s action, interval, goal, and job name are what get saved. The sentence is not scanned for list, create, stop, or similar words, and that scan is not used to replace the model’s action.
+- **Impacted Files:** chatAutoTurn.js, scheduleLlmPlan.js, scheduleFromChat.js, PROMPT_LOG
+
 ## [2026-09-30 12:05] The model chooses list or create
 
 - **Prompt Provided:** The word list must not decide the reminder action. The model decides.

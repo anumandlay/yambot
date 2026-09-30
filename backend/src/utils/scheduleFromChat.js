@@ -850,11 +850,9 @@ function replyFromStoredJob(verb, job) {
  * @param {string} userText
  * @returns {object[]|null} null means ask which job
  */
-function pickJobsForManage(jobs, hint, userText) {
+function pickJobsForManage(jobs, hint) {
   const meaningful = jobs.filter(isMeaningfulScheduleJob);
   const h = String(hint || "").trim();
-  const all = /\b(all|every)\b/i.test(String(userText || ""));
-  if (!h && all) return meaningful;
   if (h) {
     const matched = meaningful.filter((j) => jobMatchesScheduleHint(j, h));
     if (matched.length) return matched;
@@ -902,7 +900,7 @@ export async function applyScheduleFromChat(opts) {
 
   if (parsed.action === "pause" || parsed.action === "resume" || parsed.action === "run") {
     const hint = String(parsed.matchHint || "").trim();
-    const picked = pickJobsForManage(jobs, hint, opts.userText || "");
+    const picked = pickJobsForManage(jobs, hint);
     const verb =
       parsed.action === "pause" ? "pause" : parsed.action === "resume" ? "resume" : "run";
     if (picked == null) {
