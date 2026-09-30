@@ -137,7 +137,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "- disable = delete one or all reminders. Put the topic in matchHint. Empty matchHint means delete all.",
     "- pause = keep the job and turn it off. resume = turn that job back on. run = fire that job once now. matchHint is the job name.",
     "- update = change cadence (or goal) on an EXISTING reminder. Always set interval. Put which job in matchHint (e.g. \"email\", \"water\"). Example: \"change the schedule to every 4 minutes\" → action update, interval 4m.",
-    "- create = new recurring or one-shot reminder/job. Always set interval from the user cadence.",
+    "- create = new recurring or one-shot reminder/job. Always set interval from the cadence in the sentence, such as 2m for two minutes.",
     "- interval may be ANY minutes/hours: 1m, 3m, 4m, 70m, 2h — not only presets.",
     "- \"in 30m\" / \"tomorrow at 9 am\" = interval once + oneShotAt ISO time (not daily).",
     "- \"every day at 9 am\" = daily + dailyAt.",

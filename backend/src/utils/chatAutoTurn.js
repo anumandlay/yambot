@@ -3032,19 +3032,19 @@ export async function runChatAutoTurn(opts) {
     });
   }
 
-  // Why: only the router's reminder decision is written. A word in the sentence does not open this path.
-  const scheduleAsked = trustRoute && route.lane === "reminder";
-  const routerAlreadyPlanned = Boolean(scheduleAsked && route.reminder);
-  let scheduleFromPlanner = null;
-  if (scheduleAsked && !routerAlreadyPlanned && runtime?.agent && creds?.apiKey) {
+  // Why: the schedule model decides create, list, pause, and delete. Another lane the router already chose is left alone.
+  const routerSaidReminder = trustRoute && route.lane === "reminder";
+  const routerSaidOther =
+    trustRoute && ["computer", "composio", "mcp", "list"].includes(route.lane);
+  let parsedSchedule = routerSaidReminder ? route.reminder || null : null;
+  if (!parsedSchedule && !routerSaidOther && runtime?.agent && creds?.apiKey) {
     try {
-      scheduleFromPlanner = await planScheduleWithLlm(text, creds, historyEarly);
+      parsedSchedule = await planScheduleWithLlm(text, creds, historyEarly);
     } catch (err) {
       console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
     }
   }
-  const parsedSchedule = scheduleFromPlanner || (routerAlreadyPlanned ? route.reminder : null);
-  if (scheduleAsked) {
+  if (parsedSchedule || routerSaidReminder) {
     if (!runtime?.agent) {
       // fall through
     } else {
@@ -3081,7 +3081,7 @@ export async function runChatAutoTurn(opts) {
         ack: "",
         reason: applied.ok === false
         ? "schedule_manage_not_saved"
-        : `schedule_${parsed.action}${parsed.action !== "list" && creds?.apiKey ? "_llm" : ""}`,
+        : `schedule_${parsed.action}_llm`,
         timing: track.finish(),
       });
     } catch (err) {

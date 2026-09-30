@@ -1,3 +1,9 @@
+## [2026-09-30 12:15] “remind me every 2 min to drink water” is saved by the schedule model
+
+- **Prompt Provided:** That sentence answered that the reminder was not saved.
+- **Architectural Flow:** The router left the lane as chat, so nothing was written, and the reply guard replaced the chat text. The schedule model is asked unless the router already chose computer, an app, or a server. When that model returns a create, the job is saved from its interval and goal.
+- **Impacted Files:** chatAutoTurn.js, chatRoutePlan.js, scheduleLlmPlan.js, PROMPT_LOG
+
 ## [2026-09-30 12:10] The model decides the reminder action
 
 - **Prompt Provided:** Remove the word lists. The model decides.

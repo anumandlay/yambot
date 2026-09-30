@@ -286,6 +286,7 @@ export async function planChatRoute(text, creds, ctx = {}) {
     "Using an app (read mail, send a message, post to slack) is computer or chat, not composio.",
     "mcp = add, list, or remove an MCP server. action is add, list, or remove. server is the saved server name. Do not repeat tokens.",
     "reminder = create, list, change, pause, resume, run, or stop a reminder or schedule.",
+    "A new nudge on a cadence is lane reminder, action create, with interval, goal, and kind chat_reminder.",
     "reminder action is create, list, update, pause, resume, run, or disable. interval examples: 5m, 1h, daily, once.",
     "disable deletes the job. pause keeps the job and turns it off. resume turns it on. run fires it once now.",
     "kind is chat_reminder, computer, or mcp. mcp means call a tool on an MCP server each tick.",
