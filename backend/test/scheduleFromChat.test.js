@@ -57,16 +57,10 @@ test("parse multi-step schedule goal keeps steps", () => {
   assert.match(p.goal || "", /fastagconsultant@gmail\.com/i);
 });
 
-test("list schedules", () => {
-  const p = parseScheduleFromChat("list schedules");
-  assert.equal(p?.action, "list");
-});
-
-test("list reminders is schedule list (no LLM)", () => {
-  assert.equal(looksLikeScheduleManageRequest("list reminders"), true);
-  assert.equal(parseScheduleFromChat("list reminders")?.action, "list");
-  assert.equal(looksLikeScheduleManageRequest("show my reminders"), true);
-  assert.equal(parseScheduleFromChat("show my reminders")?.action, "list");
+test("the sentence parser does not choose list from the wording", () => {
+  assert.equal(parseScheduleFromChat("list schedules"), null);
+  assert.equal(parseScheduleFromChat("list reminders"), null);
+  assert.equal(parseScheduleFromChat("show my reminders"), null);
 });
 
 test("a reminder to call an MCP tool is an MCP schedule", () => {
@@ -404,5 +398,4 @@ test("a reminder to email the trial expiring list is a create, not a list", () =
   assert.match(String(p?.goal || ""), /fastagconsultant@gmail\.com/i);
   assert.match(String(p?.goal || ""), /trial expiring list/i);
   assert.equal(p?.name, "Trial expiring list");
-  assert.equal(parseScheduleFromChat("list reminders")?.action, "list");
 });

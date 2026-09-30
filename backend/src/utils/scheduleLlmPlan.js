@@ -42,12 +42,7 @@ export function normalizeLlmSchedulePlan(raw, userText) {
   if (action === "edit" || action === "modify" || action === "change") {
     action = "update";
   }
-  if (action === "list" || action === "show") {
-    // Why: the model often labels a new reminder as list when the goal itself contains the word list.
-    const written = parseScheduleFromChat(userText);
-    if (written?.action === "create" || written?.action === "update") return written;
-    return { action: "list" };
-  }
+  if (action === "list" || action === "show") return { action: "list" };
   if (action === "pause" || action === "resume" || action === "run") {
     const provided = raw.matchHint ?? raw.hint ?? raw.topic;
     const matchHint = String(
@@ -187,7 +182,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
     "You parse YamBot reminder/schedule chat. Reply with JSON only, no markdown.",
     'Schema: {"action":"create"|"update"|"pause"|"resume"|"run"|"disable"|"list","interval":"once|daily|Nm|Nh (e.g. 4m, 70m, 3h)","dailyAt":"HH:MM","kind":"chat_reminder"|"computer"|"mcp","goal":"…","name":"…","matchHint":"…"}',
     "Rules:",
-    "- list = the user wants to see reminders already saved. A new reminder whose text contains the word list, such as a trial expiring list, is create, not list.",
+    "- list = show the reminders already saved on this agent.",
     "- disable = delete one or all reminders. Put the topic in matchHint. Empty matchHint means delete all.",
     "- pause = keep the job and turn it off. resume = turn that job back on. run = fire that job once now. matchHint is the job name.",
     "- update = change cadence (or goal) on an EXISTING reminder. Always set interval. Put which job in matchHint (e.g. \"email\", \"water\"). Example: \"change the schedule to every 4 minutes\" → action update, interval 4m.",
@@ -242,7 +237,7 @@ export async function planScheduleWithLlm(userText, creds, history = []) {
 }
 
 /**
- * Prefer LLM for create/update/disable phrasing; list stays heuristic; heuristic is fallback.
+ * Prefer the schedule model's plan. The sentence parser is only the fallback when that plan is missing.
  * @param {string} userText
  * @param {{ apiKey?: string, llmBaseUrl?: string, llmModel?: string, openAiAccountId?: string }|null} [creds]
  * @returns {Promise<ParsedScheduleChat|null>}
@@ -251,17 +246,13 @@ export async function resolveScheduleFromChat(userText, creds = null, history = 
   const text = String(userText || "").trim();
   const heuristic = parseScheduleFromChat(text);
 
-  // Why: list must stay instant — no LLM round-trip for “list reminders”.
-  if (heuristic?.action === "list") return heuristic;
-
   if (!creds?.apiKey) return heuristic;
 
-  // Why: create + update + delete benefit from LLM NLU; still validate + apply deterministically.
+  // Why: the model chooses create, list, update, or disable. A word in the task does not replace that choice.
   if (
     heuristic?.action === "create" ||
     heuristic?.action === "update" ||
     heuristic?.action === "disable" ||
-    // Soft manage phrases heuristic missed — still try LLM.
     /\b(remind|reminder|schedule|nudge|every\s+\d|every\s+minute|daily|change|update)\b/i.test(
       text
     ) ||
@@ -269,8 +260,7 @@ export async function resolveScheduleFromChat(userText, creds = null, history = 
   ) {
     try {
       const llmPlan = await planScheduleWithLlm(text, creds, history);
-      if (llmPlan && llmPlan.action !== "list") return llmPlan;
-      if (llmPlan?.action === "list") return llmPlan;
+      if (llmPlan) return llmPlan;
     } catch (err) {
       console.warn("[scheduleLlmPlan] plan failed:", err?.message || err);
     }

@@ -1,3 +1,9 @@
+## [2026-09-30 12:05] The model chooses list or create
+
+- **Prompt Provided:** The word list must not decide the reminder action. The model decides.
+- **Architectural Flow:** Showing saved reminders and creating a reminder are both actions the schedule model returns. Code does not scan the sentence for the word list and does not replace the model's action. If the model returns create, that job is saved. If it returns list, the saved jobs are shown.
+- **Impacted Files:** scheduleFromChat.js, scheduleLlmPlan.js, chatRoutePlan.js, scheduleFromChat.test.js, scheduleLlmPlan.test.js, PROMPT_LOG
+
 ## [2026-09-30 11:55] “trial expiring list” creates an hourly email reminder
 
 - **Prompt Provided:** “create a reminder to send email to fastagconsultant@gmail.com with trial expiring list every 1 hour” only listed Drink water.

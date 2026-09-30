@@ -532,23 +532,6 @@ const SCHEDULE_NOUN =
   "(?:schedules?|schedulers?|reminders?|recurring\\s+(?:jobs?|tasks?)|cron\\s*jobs?)";
 
 /**
- * True when the user is asking to see saved reminders.
- * Why: “trial expiring list” is the body of a new reminder. The word list there is not “show my schedules”.
- * @param {string} text
- * @returns {boolean}
- */
-function isScheduleListRequest(text) {
-  const raw = String(text || "").trim();
-  if (!raw) return false;
-  if (looksLikeReminderCreateRequest(raw) && parseScheduleIntervalFromText(raw)) return false;
-  return (
-    new RegExp(`\\b(list|show|what are|what'?s)\\b.+\\b${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
-    new RegExp(`^(list|show)\\s+(my\\s+)?${SCHEDULE_NOUN}\\b`, "i").test(raw) ||
-    /^(list|show)\s+reminders?\b/i.test(raw)
-  );
-}
-
-/**
  * True when the user is creating a reminder (even without “every N minutes”).
  * Why: “create reminder … tomorrow at 9 am” must not fall through to a fake LLM ack.
  * @param {string} text
@@ -612,8 +595,6 @@ export function looksLikeScheduleManageRequest(text) {
   const raw = String(text || "").trim();
   if (!raw) return false;
 
-  if (isScheduleListRequest(raw)) return true;
-
   if (
     new RegExp(
       `\\b(stop|disable|pause|cancel|remove|delete|turn\\s+off)\\b.+\\b${SCHEDULE_NOUN}\\b`,
@@ -656,10 +637,6 @@ export function looksLikeScheduleManageRequest(text) {
 export function parseScheduleFromChat(text) {
   const raw = String(text || "").trim();
   if (!raw) return null;
-
-  if (isScheduleListRequest(raw)) {
-    return { action: "list" };
-  }
 
   if (/\b(resume|unpause)\b/i.test(raw)) {
     return { action: "resume", matchHint: extractScheduleDisableHint(raw) };
