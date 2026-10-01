@@ -1544,6 +1544,58 @@ export function parsePrintedToolTag(content) {
 }
 
 /**
+ * Run a printed Composio tag. The text path has no tool list, so the model writes the call as text.
+ * @param {string} content
+ * @param {object} runtime
+ * @returns {Promise<{ content: string, pending?: object }|null>}
+ */
+export async function runPrintedComposioTag(content, runtime) {
+  const printed = parsePrintedToolTag(content);
+  if (!printed || !runtime?.composioApiKey) return null;
+  const name = String(printed.name || "").trim();
+  const lower = name.toLowerCase();
+  let resultText = "";
+  if (lower.startsWith("composio_")) {
+    const kind = classifyAutoToolName({ name: lower });
+    if (
+      kind !== "composio_execute" &&
+      kind !== "composio_connect" &&
+      kind !== "composio_wait" &&
+      kind !== "composio_list"
+    ) {
+      return null;
+    }
+    resultText = await executeAutoLookupTool(kind, runtime, printed.args);
+  } else if (/^[A-Z][A-Z0-9_]{3,}$/.test(name)) {
+    const args = printed.args || {};
+    const execArgs =
+      args.arguments && typeof args.arguments === "object"
+        ? args.arguments
+        : args.params && typeof args.params === "object"
+          ? args.params
+          : args;
+    resultText = await executeAutoLookupTool("composio_execute", runtime, {
+      tool: name,
+      arguments: execArgs,
+    });
+  } else {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(String(resultText || ""));
+    if (parsed?.needsApproval && parsed.pendingComposioApproval) {
+      return {
+        content: formatPendingComposioApprovalReply(parsed.pendingComposioApproval),
+        pending: parsed.pendingComposioApproval,
+      };
+    }
+  } catch {
+    /* the formatter handles non-JSON */
+  }
+  return { content: formatComposioUserReply(resultText) };
+}
+
+/**
  * Fake tool tags some models print instead of a native tool call.
  * Why: MiniMax-style replies emit gadget XML, which would otherwise show up as the chat answer.
  * @param {string} content
@@ -2640,7 +2692,7 @@ async function runChatAutoTurnTextFallback(opts, timing) {
       const { visible, mode } = streamVisibleFromBuffer(buf);
       if (mode === "queue_goal") return;
       // Why: MiniMax prints <gadget> XML as the reply. Hold it so the bubble never shows the tag.
-      if (/<tool_req\b|<gadget\b/i.test(buf) || /^\s*</.test(visible)) return;
+      if (/<tool_req\b|<tool\b|<gadget\b/i.test(buf) || /^\s*</.test(visible)) return;
       if (visible.length > emitted) {
         delta(visible.slice(emitted));
         emitted = visible.length;
@@ -2701,6 +2753,30 @@ async function runChatAutoTurnTextFallback(opts, timing) {
       goal: "",
       ack: "",
       reason: applied.ok === false ? "schedule_manage_not_saved" : `schedule_${toolPlan.action}_llm`,
+      timing: track.finish(),
+      llmPrompt,
+    };
+  }
+
+  const printed = await runPrintedComposioTag(raw, runtime).catch((err) => {
+    console.warn("[composio] printed tag on text path failed:", err?.message || err);
+    return {
+      content: `Could not run that connected app: ${String(err?.message || err)}`,
+    };
+  });
+  if (printed?.content) {
+    track.markDecision("reply");
+    if (typeof delta === "function" && emitted === 0) {
+      await emitReplyDelta(printed.content, delta, { chunk: Boolean(stream) });
+    }
+    track.markFirstToken();
+    return {
+      action: "reply",
+      content: printed.content,
+      goal: "",
+      ack: "",
+      reason: printed.pending ? "composio_needs_approval" : "tool_result_reply",
+      pendingComposioApproval: printed.pending,
       timing: track.finish(),
       llmPrompt,
     };

@@ -1,3 +1,9 @@
+## [2026-10-01 18:15] A printed tool tag on the text path is run
+
+- **Prompt Provided:** “show next 10 emails” showed a tool tag.
+- **Architectural Flow:** That sentence did not open the tool list, so the model wrote the call as text and the text path saved the tag. A printed tool tag on that path is now executed, and the reply is the result.
+- **Impacted Files:** chatAutoTurn.js, composioGmailFormat.test.js, PROMPT_LOG
+
 ## [2026-10-01 15:50] The model checks a connected-app reply before it is shown
 
 - **Prompt Provided:** Check for email from doordash.com returned other senders. After the reply, the LLM should verify it is correct.

@@ -82,6 +82,16 @@ test("bare composio_search is fake action text", () => {
   assert.equal(looksLikeFakeComposioActionText("Top unread from Gmail today"), false);
 });
 
+test("parsePrintedToolTag reads a composio_execute tag with params", () => {
+  const parsed = parsePrintedToolTag(
+    '<tool> <tool_id>composio_execute</tool_id> <parameters>{"app": "gmail", "action": "GMAIL_FETCH_EMAILS", "params": {"limit": 10, "offset": 5}}</parameters> </tool>'
+  );
+  assert.equal(parsed?.name, "composio_execute");
+  assert.equal(parsed?.args?.action, "GMAIL_FETCH_EMAILS");
+  assert.equal(parsed?.args?.params?.limit, 10);
+  assert.equal(parsed?.args?.params?.offset, 5);
+});
+
 test("parsePrintedToolTag reads a printed composio_search tag", () => {
   const parsed = parsePrintedToolTag(
     '<tool>\n<tool_id>composio_search</tool_id>\n<parameters>{"query": "gmail get latest email inbox message"}</parameters>\n</tool>'
