@@ -1,3 +1,9 @@
+## [2026-10-01 14:55] Composio function fields are sent to the model
+
+- **Prompt Provided:** Send the arguments to the LLM with the Composio functions.
+- **Architectural Flow:** Each cached tool keeps a short parameter list from Composio. That list is the function schema on the chat request, so the model fills those fields. A cache that has no fields yet is refreshed once for the apps in the sentence.
+- **Impacted Files:** composioService.js, chatAutoTurn.js, composioToolkitToolCache.test.js, PROMPT_LOG
+
 ## [2026-10-01 14:45] Any connected app shows its result, not only Gmail
 
 - **Prompt Provided:** Gmail is the only app with extra formatting. Generalise it.

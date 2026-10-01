@@ -11,6 +11,7 @@ import {
   matchToolkitsForUserText,
   formatComposioToolkitCatalogForPrompt,
   composioCachedToolsToOpenAi,
+  compactComposioParameterSchema,
 } from "../src/utils/composioService.js";
 
 assert.equal(normalizeToolkitSlug("gmail"), "gmail");
@@ -28,6 +29,16 @@ setAgentComposioToolkitToolCache(agent, "gmail", [
     slug: "GMAIL_FETCH_EMAILS",
     name: "Fetch emails",
     description: "Fetch a list of emails from Gmail inbox",
+    parameters: compactComposioParameterSchema({
+      inputParameters: {
+        type: "object",
+        required: ["query"],
+        properties: {
+          query: { type: "string", description: "Gmail search query" },
+          max_results: { type: "integer", description: "How many messages" },
+        },
+      },
+    }),
   },
   {
     slug: "GMAIL_SEND_EMAIL",
@@ -57,6 +68,8 @@ assert.doesNotMatch(prompt, /notion/i);
 
 const fns = composioCachedToolsToOpenAi(agent, { userText: "read the latest email" });
 assert.equal(fns[0]?.function?.name, "GMAIL_FETCH_EMAILS");
+assert.equal(fns[0]?.function?.parameters?.properties?.query?.type, "string");
+assert.equal(fns[0]?.function?.parameters?.required?.[0], "query");
 assert.ok(fns.every((tool) => String(tool.function.name).startsWith("GMAIL_")));
 
 const emptyPrompt = formatComposioToolkitCatalogForPrompt(agent, {

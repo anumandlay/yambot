@@ -23,7 +23,11 @@ import {
   looksLikeSiteTrialExpiryComputerRequest,
 } from "./messageIntent.js";
 import { emitReplyDelta } from "./replyDelta.js";
-import { formatComposioToolkitCatalogForPrompt, composioCachedToolsToOpenAi } from "./composioService.js";
+import {
+  formatComposioToolkitCatalogForPrompt,
+  composioCachedToolsToOpenAi,
+  ensureComposioArgumentSchemas,
+} from "./composioService.js";
 import {
   matchComposioIntent,
   compactComposioExecuteResult,
@@ -2528,7 +2532,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
       "- load_skill when SKILL SUMMARY is insufficient and you need the full standing skill",
       "- skills_list / skill_view for production Skills library (progressive load before inventing procedures)",
       "- check_run_status / list_peer_agents when you need live facts before answering",
-      "- Call a connected-app function by its name when it is in this request. Do not print a <tool> tag. composio_execute, composio_connect, and composio_wait results are shown as returned.",
+      "- Call a connected-app function by its name when it is in this request, and fill the fields listed on that function. Those fields are sent to the app. Do not print a <tool> tag. composio_execute, composio_connect, and composio_wait results are shown as returned.",
       opts?.agent?.mcp?.enabled
         ? "- mcp_server_manage to add, remove, or list a server. mcp_<server>_<tool> calls that tool. The tool result is the user reply. Do not queue_goal for it."
         : "- mcp_server_manage to add, remove, or list an MCP server on this agent.",
@@ -3935,6 +3939,10 @@ export async function runChatAutoTurn(opts) {
     let autoTools = AUTO_CHAT_TOOLS;
     try {
       const mcpTools = await loadMcpOpenAiTools(runtime);
+      await ensureComposioArgumentSchemas(runtime?.agent, {
+        apiKey: runtime?.composioApiKey,
+        userText: text,
+      });
       const composioFns = composioCachedToolsToOpenAi(runtime?.agent, { userText: text });
       if (runtime) {
         runtime.composioDirectTools = new Set(

@@ -434,10 +434,59 @@ export async function composioSearchTools(opts) {
 export const COMPOSIO_TOOL_CACHE_MAX_AGE_MS = 7 * 24 * 60 * 60 * 1000;
 
 /**
+ * Short JSON schema for one Composio tool, small enough to send with the function.
+ * Why: a blank arguments object makes the model invent app/action tags instead of filling real fields.
+ * @param {any} row
+ * @returns {{ type: "object", properties: Record<string, object>, required?: string[] }}
+ */
+export function compactComposioParameterSchema(row) {
+  const schema =
+    row?.inputParameters ||
+    row?.input_parameters ||
+    row?.parameters ||
+    row?.function?.parameters ||
+    row?.inputSchema ||
+    row?.input_schema ||
+    null;
+  const propertiesIn =
+    schema && typeof schema === "object" && !Array.isArray(schema) && schema.properties
+      ? schema.properties
+      : null;
+  /** @type {Record<string, object>} */
+  const properties = {};
+  if (propertiesIn && typeof propertiesIn === "object") {
+    for (const key of Object.keys(propertiesIn).slice(0, 8)) {
+      if (!/^[A-Za-z_][A-Za-z0-9_]{0,40}$/.test(key)) continue;
+      const prop = propertiesIn[key];
+      if (!prop || typeof prop !== "object") continue;
+      const description = String(prop.description || prop.title || "")
+        .trim()
+        .slice(0, 80);
+      /** @type {{ type: string, description?: string, enum?: unknown[] }} */
+      const entry = { type: String(prop.type || "string").slice(0, 20) || "string" };
+      if (description) entry.description = description;
+      if (Array.isArray(prop.enum) && prop.enum.length) {
+        entry.enum = prop.enum.slice(0, 6).map((value) =>
+          typeof value === "string" || typeof value === "number" ? value : String(value)
+        );
+      }
+      properties[key] = entry;
+    }
+  }
+  /** @type {{ type: "object", properties: Record<string, object>, required?: string[] }} */
+  const out = { type: "object", properties };
+  const required = Array.isArray(schema?.required)
+    ? schema.required.map((key) => String(key)).filter((key) => properties[key]).slice(0, 8)
+    : [];
+  if (required.length) out.required = required;
+  return out;
+}
+
+/**
  * Normalize one Composio tool row into our cache/search shape.
  * @param {any} row
  * @param {string} [fallbackToolkit]
- * @returns {{ slug: string, name: string, description: string, toolkit: string }|null}
+ * @returns {{ slug: string, name: string, description: string, toolkit: string, parameters: object }|null}
  */
 function normalizeComposioToolRow(row, fallbackToolkit = "") {
   const slug = String(
@@ -459,6 +508,7 @@ function normalizeComposioToolRow(row, fallbackToolkit = "") {
       .trim()
       .slice(0, 240),
     toolkit,
+    parameters: compactComposioParameterSchema(row),
   };
 }
 
@@ -551,7 +601,7 @@ export function isComposioToolkitCacheFresh(entry, maxAgeMs = COMPOSIO_TOOL_CACH
  * Read cached tools for one toolkit from an agent doc.
  * @param {object|null|undefined} agent
  * @param {string} toolkit
- * @returns {{ slug: string, name: string, description: string, toolkit: string }[]}
+ * @returns {{ slug: string, name: string, description: string, toolkit: string, parameters?: object }[]}
  */
 export function getAgentComposioCachedTools(agent, toolkit) {
   const slug = normalizeToolkitSlug(toolkit);
@@ -566,6 +616,10 @@ export function getAgentComposioCachedTools(agent, toolkit) {
       name: String(t?.name || t?.slug || "").trim(),
       description: String(t?.description || "").trim().slice(0, 240),
       toolkit: slug,
+      parameters:
+        t?.parameters && typeof t.parameters === "object" && !Array.isArray(t.parameters)
+          ? t.parameters
+          : undefined,
     }))
     .filter((t) => t.slug);
 }
@@ -591,6 +645,10 @@ export function setAgentComposioToolkitToolCache(agent, toolkit, tools) {
         slug: String(t?.slug || "").trim(),
         name: String(t?.name || t?.slug || "").trim().slice(0, 120),
         description: String(t?.description || "").trim().slice(0, 240),
+        parameters:
+          t?.parameters && typeof t.parameters === "object" && !Array.isArray(t.parameters)
+            ? t.parameters
+            : undefined,
       }))
       .filter((t) => t.slug)
       .slice(0, 100),
@@ -681,6 +739,28 @@ export async function ensureComposioToolkitToolCache(agent, opts) {
     }
   }
   return { updated, skipped, errors };
+}
+
+/**
+ * Refresh cached tools that were stored before argument fields were kept.
+ * Why: an old cache is still "fresh" for a week, but it has no fields to send the model.
+ * @param {object|null|undefined} agent
+ * @param {{ apiKey?: string, userText?: string }} [opts]
+ * @returns {Promise<void>}
+ */
+export async function ensureComposioArgumentSchemas(agent, opts = {}) {
+  const apiKey = String(opts.apiKey || "").trim();
+  if (!agent?.composio?.enabled || !apiKey) return;
+  const enabled = (Array.isArray(agent.composio?.toolkitSlugs) ? agent.composio.toolkitSlugs : [])
+    .map((slug) => normalizeToolkitSlug(slug))
+    .filter(Boolean);
+  const matched = matchToolkitsForUserText(opts.userText || "", enabled);
+  const slugs = (matched.length ? matched : enabled).slice(0, 2);
+  const needs = slugs.filter((slug) =>
+    getAgentComposioCachedTools(agent, slug).some((tool) => !tool.parameters)
+  );
+  if (!needs.length) return;
+  await ensureComposioToolkitToolCache(agent, { apiKey, toolkits: needs, force: true });
 }
 
 /**
@@ -825,15 +905,21 @@ export function composioCachedToolsToOpenAi(agent, opts = {}) {
         function: {
           name: tool.slug,
           description: `${slug}: ${String(tool.description || tool.name || tool.slug).slice(0, 360)}`,
-          parameters: {
-            type: "object",
-            properties: {
-              arguments: {
-                type: "object",
-                description: "Arguments for this Composio tool.",
-              },
-            },
-          },
+          parameters:
+            tool.parameters &&
+            typeof tool.parameters === "object" &&
+            tool.parameters.properties &&
+            typeof tool.parameters.properties === "object"
+              ? tool.parameters
+              : {
+                  type: "object",
+                  properties: {
+                    arguments: {
+                      type: "object",
+                      description: "Arguments for this Composio tool.",
+                    },
+                  },
+                },
         },
       });
     }
