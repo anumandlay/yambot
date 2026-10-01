@@ -1,3 +1,9 @@
+## [2026-10-01 15:15] An inbox check is chosen by the model
+
+- **Prompt Provided:** Decide a check-email request through the LLM.
+- **Architectural Flow:** “Check email” no longer runs the fixed Gmail unread tool before the model speaks. The model gets the Gmail functions and their fields, calls one, and those fields are what Composio receives.
+- **Impacted Files:** chatAutoTurn.js, PROMPT_LOG
+
 ## [2026-10-01 14:55] Composio function fields are sent to the model
 
 - **Prompt Provided:** Send the arguments to the LLM with the Composio functions.

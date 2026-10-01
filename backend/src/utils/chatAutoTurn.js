@@ -3821,7 +3821,7 @@ export async function runChatAutoTurn(opts) {
         });
       }
       const spec = matchComposioIntent(text);
-      if (spec) {
+      if (spec && spec.id !== "gmail_unread") {
         return finalize({
           ...(await runDeterministicComposioIntentTurn({
             runtime,
@@ -3834,7 +3834,7 @@ export async function runChatAutoTurn(opts) {
           jev: jevDecision,
         });
       }
-      // Why: no deterministic intent — tools LLM with Jev composio hint.
+      // Why: inbox reads are a model tool call, not the fixed unread query.
       jevForceTools = true;
     }
     if (jevDecision.action === "reply") {
@@ -3871,7 +3871,8 @@ export async function runChatAutoTurn(opts) {
     }
   }
 
-  if (composioReady && matchComposioIntent(text)) {
+  const composioSpec = composioReady ? matchComposioIntent(text) : null;
+  if (composioSpec && composioSpec.id !== "gmail_unread") {
     return finalize(
       await runDeterministicComposioIntentTurn({
         runtime,
@@ -3879,7 +3880,7 @@ export async function runChatAutoTurn(opts) {
         creds,
         onDelta: typeof delta === "function" ? delta : undefined,
         track,
-        spec: matchComposioIntent(text),
+        spec: composioSpec,
       })
     );
   }
@@ -4371,9 +4372,6 @@ export async function runChatAutoTurn(opts) {
                 : toolArgs;
             let execArgs = { ...rawArgs };
             delete execArgs.arguments;
-            if (!Object.keys(execArgs).length && /^GMAIL_(FETCH|LIST|GET|SEARCH)/i.test(String(tc.name || ""))) {
-              execArgs = buildGmailUnreadToolArgs(text);
-            }
             toolArgs = { tool: tc.name, arguments: execArgs };
             kind = "composio_execute";
           }
