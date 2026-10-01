@@ -1,3 +1,9 @@
+## [2026-10-01 18:05] Finished behaviors are locked before a new path can take them
+
+- **Prompt Provided:** Hard-code the project so a new change cannot disturb existing behavior.
+- **Architectural Flow:** One function decides which saved Composio intents still run before the model. Inbox reads stay on the model. A test lists the finished sentences and the outcome each one must keep. A new feature adds a row.
+- **Impacted Files:** composioAutoRuntime.js, chatAutoTurn.js, behaviorLock.test.js, PROMPT_LOG
+
 ## [2026-10-01 15:50] The model checks a connected-app reply before it is shown
 
 - **Prompt Provided:** Check for email from doordash.com returned other senders. After the reply, the LLM should verify it is correct.

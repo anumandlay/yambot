@@ -30,6 +30,7 @@ import {
 } from "./composioService.js";
 import {
   matchComposioIntent,
+  composioIntentSkipsModel,
   compactComposioExecuteResult,
   formatComposioUserReply,
   buildGmailUnreadToolArgs,
@@ -3905,7 +3906,7 @@ export async function runChatAutoTurn(opts) {
         });
       }
       const spec = matchComposioIntent(text);
-      if (spec && spec.id !== "gmail_unread") {
+      if (composioIntentSkipsModel(text) && spec) {
         return finalize({
           ...(await runDeterministicComposioIntentTurn({
             runtime,
@@ -3956,7 +3957,7 @@ export async function runChatAutoTurn(opts) {
   }
 
   const composioSpec = composioReady ? matchComposioIntent(text) : null;
-  if (composioSpec && composioSpec.id !== "gmail_unread") {
+  if (composioReady && composioIntentSkipsModel(text) && composioSpec) {
     return finalize(
       await runDeterministicComposioIntentTurn({
         runtime,

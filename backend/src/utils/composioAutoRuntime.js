@@ -1603,6 +1603,18 @@ export function matchComposioIntent(userText) {
 }
 
 /**
+ * True when a saved Composio intent still runs before the model.
+ * Why: inbox reads are a model tool call. Slack, Sheets, and the other saved intents stay on their current path.
+ * @param {string} text
+ * @returns {boolean}
+ */
+export function composioIntentSkipsModel(text) {
+  const spec = matchComposioIntent(text);
+  if (!spec) return false;
+  return spec.id !== "gmail_unread";
+}
+
+/**
  * Split a compound Composio ask into clauses ("A and B", "A then B").
  * @param {string} text
  * @returns {string[]}
