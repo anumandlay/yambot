@@ -845,6 +845,36 @@ export function formatComposioUserReply(raw) {
   return tool ? `${tool} finished.` : "The connected app call finished.";
 }
 
+/**
+ * Read the model's check of a connected-app reply.
+ * Why: a fetch can return extra senders. The check keeps only what the user asked for, or asks for one tighter call.
+ * @param {string} raw
+ * @returns {{ ok: boolean, reply: string, retryArguments: Record<string, unknown>|null }|null}
+ */
+export function parseComposioReplyCheck(raw) {
+  const text = String(raw || "").trim();
+  const start = text.indexOf("{");
+  const end = text.lastIndexOf("}");
+  if (start < 0 || end <= start) return null;
+  /** @type {any} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(text.slice(start, end + 1));
+  } catch {
+    return null;
+  }
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
+  const retry =
+    parsed.retryArguments && typeof parsed.retryArguments === "object" && !Array.isArray(parsed.retryArguments)
+      ? parsed.retryArguments
+      : null;
+  return {
+    ok: parsed.ok === true,
+    reply: String(parsed.reply || "").trim().slice(0, 2000),
+    retryArguments: retry,
+  };
+}
+
 export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
   /** @type {any} */
   let parsed = null;

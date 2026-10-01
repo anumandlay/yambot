@@ -1,3 +1,9 @@
+## [2026-10-01 15:50] The model checks a connected-app reply before it is shown
+
+- **Prompt Provided:** Check for email from doordash.com returned other senders. After the reply, the LLM should verify it is correct.
+- **Architectural Flow:** A finished Composio call is checked against the user’s sentence. If the result is wider than the ask, the model retries with tighter arguments or returns only the matching items. That checked text is the reply.
+- **Impacted Files:** composioAutoRuntime.js, chatAutoTurn.js, composioGmailFormat.test.js, PROMPT_LOG
+
 ## [2026-10-01 15:15] An inbox check is chosen by the model
 
 - **Prompt Provided:** Decide a check-email request through the LLM.

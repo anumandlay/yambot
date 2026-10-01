@@ -33,6 +33,7 @@ import {
   compactComposioExecuteResult,
   formatComposioUserReply,
   buildGmailUnreadToolArgs,
+  parseComposioReplyCheck,
   runComposioIntentExecute,
   looksLikeFakeInboxActionText,
   looksLikeMultiStepComposioRequest,
@@ -3086,6 +3087,85 @@ export async function runChatAutoTurn(opts) {
   }
 
   /**
+   * Ask the model whether a connected-app result matches the user's sentence.
+   * One tighter retry is allowed. The checked text is what the user sees.
+   * @param {string} visible
+   * @param {Record<string, unknown>} [toolArgs]
+   * @returns {Promise<string>}
+   */
+  async function confirmComposioVisibleReply(visible, toolArgs = {}) {
+    const shown = String(visible || "").trim();
+    if (!shown || !creds?.apiKey) return shown;
+    const tool = String(toolArgs?.tool || toolArgs?.slug || toolArgs?.action || "").trim();
+    const callArgs =
+      toolArgs?.arguments && typeof toolArgs.arguments === "object" && !Array.isArray(toolArgs.arguments)
+        ? toolArgs.arguments
+        : {};
+    /**
+     * @param {string} replyText
+     * @param {object} args
+     * @returns {Promise<{ ok: boolean, reply: string, retryArguments: Record<string, unknown>|null }|null>}
+     */
+    async function ask(replyText, args) {
+      const raw = await llmChatCompletion({
+        apiKey: creds.apiKey,
+        baseUrl: creds.llmBaseUrl || "",
+        model: creds.llmModel || "",
+        openAiAccountId: creds.openAiAccountId,
+        temperature: 0,
+        maxTokens: 500,
+        timeoutMs: 25_000,
+        signal: signal || null,
+        messages: [
+          {
+            role: "system",
+            content:
+              'You check a connected-app result against the user request. Return JSON only. {"ok":true} when every item matches. {"ok":false,"reply":"..."} when some items do not match: copy only the matching items, or say that none matched. {"ok":false,"retryArguments":{...}} when the arguments were too wide and one tighter call would fix it, for example {"query":"from:doordash.com"}. Do not invent senders, subjects, or messages that are not in the result.',
+          },
+          {
+            role: "user",
+            content: `User asked:\n${text.slice(0, 1000)}\n\nTool: ${tool}\nArguments: ${JSON.stringify(args).slice(0, 1500)}\n\nResult:\n${String(replyText || "").slice(0, 2500)}`,
+          },
+        ],
+      });
+      return parseComposioReplyCheck(raw);
+    }
+    /** @type {{ ok: boolean, reply: string, retryArguments: Record<string, unknown>|null }|null} */
+    let check = null;
+    try {
+      check = await ask(shown, callArgs);
+    } catch (err) {
+      console.warn("[composio] reply check failed:", err?.message || err);
+      return shown;
+    }
+    if (!check || check.ok) return shown;
+    if (check.retryArguments && tool && runtime?.composioApiKey) {
+      try {
+        const retried = await executeAutoLookupTool("composio_execute", runtime, {
+          tool,
+          arguments: check.retryArguments,
+        });
+        const next = formatComposioUserReply(retried);
+        if (next) {
+          /** @type {{ ok: boolean, reply: string, retryArguments: Record<string, unknown>|null }|null} */
+          let again = null;
+          try {
+            again = await ask(next, check.retryArguments);
+          } catch {
+            return next;
+          }
+          if (!again || again.ok) return next;
+          if (again.reply) return again.reply;
+          return next;
+        }
+      } catch (err) {
+        console.warn("[composio] reply retry failed:", err?.message || err);
+      }
+    }
+    return check.reply || shown;
+  }
+
+  /**
    * A printed tool tag is run, and the tool result is the reply.
    * @param {string} content
    * @returns {Promise<object|null>}
@@ -3095,6 +3175,8 @@ export async function runChatAutoTurn(opts) {
     if (!printed || !runtime?.composioApiKey) return null;
     const name = String(printed.name || "").trim();
     const lower = name.toLowerCase();
+    /** @type {{ tool: string, arguments: object }} */
+    let executedCall = { tool: name, arguments: printed.args || {} };
     try {
       let resultText = "";
       if (lower.startsWith("composio_")) {
@@ -3126,6 +3208,7 @@ export async function runChatAutoTurn(opts) {
             });
           }
           const execArgs = /^GMAIL_(FETCH|LIST|GET|SEARCH)/i.test(slug) ? buildGmailUnreadToolArgs(text) : {};
+          executedCall = { tool: slug, arguments: execArgs };
           resultText = await executeAutoLookupTool("composio_execute", runtime, { tool: slug, arguments: execArgs });
         } else if (
           kind === "composio_execute" ||
@@ -3145,6 +3228,7 @@ export async function runChatAutoTurn(opts) {
               ? buildGmailUnreadToolArgs(text)
               : printed.args;
         resultText = await executeAutoLookupTool("composio_execute", runtime, { tool: name, arguments: execArgs });
+        executedCall = { tool: name, arguments: execArgs };
       } else {
         return null;
       }
@@ -3170,7 +3254,7 @@ export async function runChatAutoTurn(opts) {
           timing: track.finish(),
         });
       }
-      const visible = formatComposioUserReply(resultText);
+      const visible = await confirmComposioVisibleReply(formatComposioUserReply(resultText), executedCall);
       if (visible) await pushReply(visible);
       track.markDecision("reply");
       return finalize({
@@ -4487,7 +4571,11 @@ export async function runChatAutoTurn(opts) {
             kind === "composio_wait"
           ) {
             const visible =
-              kind === "mcp" ? formatMcpToolPayload(resultText) : formatComposioUserReply(resultText);
+              kind === "mcp"
+                ? formatMcpToolPayload(resultText)
+                : kind === "composio_execute"
+                  ? await confirmComposioVisibleReply(formatComposioUserReply(resultText), toolArgs)
+                  : formatComposioUserReply(resultText);
             if (visible) directReplies.push(visible);
             continue;
           }

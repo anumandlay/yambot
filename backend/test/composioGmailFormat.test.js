@@ -10,6 +10,7 @@ import {
   filterSpuriousComposioSendSteps,
   planComposioMultiSteps,
   extractGmailMessageFields,
+  parseComposioReplyCheck,
 } from "../src/utils/composioAutoRuntime.js";
 import { looksLikeFakeComposioActionText, parsePrintedToolTag } from "../src/utils/chatAutoTurn.js";
 
@@ -128,4 +129,15 @@ test("formatComposioUserReply shows sender and subject for any inbox tool", () =
   assert.match(text, /Ada/);
   assert.match(text, /Hello/);
   assert.match(text, /ping/);
+});
+
+test("parseComposioReplyCheck keeps a tighter query when the result is too wide", () => {
+  const parsed = parseComposioReplyCheck(
+    '{"ok":false,"retryArguments":{"query":"from:doordash.com"}}'
+  );
+  assert.equal(parsed?.ok, false);
+  assert.equal(parsed?.retryArguments?.query, "from:doordash.com");
+  const kept = parseComposioReplyCheck('{"ok":false,"reply":"1. From: DoorDash"}');
+  assert.equal(kept?.reply, "1. From: DoorDash");
+  assert.equal(parseComposioReplyCheck("not json"), null);
 });
