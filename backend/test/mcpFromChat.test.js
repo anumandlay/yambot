@@ -6,8 +6,25 @@ import assert from "node:assert/strict";
 import {
   applyMcpServerFromChat,
   looksLikeMcpServerManageRequest,
+  mcpPlanFromToolArgs,
   parseMcpServerChat,
 } from "../src/utils/mcpFromChat.js";
+
+test("mcpPlanFromToolArgs keeps the model fields", () => {
+  const added = mcpPlanFromToolArgs({
+    action: "add",
+    url: "https://app.mockmcp.com/servers/abc/mcp",
+    token: "mcp_m2m_exampletoken",
+    name: "desk",
+  });
+  assert.equal(added?.action, "add");
+  assert.equal(added?.url, "https://app.mockmcp.com/servers/abc/mcp");
+  assert.equal(added?.token, "Bearer mcp_m2m_exampletoken");
+  assert.equal(added?.name, "desk");
+  assert.equal(mcpPlanFromToolArgs({ action: "remove", name: "desk" })?.action, "remove");
+  assert.equal(mcpPlanFromToolArgs({ action: "list" })?.action, "list");
+  assert.equal(mcpPlanFromToolArgs({ action: "add" })?.action, "help");
+});
 
 test("add and list phrases are server management, tool use is not", () => {
   assert.equal(looksLikeMcpServerManageRequest("add mcp https://app.mockmcp.com/servers/abc/mcp bearer tokenvalue"), true);

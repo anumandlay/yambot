@@ -5,6 +5,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import {
   formatGmailUnreadSummaryFromToolResult,
+  formatComposioUserReply,
   looksLikeSendEmailClause,
   filterSpuriousComposioSendSteps,
   planComposioMultiSteps,
@@ -78,4 +79,16 @@ test("planComposioMultiSteps check email is single unread step", () => {
 test("bare composio_search is fake action text", () => {
   assert.equal(looksLikeFakeComposioActionText('composio_search(query="gmail")'), true);
   assert.equal(looksLikeFakeComposioActionText("Top unread from Gmail today"), false);
+});
+
+test("formatComposioUserReply shows the connect link and a finished tool", () => {
+  assert.equal(
+    formatComposioUserReply(JSON.stringify({ ok: true, redirectUrl: "https://connect.example/abc" })),
+    "Open this link to connect:\nhttps://connect.example/abc"
+  );
+  assert.equal(
+    formatComposioUserReply(JSON.stringify({ ok: true, tool: "SLACK_SEND_MESSAGE", data: { text: "sent", permalink: "https://slack/p" } })),
+    "sent\nhttps://slack/p"
+  );
+  assert.match(formatComposioUserReply(JSON.stringify({ ok: false, error: "not connected" })), /not connected/);
 });

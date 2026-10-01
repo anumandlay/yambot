@@ -1,3 +1,9 @@
+## [2026-10-01 14:15] Composio and MCP results are the reply
+
+- **Prompt Provided:** Use the same lock for Composio and MCP as for reminders.
+- **Architectural Flow:** The chat model can call composio_app_manage and mcp_server_manage. Those calls save the app or server and the saved text is the reply. A composio_execute, connect, wait, or MCP tool call is shown as the tool result. A later model sentence does not replace that text.
+- **Impacted Files:** chatAutoTurn.js, composioAutoRuntime.js, mcpFromChat.js, composioGmailFormat.test.js, mcpFromChat.test.js, PROMPT_LOG
+
 ## [2026-09-30 15:10] A reminder change is a real tool call
 
 - **Prompt Provided:** Put reminder create, pause, resume, start, stop, time change, run, and delete on the same turn as a tool. The stored job is the reply.

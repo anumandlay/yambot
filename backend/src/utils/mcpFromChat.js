@@ -107,13 +107,42 @@ function formatServerList(servers) {
 }
 
 /**
+ * A native mcp_server_manage call is the action. The arguments are the model's fields.
+ * @param {Record<string, unknown>|null|undefined} args
+ * @returns {{ action: "list"|"help"|"remove"|"add", url?: string, token?: string, name?: string, transport?: string }|null}
+ */
+export function mcpPlanFromToolArgs(args) {
+  const raw = args && typeof args === "object" ? args : {};
+  let action = String(raw.action || "").trim().toLowerCase();
+  if (action === "show") action = "list";
+  if (action === "connect" || action === "save" || action === "register") action = "add";
+  if (action === "delete" || action === "disconnect") action = "remove";
+  if (!["list", "add", "remove"].includes(action)) return null;
+  if (action === "list") return { action: "list" };
+  const url = normalizeMcpUrl(String(raw.url || ""));
+  const name = mcpSlug(String(raw.name || raw.server || ""));
+  if (action === "remove") return { action: "remove", url: /^https?:\/\//i.test(url) ? url : "", name };
+  if (!/^https?:\/\//i.test(url)) return { action: "help" };
+  const tokenRaw = String(raw.token || "").trim();
+  const token = !tokenRaw ? "" : /^bearer\s+/i.test(tokenRaw) ? tokenRaw : `Bearer ${tokenRaw}`;
+  return {
+    action: "add",
+    url,
+    token,
+    name,
+    transport: String(raw.transport || "").toLowerCase() === "sse" ? "sse" : "http",
+  };
+}
+
+/**
  * Save or remove one MCP server, then connect so the tool names are cached.
- * @param {{ agent: object, userId: string, text: string }} opts
+ * A parsed plan from mcp_server_manage is used when the model sent fields instead of a sentence.
+ * @param {{ agent: object, userId: string, text?: string, parsed?: object, discover?: Function }} opts
  * @returns {Promise<{ ok: boolean, content: string }>}
  */
 export async function applyMcpServerFromChat(opts) {
   const agent = opts?.agent;
-  const parsed = parseMcpServerChat(opts?.text);
+  const parsed = opts?.parsed || parseMcpServerChat(opts?.text);
   if (!agent) return { ok: false, content: "This chat has no agent to attach the MCP server to." };
   const previous = typeof agent.mcp?.toObject === "function" ? agent.mcp.toObject() : agent.mcp || {};
   const current = Array.isArray(previous.servers) ? previous.servers : [];

@@ -27,6 +27,7 @@ import { formatComposioToolkitCatalogForPrompt } from "./composioService.js";
 import {
   matchComposioIntent,
   compactComposioExecuteResult,
+  formatComposioUserReply,
   runComposioIntentExecute,
   looksLikeFakeInboxActionText,
   looksLikeMultiStepComposioRequest,
@@ -51,9 +52,10 @@ import {
   looksLikeScheduleManageRequest,
   applyScheduleFromChat,
 } from "./scheduleFromChat.js";
-import { applyMcpServerFromChat } from "./mcpFromChat.js";
+import { applyMcpServerFromChat, mcpPlanFromToolArgs } from "./mcpFromChat.js";
 import {
   applyComposioAppFromChat,
+  normalizeComposioManagePlan,
   planComposioManageWithLlm,
   composioYesNoStillApplies,
 } from "./composioFromChat.js";
@@ -177,6 +179,52 @@ export const AUTO_CHAT_TOOLS = [
             description:
               "chat_reminder is a chat nudge. computer does the work each time. mcp calls a saved tool.",
           },
+        },
+        required: ["action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "composio_app_manage",
+      description:
+        "Add, reconnect, remove, or list a Composio app on this agent. This writes the agent. It does not start the computer and it does not read mail. The saved text is the user reply — do not also call reply.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list", "add", "reconnect", "remove", "cancel"],
+            description: "add puts an app on the agent. reconnect signs in again. remove takes it off. list shows what is saved.",
+          },
+          app: {
+            type: "string",
+            description: "Composio toolkit slug copied from the apps already on this agent, such as gmail.",
+          },
+        },
+        required: ["action"],
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "mcp_server_manage",
+      description:
+        "Add, remove, or list an MCP server on this agent. This writes the agent. It does not call a tool on that server and it does not start the computer. The saved text is the user reply — do not also call reply.",
+      parameters: {
+        type: "object",
+        properties: {
+          action: {
+            type: "string",
+            enum: ["list", "add", "remove"],
+            description: "add saves a server. remove takes it off. list shows the servers on this agent.",
+          },
+          url: { type: "string", description: "Server URL. Required for add." },
+          token: { type: "string", description: "Bearer token for add, when the server requires one." },
+          name: { type: "string", description: "Server name copied from the saved list, or a short name for add." },
+          transport: { type: "string", enum: ["http", "sse"], description: "http unless the server is SSE." },
         },
         required: ["action"],
       },
@@ -1816,6 +1864,8 @@ export function classifyAutoToolName(tc) {
   if (name === "composio_connect" || name === "composio_authorize") return "composio_connect";
   if (name === "composio_wait" || name === "composio_wait_connect") return "composio_wait";
   if (name === "composio_execute" || name === "composio_run") return "composio_execute";
+  if (name === "composio_app_manage") return "composio_app_manage";
+  if (name === "mcp_server_manage") return "mcp_server_manage";
   if (name === "load_skill" || name === "loadskill" || name === "get_skill") return "load_skill";
   if (name === "skills_list" || name === "list_skills" || name === "skill_list") return "skills_list";
   if (name === "skill_view" || name === "view_skill" || name === "open_skill") return "skill_view";
@@ -2401,6 +2451,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "- Questions, memory, capability, planning, greetings, drafts",
     "- Past work: “did we open X today?”, day history, status",
     "- Reminder create, change, pause, resume, start, stop, run, and delete: call schedule_manage. That tool writes the job. Do not call reply or queue_goal for a reminder. Do not print pause_schedule as text. The stored job text is the user reply.",
+    "- Adding, reconnecting, removing, or listing a Composio app on this agent: call composio_app_manage. Adding, removing, or listing an MCP server: call mcp_server_manage. The saved text is the user reply. Do not call queue_goal for those.",
     "- Multi-step with missing details (e.g. send to an email without an address): ask first — runtime TaskPlan handles this",
     "- Prefer REPLY when unsure",
     "",
@@ -2418,10 +2469,9 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "",
     "3) Composio tools — connected apps (Gmail, Google Sheets, Slack, Drive, Notion, …):",
     "- Prefer tool slugs from CONNECTED APP TOOLS (cached after Connect) with composio_execute",
-    "- Else composio_search → composio_connect (if needed) → composio_wait → composio_execute",
-    "- Multi-step asks (list a Sheet then email it; unread then Slack) — finish each step before the next",
-    "- Always paste the full https connect URL when composio_connect returns redirectUrl",
-    "- Never write fake ACTION: lines — call real composio_* tools, then reply in plain prose",
+    "- Else composio_search, then composio_execute. composio_connect and composio_wait when the app is not signed in.",
+    "- The result of composio_execute, composio_connect, composio_wait, and an MCP tool is the user reply. Do not call reply to restate it.",
+    "- Never write fake ACTION: lines — call the real tool.",
     "",
     "Auto: YOU decide among the three. A domain/URL alone ≠ start computer. Prefer REPLY when unsure.",
     "",
@@ -2454,10 +2504,10 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
       "- load_skill when SKILL SUMMARY is insufficient and you need the full standing skill",
       "- skills_list / skill_view for production Skills library (progressive load before inventing procedures)",
       "- check_run_status / list_peer_agents when you need live facts before answering",
-      "- composio_* for connected apps (use CONNECTED APP TOOLS slugs when listed)",
+      "- composio_app_manage to add, reconnect, remove, or list an app on this agent. composio_execute, composio_connect, and composio_wait results are shown as returned.",
       opts?.agent?.mcp?.enabled
-        ? "- mcp_<server>_<tool> for a named MCP server. Call that tool before you reply. Do not say MCP is missing when the tool is in this request. Do not queue_goal for it."
-        : null,
+        ? "- mcp_server_manage to add, remove, or list a server. mcp_<server>_<tool> calls that tool. The tool result is the user reply. Do not queue_goal for it."
+        : "- mcp_server_manage to add, remove, or list an MCP server on this agent.",
       "- schedule_manage for a reminder create, pause, resume, start, stop, time change, run once, or delete. This does not start the computer.",
       "- then reply OR queue_goal to finish the turn",
       "Do not invent other tool names. Lookups never start the browser.",
@@ -2838,6 +2888,170 @@ export async function runChatAutoTurn(opts) {
         goal: "",
         ack: "",
         reason: "schedule_manage_error",
+        timing: track.finish(),
+      });
+    }
+  }
+
+  /**
+   * A native composio_app_manage call writes the app and the saved text is the reply.
+   * @param {{ name?: string, arguments?: string }[]} toolCalls
+   * @returns {Promise<object|null>}
+   */
+  async function executeComposioAppManageCall(toolCalls) {
+    const call = (Array.isArray(toolCalls) ? toolCalls : []).find(
+      (tc) => classifyAutoToolName(tc) === "composio_app_manage"
+    );
+    if (!call) return null;
+    // Why: the saved app text is the user reply. A later model sentence must not replace it.
+    if (!runtime?.agent) {
+      const content = "This chat has no agent to attach the Composio app to.";
+      await pushReply(content);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "composio_app_manage",
+        timing: track.finish(),
+      });
+    }
+    const plan = normalizeComposioManagePlan(
+      parseToolArgs(call.arguments),
+      interactionState,
+      runtime.composioToolkitSlugs || []
+    );
+    if (!plan) {
+      const content = "Which app should I connect? Name the app already on this agent.";
+      await pushReply(content);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "composio_app_unmatched",
+        timing: track.finish(),
+      });
+    }
+    try {
+      const applied = await applyComposioAppFromChat({
+        agent: runtime.agent,
+        userId: runtime.userId,
+        text,
+        history: historyEarly,
+        apiKey: runtime.composioApiKey,
+        state: interactionState,
+        parsed: plan,
+      });
+      const content = String(applied.content || "Composio updated.").trim();
+      if (content) await pushReply(content);
+      if (applied.pending !== undefined) {
+        replaceInteraction({ ...interactionState, pending: applied.pending });
+      }
+      if (applied.ok && runtime) {
+        runtime.composioEnabled = Boolean(runtime.agent.composio?.enabled);
+        runtime.composioToolkitSlugs = Array.isArray(runtime.agent.composio?.toolkitSlugs)
+          ? runtime.agent.composio.toolkitSlugs
+          : [];
+      }
+      track.markDecision("reply");
+      track.setPath("composio_app_manage");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: applied.ok ? "composio_app_tool" : "composio_app_manage",
+        timing: track.finish(),
+      });
+    } catch (err) {
+      const content = `Could not update Composio: ${String(err?.message || err)}`;
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "composio_app_manage_error",
+        timing: track.finish(),
+      });
+    }
+  }
+
+  /**
+   * A native mcp_server_manage call writes the server and the saved text is the reply.
+   * @param {{ name?: string, arguments?: string }[]} toolCalls
+   * @returns {Promise<object|null>}
+   */
+  async function executeMcpServerManageCall(toolCalls) {
+    const call = (Array.isArray(toolCalls) ? toolCalls : []).find(
+      (tc) => classifyAutoToolName(tc) === "mcp_server_manage"
+    );
+    if (!call) return null;
+    // Why: the saved server text is the user reply. A later model sentence must not replace it.
+    if (!runtime?.agent) {
+      const content = "This chat has no agent to attach the MCP server to.";
+      await pushReply(content);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "mcp_server_manage",
+        timing: track.finish(),
+      });
+    }
+    const plan = mcpPlanFromToolArgs(parseToolArgs(call.arguments));
+    if (!plan) {
+      const content =
+        "Send the server URL and token in one message. Example: add mcp https://example.com/mcp bearer YOUR_TOKEN";
+      await pushReply(content);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "mcp_server_manage",
+        timing: track.finish(),
+      });
+    }
+    try {
+      const applied = await applyMcpServerFromChat({
+        agent: runtime.agent,
+        userId: runtime.userId,
+        parsed: plan,
+      });
+      const content = String(applied.content || "MCP updated.").trim();
+      if (content) await pushReply(content);
+      if (applied.ok && runtime) {
+        runtime.mcpEnabled = Boolean(runtime.agent.mcp?.enabled);
+        runtime.mcpServerNames = (runtime.agent.mcp?.servers || [])
+          .map((server) => String(server?.name || ""))
+          .filter(Boolean);
+      }
+      track.markDecision("reply");
+      track.setPath("mcp_server_manage");
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: applied.ok ? "mcp_server_tool" : "mcp_server_manage",
+        timing: track.finish(),
+      });
+    } catch (err) {
+      const content = `Could not update MCP: ${String(err?.message || err)}`;
+      await pushReply(content);
+      return finalize({
+        action: "reply",
+        content,
+        goal: "",
+        ack: "",
+        reason: "mcp_server_manage_error",
         timing: track.finish(),
       });
     }
@@ -3812,6 +4026,10 @@ export async function runChatAutoTurn(opts) {
 
       const fromScheduleTool = await executeScheduleManageCall(msg.toolCalls);
       if (fromScheduleTool) return fromScheduleTool;
+      const fromComposioApp = await executeComposioAppManageCall(msg.toolCalls);
+      if (fromComposioApp) return fromComposioApp;
+      const fromMcpServer = await executeMcpServerManageCall(msg.toolCalls);
+      if (fromMcpServer) return fromMcpServer;
 
       const terminal = parseAutoToolCalls(msg.toolCalls);
       if (terminal) {
@@ -3981,6 +4199,8 @@ export async function runChatAutoTurn(opts) {
             };
         messages.push(assistantToolMessage);
 
+        /** @type {string[]} */
+        const directReplies = [];
         for (let i = 0; i < lookups.length; i++) {
           const tc = lookups[i];
           const kind = classifyAutoToolName(tc);
@@ -4094,6 +4314,18 @@ export async function runChatAutoTurn(opts) {
               timing: track.finish(),
             });
           }
+          // Why: the tool result is the user reply. A later model sentence must not replace it.
+          if (
+            kind === "mcp" ||
+            kind === "composio_execute" ||
+            kind === "composio_connect" ||
+            kind === "composio_wait"
+          ) {
+            const visible =
+              kind === "mcp" ? formatMcpToolPayload(resultText) : formatComposioUserReply(resultText);
+            if (visible) directReplies.push(visible);
+            continue;
+          }
           // Why: load_skill / skill_view return trusted authored playbooks — do not mark untrusted.
           // Composio/web/lookup payloads are delimited so the model treats them as data.
           messages.push({
@@ -4103,6 +4335,19 @@ export async function runChatAutoTurn(opts) {
               kind === "load_skill" || kind === "skill_view" || kind === "skills_list"
                 ? resultText.slice(0, 12000)
                 : wrapUntrustedToolResult(resultText.slice(0, 8000)),
+          });
+        }
+        if (directReplies.length) {
+          const content = directReplies.join("\n\n");
+          await pushReply(content);
+          track.markDecision("reply");
+          return finalize({
+            action: "reply",
+            content,
+            goal: "",
+            ack: "",
+            reason: "tool_result_reply",
+            timing: track.finish(),
           });
         }
         continue;
@@ -4215,17 +4460,23 @@ export async function runChatAutoTurn(opts) {
         {
           role: "user",
           content:
-            "Tool round limit reached. A reminder change must call schedule_manage. Otherwise reply now — do not call more lookup tools.",
+            "Tool round limit reached. A reminder change must call schedule_manage. An app change must call composio_app_manage. A server change must call mcp_server_manage. Otherwise reply now — do not call more lookup tools.",
         },
       ],
       tools: AUTO_CHAT_TOOLS.filter((t) =>
-        ["reply", "queue_goal", "schedule_manage"].includes(t.function?.name)
+        ["reply", "queue_goal", "schedule_manage", "composio_app_manage", "mcp_server_manage"].includes(
+          t.function?.name
+        )
       ),
       toolChoice: "auto",
       signal: signal || null,
     });
     const fromScheduleCap = await executeScheduleManageCall(forced.toolCalls);
     if (fromScheduleCap) return fromScheduleCap;
+    const fromComposioCap = await executeComposioAppManageCall(forced.toolCalls);
+    if (fromComposioCap) return fromComposioCap;
+    const fromMcpCap = await executeMcpServerManageCall(forced.toolCalls);
+    if (fromMcpCap) return fromMcpCap;
     const term = parseAutoToolCalls(forced.toolCalls);
     if (term) {
       track.markDecision(term.action);

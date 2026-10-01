@@ -668,6 +668,37 @@ export function compactComposioExecuteResult(result, toolSlug = "") {
  * @param {string} [tool]
  * @returns {string}
  */
+/**
+ * User-visible text from a Composio tool payload. This is the reply, not a later model sentence.
+ * @param {string} raw
+ * @returns {string}
+ */
+export function formatComposioUserReply(raw) {
+  /** @type {any} */
+  let parsed = null;
+  try {
+    parsed = JSON.parse(String(raw || ""));
+  } catch {
+    return String(raw || "").trim().slice(0, 2000);
+  }
+  if (!parsed || typeof parsed !== "object") return String(raw || "").trim().slice(0, 2000);
+  if (parsed.redirectUrl) return `Open this link to connect:\n${parsed.redirectUrl}`;
+  const tool = String(parsed.tool || "");
+  if (/GMAIL_/i.test(tool) || parsed.data?.messages) {
+    return formatGmailUnreadSummaryFromToolResult(String(raw || ""), tool);
+  }
+  if (parsed.ok === false || parsed.error) {
+    return String(parsed.detail || parsed.error || "The connected app call failed.").slice(0, 800);
+  }
+  if (parsed.connected === true) return "That app is connected.";
+  if (parsed.connected === false) return "That app is not connected yet.";
+  const data = parsed.data && typeof parsed.data === "object" ? parsed.data : null;
+  if (data?.permalink || data?.text) {
+    return [data.text, data.permalink].filter(Boolean).join("\n").slice(0, 2000);
+  }
+  return tool ? `${tool} finished.` : "The connected app call finished.";
+}
+
 export function formatGmailUnreadSummaryFromToolResult(resultText, tool = "") {
   /** @type {any} */
   let parsed = null;
