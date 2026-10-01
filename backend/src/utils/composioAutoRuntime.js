@@ -663,11 +663,161 @@ export function compactComposioExecuteResult(result, toolSlug = "") {
   };
 }
 
+const COMPOSIO_TEXT_FIELDS = [
+  "text",
+  "body",
+  "snippet",
+  "preview",
+  "message",
+  "content",
+  "description",
+  "summary",
+  "messageText",
+  "message_text",
+];
+const COMPOSIO_TITLE_FIELDS = ["subject", "title", "name", "summary"];
+const COMPOSIO_WHO_FIELDS = ["sender", "from", "author", "username", "user"];
+const COMPOSIO_LINK_FIELDS = [
+  "permalink",
+  "html_url",
+  "htmlLink",
+  "url",
+  "link",
+  "web_url",
+  "display_url",
+  "displayUrl",
+];
+const COMPOSIO_LIST_KEYS = [
+  "messages",
+  "emails",
+  "items",
+  "results",
+  "files",
+  "issues",
+  "events",
+  "posts",
+  "comments",
+  "records",
+  "values",
+  "rows",
+  "spreadsheets",
+  "documents",
+  "data",
+  "response",
+  "response_data",
+  "responseData",
+  "payload",
+];
+
 /**
- * @param {string} resultText
- * @param {string} [tool]
+ * First short string on an object, including one nested name/email/text.
+ * @param {any} obj
+ * @param {string[]} keys
  * @returns {string}
  */
+function firstComposioString(obj, keys) {
+  if (!obj || typeof obj !== "object") return "";
+  for (const key of keys) {
+    const value = obj[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (value && typeof value === "object" && !Array.isArray(value)) {
+      const nested = firstComposioString(value, ["name", "email", "login", "text", "body", "value"]);
+      if (nested) return nested;
+    }
+  }
+  return "";
+}
+
+/**
+ * First list of records in a Composio payload, at any usual nesting.
+ * Why: Gmail uses messages, GitHub uses items, Sheets uses files. One walk covers them.
+ * @param {any} node
+ * @param {number} [depth]
+ * @returns {any[]|null}
+ */
+function findComposioRecords(node, depth = 0) {
+  if (node == null || depth > 5) return null;
+  if (Array.isArray(node)) {
+    const objects = node.filter((row) => row && typeof row === "object");
+    if (objects.length) return objects;
+    const strings = node.filter((row) => typeof row === "string" && row.trim());
+    if (strings.length) return strings.map((text) => ({ text }));
+    return null;
+  }
+  if (typeof node !== "object") return null;
+  for (const key of COMPOSIO_LIST_KEYS) {
+    if (node[key] == null) continue;
+    const found = findComposioRecords(node[key], depth + 1);
+    if (found) return found;
+  }
+  for (const value of Object.values(node)) {
+    if (!Array.isArray(value)) continue;
+    const found = findComposioRecords(value, depth + 1);
+    if (found) return found;
+  }
+  return null;
+}
+
+/**
+ * One record as lines a person can read: sender, title, text, link.
+ * @param {any} row
+ * @returns {string}
+ */
+function lineForComposioRecord(row) {
+  if (typeof row === "string") return row.slice(0, 400);
+  if (!row || typeof row !== "object") return "";
+  const mail = extractGmailMessageFields(row);
+  const link = firstComposioString(row, COMPOSIO_LINK_FIELDS);
+  if (mail.sender || mail.subject) {
+    const parts = [];
+    if (mail.sender) parts.push(`From: ${mail.sender.slice(0, 80)}`);
+    if (mail.subject) parts.push(mail.subject.slice(0, 160));
+    if (mail.preview) parts.push(mail.preview.slice(0, 280));
+    if (link) parts.push(link.slice(0, 300));
+    return parts.join("\n");
+  }
+  const title = firstComposioString(row, COMPOSIO_TITLE_FIELDS);
+  const body = firstComposioString(row, COMPOSIO_TEXT_FIELDS);
+  const who = firstComposioString(row, COMPOSIO_WHO_FIELDS);
+  const parts = [];
+  if (who) parts.push(who.slice(0, 80));
+  if (title) parts.push(title.slice(0, 160));
+  if (body && body !== title) parts.push(body.slice(0, 280));
+  if (link) parts.push(link.slice(0, 300));
+  if (parts.length) return parts.join("\n");
+  const bits = [];
+  for (const [key, value] of Object.entries(row)) {
+    if (typeof value !== "string" || !value.trim() || value.length > 200) continue;
+    if (/token|secret|password|authorization/i.test(key)) continue;
+    bits.push(`${key}: ${value.trim()}`);
+    if (bits.length >= 4) break;
+  }
+  return bits.join("\n");
+}
+
+/**
+ * Readable text from any Composio data object.
+ * Why: the same layout is used for Gmail, Slack, GitHub, and every other cached tool.
+ * @param {any} data
+ * @returns {string}
+ */
+export function summarizeComposioPayload(data) {
+  const records = findComposioRecords(data);
+  if (records?.length) {
+    const lines = records
+      .slice(0, 5)
+      .map((row) => lineForComposioRecord(row))
+      .filter(Boolean);
+    if (!lines.length) return "";
+    if (lines.length === 1) return lines[0].slice(0, 2000);
+    return lines
+      .map((line, i) => `${i + 1}. ${line.replace(/\n/g, "\n   ")}`)
+      .join("\n\n")
+      .slice(0, 2000);
+  }
+  return lineForComposioRecord(data).slice(0, 2000);
+}
+
 /**
  * User-visible text from a Composio tool payload. This is the reply, not a later model sentence.
  * @param {string} raw
@@ -684,18 +834,14 @@ export function formatComposioUserReply(raw) {
   if (!parsed || typeof parsed !== "object") return String(raw || "").trim().slice(0, 2000);
   if (parsed.redirectUrl) return `Open this link to connect:\n${parsed.redirectUrl}`;
   const tool = String(parsed.tool || "");
-  if (/GMAIL_/i.test(tool) || parsed.data?.messages) {
-    return formatGmailUnreadSummaryFromToolResult(String(raw || ""), tool);
-  }
   if (parsed.ok === false || parsed.error) {
     return String(parsed.detail || parsed.error || "The connected app call failed.").slice(0, 800);
   }
   if (parsed.connected === true) return "That app is connected.";
   if (parsed.connected === false) return "That app is not connected yet.";
-  const data = parsed.data && typeof parsed.data === "object" ? parsed.data : null;
-  if (data?.permalink || data?.text) {
-    return [data.text, data.permalink].filter(Boolean).join("\n").slice(0, 2000);
-  }
+  const data = parsed.data && typeof parsed.data === "object" ? parsed.data : parsed;
+  const summary = summarizeComposioPayload(data);
+  if (summary) return summary;
   return tool ? `${tool} finished.` : "The connected app call finished.";
 }
 

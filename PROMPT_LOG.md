@@ -1,3 +1,9 @@
+## [2026-10-01 14:45] Any connected app shows its result, not only Gmail
+
+- **Prompt Provided:** Gmail is the only app with extra formatting. Generalise it.
+- **Architectural Flow:** A finished Composio call is shown from the payload itself. Mail-shaped rows show sender, subject, and preview. Other rows show title, text, and link. Gmail is no longer the only app that gets that layout.
+- **Impacted Files:** composioAutoRuntime.js, composioGmailFormat.test.js, PROMPT_LOG
+
 ## [2026-10-01 14:35] The model calls a Composio function and the mail is the reply
 
 - **Prompt Provided:** Send the Composio functions to the model so it chooses the tool, and show the message instead of a tool tag.

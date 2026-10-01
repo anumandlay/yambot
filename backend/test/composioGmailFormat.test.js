@@ -100,3 +100,32 @@ test("formatComposioUserReply shows the connect link and a finished tool", () =>
   );
   assert.match(formatComposioUserReply(JSON.stringify({ ok: false, error: "not connected" })), /not connected/);
 });
+
+test("formatComposioUserReply shows list content for any app", () => {
+  const text = formatComposioUserReply(
+    JSON.stringify({
+      ok: true,
+      tool: "GITHUB_LIST_ISSUES",
+      data: {
+        items: [{ title: "Login bug", html_url: "https://github.com/a/b/issues/1", body: "steps" }],
+      },
+    })
+  );
+  assert.match(text, /Login bug/);
+  assert.match(text, /github.com\/a\/b\/issues\/1/);
+  assert.match(text, /steps/);
+  assert.doesNotMatch(text, /finished/);
+});
+
+test("formatComposioUserReply shows sender and subject for any inbox tool", () => {
+  const text = formatComposioUserReply(
+    JSON.stringify({
+      ok: true,
+      tool: "OUTLOOK_LIST_MESSAGES",
+      data: { messages: [{ from: "Ada <ada@ex.com>", subject: "Hello", snippet: "ping" }] },
+    })
+  );
+  assert.match(text, /Ada/);
+  assert.match(text, /Hello/);
+  assert.match(text, /ping/);
+});
