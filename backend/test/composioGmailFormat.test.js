@@ -11,7 +11,7 @@ import {
   planComposioMultiSteps,
   extractGmailMessageFields,
 } from "../src/utils/composioAutoRuntime.js";
-import { looksLikeFakeComposioActionText } from "../src/utils/chatAutoTurn.js";
+import { looksLikeFakeComposioActionText, parsePrintedToolTag } from "../src/utils/chatAutoTurn.js";
 
 test("formatGmailUnreadSummary reads payload.headers From/Subject", () => {
   const payload = {
@@ -79,6 +79,14 @@ test("planComposioMultiSteps check email is single unread step", () => {
 test("bare composio_search is fake action text", () => {
   assert.equal(looksLikeFakeComposioActionText('composio_search(query="gmail")'), true);
   assert.equal(looksLikeFakeComposioActionText("Top unread from Gmail today"), false);
+});
+
+test("parsePrintedToolTag reads a printed composio_search tag", () => {
+  const parsed = parsePrintedToolTag(
+    '<tool>\n<tool_id>composio_search</tool_id>\n<parameters>{"query": "gmail get latest email inbox message"}</parameters>\n</tool>'
+  );
+  assert.equal(parsed?.name, "composio_search");
+  assert.equal(parsed?.args?.query, "gmail get latest email inbox message");
 });
 
 test("formatComposioUserReply shows the connect link and a finished tool", () => {

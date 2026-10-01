@@ -1,3 +1,9 @@
+## [2026-10-01 14:35] The model calls a Composio function and the mail is the reply
+
+- **Prompt Provided:** Send the Composio functions to the model so it chooses the tool, and show the message instead of a tool tag.
+- **Architectural Flow:** Cached Composio tools are sent as functions on the same turn. The model calls one, such as GMAIL_FETCH_EMAILS, and the reply is that tool’s result. A printed tool tag is run the same way and is not shown.
+- **Impacted Files:** composioService.js, chatAutoTurn.js, composioToolkitToolCache.test.js, composioGmailFormat.test.js, PROMPT_LOG
+
 ## [2026-10-01 14:15] Composio and MCP results are the reply
 
 - **Prompt Provided:** Use the same lock for Composio and MCP as for reminders.

@@ -23,11 +23,12 @@ import {
   looksLikeSiteTrialExpiryComputerRequest,
 } from "./messageIntent.js";
 import { emitReplyDelta } from "./replyDelta.js";
-import { formatComposioToolkitCatalogForPrompt } from "./composioService.js";
+import { formatComposioToolkitCatalogForPrompt, composioCachedToolsToOpenAi } from "./composioService.js";
 import {
   matchComposioIntent,
   compactComposioExecuteResult,
   formatComposioUserReply,
+  buildGmailUnreadToolArgs,
   runComposioIntentExecute,
   looksLikeFakeInboxActionText,
   looksLikeMultiStepComposioRequest,
@@ -1515,6 +1516,29 @@ export function parseFakeComposioActionText(content) {
 }
 
 /**
+ * A model sometimes prints a tool tag instead of calling the tool.
+ * @param {string} content
+ * @returns {{ name: string, args: Record<string, unknown> }|null}
+ */
+export function parsePrintedToolTag(content) {
+  const raw = String(content || "");
+  const id = raw.match(/<tool_id>\s*([A-Za-z0-9_]+)\s*<\/tool_id>/i);
+  if (!id) return null;
+  /** @type {Record<string, unknown>} */
+  let args = {};
+  const params = raw.match(/<parameters>\s*([\s\S]*?)\s*<\/parameters>/i);
+  if (params) {
+    try {
+      const parsed = JSON.parse(params[1]);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) args = parsed;
+    } catch {
+      args = {};
+    }
+  }
+  return { name: id[1], args };
+}
+
+/**
  * Fake tool tags some models print instead of a native tool call.
  * Why: MiniMax-style replies emit gadget XML, which would otherwise show up as the chat answer.
  * @param {string} content
@@ -2468,8 +2492,8 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
     "- NEVER reply with only “On it / Starting…” for a live job — you MUST call queue_goal so a Task is created",
     "",
     "3) Composio tools — connected apps (Gmail, Google Sheets, Slack, Drive, Notion, …):",
-    "- Prefer tool slugs from CONNECTED APP TOOLS (cached after Connect) with composio_execute",
-    "- Else composio_search, then composio_execute. composio_connect and composio_wait when the app is not signed in.",
+    "- Prefer a connected-app function by its name, such as GMAIL_FETCH_EMAILS. Do not print a <tool> tag.",
+    "- Else composio_search, then call the slug it returns. composio_connect and composio_wait when the app is not signed in.",
     "- The result of composio_execute, composio_connect, composio_wait, and an MCP tool is the user reply. Do not call reply to restate it.",
     "- Never write fake ACTION: lines — call the real tool.",
     "",
@@ -2504,7 +2528,7 @@ function buildAutoSystemPrompt(snapshot, agentName, mode, opts = {}) {
       "- load_skill when SKILL SUMMARY is insufficient and you need the full standing skill",
       "- skills_list / skill_view for production Skills library (progressive load before inventing procedures)",
       "- check_run_status / list_peer_agents when you need live facts before answering",
-      "- composio_app_manage to add, reconnect, remove, or list an app on this agent. composio_execute, composio_connect, and composio_wait results are shown as returned.",
+      "- Call a connected-app function by its name when it is in this request. Do not print a <tool> tag. composio_execute, composio_connect, and composio_wait results are shown as returned.",
       opts?.agent?.mcp?.enabled
         ? "- mcp_server_manage to add, remove, or list a server. mcp_<server>_<tool> calls that tool. The tool result is the user reply. Do not queue_goal for it."
         : "- mcp_server_manage to add, remove, or list an MCP server on this agent.",
@@ -3052,6 +3076,116 @@ export async function runChatAutoTurn(opts) {
         goal: "",
         ack: "",
         reason: "mcp_server_manage_error",
+        timing: track.finish(),
+      });
+    }
+  }
+
+  /**
+   * A printed tool tag is run, and the tool result is the reply.
+   * @param {string} content
+   * @returns {Promise<object|null>}
+   */
+  async function executePrintedToolTag(content) {
+    const printed = parsePrintedToolTag(content);
+    if (!printed || !runtime?.composioApiKey) return null;
+    const name = String(printed.name || "").trim();
+    const lower = name.toLowerCase();
+    try {
+      let resultText = "";
+      if (lower.startsWith("composio_")) {
+        const kind = classifyAutoToolName({ name: lower });
+        if (kind === "composio_search") {
+          const searched = await executeAutoLookupTool("composio_search", runtime, printed.args);
+          let slug = "";
+          try {
+            const parsed = JSON.parse(searched);
+            const tools = Array.isArray(parsed?.tools) ? parsed.tools : [];
+            const hit =
+              tools.find((tool) => /FETCH|LIST|GET/i.test(tool.slug) && /EMAIL|MESSAGE/i.test(tool.slug)) ||
+              tools[0];
+            slug = String(hit?.slug || "");
+          } catch {
+            slug = "";
+          }
+          if (!slug) {
+            const visible = formatComposioUserReply(searched);
+            if (visible) await pushReply(visible);
+            track.markDecision("reply");
+            return finalize({
+              action: "reply",
+              content: visible,
+              goal: "",
+              ack: "",
+              reason: "tool_result_reply",
+              timing: track.finish(),
+            });
+          }
+          const execArgs = /^GMAIL_(FETCH|LIST|GET|SEARCH)/i.test(slug) ? buildGmailUnreadToolArgs(text) : {};
+          resultText = await executeAutoLookupTool("composio_execute", runtime, { tool: slug, arguments: execArgs });
+        } else if (
+          kind === "composio_execute" ||
+          kind === "composio_connect" ||
+          kind === "composio_wait" ||
+          kind === "composio_list"
+        ) {
+          resultText = await executeAutoLookupTool(kind, runtime, printed.args);
+        } else {
+          return null;
+        }
+      } else if (/^[A-Z][A-Z0-9_]{3,}$/.test(name)) {
+        const execArgs =
+          printed.args.arguments && typeof printed.args.arguments === "object"
+            ? printed.args.arguments
+            : /^GMAIL_(FETCH|LIST|GET|SEARCH)/i.test(name)
+              ? buildGmailUnreadToolArgs(text)
+              : printed.args;
+        resultText = await executeAutoLookupTool("composio_execute", runtime, { tool: name, arguments: execArgs });
+      } else {
+        return null;
+      }
+      const approvalPending = (() => {
+        try {
+          const parsed = JSON.parse(String(resultText || ""));
+          return parsed?.needsApproval ? parsed.pendingComposioApproval : null;
+        } catch {
+          return null;
+        }
+      })();
+      if (approvalPending) {
+        const body = formatPendingComposioApprovalReply(approvalPending);
+        await pushReply(body);
+        track.markDecision("reply");
+        return finalize({
+          action: "reply",
+          content: body,
+          goal: "",
+          ack: "",
+          reason: "composio_needs_approval",
+          pendingComposioApproval: approvalPending,
+          timing: track.finish(),
+        });
+      }
+      const visible = formatComposioUserReply(resultText);
+      if (visible) await pushReply(visible);
+      track.markDecision("reply");
+      return finalize({
+        action: "reply",
+        content: visible,
+        goal: "",
+        ack: "",
+        reason: "tool_result_reply",
+        timing: track.finish(),
+      });
+    } catch (err) {
+      const body = `Could not run that connected app: ${String(err?.message || err)}`;
+      await pushReply(body);
+      return finalize({
+        action: "reply",
+        content: body,
+        goal: "",
+        ack: "",
+        reason: "composio_execute_error",
         timing: track.finish(),
       });
     }
@@ -3801,7 +3935,13 @@ export async function runChatAutoTurn(opts) {
     let autoTools = AUTO_CHAT_TOOLS;
     try {
       const mcpTools = await loadMcpOpenAiTools(runtime);
-      if (mcpTools.length) autoTools = [...AUTO_CHAT_TOOLS, ...mcpTools];
+      const composioFns = composioCachedToolsToOpenAi(runtime?.agent, { userText: text });
+      if (runtime) {
+        runtime.composioDirectTools = new Set(
+          composioFns.map((tool) => String(tool?.function?.name || "")).filter(Boolean)
+        );
+      }
+      autoTools = [...AUTO_CHAT_TOOLS, ...mcpTools, ...composioFns];
     } catch (err) {
       console.warn("[mcp] tool list failed:", err?.message || err);
     }
@@ -4123,6 +4263,10 @@ export async function runChatAutoTurn(opts) {
           }
           if (ran) continue;
         }
+        if (terminal.action === "reply" && parsePrintedToolTag(terminal.content)) {
+          const fromTag = await executePrintedToolTag(terminal.content);
+          if (fromTag) return fromTag;
+        }
         if (terminal.action === "reply" && (await rejectPrematureComposioReply(terminal.content))) {
           continue;
         }
@@ -4163,7 +4307,9 @@ export async function runChatAutoTurn(opts) {
 
       const lookups = (msg.toolCalls || []).filter((tc) => {
         const kind = classifyAutoToolName(tc);
+        const direct = runtime?.composioDirectTools?.has?.(String(tc?.name || ""));
         return (
+          direct ||
           kind === "check_run_status" ||
           kind === "list_peer_agents" ||
           kind === "load_skill" ||
@@ -4203,13 +4349,26 @@ export async function runChatAutoTurn(opts) {
         const directReplies = [];
         for (let i = 0; i < lookups.length; i++) {
           const tc = lookups[i];
-          const kind = classifyAutoToolName(tc);
+          let kind = classifyAutoToolName(tc);
           track.addLookup(kind);
           const toolCallId =
             tc.id ||
             assistantToolMessage.tool_calls?.[i]?.id ||
             `call_${round}_${i}`;
           let toolArgs = parseToolArgs(tc?.arguments);
+          if (runtime?.composioDirectTools?.has?.(String(tc.name || ""))) {
+            const rawArgs =
+              toolArgs.arguments && typeof toolArgs.arguments === "object" && !Array.isArray(toolArgs.arguments)
+                ? toolArgs.arguments
+                : toolArgs;
+            let execArgs = { ...rawArgs };
+            delete execArgs.arguments;
+            if (!Object.keys(execArgs).length && /^GMAIL_(FETCH|LIST|GET|SEARCH)/i.test(String(tc.name || ""))) {
+              execArgs = buildGmailUnreadToolArgs(text);
+            }
+            toolArgs = { tool: tc.name, arguments: execArgs };
+            kind = "composio_execute";
+          }
           if (kind === "composio_search" && !toolArgs.query) {
             toolArgs = { ...toolArgs, query: text };
           }
@@ -4412,6 +4571,8 @@ export async function runChatAutoTurn(opts) {
       }
 
       if (msg.content) {
+        const fromTag = await executePrintedToolTag(msg.content);
+        if (fromTag) return fromTag;
         const fromTool = await executeScheduleToolReply(msg.content);
         if (fromTool) return fromTool;
         if (await rejectPrematureComposioReply(msg.content)) {

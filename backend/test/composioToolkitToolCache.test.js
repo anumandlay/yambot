@@ -10,6 +10,7 @@ import {
   isComposioToolkitCacheFresh,
   matchToolkitsForUserText,
   formatComposioToolkitCatalogForPrompt,
+  composioCachedToolsToOpenAi,
 } from "../src/utils/composioService.js";
 
 assert.equal(normalizeToolkitSlug("gmail"), "gmail");
@@ -53,6 +54,10 @@ const prompt = formatComposioToolkitCatalogForPrompt(agent, {
 assert.match(prompt, /CONNECTED APP TOOLS/);
 assert.match(prompt, /GMAIL_FETCH_EMAILS/);
 assert.doesNotMatch(prompt, /notion/i);
+
+const fns = composioCachedToolsToOpenAi(agent, { userText: "read the latest email" });
+assert.equal(fns[0]?.function?.name, "GMAIL_FETCH_EMAILS");
+assert.ok(fns.every((tool) => String(tool.function.name).startsWith("GMAIL_")));
 
 const emptyPrompt = formatComposioToolkitCatalogForPrompt(agent, {
   userText: "open vughy.com and click login",

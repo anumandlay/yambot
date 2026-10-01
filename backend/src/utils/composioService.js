@@ -793,6 +793,55 @@ export function formatComposioToolkitCatalogForPrompt(agent, opts = {}) {
 }
 
 /**
+ * Cached Composio tools as functions the model can call.
+ * Why: the model chooses the slug. A sentence does not have to match a fixed phrase first.
+ * @param {object|null|undefined} agent
+ * @param {{ userText?: string, toolkitSlugs?: string[], limit?: number }} [opts]
+ * @returns {object[]}
+ */
+export function composioCachedToolsToOpenAi(agent, opts = {}) {
+  if (!agent?.composio?.enabled) return [];
+  const enabled = (
+    Array.isArray(opts.toolkitSlugs) && opts.toolkitSlugs.length
+      ? opts.toolkitSlugs
+      : Array.isArray(agent.composio?.toolkitSlugs)
+        ? agent.composio.toolkitSlugs
+        : []
+  )
+    .map((slug) => normalizeToolkitSlug(slug))
+    .filter(Boolean);
+  if (!enabled.length) return [];
+  const matched = matchToolkitsForUserText(opts.userText || "", enabled);
+  const slugs = matched.length ? matched : enabled;
+  const limit = Math.min(32, Math.max(1, Number(opts.limit) || 24));
+  /** @type {object[]} */
+  const out = [];
+  for (const slug of slugs) {
+    for (const tool of getAgentComposioCachedTools(agent, slug)) {
+      if (out.length >= limit) return out;
+      if (!/^[A-Za-z0-9_-]{1,64}$/.test(tool.slug)) continue;
+      out.push({
+        type: "function",
+        function: {
+          name: tool.slug,
+          description: `${slug}: ${String(tool.description || tool.name || tool.slug).slice(0, 360)}`,
+          parameters: {
+            type: "object",
+            properties: {
+              arguments: {
+                type: "object",
+                description: "Arguments for this Composio tool.",
+              },
+            },
+          },
+        },
+      });
+    }
+  }
+  return out;
+}
+
+/**
  * Poll until a toolkit shows as connected (ACTIVE), or timeout.
  * @param {{
  *   userId: string,
