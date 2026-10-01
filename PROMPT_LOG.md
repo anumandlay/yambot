@@ -1,3 +1,9 @@
+## [2026-10-01 18:25] A sender check searches that sender, and Notion only calls tools that exist
+
+- **Prompt Provided:** The chat kept returning other people’s unread mail for “Check for email from doordash.com”, and Notion fetch failed because NOTION_GET_PAGE does not exist.
+- **Architectural Flow:** A Gmail check that names a sender uses that sender in the query. The scheduled run uses the same query. A Composio intent only executes tool slugs the account’s tool list actually returned.
+- **Impacted Files:** composioAutoRuntime.js, composioGmailFormat.test.js, PROMPT_LOG
+
 ## [2026-10-01 18:15] A printed tool tag on the text path is run
 
 - **Prompt Provided:** “show next 10 emails” showed a tool tag.

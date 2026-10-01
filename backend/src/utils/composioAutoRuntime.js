@@ -192,6 +192,19 @@ export function looksLikeSheetsReadRequest(text) {
 }
 
 /**
+ * Sender named in an inbox sentence, such as doordash.com or chase.
+ * @param {string} userText
+ * @returns {string}
+ */
+export function gmailSenderFromText(userText = "") {
+  const raw = String(userText || "");
+  const domain = raw.match(/\bfrom\s+([a-z0-9][a-z0-9.-]*\.[a-z]{2,})\b/i);
+  if (domain?.[1]) return domain[1].toLowerCase();
+  const word = raw.match(/\bfrom\s+([a-z0-9][a-z0-9-]{1,40})\b/i);
+  return word?.[1] ? word[1].toLowerCase() : "";
+}
+
+/**
  * @param {string} userText
  * @returns {Record<string, unknown>}
  */
@@ -199,7 +212,8 @@ export function buildGmailUnreadToolArgs(userText = "") {
   const raw = String(userText || "");
   const nMatch = raw.match(/\b(?:top|last|recent|latest)\s*(\d{1,2})\b/i) || raw.match(/\b(\d{1,2})\s+(?:e-?mails?|mails?|messages?)\b/i);
   const max = Math.min(10, Math.max(1, Number(nMatch?.[1]) || 5));
-  const query = "is:unread newer_than:1d";
+  const sender = gmailSenderFromText(raw);
+  const query = sender ? `from:${sender}` : "is:unread newer_than:1d";
   return {
     query,
     q: query,
@@ -371,6 +385,35 @@ export function composioToolScoreForSpec(specId) {
     };
   }
   return {};
+}
+
+/**
+ * Slugs to execute for one intent. Only slugs the account's tool list returned.
+ * Why: a preferred slug such as NOTION_GET_PAGE can be missing from the connected account.
+ * @param {string[]} foundSlugs
+ * @param {string[]} preferred
+ * @param {{ good?: RegExp, bad?: RegExp }} [score]
+ * @returns {string[]}
+ */
+export function composioSlugsToTry(foundSlugs, preferred, score = {}) {
+  const found = (Array.isArray(foundSlugs) ? foundSlugs : [])
+    .map((slug) => String(slug || "").trim().toUpperCase())
+    .filter(Boolean);
+  const foundSet = new Set(found);
+  /** @type {string[]} */
+  const out = [];
+  for (const pref of Array.isArray(preferred) ? preferred : []) {
+    const up = String(pref || "").trim().toUpperCase();
+    if (!up || !foundSet.has(up) || out.includes(up)) continue;
+    out.push(up);
+  }
+  for (const slug of found) {
+    if (out.includes(slug)) continue;
+    if (score.good && !score.good.test(slug)) continue;
+    if (score.bad && score.bad.test(slug)) continue;
+    out.push(slug);
+  }
+  return out;
 }
 
 /**
@@ -2478,9 +2521,6 @@ export async function runComposioIntentExecute(opts) {
     }
   }
 
-  let tool = pickBestComposioTool(tools, spec.preferredTools, composioToolScoreForSpec(spec.id));
-  if (!tool) tool = spec.preferredTools[0];
-
   const args = spec.buildArgs(userText);
   // Soft validation for Slack / Sheets
   if (spec.id === "slack_send" && !args.channel && !args.text) {
@@ -2506,21 +2546,20 @@ export async function runComposioIntentExecute(opts) {
     };
   }
 
-  // Why: only retry preferred tools that search confirmed (plus the primary slug).
-  const found = new Set(
-    tools.map((t) => String(t?.slug || t?.name || "").trim().toUpperCase()).filter(Boolean)
-  );
-  const tryTools = [];
-  for (const candidate of [tool, ...spec.preferredTools]) {
-    const up = String(candidate || "").trim().toUpperCase();
-    if (!up || tryTools.includes(up)) continue;
-    if (found.size && !found.has(up) && up !== String(spec.preferredTools[0] || "").toUpperCase()) {
-      continue;
-    }
-    tryTools.push(up);
-  }
-  if (!tryTools.length && spec.preferredTools[0]) {
-    tryTools.push(String(spec.preferredTools[0]).toUpperCase());
+  // Why: only call slugs the connected account listed. A preferred slug can be gone.
+  const found = tools
+    .map((t) => String(t?.slug || t?.name || "").trim().toUpperCase())
+    .filter(Boolean);
+  const tryTools = composioSlugsToTry(found, spec.preferredTools, composioToolScoreForSpec(spec.id));
+  if (!tryTools.length) {
+    return {
+      ok: false,
+      resultText: JSON.stringify({
+        ok: false,
+        detail: `${spec.label} has no matching tool on this account.`,
+      }),
+      content: `${spec.label} has no matching tool on this connected account.`,
+    };
   }
   let lastText = "";
   for (const candidate of tryTools) {

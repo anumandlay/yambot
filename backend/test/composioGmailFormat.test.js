@@ -6,6 +6,9 @@ import assert from "node:assert/strict";
 import {
   formatGmailUnreadSummaryFromToolResult,
   formatComposioUserReply,
+  buildGmailUnreadToolArgs,
+  composioSlugsToTry,
+  composioToolScoreForSpec,
   looksLikeSendEmailClause,
   filterSpuriousComposioSendSteps,
   planComposioMultiSteps,
@@ -150,4 +153,23 @@ test("parseComposioReplyCheck keeps a tighter query when the result is too wide"
   const kept = parseComposioReplyCheck('{"ok":false,"reply":"1. From: DoorDash"}');
   assert.equal(kept?.reply, "1. From: DoorDash");
   assert.equal(parseComposioReplyCheck("not json"), null);
+});
+
+test("a sender in the sentence becomes the Gmail query", () => {
+  const door = buildGmailUnreadToolArgs("Check for email from doordash.com");
+  assert.equal(door.query, "from:doordash.com");
+  const plain = buildGmailUnreadToolArgs("check my email");
+  assert.equal(plain.query, "is:unread newer_than:1d");
+});
+
+test("notion fetch does not call a slug the account did not list", () => {
+  const score = composioToolScoreForSpec("notion_fetch");
+  const slugs = composioSlugsToTry(
+    ["NOTION_FETCH_DATA", "NOTION_MOVE_PAGE"],
+    ["NOTION_SEARCH", "NOTION_GET_PAGE"],
+    score
+  );
+  assert.equal(slugs.includes("NOTION_GET_PAGE"), false);
+  assert.equal(slugs[0], "NOTION_FETCH_DATA");
+  assert.equal(slugs.includes("NOTION_MOVE_PAGE"), false);
 });
